@@ -276,6 +276,22 @@ export default function App() {
                           {isConn ? (drone.gps_lock ? 'FIX OK' : 'NO LOCK') : 'N/A'}
                         </span>
                       </div>
+                      <div className="telemetry-item">
+                        <span className="telemetry-label">RTK Status</span>
+                        <span className="telemetry-value" style={{
+                          color: isConn && (drone.gps_fix_type === 'RTK_FIXED' || drone.gps_fix_type === 'RTK_FLOAT') ? 'var(--primary)' : 'var(--text-muted)'
+                        }}>
+                          {isConn ? (drone.gps_fix_type || 'N/A') : 'N/A'}
+                        </span>
+                      </div>
+                      <div className="telemetry-item">
+                        <span className="telemetry-label">Latency</span>
+                        <span className="telemetry-value" style={{
+                          color: isConn ? (drone.comm_latency_ms < 50 ? 'var(--success)' : drone.comm_latency_ms < 150 ? 'var(--warning)' : 'var(--danger)') : 'var(--text-muted)'
+                        }}>
+                          {isConn ? `${drone.comm_latency_ms || 0.0} ms` : 'N/A'}
+                        </span>
+                      </div>
                     </div>
 
                     <div className="battery-container">

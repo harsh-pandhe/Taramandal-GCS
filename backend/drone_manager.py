@@ -53,6 +53,8 @@ class DroneManager:
                 "battery_voltage": 0.0,
                 "gps_lock": False,
                 "satellites": 0,
+                "gps_fix_type": "NO_GPS",
+                "comm_latency_ms": 0.0,
                 "local_x": 0.0,
                 "local_y": 0.0,
                 "local_z": 0.0,
@@ -66,6 +68,7 @@ class DroneManager:
             self._tasks.append(asyncio.create_task(self._monitor_gps(drone_id)))
             self._tasks.append(asyncio.create_task(self._monitor_position(drone_id)))
             self._tasks.append(asyncio.create_task(self._monitor_armed_state(drone_id)))
+            self._tasks.append(asyncio.create_task(self._measure_latency_loop(drone_id)))
         except Exception as e:
             logging.error(f"Error during _connect_drone initialization for Drone {drone_id}: {e}")
             raise e
@@ -147,6 +150,7 @@ class DroneManager:
                 self.telemetry[drone_id]["satellites"] = gps.num_satellites
                 # Arbitrary check for GPS lock
                 self.telemetry[drone_id]["gps_lock"] = gps.num_satellites >= 6
+                self.telemetry[drone_id]["gps_fix_type"] = str(gps.fix_type)
         except asyncio.CancelledError:
             pass
         except Exception as e:
@@ -180,6 +184,28 @@ class DroneManager:
             pass
         except Exception as e:
             logging.error(f"Error in _monitor_armed_state for Drone {drone_id}: {e}")
+
+    async def _measure_latency_loop(self, drone_id):
+        try:
+            drone = self.drones[drone_id]
+            while True:
+                if not self.telemetry[drone_id]["connected"]:
+                    self.telemetry[drone_id]["comm_latency_ms"] = 0.0
+                    await asyncio.sleep(1.0)
+                    continue
+                try:
+                    start_time = asyncio.get_event_loop().time()
+                    await drone.action.get_takeoff_altitude()
+                    end_time = asyncio.get_event_loop().time()
+                    latency_ms = round((end_time - start_time) * 1000.0, 1)
+                    self.telemetry[drone_id]["comm_latency_ms"] = latency_ms
+                except Exception:
+                    self.telemetry[drone_id]["comm_latency_ms"] = -1.0
+                await asyncio.sleep(1.0)
+        except asyncio.CancelledError:
+            pass
+        except Exception as e:
+            logging.error(f"Error in _measure_latency_loop for Drone {drone_id}: {e}")
 
     # --- Flight commands ---
 

@@ -179,3 +179,19 @@ async def test_geofence_safety_safe():
         
     manager.trigger_rtl.assert_not_called()
     assert manager.geofence_breaches.get(0, False) is False
+
+@pytest.mark.asyncio
+async def test_telemetry_fields_exist():
+    manager = DroneManager(ports=[])
+    with patch('backend.drone_manager.System') as mock_system:
+        mock_instance = mock_system.return_value
+        mock_instance.connect = AsyncMock()
+        
+        await manager._connect_drone(drone_id=0, port=14540)
+        
+        # Clean up tasks immediately to prevent leaks
+        await manager.shutdown()
+        
+        assert 0 in manager.telemetry
+        assert manager.telemetry[0]["gps_fix_type"] == "NO_GPS"
+        assert manager.telemetry[0]["comm_latency_ms"] == 0.0
