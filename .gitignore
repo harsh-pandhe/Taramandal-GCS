@@ -1,0 +1,29 @@
+# Python virtual environments and caches
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+.mypy_cache/
+
+# Node packages and build outputs
+node_modules/
+dist/
+dist-ssr/
+*.local
+.vite/
+
+# PX4 SITL runtime files and logs
+dataman
+parameters.bson
+parameters_backup.bson
+log/
+etc/
+*.ulg
+/tmp/px4_*.log
+/tmp/gz_*.log
+
+# System files
+.DS_Store
+Thumps.db
