@@ -1,6 +1,7 @@
 import json
-import pandas as pd
 import io
+import zipfile
+import pandas as pd
 
 def parse_trajectory_file(content: str, filename: str) -> dict:
     """
@@ -14,6 +15,8 @@ def parse_trajectory_file(content: str, filename: str) -> dict:
             ...
         ]
     }
+
+    For binary formats such as .skyc, use parse_trajectory_bytes instead.
     """
     try:
         if filename.endswith('.json'):
@@ -21,7 +24,7 @@ def parse_trajectory_file(content: str, filename: str) -> dict:
         elif filename.endswith('.csv'):
             parsed = _parse_csv(content)
         else:
-            raise ValueError("Unsupported file format. Must be .json or .csv")
+            raise ValueError("Unsupported file format. Must be .json or .csv (use parse_trajectory_bytes for .skyc)")
             
         # Run pre-flight space-time collision validation
         collision_errors = validate_trajectory_collisions(parsed)
@@ -31,6 +34,35 @@ def parse_trajectory_file(content: str, filename: str) -> dict:
         return parsed
     except Exception as e:
         raise ValueError(f"Error parsing trajectory file: {str(e)}")
+
+
+def parse_trajectory_bytes(content: bytes, filename: str) -> dict:
+    """
+    Unified entry point that handles both binary and text trajectory formats.
+
+    Supported formats:
+      - .skyc  : Skybrush choreography ZIP archive (binary)
+      - .json  : JSON drone waypoint file (text)
+      - .csv   : CSV drone waypoint file (text)
+
+    Returns a structured dict mapping drone IDs to lists of time-ordered waypoints.
+    """
+    try:
+        if filename.endswith('.skyc'):
+            parsed = _parse_skyc(content)
+        else:
+            # Decode as UTF-8 and fall back to text-based parser
+            content_str = content.decode('utf-8')
+            return parse_trajectory_file(content_str, filename)
+
+        # Run pre-flight space-time collision validation
+        collision_errors = validate_trajectory_collisions(parsed)
+        if collision_errors:
+            raise ValueError("Trajectory safety check failed:\n" + "\n".join(collision_errors))
+
+        return parsed
+    except Exception as e:
+        raise ValueError(f"Error parsing trajectory bytes ({filename}): {str(e)}")
 
 def validate_trajectory_collisions(trajectory_data: dict, safety_distance: float = 1.5) -> list:
     """
@@ -129,6 +161,88 @@ def _parse_json(content: str) -> dict:
                 continue
                 
     return result
+
+
+def _parse_skyc(content: bytes) -> dict:
+    """
+    Parses a Skybrush .skyc choreography file (ZIP archive containing show.json).
+
+    The .skyc ZIP structure:
+      show.json   (may be at root or inside a single sub-folder)
+
+    show.json trajectory points format:
+      [time_seconds, [x, y, z], [tangent_in or color]]
+
+    Returns the standard trajectory dict:
+      {
+          drone_id (int): [
+              {"time": float, "x": float, "y": float, "z": float, "yaw": 0.0},
+              ...
+          ]
+      }
+    """
+    try:
+        with zipfile.ZipFile(io.BytesIO(content), 'r') as zf:
+            # Locate show.json — could be at root or one level deep
+            namelist = zf.namelist()
+            show_json_path = None
+            for name in namelist:
+                # Match "show.json" or "*/show.json"
+                if name == 'show.json' or name.endswith('/show.json'):
+                    show_json_path = name
+                    break
+
+            if show_json_path is None:
+                raise ValueError(
+                    f"No 'show.json' found inside .skyc archive. "
+                    f"Files present: {namelist}"
+                )
+
+            with zf.open(show_json_path) as f:
+                show_data = json.loads(f.read().decode('utf-8'))
+
+    except zipfile.BadZipFile:
+        raise ValueError("The .skyc file is not a valid ZIP archive.")
+
+    # Navigate to swarm.drones list
+    try:
+        drones_list = show_data["swarm"]["drones"]
+    except (KeyError, TypeError) as e:
+        raise ValueError(f"show.json is missing expected 'swarm.drones' key: {e}")
+
+    result: dict = {}
+    for drone_index, drone_data in enumerate(drones_list):
+        try:
+            traj = drone_data["trajectory"]
+            points = traj.get("points", [])
+        except (KeyError, TypeError):
+            # Drone entry has no trajectory — assign empty waypoint list
+            result[drone_index] = []
+            continue
+
+        waypoints = []
+        for point in points:
+            # Each point: [time_seconds, [x, y, z], [tangent/color]]
+            if not isinstance(point, (list, tuple)) or len(point) < 2:
+                continue
+            time_s = float(point[0])
+            coords = point[1]
+            if not isinstance(coords, (list, tuple)) or len(coords) < 3:
+                continue
+            waypoints.append({
+                "time": time_s,
+                "x": float(coords[0]),
+                "y": float(coords[1]),
+                "z": float(coords[2]),
+                "yaw": 0.0  # .skyc uses light color not yaw; default to 0
+            })
+
+        # Ensure waypoints are time-sorted
+        waypoints.sort(key=lambda w: w["time"])
+        result[drone_index] = waypoints
+
+    return result
+
 
 def _parse_csv(content: str) -> dict:
     df = pd.read_csv(io.StringIO(content))

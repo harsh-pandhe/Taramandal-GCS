@@ -1,4 +1,6 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
+import { Canvas } from '@react-three/fiber';
+import { OrbitControls, Line, Text, Grid } from '@react-three/drei';
 
 const API_BASE = 'http://localhost:8000';
 const WS_URL = 'ws://localhost:8000/ws/telemetry';
@@ -396,7 +398,7 @@ export default function App() {
                 type="file" 
                 ref={fileInputRef} 
                 onChange={handleFileUpload} 
-                accept=".json,.csv" 
+                accept=".json,.csv,.skyc" 
                 className="uploader-file-input"
               />
             </div>
@@ -440,128 +442,136 @@ export default function App() {
   );
 }
 
-function SwarmCanvasPreview({ trajectoryData }) {
-  const canvasRef = useRef(null);
 
-  useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas || !trajectoryData) return;
-    const ctx = canvas.getContext('2d');
-    
-    // Clear canvas
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-    
-    // Glowing neon colors for different drone paths
-    const colors = ['#00E5FF', '#FF00FF', '#FF9100', '#00E676', '#FFFF00'];
-    
-    // Determine coordinate boundaries to scale fit the canvas viewport
-    let minX = -3, maxX = 3, minY = -3, maxY = 3;
-    Object.values(trajectoryData).forEach(wps => {
-      wps.forEach(wp => {
-        if (wp.x < minX) minX = wp.x;
-        if (wp.x > maxX) maxX = wp.x;
-        if (wp.y < minY) minY = wp.y;
-        if (wp.y > maxY) maxY = wp.y;
-      });
-    });
-    
-    // Apply 25% padding to scale space
-    const padX = (maxX - minX) * 0.25 || 1.5;
-    const padY = (maxY - minY) * 0.25 || 1.5;
-    minX -= padX; maxX += padX;
-    minY -= padY; maxY += padY;
-    
-    const width = canvas.width;
-    const height = canvas.height;
-    
-    // Map NED coordinate space to canvas pixel dimensions
-    const toPixel = (x, y) => {
-      const px = ((x - minX) / (maxX - minX)) * width;
-      // Invert Y for canvas coordinate system orientation
-      const py = height - (((y - minY) / (maxY - minY)) * height);
-      return { x: px, y: py };
-    };
-    
-    // Draw grid background lines
-    ctx.strokeStyle = 'rgba(255, 255, 255, 0.05)';
-    ctx.lineWidth = 1;
-    for (let i = 0; i <= 10; i++) {
-      // vertical lines
-      const lx = (i / 10) * width;
-      ctx.beginPath();
-      ctx.moveTo(lx, 0);
-      ctx.lineTo(lx, height);
-      ctx.stroke();
-      
-      // horizontal lines
-      const ly = (i / 10) * height;
-      ctx.beginPath();
-      ctx.moveTo(0, ly);
-      ctx.lineTo(width, ly);
-      ctx.stroke();
+// ─── 3D Swarm Path Previewer (Three.js via react-three-fiber) ────────────────
+
+const DRONE_COLORS = ['#00E5FF', '#FF00FF', '#FF9100', '#00E676', '#FFFF00'];
+
+function DronePathLine({ waypoints, color }) {
+  // NED → Three.js axes: X=East(y_NED), Y=Up(-z_NED), Z=North(x_NED)
+  const points = useMemo(() =>
+    waypoints.map(wp => [wp.y, -wp.z, wp.x]),
+    [waypoints]
+  );
+  if (points.length < 2) return null;
+  return (
+    <>
+      <Line points={points} color={color} lineWidth={2.5} />
+      {points.map((pt, i) => (
+        <mesh key={i} position={pt}>
+          <sphereGeometry args={[i === 0 || i === points.length - 1 ? 0.28 : 0.13, 10, 10]} />
+          <meshStandardMaterial color={color} emissive={color} emissiveIntensity={i === 0 ? 1.5 : 0.5} />
+        </mesh>
+      ))}
+    </>
+  );
+}
+
+function GeofenceRing({ radius = 30 }) {
+  const pts = useMemo(() => {
+    const arr = [];
+    for (let i = 0; i <= 80; i++) {
+      const a = (i / 80) * Math.PI * 2;
+      arr.push([Math.sin(a) * radius, 0.05, Math.cos(a) * radius]);
     }
-    
-    // Draw Center Reference Axes (0,0)
-    const center = toPixel(0, 0);
-    ctx.strokeStyle = 'rgba(255, 255, 255, 0.15)';
-    ctx.lineWidth = 1.5;
-    
-    ctx.beginPath();
-    ctx.moveTo(center.x, 0);
-    ctx.lineTo(center.x, height);
-    ctx.stroke();
-    
-    ctx.beginPath();
-    ctx.moveTo(0, center.y);
-    ctx.lineTo(width, center.y);
-    ctx.stroke();
-    
-    // Draw Paths
-    Object.keys(trajectoryData).forEach((id, idx) => {
-      const wps = trajectoryData[id];
-      if (wps.length === 0) return;
-      
-      const color = colors[idx % colors.length];
-      
-      // Draw neon path line
-      ctx.strokeStyle = color;
-      ctx.lineWidth = 2.5;
-      ctx.shadowBlur = 8;
-      ctx.shadowColor = color;
-      
-      ctx.beginPath();
-      wps.forEach((wp, i) => {
-        const pt = toPixel(wp.x, wp.y);
-        if (i === 0) ctx.moveTo(pt.x, pt.y);
-        else ctx.lineTo(pt.x, pt.y);
-      });
-      ctx.stroke();
-      
-      // Reset shadows to draw waypoint dots sharply
-      ctx.shadowBlur = 0;
-      wps.forEach((wp, i) => {
-        const pt = toPixel(wp.x, wp.y);
-        ctx.fillStyle = color;
-        ctx.beginPath();
-        ctx.arc(pt.x, pt.y, 4, 0, 2 * Math.PI);
-        ctx.fill();
-        
-        // Annotate first and last waypoint time values
-        if (i === 0 || i === wps.length - 1) {
-          ctx.fillStyle = '#64748B';
-          ctx.font = '9px monospace';
-          ctx.fillText(`W${i}(t=${wp.time}s)`, pt.x + 6, pt.y - 4);
-        }
-      });
-    });
+    return arr;
+  }, [radius]);
+  return <Line points={pts} color="#FF3D00" lineWidth={1.2} />;
+}
+
+function SwarmCanvasPreview({ trajectoryData }) {
+  const droneEntries = useMemo(() => {
+    if (!trajectoryData) return [];
+    return Object.keys(trajectoryData)
+      .map((id, idx) => ({ id, waypoints: trajectoryData[id], color: DRONE_COLORS[idx % DRONE_COLORS.length] }))
+      .filter(d => d.waypoints && d.waypoints.length > 0);
+  }, [trajectoryData]);
+
+  const cameraPos = useMemo(() => {
+    if (!trajectoryData) return [15, 12, 15];
+    let maxR = 5;
+    Object.values(trajectoryData).forEach(wps =>
+      wps.forEach(wp => {
+        const r = Math.sqrt(wp.x ** 2 + wp.y ** 2 + wp.z ** 2);
+        if (r > maxR) maxR = r;
+      })
+    );
+    const d = Math.min(maxR * 2.2, 45);
+    return [d, d * 0.7, d];
   }, [trajectoryData]);
 
   return (
-    <div style={{ marginTop: '1rem', border: '1px solid rgba(255,255,255,0.06)', borderRadius: '12px', background: 'rgba(0,0,0,0.3)', padding: '0.75rem' }}>
-      <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '0.5rem', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-        Swarm Trajectory Path Preview (XY Plane)
+    <div style={{ marginTop: '1rem', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '12px', background: '#080d18', overflow: 'hidden' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.55rem 0.75rem', borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
+        <span style={{ fontSize: '0.74rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>🛸 3D Swarm Path Preview</span>
+        <span style={{ fontSize: '0.68rem', color: 'rgba(255,255,255,0.2)' }}>Drag · Orbit · Scroll to zoom</span>
       </div>
-      <canvas ref={canvasRef} width={300} height={200} style={{ width: '100%', height: 'auto', display: 'block', borderRadius: '6px' }} />
+
+      {!trajectoryData ? (
+        <div style={{ height: '220px', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'rgba(255,255,255,0.18)', fontSize: '0.8rem', flexDirection: 'column', gap: '0.4rem' }}>
+          <span style={{ fontSize: '1.5rem' }}>📐</span>
+          Upload a trajectory to preview paths in 3D
+        </div>
+      ) : (
+        <div style={{ height: '260px' }}>
+          <Canvas camera={{ position: cameraPos, fov: 48 }} style={{ background: 'transparent' }}>
+            <ambientLight intensity={0.4} />
+            <pointLight position={[10, 20, 10]} intensity={1.4} />
+
+            <Grid
+              args={[80, 80]}
+              cellSize={5}
+              cellThickness={0.4}
+              cellColor="#111827"
+              sectionSize={10}
+              sectionThickness={1}
+              sectionColor="#1e293b"
+              fadeDistance={70}
+              position={[0, 0, 0]}
+            />
+
+            {/* 30m geofence ring */}
+            <GeofenceRing radius={30} />
+
+            {/* Origin pad */}
+            <mesh position={[0, 0.02, 0]}>
+              <cylinderGeometry args={[0.7, 0.7, 0.05, 32]} />
+              <meshStandardMaterial color="#00E5FF" emissive="#00E5FF" emissiveIntensity={0.5} />
+            </mesh>
+
+            {droneEntries.map(({ id, waypoints, color }) => (
+              <DronePathLine key={id} waypoints={waypoints} color={color} />
+            ))}
+
+            {droneEntries.map(({ id, waypoints, color }) => {
+              const w0 = waypoints[0];
+              return (
+                <Text key={`lbl-${id}`} position={[w0.y, -w0.z + 1.0, w0.x]} fontSize={0.45} color={color} anchorX="center">
+                  {`D${id}`}
+                </Text>
+              );
+            })}
+
+            <OrbitControls makeDefault enableDamping dampingFactor={0.06} />
+          </Canvas>
+        </div>
+      )}
+
+      {trajectoryData && (
+        <div style={{ display: 'flex', gap: '0.6rem', padding: '0.45rem 0.75rem', borderTop: '1px solid rgba(255,255,255,0.04)', flexWrap: 'wrap', alignItems: 'center' }}>
+          {droneEntries.map(({ id, color }) => (
+            <div key={id} style={{ display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
+              <div style={{ width: 8, height: 8, borderRadius: '50%', background: color, boxShadow: `0 0 6px ${color}` }} />
+              <span style={{ fontSize: '0.68rem', color: 'rgba(255,255,255,0.45)' }}>Drone {id}</span>
+            </div>
+          ))}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.3rem', marginLeft: 'auto' }}>
+            <div style={{ width: 14, height: 2, background: '#FF3D00', opacity: 0.7 }} />
+            <span style={{ fontSize: '0.68rem', color: 'rgba(255,255,255,0.28)' }}>30m Geofence</span>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
+

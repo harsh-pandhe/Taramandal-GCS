@@ -14,6 +14,8 @@ class DroneManager:
         self._tasks = []
         self.trajectory_task = None
         self.is_running_trajectory = False
+        self.geofence_radius = 30.0  # meters, horizontal distance from home (0,0)
+        self.geofence_breaches = {}  # drone_id -> bool, tracks active geofence breaches
 
     async def connect_all(self):
         """Connects to all drones concurrently."""
@@ -24,6 +26,8 @@ class DroneManager:
         await asyncio.gather(*connect_tasks)
         # Start proximity safety monitor loop
         self._tasks.append(asyncio.create_task(self._proximity_monitor_loop()))
+        # Start geofence enforcement loop
+        self._tasks.append(asyncio.create_task(self._geofence_monitor_loop()))
 
     async def _connect_drone(self, drone_id: int, port: int):
         # Use unique gRPC port for each drone to avoid conflicts
@@ -100,7 +104,13 @@ class DroneManager:
     async def _monitor_armed_state(self, drone_id):
         drone = self.drones[drone_id]
         async for armed in drone.telemetry.armed():
+            prev_armed = self.telemetry[drone_id]["armed"]
             self.telemetry[drone_id]["armed"] = armed
+            # Reset geofence breach tracking when drone disarms
+            if prev_armed and not armed:
+                if drone_id in self.geofence_breaches:
+                    self.geofence_breaches[drone_id] = False
+                    logging.info(f"Drone {drone_id} disarmed — geofence breach state reset.")
 
     # --- Flight commands ---
 
@@ -189,8 +199,10 @@ class DroneManager:
     def start_trajectory(self, trajectory_data: dict):
         """Start playing back waypoints in a background asyncio task."""
         self.stop_trajectory()
+        # Remap trajectory slots to currently healthy drones before playback
+        remapped = self.remap_trajectory_to_healthy_drones(trajectory_data)
         self.is_running_trajectory = True
-        self.trajectory_task = asyncio.create_task(self._run_trajectory_loop(trajectory_data))
+        self.trajectory_task = asyncio.create_task(self._run_trajectory_loop(remapped))
 
     def stop_trajectory(self):
         """Stop current trajectory playback."""
@@ -318,3 +330,99 @@ class DroneManager:
                 await asyncio.sleep(0.1)  # 10Hz
         except asyncio.CancelledError:
             print("Proximity safety monitor stopped.")
+
+    async def _geofence_monitor_loop(self):
+        """
+        Monitors each armed drone's distance from home (0, 0) at 10Hz.
+        If horizontal distance exceeds geofence_radius, triggers RTL once per breach.
+        Breach tracking resets when the drone disarms.
+        """
+        logging.info(f"Geofence monitor active (radius: {self.geofence_radius}m).")
+        try:
+            while True:
+                for drone_id, tel in self.telemetry.items():
+                    if not tel["connected"] or not tel["armed"]:
+                        continue
+
+                    x = tel["local_x"]
+                    y = tel["local_y"]
+                    z = tel["local_z"]
+
+                    dist = (x**2 + y**2) ** 0.5           # horizontal distance from home
+                    dist3d = (x**2 + y**2 + z**2) ** 0.5  # total 3D distance from home
+
+                    already_breached = self.geofence_breaches.get(drone_id, False)
+
+                    if dist > self.geofence_radius:
+                        if not already_breached:
+                            logging.warning(
+                                f"🚧 GEOFENCE BREACH: Drone {drone_id} is {dist:.2f}m from home "
+                                f"(3D: {dist3d:.2f}m) — limit is {self.geofence_radius}m. "
+                                f"Triggering RTL."
+                            )
+                            self.geofence_breaches[drone_id] = True
+                            await self.trigger_rtl()
+                    else:
+                        # Within bounds — clear breach flag if previously set
+                        if already_breached:
+                            self.geofence_breaches[drone_id] = False
+
+                await asyncio.sleep(0.1)  # 10Hz
+        except asyncio.CancelledError:
+            logging.info("Geofence monitor stopped.")
+
+    def remap_trajectory_to_healthy_drones(self, trajectory_data: dict) -> dict:
+        """
+        Re-assigns trajectory slots to currently healthy drones.
+
+        A drone is healthy if it is:
+          - connected
+          - battery_percent > 20%
+          - satellites >= 6
+
+        Healthy drones are sorted by their physical drone_id (index).
+        Trajectory slots (0, 1, 2, ...) are assigned in order to healthy drones.
+        Extra trajectory slots beyond available healthy drones are dropped.
+        Extra healthy drones beyond available slots are left idle.
+
+        Returns a new dict keyed by actual drone IDs mapped to their remapped waypoints.
+        """
+        # Determine healthy drones sorted by physical index
+        healthy_ids = sorted(
+            [
+                d_id for d_id, tel in self.telemetry.items()
+                if tel["connected"]
+                and tel["battery_percent"] > 20.0
+                and tel["satellites"] >= 6
+            ]
+        )
+
+        # Trajectory slots are integer keys (0, 1, 2, ...)
+        slot_keys = sorted([k for k in trajectory_data.keys() if isinstance(k, int)])
+
+        skipped_drones = [d_id for d_id in self.telemetry if d_id not in healthy_ids]
+        if skipped_drones:
+            logging.warning(
+                f"Swarm re-mapper: Skipping unhealthy/disconnected drones: {skipped_drones}"
+            )
+
+        remapped: dict = {}
+        for slot_index, slot_key in enumerate(slot_keys):
+            if slot_index >= len(healthy_ids):
+                logging.warning(
+                    f"Swarm re-mapper: No healthy drone available for trajectory slot {slot_key} — dropping slot."
+                )
+                break
+            actual_drone_id = healthy_ids[slot_index]
+            remapped[actual_drone_id] = trajectory_data[slot_key]
+            logging.info(
+                f"Swarm re-mapper: Trajectory slot {slot_key} → Drone {actual_drone_id}"
+            )
+
+        idle_drones = healthy_ids[len(slot_keys):]
+        if idle_drones:
+            logging.info(
+                f"Swarm re-mapper: Drones {idle_drones} have no trajectory slot — will remain idle."
+            )
+
+        return remapped

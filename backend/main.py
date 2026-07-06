@@ -3,7 +3,7 @@ import logging
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, UploadFile, File, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from backend.drone_manager import DroneManager
-from backend.trajectory_parser import parse_trajectory_file
+from backend.trajectory_parser import parse_trajectory_file, parse_trajectory_bytes
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
@@ -57,8 +57,7 @@ async def upload_trajectory(file: UploadFile = File(...)):
     logger.info(f"API: Ingesting trajectory file: {file.filename}")
     try:
         content = await file.read()
-        content_str = content.decode("utf-8")
-        parsed_trajectory = parse_trajectory_file(content_str, file.filename)
+        parsed_trajectory = parse_trajectory_bytes(content, file.filename)
         
         # Start playing back the trajectory
         drone_manager.start_trajectory(parsed_trajectory)
