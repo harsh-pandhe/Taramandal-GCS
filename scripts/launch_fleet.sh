@@ -6,9 +6,10 @@ set -e
 # Default parameters
 NUM_DRONES=3
 HEADLESS=0
+PX4_AUTOPILOT_DIR=${PX4_AUTOPILOT_DIR:-"/home/harsh-pandhe/PX4-Autopilot"}
 
 # Parse options
-while getopts "n:h" opt; do
+while getopts "n:hp:" opt; do
   case $opt in
     n)
       NUM_DRONES=$OPTARG
@@ -16,8 +17,11 @@ while getopts "n:h" opt; do
     h)
       HEADLESS=1
       ;;
+    p)
+      PX4_AUTOPILOT_DIR=$OPTARG
+      ;;
     *)
-      echo "Usage: $0 [-n <num_drones>] [-h]"
+      echo "Usage: $0 [-n <num_drones>] [-h] [-p <px4_autopilot_dir>]"
       exit 1
       ;;
   esac
@@ -28,19 +32,38 @@ if [ "$NUM_DRONES" -lt 1 ] || [ "$NUM_DRONES" -gt 10 ]; then
   exit 1
 fi
 
+if [ ! -d "$PX4_AUTOPILOT_DIR" ]; then
+  echo "Error: PX4 Autopilot directory not found at $PX4_AUTOPILOT_DIR"
+  exit 1
+fi
+
 echo "========================================="
 echo "Starting multi-drone SITL simulation..."
 echo "  Number of drones: $NUM_DRONES"
 echo "  Headless mode: $HEADLESS"
+echo "  Autopilot Path: $PX4_AUTOPILOT_DIR"
 echo "========================================="
 
 # Call cleanup first
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 bash "$SCRIPT_DIR/stop_fleet.sh"
 
+# Trap SIGINT, SIGTERM, and EXIT to run cleanup on termination
+cleanup() {
+  # Disable trap to avoid recursion on exit
+  trap - SIGINT SIGTERM EXIT
+  echo ""
+  echo "========================================="
+  echo "Stopping fleet and cleaning up background processes..."
+  bash "$SCRIPT_DIR/stop_fleet.sh"
+  echo "========================================="
+  exit 0
+}
+trap cleanup SIGINT SIGTERM EXIT
+
 # Source Gazebo environment
 echo "Sourcing Gazebo Sim environment..."
-source /home/harsh-pandhe/PX4-Autopilot/build/px4_sitl_default/rootfs/gz_env.sh
+source "$PX4_AUTOPILOT_DIR/build/px4_sitl_default/rootfs/gz_env.sh"
 
 # Export correct world name
 export PX4_GZ_WORLD=drone_show_field
@@ -57,7 +80,7 @@ if [ "$HEADLESS" -eq 1 ]; then
 fi
 
 # Change directory to PX4 Autopilot root to resolve relative configuration paths
-cd /home/harsh-pandhe/PX4-Autopilot
+cd "$PX4_AUTOPILOT_DIR"
 
 # Spawning instances
 for ((i=0; i<NUM_DRONES; i++)); do

@@ -2,8 +2,8 @@ import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { Canvas } from '@react-three/fiber';
 import { OrbitControls, Line, Text, Grid } from '@react-three/drei';
 
-const API_BASE = 'http://localhost:8000';
-const WS_URL = 'ws://localhost:8000/ws/telemetry';
+const API_BASE = import.meta.env.VITE_API_BASE || `http://${window.location.hostname || 'localhost'}:8000`;
+const WS_URL = import.meta.env.VITE_WS_URL || `ws://${window.location.hostname || 'localhost'}:8000/ws/telemetry`;
 
 export default function App() {
   const [telemetry, setTelemetry] = useState({});
@@ -65,6 +65,7 @@ export default function App() {
   // Calculate Checklist Evaluations
   const droneIds = Object.keys(telemetry);
   const connectedCount = droneIds.filter(id => telemetry[id].connected).length;
+  const totalDrones = droneIds.length || 3;
   
   const allConnected = droneIds.length > 0 && connectedCount === droneIds.length;
   
@@ -339,7 +340,7 @@ export default function App() {
                 </div>
                 <div className="checklist-item">
                   <span>Drones Connected:</span>
-                  <span className="val">{connectedCount}/3</span>
+                  <span className="val">{connectedCount}/{totalDrones}</span>
                 </div>
               </div>
 
@@ -350,18 +351,29 @@ export default function App() {
                     {allGpsLocked ? '✓ PASS' : '✗ FAIL'}
                   </span>
                 </div>
-                <div className="checklist-item">
-                  <span>Sats (Drone 0):</span>
-                  <span className="val">{telemetry[0]?.satellites || 0}</span>
-                </div>
-                <div className="checklist-item">
-                  <span>Sats (Drone 1):</span>
-                  <span className="val">{telemetry[1]?.satellites || 0}</span>
-                </div>
-                <div className="checklist-item">
-                  <span>Sats (Drone 2):</span>
-                  <span className="val">{telemetry[2]?.satellites || 0}</span>
-                </div>
+                {droneIds.length > 0 ? (
+                  droneIds.map((id) => (
+                    <div className="checklist-item" key={id}>
+                      <span>Sats (Drone 0{id}):</span>
+                      <span className="val">{telemetry[id]?.satellites || 0}</span>
+                    </div>
+                  ))
+                ) : (
+                  <>
+                    <div className="checklist-item">
+                      <span>Sats (Drone 00):</span>
+                      <span className="val">0</span>
+                    </div>
+                    <div className="checklist-item">
+                      <span>Sats (Drone 01):</span>
+                      <span className="val">0</span>
+                    </div>
+                    <div className="checklist-item">
+                      <span>Sats (Drone 02):</span>
+                      <span className="val">0</span>
+                    </div>
+                  </>
+                )}
               </div>
 
               <div className={`checklist-card ${allBatterySafe ? 'valid' : ''}`}>
@@ -406,7 +418,18 @@ export default function App() {
             {fileDetails && (
               <div className="file-info">
                 <div className="file-info-header">
-                  <span>📄 {fileDetails.name}</span>
+                  <span>
+                    📄 {fileDetails.name}
+                    <span style={{
+                      color: isPlaying ? 'var(--success)' : 'var(--text-muted)',
+                      fontSize: '0.75rem',
+                      marginLeft: '0.5rem',
+                      fontWeight: 600,
+                      textShadow: isPlaying ? '0 0 8px var(--success-glow)' : 'none'
+                    }}>
+                      {isPlaying ? '• RUNNING' : '• STOPPED'}
+                    </span>
+                  </span>
                   <span>{fileDetails.size}</span>
                 </div>
                 {trajSummary ? (

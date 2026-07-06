@@ -16,136 +16,222 @@ class DroneManager:
         self.is_running_trajectory = False
         self.geofence_radius = 30.0  # meters, horizontal distance from home (0,0)
         self.geofence_breaches = {}  # drone_id -> bool, tracks active geofence breaches
+        self.proximity_breached = False  # tracks active proximity breach to avoid command flood
 
     async def connect_all(self):
         """Connects to all drones concurrently."""
-        print(f"Connecting to {len(self.ports)} drones on ports: {self.ports}")
+        logging.info(f"Connecting to {len(self.ports)} drones on ports: {self.ports}")
         connect_tasks = []
         for i, port in enumerate(self.ports):
             connect_tasks.append(self._connect_drone(i, port))
-        await asyncio.gather(*connect_tasks)
+        
+        # Use return_exceptions=True so that one failing drone doesn't break GCS startup
+        results = await asyncio.gather(*connect_tasks, return_exceptions=True)
+        for i, res in enumerate(results):
+            if isinstance(res, Exception):
+                logging.error(f"Failed to connect Drone {i} on port {self.ports[i]}: {res}")
+
         # Start proximity safety monitor loop
         self._tasks.append(asyncio.create_task(self._proximity_monitor_loop()))
         # Start geofence enforcement loop
         self._tasks.append(asyncio.create_task(self._geofence_monitor_loop()))
 
     async def _connect_drone(self, drone_id: int, port: int):
-        # Use unique gRPC port for each drone to avoid conflicts
-        drone = System(port=50051 + drone_id)
-        await drone.connect(system_address=f"udpin://127.0.0.1:{port}")
-        
-        self.drones[drone_id] = drone
-        self.telemetry[drone_id] = {
-            "id": drone_id,
-            "port": port,
-            "connected": False,
-            "armed": False,
-            "flight_mode": "UNKNOWN",
-            "battery_percent": 0.0,
-            "battery_voltage": 0.0,
-            "gps_lock": False,
-            "satellites": 0,
-            "local_x": 0.0,
-            "local_y": 0.0,
-            "local_z": 0.0,
-            "heading": 0.0
-        }
+        try:
+            # Use unique gRPC port for each drone to avoid conflicts
+            drone = System(port=50051 + drone_id)
+            await drone.connect(system_address=f"udpin://127.0.0.1:{port}")
+            
+            self.drones[drone_id] = drone
+            self.telemetry[drone_id] = {
+                "id": drone_id,
+                "port": port,
+                "connected": False,
+                "armed": False,
+                "flight_mode": "UNKNOWN",
+                "battery_percent": 0.0,
+                "battery_voltage": 0.0,
+                "gps_lock": False,
+                "satellites": 0,
+                "local_x": 0.0,
+                "local_y": 0.0,
+                "local_z": 0.0,
+                "heading": 0.0
+            }
 
-        # Start telemetry loop for this drone
-        self._tasks.append(asyncio.create_task(self._monitor_connection(drone_id)))
-        self._tasks.append(asyncio.create_task(self._monitor_battery(drone_id)))
-        self._tasks.append(asyncio.create_task(self._monitor_flight_mode(drone_id)))
-        self._tasks.append(asyncio.create_task(self._monitor_gps(drone_id)))
-        self._tasks.append(asyncio.create_task(self._monitor_position(drone_id)))
-        self._tasks.append(asyncio.create_task(self._monitor_armed_state(drone_id)))
+            # Start telemetry loop for this drone
+            self._tasks.append(asyncio.create_task(self._monitor_connection(drone_id)))
+            self._tasks.append(asyncio.create_task(self._monitor_battery(drone_id)))
+            self._tasks.append(asyncio.create_task(self._monitor_flight_mode(drone_id)))
+            self._tasks.append(asyncio.create_task(self._monitor_gps(drone_id)))
+            self._tasks.append(asyncio.create_task(self._monitor_position(drone_id)))
+            self._tasks.append(asyncio.create_task(self._monitor_armed_state(drone_id)))
+        except Exception as e:
+            logging.error(f"Error during _connect_drone initialization for Drone {drone_id}: {e}")
+            raise e
 
     async def shutdown(self):
-        """Cleans up all background monitoring tasks."""
-        print("Shutting down DroneManager...")
+        """Cleans up all background monitoring tasks and disarms drones safely."""
+        logging.info("Shutting down DroneManager...")
+        
+        # Stop trajectory playback if running
         if self.trajectory_task:
             self.trajectory_task.cancel()
+            try:
+                await self.trajectory_task
+            except asyncio.CancelledError:
+                pass
+            self.trajectory_task = None
+            self.is_running_trajectory = False
+
+        # Disarm active armed drones
+        disarm_tasks = []
+        for drone_id, drone in self.drones.items():
+            if self.telemetry.get(drone_id, {}).get("armed", False):
+                async def safe_disarm(d_id, d_obj):
+                    try:
+                        logging.info(f"Disarming Drone {d_id} during GCS shutdown...")
+                        await d_obj.action.disarm()
+                    except Exception as e:
+                        logging.error(f"Failed to disarm Drone {d_id} on shutdown: {e}")
+                disarm_tasks.append(safe_disarm(drone_id, drone))
+        if disarm_tasks:
+            await asyncio.gather(*disarm_tasks, return_exceptions=True)
+
+        # Cancel telemetry & safety monitoring loops
         for task in self._tasks:
             task.cancel()
+        if self._tasks:
+            await asyncio.gather(*self._tasks, return_exceptions=True)
+            self._tasks.clear()
+
         self.drones.clear()
 
     # --- Telemetry loops ---
 
     async def _monitor_connection(self, drone_id):
-        drone = self.drones[drone_id]
-        async for state in drone.core.connection_state():
-            self.telemetry[drone_id]["connected"] = state.is_connected
+        try:
+            drone = self.drones[drone_id]
+            async for state in drone.core.connection_state():
+                self.telemetry[drone_id]["connected"] = state.is_connected
+        except asyncio.CancelledError:
+            pass
+        except Exception as e:
+            logging.error(f"Error in _monitor_connection for Drone {drone_id}: {e}")
 
     async def _monitor_battery(self, drone_id):
-        drone = self.drones[drone_id]
-        async for battery in drone.telemetry.battery():
-            self.telemetry[drone_id]["battery_percent"] = round(battery.remaining_percent * 100, 1)
-            self.telemetry[drone_id]["battery_voltage"] = round(battery.voltage_v, 2)
+        try:
+            drone = self.drones[drone_id]
+            async for battery in drone.telemetry.battery():
+                self.telemetry[drone_id]["battery_percent"] = round(battery.remaining_percent * 100, 1)
+                self.telemetry[drone_id]["battery_voltage"] = round(battery.voltage_v, 2)
+        except asyncio.CancelledError:
+            pass
+        except Exception as e:
+            logging.error(f"Error in _monitor_battery for Drone {drone_id}: {e}")
 
     async def _monitor_flight_mode(self, drone_id):
-        drone = self.drones[drone_id]
-        async for fm in drone.telemetry.flight_mode():
-            self.telemetry[drone_id]["flight_mode"] = str(fm)
+        try:
+            drone = self.drones[drone_id]
+            async for fm in drone.telemetry.flight_mode():
+                self.telemetry[drone_id]["flight_mode"] = str(fm)
+        except asyncio.CancelledError:
+            pass
+        except Exception as e:
+            logging.error(f"Error in _monitor_flight_mode for Drone {drone_id}: {e}")
 
     async def _monitor_gps(self, drone_id):
-        drone = self.drones[drone_id]
-        async for gps in drone.telemetry.gps_info():
-            self.telemetry[drone_id]["satellites"] = gps.num_satellites
-            # Arbitrary check for GPS lock
-            self.telemetry[drone_id]["gps_lock"] = gps.num_satellites >= 6
+        try:
+            drone = self.drones[drone_id]
+            async for gps in drone.telemetry.gps_info():
+                self.telemetry[drone_id]["satellites"] = gps.num_satellites
+                # Arbitrary check for GPS lock
+                self.telemetry[drone_id]["gps_lock"] = gps.num_satellites >= 6
+        except asyncio.CancelledError:
+            pass
+        except Exception as e:
+            logging.error(f"Error in _monitor_gps for Drone {drone_id}: {e}")
 
     async def _monitor_position(self, drone_id):
-        drone = self.drones[drone_id]
-        async for pos in drone.telemetry.position_velocity_ned():
-            self.telemetry[drone_id]["local_x"] = round(pos.position.north_m, 2)
-            self.telemetry[drone_id]["local_y"] = round(pos.position.east_m, 2)
-            # NED: convert Down (negative) back to Altitude (positive) for frontend display
-            self.telemetry[drone_id]["local_z"] = round(-pos.position.down_m, 2)
+        try:
+            drone = self.drones[drone_id]
+            async for pos in drone.telemetry.position_velocity_ned():
+                self.telemetry[drone_id]["local_x"] = round(pos.position.north_m, 2)
+                self.telemetry[drone_id]["local_y"] = round(pos.position.east_m, 2)
+                # NED: convert Down (negative) back to Altitude (positive) for frontend display
+                self.telemetry[drone_id]["local_z"] = round(-pos.position.down_m, 2)
+        except asyncio.CancelledError:
+            pass
+        except Exception as e:
+            logging.error(f"Error in _monitor_position for Drone {drone_id}: {e}")
 
     async def _monitor_armed_state(self, drone_id):
-        drone = self.drones[drone_id]
-        async for armed in drone.telemetry.armed():
-            prev_armed = self.telemetry[drone_id]["armed"]
-            self.telemetry[drone_id]["armed"] = armed
-            # Reset geofence breach tracking when drone disarms
-            if prev_armed and not armed:
-                if drone_id in self.geofence_breaches:
-                    self.geofence_breaches[drone_id] = False
-                    logging.info(f"Drone {drone_id} disarmed — geofence breach state reset.")
+        try:
+            drone = self.drones[drone_id]
+            async for armed in drone.telemetry.armed():
+                prev_armed = self.telemetry[drone_id]["armed"]
+                self.telemetry[drone_id]["armed"] = armed
+                # Reset geofence breach tracking when drone disarms
+                if prev_armed and not armed:
+                    if drone_id in self.geofence_breaches:
+                        self.geofence_breaches[drone_id] = False
+                        logging.info(f"Drone {drone_id} disarmed — geofence breach state reset.")
+        except asyncio.CancelledError:
+            pass
+        except Exception as e:
+            logging.error(f"Error in _monitor_armed_state for Drone {drone_id}: {e}")
 
     # --- Flight commands ---
 
     async def launch_sequence(self):
         """Arm, switch to offboard, and take off sequentially with 1-second spacing."""
-        print("Launching fleet sequentially...")
+        logging.info("Launching fleet sequentially...")
         for drone_id, drone in self.drones.items():
             if not self.telemetry[drone_id]["connected"]:
-                print(f"Skipping Drone {drone_id}: Disconnected")
+                logging.warning(f"Skipping Drone {drone_id}: Disconnected")
                 continue
                 
-            # Arm
             try:
-                await drone.action.arm()
-                print(f"Drone {drone_id} ARMED.")
+                # Arm
+                try:
+                    await drone.action.arm()
+                    logging.info(f"Drone {drone_id} ARMED.")
+                except Exception as e:
+                    logging.error(f"Arming Drone {drone_id} failed: {e}")
+                    continue
+                    
+                # Set initial position NED (0,0,0) before offboard
+                try:
+                    await drone.offboard.set_position_ned(PositionNedYaw(0.0, 0.0, 0.0, 0.0))
+                except Exception as e:
+                    logging.error(f"Setting initial position NED failed for Drone {drone_id}: {e}")
+                    continue
+                
+                # Start offboard mode
+                try:
+                    await drone.offboard.start()
+                    logging.info(f"Drone {drone_id} entered OFFBOARD mode.")
+                except OffboardError as e:
+                    logging.error(f"Offboard start failed for Drone {drone_id}: {e._result.result}")
+                    await drone.action.disarm()
+                    continue
+                except Exception as e:
+                    logging.error(f"Offboard start failed for Drone {drone_id}: {e}")
+                    await drone.action.disarm()
+                    continue
+                    
+                # Ascend to target altitude (spatial separation)
+                alt = DEFAULT_ALTITUDES[drone_id] if drone_id < len(DEFAULT_ALTITUDES) else 3.0
+                logging.info(f"Drone {drone_id} climbing to target hover altitude: {alt}m...")
+                try:
+                    await drone.offboard.set_position_ned(PositionNedYaw(0.0, 0.0, -alt, 0.0))
+                except Exception as e:
+                    logging.error(f"Climbing to target altitude failed for Drone {drone_id}: {e}")
+                    continue
+                    
             except Exception as e:
-                print(f"Arming Drone {drone_id} failed: {e}")
+                logging.error(f"Unexpected error launching Drone {drone_id}: {e}")
                 continue
-                
-            # Set initial position NED (0,0,0) before offboard
-            await drone.offboard.set_position_ned(PositionNedYaw(0.0, 0.0, 0.0, 0.0))
-            
-            # Start offboard mode
-            try:
-                await drone.offboard.start()
-                print(f"Drone {drone_id} entered OFFBOARD mode.")
-            except OffboardError as e:
-                print(f"Offboard start failed for Drone {drone_id}: {e}")
-                await drone.action.disarm()
-                continue
-                
-            # Ascend to target altitude (spatial separation)
-            alt = DEFAULT_ALTITUDES[drone_id] if drone_id < len(DEFAULT_ALTITUDES) else 3.0
-            print(f"Drone {drone_id} climbing to target hover altitude: {alt}m...")
-            await drone.offboard.set_position_ned(PositionNedYaw(0.0, 0.0, -alt, 0.0))
             
             # 1-second delay between launches
             await asyncio.sleep(1.0)
@@ -301,7 +387,7 @@ class DroneManager:
         Monitors spatial separation between all active/armed drones at 10Hz.
         Triggers emergency failsafe (RTL) if distance is breached.
         """
-        print("Proximity safety monitor active.")
+        logging.info("Proximity safety monitor active.")
         try:
             while True:
                 # Find connected & armed drones
@@ -310,26 +396,31 @@ class DroneManager:
                     if tel["connected"] and tel["armed"]
                 ]
                 
-                # Check distances between all pairs
-                for i in range(len(active_ids)):
-                    for j in range(i + 1, len(active_ids)):
-                        id1 = active_ids[i]
-                        id2 = active_ids[j]
-                        t1 = self.telemetry[id1]
-                        t2 = self.telemetry[id2]
-                        
-                        dist = ((t1["local_x"] - t2["local_x"])**2 + 
-                                (t1["local_y"] - t2["local_y"])**2 + 
-                                (t1["local_z"] - t2["local_z"])**2)**0.5
-                                
-                        if dist < safety_limit:
-                            print(f"🚨 PROXIMITY FAILSAFE: Drone {id1} and Drone {id2} are too close ({dist:.2f}m)!")
-                            print("🚨 TRIGGERING EMERGENCY RTL FOR ALL VEHICLES.")
-                            await self.trigger_rtl()
+                if len(active_ids) < 2:
+                    self.proximity_breached = False
+                else:
+                    # Check distances between all pairs
+                    for i in range(len(active_ids)):
+                        for j in range(i + 1, len(active_ids)):
+                            id1 = active_ids[i]
+                            id2 = active_ids[j]
+                            t1 = self.telemetry[id1]
+                            t2 = self.telemetry[id2]
                             
+                            dist = ((t1["local_x"] - t2["local_x"])**2 + 
+                                    (t1["local_y"] - t2["local_y"])**2 + 
+                                    (t1["local_z"] - t2["local_z"])**2)**0.5
+                                    
+                            if dist < safety_limit:
+                                if not self.proximity_breached:
+                                    self.proximity_breached = True
+                                    logging.warning(f"🚨 PROXIMITY FAILSAFE: Drone {id1} and Drone {id2} are too close ({dist:.2f}m)!")
+                                    logging.warning("🚨 TRIGGERING EMERGENCY RTL FOR ALL VEHICLES.")
+                                    await self.trigger_rtl()
+                                
                 await asyncio.sleep(0.1)  # 10Hz
         except asyncio.CancelledError:
-            print("Proximity safety monitor stopped.")
+            logging.info("Proximity safety monitor stopped.")
 
     async def _geofence_monitor_loop(self):
         """

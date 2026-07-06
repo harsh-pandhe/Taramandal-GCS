@@ -74,9 +74,12 @@ def validate_trajectory_collisions(trajectory_data: dict, safety_distance: float
         if wps:
             max_time = max(max_time, wps[-1]["time"])
             
-    # Sample path coordinates at 10Hz steps
-    t = 0.0
-    while t <= max_time + 0.1:
+    # Sample path coordinates at 10Hz steps.
+    # Convert max_time to integer ticks of 0.1s to avoid float accumulation drift.
+    total_steps = int(round(max_time * 10))
+    
+    for step in range(total_steps + 1):
+        t = step / 10.0
         positions = {}
         for drone_id, wps in trajectory_data.items():
             # Interpolate position at time t
@@ -117,8 +120,7 @@ def validate_trajectory_collisions(trajectory_data: dict, safety_distance: float
                     # Cap errors list
                     if len(errors) >= 3:
                         return errors
-        t += 0.1
-        
+                        
     return errors
 
 def _parse_json(content: str) -> dict:
@@ -126,39 +128,72 @@ def _parse_json(content: str) -> dict:
     result = {}
     
     if "drones" in data:
+        if not isinstance(data["drones"], list):
+            raise ValueError("'drones' key in JSON must map to a list.")
+            
         for drone_data in data["drones"]:
-            drone_id = int(drone_data.get("id", 0))
+            if "id" not in drone_data:
+                raise ValueError("Drone entry is missing required 'id' key.")
+            try:
+                drone_id = int(drone_data["id"])
+                if drone_id < 0 or drone_id >= 100:
+                    raise ValueError("Drone ID out of range [0, 99].")
+            except (ValueError, TypeError) as e:
+                raise ValueError(f"Invalid drone 'id' value: {drone_data.get('id')}. Must be an integer: {e}")
+                
             waypoints = drone_data.get("waypoints", [])
+            if not isinstance(waypoints, list):
+                raise ValueError(f"'waypoints' for drone {drone_id} must be a list.")
+                
+            # Parse and validate waypoints
+            parsed_wps = []
+            for wp in waypoints:
+                try:
+                    parsed_wps.append({
+                        "time": float(wp["time"]),
+                        "x": float(wp["x"]),
+                        "y": float(wp["y"]),
+                        "z": float(wp["z"]),
+                        "yaw": float(wp.get("yaw", 0.0))
+                    })
+                except KeyError as e:
+                    raise ValueError(f"Waypoint for drone {drone_id} is missing required key: {e}")
+                except (ValueError, TypeError) as e:
+                    raise ValueError(f"Invalid numeric value in waypoint for drone {drone_id}: {e}")
+                    
             # Sort waypoints by time
-            sorted_wps = sorted(waypoints, key=lambda w: float(w.get("time", 0.0)))
-            result[drone_id] = [
-                {
-                    "time": float(wp.get("time", 0.0)),
-                    "x": float(wp.get("x", 0.0)),
-                    "y": float(wp.get("y", 0.0)),
-                    "z": float(wp.get("z", 0.0)),
-                    "yaw": float(wp.get("yaw", 0.0))
-                }
-                for wp in sorted_wps
-            ]
+            sorted_wps = sorted(parsed_wps, key=lambda w: w["time"])
+            result[drone_id] = sorted_wps
     else:
         # Fallback to direct dict representation if structured differently
         for k, v in data.items():
             try:
                 drone_id = int(k)
-                sorted_wps = sorted(v, key=lambda w: float(w.get("time", 0.0)))
-                result[drone_id] = [
-                    {
-                        "time": float(wp.get("time", 0.0)),
-                        "x": float(wp.get("x", 0.0)),
-                        "y": float(wp.get("y", 0.0)),
-                        "z": float(wp.get("z", 0.0)),
+                if drone_id < 0 or drone_id >= 100:
+                    raise ValueError("Drone ID out of range [0, 99].")
+            except (ValueError, TypeError) as e:
+                raise ValueError(f"Invalid drone ID key '{k}'. Must be an integer: {e}")
+                
+            if not isinstance(v, list):
+                raise ValueError(f"Waypoint list for drone {drone_id} must be a list.")
+                
+            parsed_wps = []
+            for wp in v:
+                try:
+                    parsed_wps.append({
+                        "time": float(wp["time"]),
+                        "x": float(wp["x"]),
+                        "y": float(wp["y"]),
+                        "z": float(wp["z"]),
                         "yaw": float(wp.get("yaw", 0.0))
-                    }
-                    for wp in sorted_wps
-                ]
-            except ValueError:
-                continue
+                    })
+                except KeyError as e:
+                    raise ValueError(f"Waypoint for drone {drone_id} is missing required key: {e}")
+                except (ValueError, TypeError) as e:
+                    raise ValueError(f"Invalid numeric value in waypoint for drone {drone_id}: {e}")
+                    
+            sorted_wps = sorted(parsed_wps, key=lambda w: w["time"])
+            result[drone_id] = sorted_wps
                 
     return result
 
@@ -245,8 +280,11 @@ def _parse_skyc(content: bytes) -> dict:
 
 
 def _parse_csv(content: str) -> dict:
-    df = pd.read_csv(io.StringIO(content))
-    
+    # Guard CSV row limits (read max 100,001 rows to check overflow)
+    df = pd.read_csv(io.StringIO(content), nrows=100001)
+    if len(df) > 100000:
+        raise ValueError("CSV exceeds maximum trajectory row limit (100,000 rows).")
+        
     # Required columns validation (case-insensitive)
     required_cols = {"drone_id", "time", "x", "y", "z", "yaw"}
     df.columns = [col.lower().strip() for col in df.columns]
@@ -271,18 +309,34 @@ def _parse_csv(content: str) -> dict:
     # Group by drone_id
     grouped = df.groupby("drone_id")
     for drone_id, group in grouped:
-        drone_id_int = int(drone_id)
+        try:
+            if pd.isna(drone_id):
+                raise ValueError("Drone ID cannot be null/empty.")
+            drone_id_int = int(float(drone_id))
+            if drone_id_int < 0 or drone_id_int >= 100:
+                raise ValueError(f"Drone ID {drone_id_int} out of range [0, 99].")
+        except (ValueError, TypeError) as e:
+            raise ValueError(f"Invalid drone ID value: {drone_id}. Must be a valid integer: {e}")
+            
         # Sort group by time
         sorted_group = group.sort_values(by="time")
-        result[drone_id_int] = [
-            {
-                "time": float(row["time"]),
-                "x": float(row["x"]),
-                "y": float(row["y"]),
-                "z": float(row["z"]),
-                "yaw": float(row["yaw"])
-            }
-            for _, row in sorted_group.iterrows()
-        ]
+        result[drone_id_int] = []
+        for _, row in sorted_group.iterrows():
+            try:
+                t_val = float(row["time"])
+                x_val = float(row["x"])
+                y_val = float(row["y"])
+                z_val = float(row["z"])
+                yaw_val = float(row["yaw"])
+            except (ValueError, TypeError) as e:
+                raise ValueError(f"Invalid coordinate or float value in row for Drone {drone_id_int}: {e}")
+                
+            result[drone_id_int].append({
+                "time": t_val,
+                "x": x_val,
+                "y": y_val,
+                "z": z_val,
+                "yaw": yaw_val
+            })
         
     return result

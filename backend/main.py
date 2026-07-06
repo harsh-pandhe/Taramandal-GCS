@@ -14,7 +14,7 @@ app = FastAPI(title="Taramandal Ground Control Station API")
 # Enable CORS for frontend connectivity
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -26,8 +26,13 @@ drone_manager = DroneManager(ports=[14540, 14541, 14542])
 @app.on_event("startup")
 async def startup_event():
     logger.info("Initializing Ground Control Station...")
-    # Run drone manager connections in background
-    asyncio.create_task(drone_manager.connect_all())
+    # Run drone manager connections in background with error handling
+    async def run_connections():
+        try:
+            await drone_manager.connect_all()
+        except Exception as e:
+            logger.error(f"Failed to initialize drone connections on GCS startup: {e}")
+    asyncio.create_task(run_connections())
 
 @app.on_event("shutdown")
 async def shutdown_event():
@@ -37,7 +42,13 @@ async def shutdown_event():
 @app.post("/api/launch")
 async def launch_fleet():
     logger.info("API: Launching fleet...")
-    asyncio.create_task(drone_manager.launch_sequence())
+    # Wrap launch sequence task with error handling
+    async def run_launch():
+        try:
+            await drone_manager.launch_sequence()
+        except Exception as e:
+            logger.error(f"Error during launch sequence execution: {e}")
+    asyncio.create_task(run_launch())
     return {"status": "success", "message": "Launch sequence initiated."}
 
 @app.post("/api/rtl")
@@ -55,9 +66,30 @@ async def trigger_land():
 @app.post("/api/upload-trajectory")
 async def upload_trajectory(file: UploadFile = File(...)):
     logger.info(f"API: Ingesting trajectory file: {file.filename}")
+    
+    # Check filename extension
+    filename = file.filename.lower()
+    if not (filename.endswith('.json') or filename.endswith('.csv') or filename.endswith('.skyc')):
+        raise HTTPException(status_code=400, detail="Unsupported file format. Must be .json, .csv, or .skyc")
+        
+    # Check file size limit (5 MB max) to prevent OOM
+    MAX_FILE_SIZE = 5 * 1024 * 1024  # 5 MB
+    
+    content_length = file.headers.get("content-length")
+    if content_length and int(content_length) > MAX_FILE_SIZE:
+        raise HTTPException(status_code=400, detail="File too large. Maximum size is 5MB.")
+        
+    content = bytearray()
+    while True:
+        chunk = await file.read(8192)
+        if not chunk:
+            break
+        content.extend(chunk)
+        if len(content) > MAX_FILE_SIZE:
+            raise HTTPException(status_code=400, detail="File too large. Maximum size is 5MB.")
+            
     try:
-        content = await file.read()
-        parsed_trajectory = parse_trajectory_bytes(content, file.filename)
+        parsed_trajectory = parse_trajectory_bytes(bytes(content), file.filename)
         
         # Start playing back the trajectory
         drone_manager.start_trajectory(parsed_trajectory)
