@@ -74,7 +74,8 @@ async def upload_trajectory(file: UploadFile = File(...)):
         return {
             "status": "success",
             "message": "Trajectory uploaded and executing.",
-            "drones_summary": summary
+            "drones_summary": summary,
+            "trajectory_data": parsed_trajectory
         }
     except Exception as e:
         logger.error(f"Failed parsing trajectory file: {e}")

@@ -17,13 +17,77 @@ def parse_trajectory_file(content: str, filename: str) -> dict:
     """
     try:
         if filename.endswith('.json'):
-            return _parse_json(content)
+            parsed = _parse_json(content)
         elif filename.endswith('.csv'):
-            return _parse_csv(content)
+            parsed = _parse_csv(content)
         else:
             raise ValueError("Unsupported file format. Must be .json or .csv")
+            
+        # Run pre-flight space-time collision validation
+        collision_errors = validate_trajectory_collisions(parsed)
+        if collision_errors:
+            raise ValueError("Trajectory safety check failed:\n" + "\n".join(collision_errors))
+            
+        return parsed
     except Exception as e:
         raise ValueError(f"Error parsing trajectory file: {str(e)}")
+
+def validate_trajectory_collisions(trajectory_data: dict, safety_distance: float = 1.5) -> list:
+    """
+    Checks if any two drones drift within safety_distance during the trajectory.
+    """
+    errors = []
+    max_time = 0.0
+    for drone_id, wps in trajectory_data.items():
+        if wps:
+            max_time = max(max_time, wps[-1]["time"])
+            
+    # Sample path coordinates at 10Hz steps
+    t = 0.0
+    while t <= max_time + 0.1:
+        positions = {}
+        for drone_id, wps in trajectory_data.items():
+            # Interpolate position at time t
+            if not wps:
+                continue
+            if t <= wps[0]["time"]:
+                positions[drone_id] = wps[0]
+            elif t >= wps[-1]["time"]:
+                positions[drone_id] = wps[-1]
+            else:
+                for i in range(len(wps) - 1):
+                    wp_start = wps[i]
+                    wp_end = wps[i+1]
+                    if wp_start["time"] <= t <= wp_end["time"]:
+                        duration = wp_end["time"] - wp_start["time"]
+                        ratio = (t - wp_start["time"]) / duration if duration > 0 else 0
+                        positions[drone_id] = {
+                            "x": wp_start["x"] + ratio * (wp_end["x"] - wp_start["x"]),
+                            "y": wp_start["y"] + ratio * (wp_end["y"] - wp_start["y"]),
+                            "z": wp_start["z"] + ratio * (wp_end["z"] - wp_start["z"])
+                        }
+                        break
+                        
+        # Check distances between all active pairs
+        drone_ids = list(positions.keys())
+        for i in range(len(drone_ids)):
+            for j in range(i + 1, len(drone_ids)):
+                id1 = drone_ids[i]
+                id2 = drone_ids[j]
+                p1 = positions[id1]
+                p2 = positions[id2]
+                
+                dist = ((p1["x"] - p2["x"])**2 + (p1["y"] - p2["y"])**2 + (p1["z"] - p2["z"])**2)**0.5
+                if dist < safety_distance:
+                    errors.append(
+                        f"Collision risk at {t:.1f}s: Drone {id1} and Drone {id2} are separated by {dist:.2f}m (limit: {safety_distance}m)"
+                    )
+                    # Cap errors list
+                    if len(errors) >= 3:
+                        return errors
+        t += 0.1
+        
+    return errors
 
 def _parse_json(content: str) -> dict:
     data = json.loads(content)

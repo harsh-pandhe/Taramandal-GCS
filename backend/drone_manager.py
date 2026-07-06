@@ -22,6 +22,8 @@ class DroneManager:
         for i, port in enumerate(self.ports):
             connect_tasks.append(self._connect_drone(i, port))
         await asyncio.gather(*connect_tasks)
+        # Start proximity safety monitor loop
+        self._tasks.append(asyncio.create_task(self._proximity_monitor_loop()))
 
     async def _connect_drone(self, drone_id: int, port: int):
         # Use unique gRPC port for each drone to avoid conflicts
@@ -281,3 +283,38 @@ class DroneManager:
                 }
                 
         return waypoints[-1]
+
+    async def _proximity_monitor_loop(self, safety_limit: float = 1.5):
+        """
+        Monitors spatial separation between all active/armed drones at 10Hz.
+        Triggers emergency failsafe (RTL) if distance is breached.
+        """
+        print("Proximity safety monitor active.")
+        try:
+            while True:
+                # Find connected & armed drones
+                active_ids = [
+                    d_id for d_id, tel in self.telemetry.items()
+                    if tel["connected"] and tel["armed"]
+                ]
+                
+                # Check distances between all pairs
+                for i in range(len(active_ids)):
+                    for j in range(i + 1, len(active_ids)):
+                        id1 = active_ids[i]
+                        id2 = active_ids[j]
+                        t1 = self.telemetry[id1]
+                        t2 = self.telemetry[id2]
+                        
+                        dist = ((t1["local_x"] - t2["local_x"])**2 + 
+                                (t1["local_y"] - t2["local_y"])**2 + 
+                                (t1["local_z"] - t2["local_z"])**2)**0.5
+                                
+                        if dist < safety_limit:
+                            print(f"🚨 PROXIMITY FAILSAFE: Drone {id1} and Drone {id2} are too close ({dist:.2f}m)!")
+                            print("🚨 TRIGGERING EMERGENCY RTL FOR ALL VEHICLES.")
+                            await self.trigger_rtl()
+                            
+                await asyncio.sleep(0.1)  # 10Hz
+        except asyncio.CancelledError:
+            print("Proximity safety monitor stopped.")
