@@ -11,4 +11,7 @@ All notable changes to the Taramandal GCS and Drone Swarm Fleet project are docu
 - **CSV & JSON Trajectory Parser:** Implemented `backend/trajectory_parser.py` using `pandas` to read and parse flight plans.
 - **Glassmorphic React Frontend Dashboard:** Created React Vite app inside `frontend/` featuring pre-flight checklist logs, battery indicators, coordinates display, and a drag-and-drop trajectory plan uploader.
 - **Simulation Control Scripts:** Developed `scripts/launch_fleet.sh` (with isolated partition settings and daemon mode flags) and `scripts/stop_fleet.sh` (which stops `px4`, `gz sim`, and `mavsdk_server` processes).
+- **Real-time Proximity Monitor & Auto-Abort Failsafe:** Added an active 10Hz safety loop in `drone_manager.py` that monitors vehicle coordinates, commanding emergency RTL if any two armed drones drift within 1.5m.
+- **Pre-flight Trajectory Collision Validator:** Integrated space-time intersection validation at 10Hz sampling in `trajectory_parser.py`, automatically rejecting coordinate files that pose collision risks before arming.
+- **Visual Trajectory Swarm Previewer:** Built an interactive Canvas previewer in the GCS dashboard showing neon color-coded coordinate lines and time-labeled waypoint paths.
 - **Project Documentation:** Created detailed `README.md` (with system architecture and Gantt schedules), `roadmap.md`, and visual assets directory `docs/`.
