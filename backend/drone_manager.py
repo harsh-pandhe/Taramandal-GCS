@@ -1,7 +1,8 @@
 import asyncio
+import math
 import logging
 from mavsdk import System
-from mavsdk.offboard import PositionNedYaw, OffboardError
+from mavsdk.offboard import PositionNedYaw, PositionGlobalYaw, OffboardError
 
 # Default target altitudes for basic spatial separation (0.7m steps)
 DEFAULT_ALTITUDES = [2.0, 2.7, 3.4, 4.1, 4.8, 5.5]
@@ -17,6 +18,7 @@ class DroneManager:
         self.geofence_radius = 30.0  # meters, horizontal distance from home (0,0)
         self.geofence_breaches = {}  # drone_id -> bool, tracks active geofence breaches
         self.proximity_breaches = {}  # tracks active proximity breaches per drone pair: (id1, id2) -> bool
+        self.active_trajectory = None  # active trajectory stored for verification and start
 
     async def connect_all(self):
         """Connects to all drones concurrently."""
@@ -55,6 +57,9 @@ class DroneManager:
                 "satellites": 0,
                 "gps_fix_type": "NO_GPS",
                 "comm_latency_ms": 0.0,
+                "home_lat": 0.0,
+                "home_lon": 0.0,
+                "home_alt": 0.0,
                 "local_x": 0.0,
                 "local_y": 0.0,
                 "local_z": 0.0,
@@ -69,6 +74,7 @@ class DroneManager:
             self._tasks.append(asyncio.create_task(self._monitor_position(drone_id)))
             self._tasks.append(asyncio.create_task(self._monitor_armed_state(drone_id)))
             self._tasks.append(asyncio.create_task(self._measure_latency_loop(drone_id)))
+            self._tasks.append(asyncio.create_task(self._monitor_home(drone_id)))
         except Exception as e:
             logging.error(f"Error during _connect_drone initialization for Drone {drone_id}: {e}")
             raise e
@@ -207,6 +213,18 @@ class DroneManager:
         except Exception as e:
             logging.error(f"Error in _measure_latency_loop for Drone {drone_id}: {e}")
 
+    async def _monitor_home(self, drone_id):
+        try:
+            drone = self.drones[drone_id]
+            async for home in drone.telemetry.home():
+                self.telemetry[drone_id]["home_lat"] = home.latitude_deg
+                self.telemetry[drone_id]["home_lon"] = home.longitude_deg
+                self.telemetry[drone_id]["home_alt"] = home.absolute_altitude_m
+        except asyncio.CancelledError:
+            pass
+        except Exception as e:
+            logging.error(f"Error in _monitor_home for Drone {drone_id}: {e}")
+
     # --- Flight commands ---
 
     async def launch_sequence(self):
@@ -308,13 +326,14 @@ class DroneManager:
 
     # --- Trajectory Playback ---
 
-    def start_trajectory(self, trajectory_data: dict):
+    def start_trajectory(self, trajectory_data: dict, mode: str = "LOCAL", trigger_epoch_ms: float = 0.0):
         """Start playing back waypoints in a background asyncio task."""
         self.stop_trajectory()
+        self.active_trajectory = trajectory_data
         # Remap trajectory slots to currently healthy drones before playback
         remapped = self.remap_trajectory_to_healthy_drones(trajectory_data)
         self.is_running_trajectory = True
-        self.trajectory_task = asyncio.create_task(self._run_trajectory_loop(remapped))
+        self.trajectory_task = asyncio.create_task(self._run_trajectory_loop(remapped, mode, trigger_epoch_ms))
 
     def stop_trajectory(self):
         """Stop current trajectory playback."""
@@ -324,8 +343,19 @@ class DroneManager:
             self.trajectory_task = None
             print("Trajectory playback stopped.")
 
-    async def _run_trajectory_loop(self, trajectory_data: dict):
-        print("Starting trajectory playback loop...")
+    async def _run_trajectory_loop(self, trajectory_data: dict, mode: str = "LOCAL", trigger_epoch_ms: float = 0.0):
+        print(f"Starting trajectory playback loop in {mode} mode...")
+        
+        # Clock synchronization (millisecond precision time-of-day trigger delay)
+        if trigger_epoch_ms > 0:
+            import time
+            curr_epoch_s = time.time()
+            trigger_s = trigger_epoch_ms / 1000.0
+            wait_s = trigger_s - curr_epoch_s
+            if wait_s > 0:
+                print(f"Clock Sync: Waiting {wait_s:.3f} seconds to trigger show at Epoch {trigger_s}...")
+                await asyncio.sleep(wait_s)
+                
         start_time = asyncio.get_event_loop().time()
         
         # Calculate overall duration
@@ -335,6 +365,7 @@ class DroneManager:
                 max_time = max(max_time, wps[-1]["time"])
                 
         print(f"Trajectory duration: {max_time} seconds.")
+        R = 6378137.0 # Earth radius for GPS projection
         
         try:
             # 10Hz loop rate
@@ -358,12 +389,40 @@ class DroneManager:
                     target = self._interpolate_waypoint(wps, elapsed)
                     
                     if target:
-                        # Send position setpoint (NED Down is negative, so Z from trajectory is converted)
-                        setpoint_tasks.append(
-                            drone.offboard.set_position_ned(
-                                PositionNedYaw(target["x"], target["y"], target["z"], target["yaw"])
+                        if mode.upper() == "GLOBAL":
+                            # GLOBAL MODE: Translate local offsets using home GPS coordinates
+                            home_lat = self.telemetry[drone_id]["home_lat"]
+                            home_lon = self.telemetry[drone_id]["home_lon"]
+                            
+                            # Standard fallback reference if GPS origin hasn't locked yet
+                            if home_lat == 0.0 and home_lon == 0.0:
+                                home_lat = 12.9716
+                                home_lon = 77.5946
+                                
+                            dlat = target["x"] / R
+                            dlon = target["y"] / (R * math.cos(math.radians(home_lat)))
+                            lat_deg = home_lat + math.degrees(dlat)
+                            lon_deg = home_lon + math.degrees(dlon)
+                            alt_m = -target["z"] # convert NED Z down to altitude above home
+                            
+                            setpoint_tasks.append(
+                                drone.offboard.set_position_global(
+                                    PositionGlobalYaw(
+                                        lat_deg,
+                                        lon_deg,
+                                        alt_m,
+                                        target["yaw"],
+                                        PositionGlobalYaw.AltitudeType.REL_HOME
+                                    )
+                                )
                             )
-                        )
+                        else:
+                            # LOCAL MODE: Send raw position NED
+                            setpoint_tasks.append(
+                                drone.offboard.set_position_ned(
+                                    PositionNedYaw(target["x"], target["y"], target["z"], target["yaw"])
+                                )
+                            )
                         
                 if setpoint_tasks:
                     await asyncio.gather(*setpoint_tasks)
@@ -374,6 +433,57 @@ class DroneManager:
             print("Trajectory playback loop cancelled.")
         finally:
             self.is_running_trajectory = False
+
+    def verify_launch_geometry(self, trajectory_data: dict, tolerance_m: float = 0.5) -> dict:
+        """
+        Verifies that each connected drone is physically placed within the tolerance_m
+        envelope of its expected starting position (first waypoint) before arming/takeoff.
+        """
+        results = {}
+        all_passed = True
+        
+        # Remap first to match actual drone slots
+        remapped = self.remap_trajectory_to_healthy_drones(trajectory_data)
+        
+        for drone_id, wps in remapped.items():
+            if not wps:
+                continue
+            
+            # First waypoint at t=0
+            first_wp = wps[0]
+            
+            if drone_id not in self.telemetry or not self.telemetry[drone_id]["connected"]:
+                results[str(drone_id)] = {"status": "DISCONNECTED", "msg": "Drone not connected."}
+                all_passed = False
+                continue
+                
+            tel = self.telemetry[drone_id]
+            expected_x = first_wp["x"]
+            expected_y = first_wp["y"]
+            expected_z = -first_wp["z"] # convert to height
+            
+            curr_x = tel["local_x"]
+            curr_y = tel["local_y"]
+            curr_z = tel["local_z"]
+            
+            dist = ((curr_x - expected_x)**2 + (curr_y - expected_y)**2 + (curr_z - expected_z)**2)**0.5
+            
+            passed = dist <= tolerance_m
+            if not passed:
+                all_passed = False
+                
+            results[str(drone_id)] = {
+                "status": "PASSED" if passed else "FAILED",
+                "current_pos": [curr_x, curr_y, curr_z],
+                "expected_pos": [expected_x, expected_y, expected_z],
+                "distance_error_m": round(dist, 2),
+                "msg": f"Placed at ({curr_x:.2f}, {curr_y:.2f}, {curr_z:.2f}) - expected ({expected_x:.2f}, {expected_y:.2f}, {expected_z:.2f}). Error: {dist:.2f}m"
+            }
+            
+        return {
+            "all_passed": all_passed,
+            "drones": results
+        }
 
     def _interpolate_waypoint(self, waypoints: list, elapsed_time: float) -> dict:
         """Helper to lineary interpolate coordinates between waypoints based on elapsed time."""

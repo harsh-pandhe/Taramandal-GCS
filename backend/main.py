@@ -2,6 +2,7 @@ import asyncio
 import logging
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, UploadFile, File, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
 from backend.drone_manager import DroneManager
 from backend.trajectory_parser import parse_trajectory_file, parse_trajectory_bytes
 
@@ -72,6 +73,14 @@ async def upload_trajectory(file: UploadFile = File(...)):
     if not (filename.endswith('.json') or filename.endswith('.csv') or filename.endswith('.skyc')):
         raise HTTPException(status_code=400, detail="Unsupported file format. Must be .json, .csv, or .skyc")
         
+class StartTrajectoryRequest(BaseModel):
+    mode: str = "LOCAL"
+    trigger_epoch_ms: float = 0.0
+
+@app.post("/api/upload-trajectory")
+async def upload_trajectory(file: UploadFile = File(...)):
+    logger.info(f"API: Uploading trajectory file: {file.filename}")
+    
     # Check file size limit (5 MB max) to prevent OOM
     MAX_FILE_SIZE = 5 * 1024 * 1024  # 5 MB
     
@@ -91,8 +100,8 @@ async def upload_trajectory(file: UploadFile = File(...)):
     try:
         parsed_trajectory = parse_trajectory_bytes(bytes(content), file.filename)
         
-        # Start playing back the trajectory
-        drone_manager.start_trajectory(parsed_trajectory)
+        # Save active trajectory
+        drone_manager.active_trajectory = parsed_trajectory
         
         # Calculate summary details for response
         summary = {}
@@ -104,12 +113,38 @@ async def upload_trajectory(file: UploadFile = File(...)):
             
         return {
             "status": "success",
-            "message": "Trajectory uploaded and executing.",
+            "message": "Trajectory uploaded and saved to active slot.",
             "drones_summary": summary,
             "trajectory_data": parsed_trajectory
         }
     except Exception as e:
         logger.error(f"Failed parsing trajectory file: {e}")
+        raise HTTPException(status_code=400, detail=str(e))
+
+@app.post("/api/verify-launch-geometry")
+async def verify_launch_geometry(tolerance_m: float = 0.5):
+    logger.info("API: Verifying launch geometry...")
+    if not drone_manager.active_trajectory:
+         raise HTTPException(status_code=400, detail="No active trajectory loaded. Please upload a trajectory first.")
+    
+    report = drone_manager.verify_launch_geometry(drone_manager.active_trajectory, tolerance_m)
+    return report
+
+@app.post("/api/start-trajectory")
+async def start_trajectory(req: StartTrajectoryRequest):
+    logger.info(f"API: Starting trajectory in {req.mode} mode, trigger_epoch_ms={req.trigger_epoch_ms}...")
+    if not drone_manager.active_trajectory:
+         raise HTTPException(status_code=400, detail="No active trajectory loaded. Please upload a trajectory first.")
+         
+    try:
+        drone_manager.start_trajectory(
+            drone_manager.active_trajectory, 
+            mode=req.mode, 
+            trigger_epoch_ms=req.trigger_epoch_ms
+        )
+        return {"status": "success", "message": f"Trajectory started in {req.mode} mode."}
+    except Exception as e:
+        logger.error(f"Failed starting trajectory: {e}")
         raise HTTPException(status_code=400, detail=str(e))
 
 @app.post("/api/stop-trajectory")

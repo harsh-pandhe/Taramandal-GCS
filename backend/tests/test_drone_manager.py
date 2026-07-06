@@ -195,3 +195,36 @@ async def test_telemetry_fields_exist():
         assert 0 in manager.telemetry
         assert manager.telemetry[0]["gps_fix_type"] == "NO_GPS"
         assert manager.telemetry[0]["comm_latency_ms"] == 0.0
+
+@pytest.mark.asyncio
+async def test_verify_launch_geometry():
+    manager = DroneManager(ports=[])
+    trajectory_data = {
+        0: [
+            {"time": 0.0, "x": 0.0, "y": 0.0, "z": -2.0, "yaw": 0.0},
+            {"time": 1.0, "x": 1.0, "y": 0.0, "z": -2.0, "yaw": 0.0}
+        ]
+    }
+    
+    # 1. Connected and placed correctly (within 0.5m)
+    manager.telemetry = {
+        0: {
+            "connected": True,
+            "local_x": 0.1,
+            "local_y": 0.0,
+            "local_z": 2.0
+        }
+    }
+    manager.remap_trajectory_to_healthy_drones = lambda td: td
+    
+    report = manager.verify_launch_geometry(trajectory_data, tolerance_m=0.5)
+    assert report["all_passed"] is True
+    assert report["drones"]["0"]["status"] == "PASSED"
+    assert report["drones"]["0"]["distance_error_m"] == 0.1
+
+    # 2. Connected but placed incorrectly (outside 0.5m)
+    manager.telemetry[0]["local_x"] = 2.0
+    report = manager.verify_launch_geometry(trajectory_data, tolerance_m=0.5)
+    assert report["all_passed"] is False
+    assert report["drones"]["0"]["status"] == "FAILED"
+    assert report["drones"]["0"]["distance_error_m"] == 2.0

@@ -16,6 +16,10 @@ export default function App() {
   const [trajSummary, setTrajSummary] = useState(null);
   const [trajectoryData, setTrajectoryData] = useState(null);
   const [isPlaying, setIsPlaying] = useState(false);
+  const [flightMode, setFlightMode] = useState("LOCAL");
+  const [triggerDelay, setTriggerDelay] = useState(3);
+  const [verificationReport, setVerificationReport] = useState(null);
+  const [isVerifying, setIsVerifying] = useState(false);
   
   const fileInputRef = useRef(null);
 
@@ -118,8 +122,13 @@ export default function App() {
       if (res.ok && data.status === 'success') {
         setTrajSummary(data.drones_summary);
         setTrajectoryData(data.trajectory_data);
-        setIsPlaying(true);
+        setIsPlaying(false);
         setErrorMsg('');
+        
+        // Auto-run verification check immediately
+        setTimeout(() => {
+          triggerVerifyLaunch();
+        }, 500);
       } else {
         setErrorMsg(data.detail || data.message || 'Failed to process trajectory');
         setTrajSummary(null);
@@ -127,6 +136,48 @@ export default function App() {
     } catch (err) {
       setErrorMsg(`Upload error: ${err.message}`);
       setTrajSummary(null);
+    }
+  };
+
+  const triggerVerifyLaunch = async () => {
+    setIsVerifying(true);
+    try {
+      const res = await fetch(`${API_BASE}/api/verify-launch-geometry?tolerance_m=0.5`, {
+        method: 'POST'
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setVerificationReport(data);
+      } else {
+        setErrorMsg(data.detail || 'Failed to verify launch geometry');
+      }
+    } catch (err) {
+      setErrorMsg(`Verification error: ${err.message}`);
+    } finally {
+      setIsVerifying(false);
+    }
+  };
+
+  const handleStartTrajectory = async () => {
+    try {
+      const triggerTimeEpoch = triggerDelay > 0 ? Date.now() + (triggerDelay * 1000) : 0.0;
+      const res = await fetch(`${API_BASE}/api/start-trajectory`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          mode: flightMode,
+          trigger_epoch_ms: triggerTimeEpoch
+        })
+      });
+      const data = await res.json();
+      if (res.ok && data.status === 'success') {
+        setIsPlaying(true);
+        setErrorMsg('');
+      } else {
+        setErrorMsg(data.detail || data.message || 'Failed to start trajectory');
+      }
+    } catch (err) {
+      setErrorMsg(`Start error: ${err.message}`);
     }
   };
 
@@ -451,19 +502,127 @@ export default function App() {
                 {trajSummary ? (
                   <>
                     <div style={{ borderBottom: '1px solid rgba(255,255,255,0.05)', margin: '0.25rem 0' }}></div>
-                    {Object.keys(trajSummary).map((id) => (
-                      <div className="drone-stats-row" key={id}>
-                        <span>Drone 0{id} Waypoints:</span>
-                        <span>{trajSummary[id].waypoints_count} wps ({trajSummary[id].duration_seconds}s)</span>
+                    
+                    {/* Operational Settings */}
+                    <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr', gap: '0.4rem', marginBottom: '0.5rem' }}>
+                      <div>
+                        <label style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>MODE</label>
+                        <select 
+                          value={flightMode} 
+                          onChange={(e) => setFlightMode(e.target.value)}
+                          style={{
+                            width: '100%',
+                            background: 'rgba(0,0,0,0.3)',
+                            border: '1px solid rgba(255,255,255,0.1)',
+                            color: 'white',
+                            padding: '0.2rem',
+                            borderRadius: '4px',
+                            fontSize: '0.75rem',
+                            outline: 'none',
+                            marginTop: '0.15rem'
+                          }}
+                        >
+                          <option value="LOCAL">LOCAL (NED)</option>
+                          <option value="GLOBAL">GLOBAL (GPS)</option>
+                        </select>
                       </div>
-                    ))}
-                    <div className="trajectory-controls">
+                      <div>
+                        <label style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>DELAY (S)</label>
+                        <input 
+                          type="number" 
+                          min="0" 
+                          max="30"
+                          value={triggerDelay} 
+                          onChange={(e) => setTriggerDelay(parseInt(e.target.value) || 0)}
+                          style={{
+                            width: '100%',
+                            background: 'rgba(0,0,0,0.3)',
+                            border: '1px solid rgba(255,255,255,0.1)',
+                            color: 'white',
+                            padding: '0.2rem',
+                            borderRadius: '4px',
+                            fontSize: '0.75rem',
+                            outline: 'none',
+                            marginTop: '0.15rem'
+                          }}
+                        />
+                      </div>
+                    </div>
+
+                    {/* Preflight Check Verification Panel */}
+                    <div style={{ 
+                      background: 'rgba(255,255,255,0.02)', 
+                      padding: '0.4rem', 
+                      borderRadius: '4px', 
+                      marginBottom: '0.5rem', 
+                      border: '1px solid rgba(255,255,255,0.05)' 
+                    }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.3rem' }}>
+                        <span style={{ fontSize: '0.75rem', fontWeight: 600 }}>LAUNCH GEOMETRY CHECK</span>
+                        <button 
+                          onClick={triggerVerifyLaunch}
+                          disabled={isVerifying}
+                          style={{ 
+                            padding: '0.15rem 0.35rem', 
+                            fontSize: '0.65rem', 
+                            background: 'rgba(56, 189, 248, 0.1)', 
+                            border: '1px solid var(--primary)',
+                            color: 'var(--primary)',
+                            borderRadius: '3px',
+                            cursor: 'pointer'
+                          }}
+                        >
+                          {isVerifying ? 'Checking...' : '🔄 Verify'}
+                        </button>
+                      </div>
+                      
+                      {verificationReport ? (
+                        <div style={{ fontSize: '0.72rem' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.25rem', marginBottom: '0.25rem' }}>
+                            <span>Status:</span>
+                            <span style={{ 
+                              color: verificationReport.all_passed ? 'var(--success)' : 'var(--danger)',
+                              fontWeight: 700,
+                              textShadow: verificationReport.all_passed ? '0 0 6px var(--success-glow)' : '0 0 6px rgba(255,23,68,0.3)'
+                            }}>
+                              {verificationReport.all_passed ? '✓ READY' : '✗ PLACEMENT ERROR'}
+                            </span>
+                          </div>
+                          {Object.keys(verificationReport.drones).map((id) => {
+                            const dReport = verificationReport.drones[id];
+                            return (
+                              <div key={id} style={{ display: 'flex', justifyContent: 'space-between', padding: '0.15rem 0', borderBottom: '1px solid rgba(255,255,255,0.02)' }}>
+                                <span>Drone {id}:</span>
+                                <span style={{ color: dReport.status === 'PASSED' ? 'var(--success)' : 'var(--danger)' }}>
+                                  {dReport.status} ({dReport.distance_error_m}m)
+                                </span>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      ) : (
+                        <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', fontStyle: 'italic' }}>
+                          No check performed yet.
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="trajectory-controls" style={{ display: 'flex', gap: '0.4rem', marginTop: '0.4rem' }}>
+                      <button 
+                        className="btn btn-launch" 
+                        onClick={handleStartTrajectory}
+                        disabled={isPlaying || (!bypassChecklist && (!verificationReport || !verificationReport.all_passed))}
+                        style={{ flex: 1.5, padding: '0.5rem', background: isPlaying ? 'var(--text-muted)' : 'var(--success)', cursor: 'pointer' }}
+                      >
+                        🚀 START SHOW
+                      </button>
                       <button 
                         className="btn btn-stop" 
                         onClick={handleStopTrajectory}
-                        style={{ flex: 1, padding: '0.6rem' }}
+                        disabled={!isPlaying}
+                        style={{ flex: 1, padding: '0.5rem', cursor: 'pointer' }}
                       >
-                        ⏹ Stop Trajectory
+                        ⏹ STOP SHOW
                       </button>
                     </div>
                     {/* Visual 2D swarm path preview */}
