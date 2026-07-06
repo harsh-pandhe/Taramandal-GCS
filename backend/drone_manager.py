@@ -16,7 +16,7 @@ class DroneManager:
         self.is_running_trajectory = False
         self.geofence_radius = 30.0  # meters, horizontal distance from home (0,0)
         self.geofence_breaches = {}  # drone_id -> bool, tracks active geofence breaches
-        self.proximity_breached = False  # tracks active proximity breach to avoid command flood
+        self.proximity_breaches = {}  # tracks active proximity breaches per drone pair: (id1, id2) -> bool
 
     async def connect_all(self):
         """Connects to all drones concurrently."""
@@ -397,13 +397,16 @@ class DroneManager:
                 ]
                 
                 if len(active_ids) < 2:
-                    self.proximity_breached = False
+                    self.proximity_breaches.clear()
                 else:
+                    current_breaches = set()
                     # Check distances between all pairs
                     for i in range(len(active_ids)):
                         for j in range(i + 1, len(active_ids)):
                             id1 = active_ids[i]
                             id2 = active_ids[j]
+                            pair = (min(id1, id2), max(id1, id2))
+                            
                             t1 = self.telemetry[id1]
                             t2 = self.telemetry[id2]
                             
@@ -412,11 +415,18 @@ class DroneManager:
                                     (t1["local_z"] - t2["local_z"])**2)**0.5
                                     
                             if dist < safety_limit:
-                                if not self.proximity_breached:
-                                    self.proximity_breached = True
+                                current_breaches.add(pair)
+                                if not self.proximity_breaches.get(pair, False):
+                                    self.proximity_breaches[pair] = True
                                     logging.warning(f"🚨 PROXIMITY FAILSAFE: Drone {id1} and Drone {id2} are too close ({dist:.2f}m)!")
                                     logging.warning("🚨 TRIGGERING EMERGENCY RTL FOR ALL VEHICLES.")
                                     await self.trigger_rtl()
+                                    
+                    # Clear breach tracking for any pair that is no longer violating limits
+                    for pair in list(self.proximity_breaches.keys()):
+                        if self.proximity_breaches[pair] and pair not in current_breaches:
+                            self.proximity_breaches[pair] = False
+                            logging.info(f"Proximity breach between Drone {pair[0]} and Drone {pair[1]} cleared.")
                                 
                 await asyncio.sleep(0.1)  # 10Hz
         except asyncio.CancelledError:
