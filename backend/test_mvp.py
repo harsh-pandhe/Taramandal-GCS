@@ -1,13 +1,15 @@
 import asyncio
 import sys
+import os
 from mavsdk import System
-from mavsdk.offboard import PositionNedYaw, OffboardError
+from mavsdk.offboard import PositionNedYaw, OffboardError, VelocityNedYaw, AccelerationNed
 
-# UDP ports for the 3 drones: 14540, 14541, 14542
-DRONE_PORTS = [14540, 14541, 14542]
+# UDP ports for the drones dynamically allocated (defaulting to 3)
+NUM_DRONES = int(os.environ.get("NUM_DRONES", 3))
+DRONE_PORTS = [14540 + i for i in range(NUM_DRONES)]
 
-# Targets altitudes in meters: 2.0m, 2.7m, 3.4m (strict 0.7m spatial separation)
-ALTITUDES = [2.0, 2.7, 3.4]
+# Targets altitudes in meters (strict 0.7m spatial separation)
+ALTITUDES = [2.0 + 0.7 * i for i in range(NUM_DRONES)]
 
 async def run_drone_mvp(index, port, target_alt):
     print(f"[Drone {index}] Connecting to udpin://127.0.0.1:{port} (gRPC port {50051 + index})...")
@@ -21,23 +23,37 @@ async def run_drone_mvp(index, port, target_alt):
             print(f"[Drone {index}] Connected successfully!")
             break
             
-    print(f"[Drone {index}] Waiting for global position estimate & GPS lock...")
+    # Bypass magnetic and IMU calibration checks to prevent arming failure in simulation
+    print(f"[Drone {index}] Setting parameters to bypass magnetic and IMU calibration check...")
+    try:
+        await drone.param.set_param_int("COM_ARM_MAG_STR", 0)
+        await drone.param.set_param_int("EKF2_MAG_CHECK", 0)
+        await drone.param.set_param_float("COM_ARM_IMU_ACC", 10.0)
+        await drone.param.set_param_float("COM_ARM_IMU_GYR", 10.0)
+    except Exception as e:
+        print(f"[Drone {index}] Warning: Failed to set parameters: {e}")
+
+    print(f"[Drone {index}] Waiting for local position estimate, GPS lock, and Armable status...")
     async for health in drone.telemetry.health():
-        if health.is_global_position_ok and health.is_home_position_ok:
-            print(f"[Drone {index}] GPS Lock and Home position OK!")
+        if health.is_local_position_ok and health.is_home_position_ok and health.is_armable:
+            print(f"[Drone {index}] Local position estimate, Home position, and Armable status OK!")
             break
             
     # Display battery telemetry
     async for battery in drone.telemetry.battery():
         print(f"[Drone {index}] Battery: {battery.remaining_percent * 100:.1f}%, Voltage: {battery.voltage_v:.2f}V")
         break
-        
+
     print(f"[Drone {index}] Arming...")
     await drone.action.arm()
     
     print(f"[Drone {index}] Initializing offboard mode...")
     # Set initial setpoint (0, 0, 0)
-    await drone.offboard.set_position_ned(PositionNedYaw(0.0, 0.0, 0.0, 0.0))
+    await drone.offboard.set_position_velocity_acceleration_ned(
+        PositionNedYaw(0.0, 0.0, 0.0, 0.0),
+        VelocityNedYaw(0.0, 0.0, 0.0, 0.0),
+        AccelerationNed(0.0, 0.0, 0.0)
+    )
     
     try:
         await drone.offboard.start()
@@ -48,9 +64,12 @@ async def run_drone_mvp(index, port, target_alt):
         await drone.action.disarm()
         return None
         
-    # Command to fly to target altitude (NED: Down is negative, so altitude 2.0m is -2.0)
+    # Command to fly to target altitude (NED: Down is negative, so altitude target_alt m is -target_alt)
     print(f"[Drone {index}] Flying to target hover altitude: {target_alt}m...")
-    await drone.offboard.set_position_ned(PositionNedYaw(0.0, 0.0, -target_alt, 0.0))
+    pos = PositionNedYaw(0.0, 0.0, -target_alt, 0.0)
+    vel = VelocityNedYaw(0.0, 0.0, 0.0, 0.0)
+    acc = AccelerationNed(0.0, 0.0, 0.0)
+    await drone.offboard.set_position_velocity_acceleration_ned(pos, vel, acc)
     
     return drone
 

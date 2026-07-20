@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import os
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, UploadFile, File, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -15,14 +16,21 @@ app = FastAPI(title="Taramandal Ground Control Station API")
 # Enable CORS for frontend connectivity
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
+    allow_origins=[
+        "http://localhost:5173", 
+        "http://127.0.0.1:5173",
+        "http://localhost:5174",
+        "http://127.0.0.1:5174"
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# Connect to the 3 simulation drones by default
-drone_manager = DroneManager(ports=[14540, 14541, 14542])
+# Connect to simulation drones dynamically (defaulting to 3)
+NUM_DRONES = int(os.environ.get("NUM_DRONES", 3))
+ports = [14540 + i for i in range(NUM_DRONES)]
+drone_manager = DroneManager(ports=ports)
 
 @app.on_event("startup")
 async def startup_event():
@@ -64,15 +72,6 @@ async def trigger_land():
     await drone_manager.trigger_land()
     return {"status": "success", "message": "Emergency landing commanded."}
 
-@app.post("/api/upload-trajectory")
-async def upload_trajectory(file: UploadFile = File(...)):
-    logger.info(f"API: Ingesting trajectory file: {file.filename}")
-    
-    # Check filename extension
-    filename = file.filename.lower()
-    if not (filename.endswith('.json') or filename.endswith('.csv') or filename.endswith('.skyc')):
-        raise HTTPException(status_code=400, detail="Unsupported file format. Must be .json, .csv, or .skyc")
-        
 class StartTrajectoryRequest(BaseModel):
     mode: str = "LOCAL"
     trigger_epoch_ms: float = 0.0
@@ -166,3 +165,9 @@ async def websocket_telemetry_endpoint(websocket: WebSocket):
         logger.info("WebSocket telemetry client disconnected.")
     except Exception as e:
         logger.error(f"WebSocket telemetry error: {e}")
+
+if __name__ == "__main__":
+    import uvicorn
+    host = os.environ.get("GCS_HOST", "0.0.0.0")
+    port = int(os.environ.get("GCS_PORT", 8000))
+    uvicorn.run("backend.main:app", host=host, port=port, reload=True)

@@ -66,6 +66,36 @@ export default function App() {
     };
   }, []);
 
+  // Preload default trajectory on mount
+  useEffect(() => {
+    const loadDefaultTrajectory = async () => {
+      try {
+        const res = await fetch('/choreography.json');
+        if (res.ok) {
+          const data = await res.json();
+          const trajectory_data = {};
+          const summary = {};
+          data.drones.forEach(drone => {
+            trajectory_data[drone.id.toString()] = drone.waypoints;
+            summary[drone.id.toString()] = {
+              waypoints_count: drone.waypoints.length,
+              duration_seconds: drone.waypoints.length > 0 ? drone.waypoints[drone.waypoints.length - 1].time : 0.0
+            };
+          });
+          setTrajectoryData(trajectory_data);
+          setTrajSummary(summary);
+          setFileDetails({
+            name: 'choreography.json (Preloaded)',
+            size: 'Helix Pattern'
+          });
+        }
+      } catch (err) {
+        console.error('Failed to load default trajectory:', err);
+      }
+    };
+    loadDefaultTrajectory();
+  }, []);
+
   // Calculate Checklist Evaluations
   const droneIds = Object.keys(telemetry);
   const connectedCount = droneIds.filter(id => telemetry[id].connected).length;
@@ -203,7 +233,16 @@ export default function App() {
       <header className="header-bar">
         <div className="logo-section">
           <h1>
-            <span className="logo-dot"></span>
+            <svg className="drone-logo-svg" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg" style={{ width: '38px', height: '38px', marginRight: '12px', filter: 'drop-shadow(0 0 8px var(--primary-glow))', verticalAlign: 'middle' }}>
+              <circle cx="16" cy="16" r="8" stroke="var(--primary)" strokeWidth="1.5" strokeDasharray="4 2" />
+              <circle cx="48" cy="16" r="8" stroke="var(--primary)" strokeWidth="1.5" strokeDasharray="4 2" />
+              <circle cx="16" cy="48" r="8" stroke="var(--primary)" strokeWidth="1.5" strokeDasharray="4 2" />
+              <circle cx="48" cy="48" r="8" stroke="var(--primary)" strokeWidth="1.5" strokeDasharray="4 2" />
+              <path d="M10 16h12M16 10v12M42 16h12M48 10v12M10 48h12M16 42v12M42 48h12M48 42v12" stroke="var(--primary)" strokeWidth="1.2" />
+              <path d="M21.6 21.6l20.8 20.8M42.4 21.6L21.6 42.4" stroke="#818cf8" strokeWidth="2" />
+              <circle cx="32" cy="32" r="6" fill="#0f172a" stroke="var(--primary)" strokeWidth="2" />
+              <circle cx="32" cy="32" r="2" fill="var(--primary)" />
+            </svg>
             TARAMANDAL GCS
           </h1>
         </div>

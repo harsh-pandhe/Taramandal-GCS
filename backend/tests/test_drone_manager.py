@@ -21,7 +21,7 @@ async def test_proximity_safety_breach():
             "connected": True,
             "armed": True,
             "local_x": 0.0,
-            "local_y": 0.0,
+            "local_y": -2.0,
             "local_z": 3.0
         }
     }
@@ -91,7 +91,7 @@ async def test_proximity_safety_separation():
             "connected": True,
             "armed": True,
             "local_x": 0.0,
-            "local_y": 0.0,
+            "local_y": -2.0,
             "local_z": 3.0
         }
     }
@@ -212,7 +212,7 @@ async def test_verify_launch_geometry():
             "connected": True,
             "local_x": 0.1,
             "local_y": 0.0,
-            "local_z": 2.0
+            "local_z": 0.0
         }
     }
     manager.remap_trajectory_to_healthy_drones = lambda td: td

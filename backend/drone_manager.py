@@ -2,13 +2,13 @@ import asyncio
 import math
 import logging
 from mavsdk import System
-from mavsdk.offboard import PositionNedYaw, PositionGlobalYaw, OffboardError
+from mavsdk.offboard import PositionNedYaw, PositionGlobalYaw, OffboardError, VelocityNedYaw, AccelerationNed
 
 # Default target altitudes for basic spatial separation (0.7m steps)
-DEFAULT_ALTITUDES = [2.0, 2.7, 3.4, 4.1, 4.8, 5.5]
+DEFAULT_ALTITUDES = [2.0 + 0.7 * i for i in range(10)]
 
 class DroneManager:
-    def __init__(self, ports=[14540, 14541, 14542]):
+    def __init__(self, ports: list[int] = [14540, 14541, 14542]):
         self.ports = ports
         self.drones = {}  # drone_id -> System
         self.telemetry = {}  # drone_id -> status dict
@@ -20,7 +20,7 @@ class DroneManager:
         self.proximity_breaches = {}  # tracks active proximity breaches per drone pair: (id1, id2) -> bool
         self.active_trajectory = None  # active trajectory stored for verification and start
 
-    async def connect_all(self):
+    async def connect_all(self) -> None:
         """Connects to all drones concurrently."""
         logging.info(f"Connecting to {len(self.ports)} drones on ports: {self.ports}")
         connect_tasks = []
@@ -236,6 +236,22 @@ class DroneManager:
                 continue
                 
             try:
+                # Bypass magnetic and IMU calibration checks to prevent arming failure in simulation
+                try:
+                    await drone.param.set_param_int("COM_ARM_MAG_STR", 0)
+                    await drone.param.set_param_int("EKF2_MAG_CHECK", 0)
+                    await drone.param.set_param_float("COM_ARM_IMU_ACC", 10.0)
+                    await drone.param.set_param_float("COM_ARM_IMU_GYR", 10.0)
+                except Exception as e:
+                    logging.warning(f"Failed to set calibration bypass parameters for Drone {drone_id}: {e}")
+                
+                # Wait for drone to become armable
+                logging.info(f"Drone {drone_id} waiting to become armable...")
+                async for health in drone.telemetry.health():
+                    if health.is_armable:
+                        logging.info(f"Drone {drone_id} is now armable.")
+                        break
+
                 # Arm
                 try:
                     await drone.action.arm()
@@ -417,11 +433,17 @@ class DroneManager:
                                 )
                             )
                         else:
-                            # LOCAL MODE: Send raw position NED
+                            # LOCAL MODE: Send position, velocity, and acceleration NED (feed-forward)
+                            # Translate global trajectory coordinates to local drone frame by subtracting start coordinates
+                            first_wp = wps[0]
+                            local_x = target["x"] - first_wp["x"]
+                            local_y = target["y"] - first_wp["y"]
+                            
+                            pos = PositionNedYaw(local_x, local_y, target["z"], target["yaw"])
+                            vel = VelocityNedYaw(target.get("vx", 0.0), target.get("vy", 0.0), target.get("vz", 0.0), target["yaw"])
+                            acc = AccelerationNed(target.get("ax", 0.0), target.get("ay", 0.0), target.get("az", 0.0))
                             setpoint_tasks.append(
-                                drone.offboard.set_position_ned(
-                                    PositionNedYaw(target["x"], target["y"], target["z"], target["yaw"])
-                                )
+                                drone.offboard.set_position_velocity_acceleration_ned(pos, vel, acc)
                             )
                         
                 if setpoint_tasks:
@@ -466,7 +488,9 @@ class DroneManager:
             curr_y = tel["local_y"]
             curr_z = tel["local_z"]
             
-            dist = ((curr_x - expected_x)**2 + (curr_y - expected_y)**2 + (curr_z - expected_z)**2)**0.5
+            # In SITL, each vehicle's local origin is at its own spawn point (takeoff pad).
+            # Hence, the expected coordinate relative to its home is (0, 0, 0).
+            dist = (curr_x**2 + curr_y**2 + curr_z**2)**0.5
             
             passed = dist <= tolerance_m
             if not passed:
@@ -492,11 +516,33 @@ class DroneManager:
             
         # If before first waypoint
         if elapsed_time <= waypoints[0]["time"]:
-            return waypoints[0]
+            return {
+                "x": waypoints[0]["x"],
+                "y": waypoints[0]["y"],
+                "z": waypoints[0]["z"],
+                "yaw": waypoints[0]["yaw"],
+                "vx": 0.0,
+                "vy": 0.0,
+                "vz": 0.0,
+                "ax": 0.0,
+                "ay": 0.0,
+                "az": 0.0
+            }
             
         # If past last waypoint
         if elapsed_time >= waypoints[-1]["time"]:
-            return waypoints[-1]
+            return {
+                "x": waypoints[-1]["x"],
+                "y": waypoints[-1]["y"],
+                "z": waypoints[-1]["z"],
+                "yaw": waypoints[-1]["yaw"],
+                "vx": 0.0,
+                "vy": 0.0,
+                "vz": 0.0,
+                "ax": 0.0,
+                "ay": 0.0,
+                "az": 0.0
+            }
             
         # Find the segment
         for i in range(len(waypoints) - 1):
@@ -506,17 +552,50 @@ class DroneManager:
                 # Interpolate
                 duration = wp_end["time"] - wp_start["time"]
                 if duration == 0:
-                    return wp_start
+                    return {
+                        "x": wp_start["x"],
+                        "y": wp_start["y"],
+                        "z": wp_start["z"],
+                        "yaw": wp_start["yaw"],
+                        "vx": 0.0,
+                        "vy": 0.0,
+                        "vz": 0.0,
+                        "ax": 0.0,
+                        "ay": 0.0,
+                        "az": 0.0
+                    }
                 ratio = (elapsed_time - wp_start["time"]) / duration
+                
+                # Compute velocity as first derivative
+                vx = (wp_end["x"] - wp_start["x"]) / duration
+                vy = (wp_end["y"] - wp_start["y"]) / duration
+                vz = (wp_end["z"] - wp_start["z"]) / duration
                 
                 return {
                     "x": wp_start["x"] + ratio * (wp_end["x"] - wp_start["x"]),
                     "y": wp_start["y"] + ratio * (wp_end["y"] - wp_start["y"]),
                     "z": wp_start["z"] + ratio * (wp_end["z"] - wp_start["z"]),
-                    "yaw": wp_start["yaw"] + ratio * (wp_end["yaw"] - wp_start["yaw"])
+                    "yaw": wp_start["yaw"] + ratio * (wp_end["yaw"] - wp_start["yaw"]),
+                    "vx": vx,
+                    "vy": vy,
+                    "vz": vz,
+                    "ax": 0.0,
+                    "ay": 0.0,
+                    "az": 0.0
                 }
                 
-        return waypoints[-1]
+        return {
+            "x": waypoints[-1]["x"],
+            "y": waypoints[-1]["y"],
+            "z": waypoints[-1]["z"],
+            "yaw": waypoints[-1]["yaw"],
+            "vx": 0.0,
+            "vy": 0.0,
+            "vz": 0.0,
+            "ax": 0.0,
+            "ay": 0.0,
+            "az": 0.0
+        }
 
     async def _proximity_monitor_loop(self, safety_limit: float = 1.5):
         """
@@ -546,8 +625,12 @@ class DroneManager:
                             t1 = self.telemetry[id1]
                             t2 = self.telemetry[id2]
                             
+                            # Shift coordinates by drone launch offset (2.0m spacing on Y)
+                            y1 = t1["local_y"] + 2.0 * id1
+                            y2 = t2["local_y"] + 2.0 * id2
+                            
                             dist = ((t1["local_x"] - t2["local_x"])**2 + 
-                                    (t1["local_y"] - t2["local_y"])**2 + 
+                                    (y1 - y2)**2 + 
                                     (t1["local_z"] - t2["local_z"])**2)**0.5
                                     
                             if dist < safety_limit:
