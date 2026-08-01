@@ -222,9 +222,9 @@ export default function App() {
 
   // Battery bar color mapping
   const getBatteryColor = (percent) => {
-    if (percent > 50) return '#00E676';
-    if (percent > 25) return '#FFD600';
-    return '#FF1744';
+    if (percent > 50) return '#34d399';
+    if (percent > 25) return '#fbbf24';
+    return '#f87171';
   };
 
   return (
@@ -239,7 +239,7 @@ export default function App() {
               <circle cx="16" cy="48" r="8" stroke="var(--primary)" strokeWidth="1.5" strokeDasharray="4 2" />
               <circle cx="48" cy="48" r="8" stroke="var(--primary)" strokeWidth="1.5" strokeDasharray="4 2" />
               <path d="M10 16h12M16 10v12M42 16h12M48 10v12M10 48h12M16 42v12M42 48h12M48 42v12" stroke="var(--primary)" strokeWidth="1.2" />
-              <path d="M21.6 21.6l20.8 20.8M42.4 21.6L21.6 42.4" stroke="#818cf8" strokeWidth="2" />
+              <path d="M21.6 21.6l20.8 20.8M42.4 21.6L21.6 42.4" stroke="var(--primary)" strokeWidth="2" />
               <circle cx="32" cy="32" r="6" fill="#0f172a" stroke="var(--primary)" strokeWidth="2" />
               <circle cx="32" cy="32" r="2" fill="var(--primary)" />
             </svg>
@@ -256,15 +256,16 @@ export default function App() {
 
       {errorMsg && (
         <div style={{
-          background: 'rgba(255, 23, 68, 0.1)',
-          border: '1px solid rgba(255, 23, 68, 0.3)',
+          background: 'var(--danger-tint)',
+          border: '1px solid var(--danger)',
           padding: '1rem',
-          borderRadius: '12px',
-          color: '#FF1744',
+          borderRadius: 'var(--r)',
+          color: 'var(--danger)',
           fontWeight: 600,
-          fontSize: '0.95rem'
+          fontSize: '0.85rem',
+          fontFamily: 'var(--font-mono)'
         }}>
-          ⚠️ {errorMsg}
+          {errorMsg}
         </div>
       )}
 
@@ -287,21 +288,21 @@ export default function App() {
                 onClick={() => triggerAction('/api/launch')}
                 disabled={!launchEnabled || droneIds.length === 0}
               >
-                🛫 START SEQUENTIAL TAKEOFF
+                START SEQUENTIAL TAKEOFF
               </button>
               
               <button 
                 className="btn btn-land" 
                 onClick={() => triggerAction('/api/land')}
               >
-                🛬 EMER LAND
+                EMER LAND
               </button>
               
               <button 
                 className="btn btn-rtl" 
                 onClick={() => triggerAction('/api/rtl')}
               >
-                🚨 EMERGENCY RTL
+                EMERGENCY RTL
               </button>
             </div>
             
@@ -331,7 +332,7 @@ export default function App() {
                   <div key={id} className={`drone-card ${isConn ? '' : 'disconnected'}`}>
                     <div className="drone-card-header">
                       <div className="drone-id">
-                        🛸 DRONE {String(id).padStart(2, '0')}
+                        DRONE {String(id).padStart(2, '0')}
                         <span style={{ fontSize: '0.85rem', color: 'var(--text-muted)', fontWeight: 400 }}>
                           (Port {drone.port})
                         </span>
@@ -424,7 +425,7 @@ export default function App() {
 
               {droneIds.length === 0 && (
                 <div style={{ gridColumn: '1 / -1', padding: '3rem', textAlign: 'center', color: 'var(--text-muted)' }}>
-                  🛰️ Waiting for telemetry stream from PX4 SITL simulator...
+                  Waiting for telemetry stream from PX4 SITL simulator...
                 </div>
               )}
             </div>
@@ -506,7 +507,7 @@ export default function App() {
             <h2 className="panel-header">TRAJECTORY SWARM PLANNER</h2>
             
             <div className="uploader-box" onClick={handleBoxClick}>
-              <div className="uploader-icon">📥</div>
+              
               <div className="uploader-text">
                 <strong>Click to ingest trajectory</strong>
                 <br />
@@ -525,7 +526,7 @@ export default function App() {
               <div className="file-info">
                 <div className="file-info-header">
                   <span>
-                    📄 {fileDetails.name}
+                    {fileDetails.name}
                     <span style={{
                       color: isPlaying ? 'var(--success)' : 'var(--text-muted)',
                       fontSize: '0.75rem',
@@ -611,7 +612,7 @@ export default function App() {
                             cursor: 'pointer'
                           }}
                         >
-                          {isVerifying ? 'Checking...' : '🔄 Verify'}
+                          {isVerifying ? 'Checking...' : 'Verify'}
                         </button>
                       </div>
                       
@@ -653,7 +654,7 @@ export default function App() {
                         disabled={isPlaying || (!bypassChecklist && (!verificationReport || !verificationReport.all_passed))}
                         style={{ flex: 1.5, padding: '0.5rem', background: isPlaying ? 'var(--text-muted)' : 'var(--success)', cursor: 'pointer' }}
                       >
-                        🚀 START SHOW
+                        START SHOW
                       </button>
                       <button 
                         className="btn btn-stop" 
@@ -682,7 +683,7 @@ export default function App() {
 
 // ─── 3D Swarm Path Previewer (Three.js via react-three-fiber) ────────────────
 
-const DRONE_COLORS = ['#00E5FF', '#FF00FF', '#FF9100', '#00E676', '#FFFF00'];
+const DRONE_COLORS = ['#38bdf8', '#8b5cf6', '#f2a93b', '#34d399', '#f87171'];
 
 function DronePathLine({ waypoints, color }) {
   // NED → Three.js axes: X=East(y_NED), Y=Up(-z_NED), Z=North(x_NED)
@@ -738,15 +739,15 @@ function SwarmCanvasPreview({ trajectoryData }) {
   }, [trajectoryData]);
 
   return (
-    <div style={{ marginTop: '1rem', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '12px', background: '#080d18', overflow: 'hidden' }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.55rem 0.75rem', borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
-        <span style={{ fontSize: '0.74rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>🛸 3D Swarm Path Preview</span>
-        <span style={{ fontSize: '0.68rem', color: 'rgba(255,255,255,0.2)' }}>Drag · Orbit · Scroll to zoom</span>
+    <div style={{ marginTop: '1rem', border: '1px solid var(--border)', borderRadius: 'var(--r-lg)', background: 'var(--bg-sunken)', overflow: 'hidden' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.55rem 0.75rem', borderBottom: '1px solid var(--border)' }}>
+        <span style={{ fontSize: '0.7rem', color: 'var(--text-faint)', textTransform: 'uppercase', letterSpacing: '0.7px', fontFamily: 'var(--font-mono)' }}>3D Swarm Path Preview</span>
+        <span style={{ fontSize: '0.65rem', color: 'var(--text-faint)', fontFamily: 'var(--font-mono)' }}>Drag · Orbit · Scroll to zoom</span>
       </div>
 
       {!trajectoryData ? (
         <div style={{ height: '220px', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'rgba(255,255,255,0.18)', fontSize: '0.8rem', flexDirection: 'column', gap: '0.4rem' }}>
-          <span style={{ fontSize: '1.5rem' }}>📐</span>
+          
           Upload a trajectory to preview paths in 3D
         </div>
       ) : (
@@ -773,7 +774,7 @@ function SwarmCanvasPreview({ trajectoryData }) {
             {/* Origin pad */}
             <mesh position={[0, 0.02, 0]}>
               <cylinderGeometry args={[0.7, 0.7, 0.05, 32]} />
-              <meshStandardMaterial color="#00E5FF" emissive="#00E5FF" emissiveIntensity={0.5} />
+              <meshStandardMaterial color="#38bdf8" emissive="#38bdf8" emissiveIntensity={0.4} />
             </mesh>
 
             {droneEntries.map(({ id, waypoints, color }) => (
