@@ -7,6 +7,14 @@ set -e
 NUM_DRONES=3
 HEADLESS=0
 PX4_AUTOPILOT_DIR=${PX4_AUTOPILOT_DIR:-"/home/harsh-pandhe/PX4-Autopilot"}
+# Hard ceiling. Real PX4 SITL is heavy (~one process + physics load per drone),
+# so the practical single-machine limit is well below this — beyond ~10-15 drones
+# use the synthetic-telemetry load harness instead of real SITL. Override with
+# MAX_DRONES if you know your machine can take it.
+MAX_DRONES=${MAX_DRONES:-50}
+# Y-axis spacing between launch pads (meters). MUST match LAUNCH_PAD_SPACING_Y_M
+# in backend/drone_manager.py so the GCS fleet-frame math lines up with spawns.
+PAD_SPACING_Y=${PAD_SPACING_Y:-2}
 
 # Parse options
 while getopts "n:hp:" opt; do
@@ -27,9 +35,21 @@ while getopts "n:hp:" opt; do
   esac
 done
 
-if [ "$NUM_DRONES" -lt 1 ] || [ "$NUM_DRONES" -gt 10 ]; then
-  echo "Error: Number of drones must be between 1 and 10."
+# Validate that NUM_DRONES is a positive integer before any numeric comparison
+# (a non-numeric -n value would otherwise crash the [ -lt ] test with a bash error).
+if ! [[ "$NUM_DRONES" =~ ^[0-9]+$ ]]; then
+  echo "Error: Number of drones must be a positive integer (got '$NUM_DRONES')."
   exit 1
+fi
+
+if [ "$NUM_DRONES" -lt 1 ] || [ "$NUM_DRONES" -gt "$MAX_DRONES" ]; then
+  echo "Error: Number of drones must be between 1 and $MAX_DRONES (override with MAX_DRONES=)."
+  exit 1
+fi
+
+if [ "$NUM_DRONES" -gt 10 ]; then
+  echo "WARNING: Launching $NUM_DRONES real PX4 SITL instances is CPU/physics-heavy."
+  echo "         Expect slow arming / EKF settling on typical dev hardware past ~10 drones."
 fi
 
 if [ ! -d "$PX4_AUTOPILOT_DIR" ]; then
@@ -84,8 +104,9 @@ cd "$PX4_AUTOPILOT_DIR"
 
 # Spawning instances
 for ((i=0; i<NUM_DRONES; i++)); do
-  # Calculate horizontal spacing offset: 2 meters apart on Y axis
-  Y_OFFSET=$((2 * i))
+  # Calculate horizontal spacing offset along the Y axis (must match the GCS
+  # fleet-frame pad offset — see PAD_SPACING_Y above).
+  Y_OFFSET=$((PAD_SPACING_Y * i))
   
   if [ "$i" -eq 0 ]; then
     echo "Launching host drone (instance 0) at Y_OFFSET = 0m..."

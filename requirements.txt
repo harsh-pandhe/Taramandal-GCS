@@ -4,3 +4,4 @@ uvicorn
 websockets
 pandas
 python-multipart
+scipy

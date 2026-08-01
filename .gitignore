@@ -27,3 +27,6 @@ etc/
 # System files
 .DS_Store
 Thumps.db
+
+# Claude Code session/worktree dirs
+.claude/

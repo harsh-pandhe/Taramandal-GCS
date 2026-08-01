@@ -1,5 +1,6 @@
 import json
 import io
+import math
 import zipfile
 import pandas as pd
 
@@ -75,8 +76,11 @@ def validate_trajectory_collisions(trajectory_data: dict, safety_distance: float
             max_time = max(max_time, wps[-1]["time"])
             
     # Sample path coordinates at 10Hz steps.
-    # Convert max_time to integer ticks of 0.1s to avoid float accumulation drift.
-    total_steps = int(round(max_time * 10))
+    # Convert max_time to integer ticks of 0.1s to avoid float accumulation drift,
+    # and use ceil so the sweep always reaches the end of the timeline — round()
+    # would stop short for durations that aren't an exact multiple of 0.1s (e.g.
+    # 5.44s), leaving the final segment unchecked for collisions.
+    total_steps = math.ceil(max_time * 10)
     
     for step in range(total_steps + 1):
         t = step / 10.0

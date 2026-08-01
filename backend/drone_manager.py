@@ -1,11 +1,24 @@
 import asyncio
 import math
 import logging
+from scipy.spatial import cKDTree
 from mavsdk import System
 from mavsdk.offboard import PositionNedYaw, PositionGlobalYaw, OffboardError, VelocityNedYaw, AccelerationNed
 
 # Default target altitudes for basic spatial separation (0.7m steps)
 DEFAULT_ALTITUDES = [2.0 + 0.7 * i for i in range(10)]
+
+# Each drone's PX4/SITL local NED origin is set at its own spawn/launch pad, so
+# per-drone "local_x/y/z" telemetry is NOT directly comparable across drones.
+# scripts/launch_fleet.sh spawns pads spaced 2.0m apart on Y, and taramandal-studio's
+# generator bakes that same pad spacing into trajectory coordinates (a shared
+# "fleet frame"). This offset converts between the two frames consistently.
+LAUNCH_PAD_SPACING_Y_M = 2.0
+
+
+def _pad_offset(drone_id: int) -> tuple[float, float]:
+    """Returns (x, y) offset of a drone's own launch pad within the shared fleet frame."""
+    return (0.0, LAUNCH_PAD_SPACING_Y_M * drone_id)
 
 class DroneManager:
     def __init__(self, ports: list[int] = [14540, 14541, 14542]):
@@ -63,6 +76,9 @@ class DroneManager:
                 "local_x": 0.0,
                 "local_y": 0.0,
                 "local_z": 0.0,
+                "fleet_x": 0.0,
+                "fleet_y": 0.0,
+                "fleet_z": 0.0,
                 "heading": 0.0
             }
 
@@ -132,7 +148,8 @@ class DroneManager:
         try:
             drone = self.drones[drone_id]
             async for battery in drone.telemetry.battery():
-                self.telemetry[drone_id]["battery_percent"] = round(battery.remaining_percent * 100, 1)
+                # MAVSDK's remaining_percent is already in the 0-100 range, not a 0-1 fraction.
+                self.telemetry[drone_id]["battery_percent"] = round(battery.remaining_percent, 1)
                 self.telemetry[drone_id]["battery_voltage"] = round(battery.voltage_v, 2)
         except asyncio.CancelledError:
             pass
@@ -165,11 +182,20 @@ class DroneManager:
     async def _monitor_position(self, drone_id):
         try:
             drone = self.drones[drone_id]
+            pad_x_off, pad_y_off = _pad_offset(drone_id)
             async for pos in drone.telemetry.position_velocity_ned():
-                self.telemetry[drone_id]["local_x"] = round(pos.position.north_m, 2)
-                self.telemetry[drone_id]["local_y"] = round(pos.position.east_m, 2)
+                local_x = round(pos.position.north_m, 2)
+                local_y = round(pos.position.east_m, 2)
                 # NED: convert Down (negative) back to Altitude (positive) for frontend display
-                self.telemetry[drone_id]["local_z"] = round(-pos.position.down_m, 2)
+                local_z = round(-pos.position.down_m, 2)
+                self.telemetry[drone_id]["local_x"] = local_x
+                self.telemetry[drone_id]["local_y"] = local_y
+                self.telemetry[drone_id]["local_z"] = local_z
+                # Fleet frame: per-drone local position shifted into the shared
+                # trajectory/fleet coordinate space (see LAUNCH_PAD_SPACING_Y_M above).
+                self.telemetry[drone_id]["fleet_x"] = round(local_x + pad_x_off, 2)
+                self.telemetry[drone_id]["fleet_y"] = round(local_y + pad_y_off, 2)
+                self.telemetry[drone_id]["fleet_z"] = local_z
         except asyncio.CancelledError:
             pass
         except Exception as e:
@@ -227,74 +253,104 @@ class DroneManager:
 
     # --- Flight commands ---
 
+    # Max drones armed/climbed concurrently in one launch batch. Keeps gRPC/CPU
+    # load bounded as fleet size grows, instead of one drone at a time.
+    LAUNCH_BATCH_SIZE = 5
+
     async def launch_sequence(self):
-        """Arm, switch to offboard, and take off sequentially with 1-second spacing."""
-        logging.info("Launching fleet sequentially...")
-        for drone_id, drone in self.drones.items():
-            if not self.telemetry[drone_id]["connected"]:
-                logging.warning(f"Skipping Drone {drone_id}: Disconnected")
-                continue
-                
+        """
+        Arm, switch to offboard, and take off in bounded-concurrency batches,
+        with each drone in a batch staggered by 1s (preserves the original
+        spatial/temporal launch stagger without serializing the whole fleet).
+
+        Idempotent: already-armed drones are skipped, so re-calling this to
+        pick up stragglers (e.g. drones that missed the armable window) does
+        not re-command drones that are already flying back to (0,0,0).
+        """
+        logging.info("Launching fleet (batched, concurrent)...")
+        drone_ids = list(self.drones.keys())
+        for batch_start in range(0, len(drone_ids), self.LAUNCH_BATCH_SIZE):
+            batch = drone_ids[batch_start:batch_start + self.LAUNCH_BATCH_SIZE]
+            await asyncio.gather(*(self._launch_one(drone_id, stagger_index=i) for i, drone_id in enumerate(batch)))
+
+    async def _launch_one(self, drone_id: int, stagger_index: int = 0):
+        """Arms, engages offboard, and climbs a single drone. Safe to re-call on an already-armed drone (no-op)."""
+        if self.telemetry[drone_id]["armed"]:
+            logging.info(f"Drone {drone_id} already armed — skipping (idempotent launch).")
+            return
+
+        drone = self.drones[drone_id]
+        if not self.telemetry[drone_id]["connected"]:
+            logging.warning(f"Skipping Drone {drone_id}: Disconnected")
+            return
+
+        # Preserve the original per-drone launch stagger within a batch.
+        await asyncio.sleep(stagger_index * 1.0)
+
+        try:
+            # Bypass magnetic and IMU calibration checks to prevent arming failure in simulation
             try:
-                # Bypass magnetic and IMU calibration checks to prevent arming failure in simulation
-                try:
-                    await drone.param.set_param_int("COM_ARM_MAG_STR", 0)
-                    await drone.param.set_param_int("EKF2_MAG_CHECK", 0)
-                    await drone.param.set_param_float("COM_ARM_IMU_ACC", 10.0)
-                    await drone.param.set_param_float("COM_ARM_IMU_GYR", 10.0)
-                except Exception as e:
-                    logging.warning(f"Failed to set calibration bypass parameters for Drone {drone_id}: {e}")
-                
-                # Wait for drone to become armable
-                logging.info(f"Drone {drone_id} waiting to become armable...")
+                await drone.param.set_param_int("COM_ARM_MAG_STR", 0)
+                await drone.param.set_param_int("EKF2_MAG_CHECK", 0)
+                await drone.param.set_param_float("COM_ARM_IMU_ACC", 10.0)
+                await drone.param.set_param_float("COM_ARM_IMU_GYR", 10.0)
+            except Exception as e:
+                logging.warning(f"Failed to set calibration bypass parameters for Drone {drone_id}: {e}")
+
+            # Wait for drone to become armable (bounded, so one stuck drone
+            # can't block the rest of the fleet — and callers can safely
+            # re-invoke launch_sequence() to retry just the stragglers).
+            logging.info(f"Drone {drone_id} waiting to become armable...")
+            async def _wait_armable():
                 async for health in drone.telemetry.health():
                     if health.is_armable:
                         logging.info(f"Drone {drone_id} is now armable.")
                         break
+            try:
+                await asyncio.wait_for(_wait_armable(), timeout=15.0)
+            except asyncio.TimeoutError:
+                logging.error(f"Drone {drone_id} did not become armable within 15s — skipping (retry later via /api/launch).")
+                return
 
-                # Arm
-                try:
-                    await drone.action.arm()
-                    logging.info(f"Drone {drone_id} ARMED.")
-                except Exception as e:
-                    logging.error(f"Arming Drone {drone_id} failed: {e}")
-                    continue
-                    
-                # Set initial position NED (0,0,0) before offboard
-                try:
-                    await drone.offboard.set_position_ned(PositionNedYaw(0.0, 0.0, 0.0, 0.0))
-                except Exception as e:
-                    logging.error(f"Setting initial position NED failed for Drone {drone_id}: {e}")
-                    continue
-                
-                # Start offboard mode
-                try:
-                    await drone.offboard.start()
-                    logging.info(f"Drone {drone_id} entered OFFBOARD mode.")
-                except OffboardError as e:
-                    logging.error(f"Offboard start failed for Drone {drone_id}: {e._result.result}")
-                    await drone.action.disarm()
-                    continue
-                except Exception as e:
-                    logging.error(f"Offboard start failed for Drone {drone_id}: {e}")
-                    await drone.action.disarm()
-                    continue
-                    
-                # Ascend to target altitude (spatial separation)
-                alt = DEFAULT_ALTITUDES[drone_id] if drone_id < len(DEFAULT_ALTITUDES) else 3.0
-                logging.info(f"Drone {drone_id} climbing to target hover altitude: {alt}m...")
-                try:
-                    await drone.offboard.set_position_ned(PositionNedYaw(0.0, 0.0, -alt, 0.0))
-                except Exception as e:
-                    logging.error(f"Climbing to target altitude failed for Drone {drone_id}: {e}")
-                    continue
-                    
+            # Arm
+            try:
+                await drone.action.arm()
+                logging.info(f"Drone {drone_id} ARMED.")
             except Exception as e:
-                logging.error(f"Unexpected error launching Drone {drone_id}: {e}")
-                continue
-            
-            # 1-second delay between launches
-            await asyncio.sleep(1.0)
+                logging.error(f"Arming Drone {drone_id} failed: {e}")
+                return
+
+            # Set initial position NED (0,0,0) before offboard
+            try:
+                await drone.offboard.set_position_ned(PositionNedYaw(0.0, 0.0, 0.0, 0.0))
+            except Exception as e:
+                logging.error(f"Setting initial position NED failed for Drone {drone_id}: {e}")
+                return
+
+            # Start offboard mode
+            try:
+                await drone.offboard.start()
+                logging.info(f"Drone {drone_id} entered OFFBOARD mode.")
+            except OffboardError as e:
+                logging.error(f"Offboard start failed for Drone {drone_id}: {e._result.result}")
+                await drone.action.disarm()
+                return
+            except Exception as e:
+                logging.error(f"Offboard start failed for Drone {drone_id}: {e}")
+                await drone.action.disarm()
+                return
+
+            # Ascend to target altitude (spatial separation)
+            alt = DEFAULT_ALTITUDES[drone_id] if drone_id < len(DEFAULT_ALTITUDES) else 3.0
+            logging.info(f"Drone {drone_id} climbing to target hover altitude: {alt}m...")
+            try:
+                await drone.offboard.set_position_ned(PositionNedYaw(0.0, 0.0, -alt, 0.0))
+            except Exception as e:
+                logging.error(f"Climbing to target altitude failed for Drone {drone_id}: {e}")
+                return
+
+        except Exception as e:
+            logging.error(f"Unexpected error launching Drone {drone_id}: {e}")
 
     async def trigger_rtl(self):
         """Trigger RTL for all connected drones."""
@@ -405,22 +461,31 @@ class DroneManager:
                     target = self._interpolate_waypoint(wps, elapsed)
                     
                     if target:
+                        # Trajectory coordinates are expressed in the shared fleet frame
+                        # (pad spacing baked in by the Studio generator). Subtract this
+                        # drone's own pad offset to get back to its own local/home frame.
+                        pad_x_off, pad_y_off = _pad_offset(drone_id)
+
                         if mode.upper() == "GLOBAL":
-                            # GLOBAL MODE: Translate local offsets using home GPS coordinates
+                            # GLOBAL MODE: Translate fleet-frame offsets using home GPS coordinates
                             home_lat = self.telemetry[drone_id]["home_lat"]
                             home_lon = self.telemetry[drone_id]["home_lon"]
-                            
-                            # Standard fallback reference if GPS origin hasn't locked yet
+
                             if home_lat == 0.0 and home_lon == 0.0:
-                                home_lat = 12.9716
-                                home_lon = 77.5946
-                                
-                            dlat = target["x"] / R
-                            dlon = target["y"] / (R * math.cos(math.radians(home_lat)))
+                                logging.error(
+                                    f"Drone {drone_id}: home GPS not yet locked — skipping GLOBAL setpoint "
+                                    f"this tick rather than using a fallback coordinate."
+                                )
+                                continue
+
+                            rel_x = target["x"] - pad_x_off
+                            rel_y = target["y"] - pad_y_off
+                            dlat = rel_x / R
+                            dlon = rel_y / (R * math.cos(math.radians(home_lat)))
                             lat_deg = home_lat + math.degrees(dlat)
                             lon_deg = home_lon + math.degrees(dlon)
                             alt_m = -target["z"] # convert NED Z down to altitude above home
-                            
+
                             setpoint_tasks.append(
                                 drone.offboard.set_position_global(
                                     PositionGlobalYaw(
@@ -434,11 +499,13 @@ class DroneManager:
                             )
                         else:
                             # LOCAL MODE: Send position, velocity, and acceleration NED (feed-forward)
-                            # Translate global trajectory coordinates to local drone frame by subtracting start coordinates
-                            first_wp = wps[0]
-                            local_x = target["x"] - first_wp["x"]
-                            local_y = target["y"] - first_wp["y"]
-                            
+                            # Convert fleet-frame trajectory coordinates to this drone's own
+                            # local/home frame by subtracting its known pad offset (not the
+                            # trajectory's first waypoint, which may not sit at the pad after
+                            # a slot remap). Z has no pad offset (pads are flat), so it's used as-is.
+                            local_x = target["x"] - pad_x_off
+                            local_y = target["y"] - pad_y_off
+
                             pos = PositionNedYaw(local_x, local_y, target["z"], target["yaw"])
                             vel = VelocityNedYaw(target.get("vx", 0.0), target.get("vy", 0.0), target.get("vz", 0.0), target["yaw"])
                             acc = AccelerationNed(target.get("ax", 0.0), target.get("ay", 0.0), target.get("az", 0.0))
@@ -480,17 +547,18 @@ class DroneManager:
                 continue
                 
             tel = self.telemetry[drone_id]
+            # Expected first-waypoint position, in the shared fleet frame.
             expected_x = first_wp["x"]
             expected_y = first_wp["y"]
-            expected_z = -first_wp["z"] # convert to height
-            
-            curr_x = tel["local_x"]
-            curr_y = tel["local_y"]
-            curr_z = tel["local_z"]
-            
-            # In SITL, each vehicle's local origin is at its own spawn point (takeoff pad).
-            # Hence, the expected coordinate relative to its home is (0, 0, 0).
-            dist = (curr_x**2 + curr_y**2 + curr_z**2)**0.5
+            expected_z = -first_wp["z"] # convert NED down to height
+
+            # Actual position, converted from this drone's own local/home frame
+            # into the same fleet frame (see LAUNCH_PAD_SPACING_Y_M).
+            curr_x = tel["fleet_x"]
+            curr_y = tel["fleet_y"]
+            curr_z = tel["fleet_z"]
+
+            dist = ((curr_x - expected_x)**2 + (curr_y - expected_y)**2 + (curr_z - expected_z)**2)**0.5
             
             passed = dist <= tolerance_m
             if not passed:
@@ -615,37 +683,39 @@ class DroneManager:
                     self.proximity_breaches.clear()
                 else:
                     current_breaches = set()
-                    # Check distances between all pairs
-                    for i in range(len(active_ids)):
-                        for j in range(i + 1, len(active_ids)):
-                            id1 = active_ids[i]
-                            id2 = active_ids[j]
-                            pair = (min(id1, id2), max(id1, id2))
-                            
-                            t1 = self.telemetry[id1]
-                            t2 = self.telemetry[id2]
-                            
-                            # Shift coordinates by drone launch offset (2.0m spacing on Y)
-                            y1 = t1["local_y"] + 2.0 * id1
-                            y2 = t2["local_y"] + 2.0 * id2
-                            
-                            dist = ((t1["local_x"] - t2["local_x"])**2 + 
-                                    (y1 - y2)**2 + 
-                                    (t1["local_z"] - t2["local_z"])**2)**0.5
-                                    
-                            if dist < safety_limit:
-                                current_breaches.add(pair)
-                                if not self.proximity_breaches.get(pair, False):
-                                    self.proximity_breaches[pair] = True
-                                    logging.warning(f"🚨 PROXIMITY FAILSAFE: Drone {id1} and Drone {id2} are too close ({dist:.2f}m)!")
-                                    logging.warning("🚨 TRIGGERING EMERGENCY RTL FOR ALL VEHICLES.")
-                                    await self.trigger_rtl()
-                                    
+                    new_breach_found = False
+                    # Check distances between all pairs, in the shared fleet frame
+                    # (consistent with verify_launch_geometry and the Studio-exported
+                    # trajectory coordinates). Uses a cKDTree instead of an O(n^2)
+                    # nested loop — same approach as taramandal-studio's validator.py,
+                    # which stays fast as fleet size grows toward hundreds of drones.
+                    coords = [
+                        [self.telemetry[d_id]["fleet_x"], self.telemetry[d_id]["fleet_y"], self.telemetry[d_id]["fleet_z"]]
+                        for d_id in active_ids
+                    ]
+                    tree = cKDTree(coords)
+                    for i, j in tree.query_pairs(safety_limit):
+                        id1, id2 = active_ids[i], active_ids[j]
+                        pair = (min(id1, id2), max(id1, id2))
+                        current_breaches.add(pair)
+                        if not self.proximity_breaches.get(pair, False):
+                            self.proximity_breaches[pair] = True
+                            new_breach_found = True
+                            dist = ((coords[i][0] - coords[j][0])**2 +
+                                    (coords[i][1] - coords[j][1])**2 +
+                                    (coords[i][2] - coords[j][2])**2)**0.5
+                            logging.warning(f"🚨 PROXIMITY FAILSAFE: Drone {id1} and Drone {id2} are too close ({dist:.2f}m)!")
+
                     # Clear breach tracking for any pair that is no longer violating limits
                     for pair in list(self.proximity_breaches.keys()):
                         if self.proximity_breaches[pair] and pair not in current_breaches:
                             self.proximity_breaches[pair] = False
                             logging.info(f"Proximity breach between Drone {pair[0]} and Drone {pair[1]} cleared.")
+
+                    # Trigger RTL once per tick (not inline per-pair), after the full scan completes.
+                    if new_breach_found:
+                        logging.warning("🚨 TRIGGERING EMERGENCY RTL FOR ALL VEHICLES.")
+                        await self.trigger_rtl()
                                 
                 await asyncio.sleep(0.1)  # 10Hz
         except asyncio.CancelledError:

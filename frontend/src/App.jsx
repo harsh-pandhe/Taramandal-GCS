@@ -331,7 +331,7 @@ export default function App() {
                   <div key={id} className={`drone-card ${isConn ? '' : 'disconnected'}`}>
                     <div className="drone-card-header">
                       <div className="drone-id">
-                        🛸 DRONE 0{id}
+                        🛸 DRONE {String(id).padStart(2, '0')}
                         <span style={{ fontSize: '0.85rem', color: 'var(--text-muted)', fontWeight: 400 }}>
                           (Port {drone.port})
                         </span>
@@ -460,7 +460,7 @@ export default function App() {
                 {droneIds.length > 0 ? (
                   droneIds.map((id) => (
                     <div className="checklist-item" key={id}>
-                      <span>Sats (Drone 0{id}):</span>
+                      <span>Sats (Drone {String(id).padStart(2, '0')}):</span>
                       <span className="val">{telemetry[id]?.satellites || 0}</span>
                     </div>
                   ))
