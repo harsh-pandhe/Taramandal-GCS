@@ -1,0 +1,19 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+.pytest_cache/
+
+# Node/React
+node_modules/
+dist/
+.eslintcache
+
+# Local Exports/Tests
+*.csv
+*.json
+*.kml
+
+# Claude Code session/worktree dirs
+.claude/
