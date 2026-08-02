@@ -1,8 +1,10 @@
 import json
 import io
-import math
 import zipfile
 import pandas as pd
+
+from tara_core import DEFAULT_LIMITS
+from tara_core.validate import collision_errors
 
 def parse_trajectory_file(content: str, filename: str) -> dict:
     """
@@ -65,67 +67,25 @@ def parse_trajectory_bytes(content: bytes, filename: str) -> dict:
     except Exception as e:
         raise ValueError(f"Error parsing trajectory bytes ({filename}): {str(e)}")
 
-def validate_trajectory_collisions(trajectory_data: dict, safety_distance: float = 1.5) -> list:
+def validate_trajectory_collisions(trajectory_data: dict, safety_distance: float = None) -> list:
     """
     Checks if any two drones drift within safety_distance during the trajectory.
+
+    This is the last gate before a show can fly, so it enforces the hard runtime
+    limit (`SafetyLimits.min_separation_m`) that the live proximity monitor
+    aborts on — not the stricter design threshold the Studio validates against.
+    A show certified by the Studio therefore always clears this check.
+
+    The sweep itself lives in tara_core so the Studio, this uploader and the
+    live monitor cannot drift apart again; it also replaces the previous
+    hand-rolled O(n^2) pair loop with a cKDTree, which matters at 100 drones
+    (~4,950 pairs per sample, ~300 samples per show).
     """
-    errors = []
-    max_time = 0.0
-    for drone_id, wps in trajectory_data.items():
-        if wps:
-            max_time = max(max_time, wps[-1]["time"])
-            
-    # Sample path coordinates at 10Hz steps.
-    # Convert max_time to integer ticks of 0.1s to avoid float accumulation drift,
-    # and use ceil so the sweep always reaches the end of the timeline — round()
-    # would stop short for durations that aren't an exact multiple of 0.1s (e.g.
-    # 5.44s), leaving the final segment unchecked for collisions.
-    total_steps = math.ceil(max_time * 10)
-    
-    for step in range(total_steps + 1):
-        t = step / 10.0
-        positions = {}
-        for drone_id, wps in trajectory_data.items():
-            # Interpolate position at time t
-            if not wps:
-                continue
-            if t <= wps[0]["time"]:
-                positions[drone_id] = wps[0]
-            elif t >= wps[-1]["time"]:
-                positions[drone_id] = wps[-1]
-            else:
-                for i in range(len(wps) - 1):
-                    wp_start = wps[i]
-                    wp_end = wps[i+1]
-                    if wp_start["time"] <= t <= wp_end["time"]:
-                        duration = wp_end["time"] - wp_start["time"]
-                        ratio = (t - wp_start["time"]) / duration if duration > 0 else 0
-                        positions[drone_id] = {
-                            "x": wp_start["x"] + ratio * (wp_end["x"] - wp_start["x"]),
-                            "y": wp_start["y"] + ratio * (wp_end["y"] - wp_start["y"]),
-                            "z": wp_start["z"] + ratio * (wp_end["z"] - wp_start["z"])
-                        }
-                        break
-                        
-        # Check distances between all active pairs
-        drone_ids = list(positions.keys())
-        for i in range(len(drone_ids)):
-            for j in range(i + 1, len(drone_ids)):
-                id1 = drone_ids[i]
-                id2 = drone_ids[j]
-                p1 = positions[id1]
-                p2 = positions[id2]
-                
-                dist = ((p1["x"] - p2["x"])**2 + (p1["y"] - p2["y"])**2 + (p1["z"] - p2["z"])**2)**0.5
-                if dist < safety_distance:
-                    errors.append(
-                        f"Collision risk at {t:.1f}s: Drone {id1} and Drone {id2} are separated by {dist:.2f}m (limit: {safety_distance}m)"
-                    )
-                    # Cap errors list
-                    if len(errors) >= 3:
-                        return errors
-                        
-    return errors
+    return collision_errors(
+        trajectory_data,
+        limits=DEFAULT_LIMITS,
+        separation=safety_distance,
+    )
 
 def _parse_json(content: str) -> dict:
     data = json.loads(content)

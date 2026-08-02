@@ -1,5 +1,5 @@
 """
-Taramandal Studio - Collision-aware formation assignment.
+Collision-aware formation assignment.
 
 When the fleet morphs from one formation to the next, WHICH drone flies to WHICH
 target point matters enormously: a naive index-order mapping (drone i -> target i)

@@ -5,14 +5,40 @@ Taramandal Studio - Trajectory Generation Library
 import math
 import logging
 
+from tara_core import DEFAULT_LIMITS, altitude_layers
+
+
+def _default_launch_state(
+    num_drones: int, spawn_offsets: list | None, target_heights: list | None
+) -> tuple[list, list]:
+    """Fill in default launch pads and hover altitudes from the shared limits.
+
+    The hover altitudes previously stepped by 0.7 m per drone, which is below
+    both the design threshold and the 1.5 m the fleet aborts on. That was not
+    theoretical: in a 3-drone circle the drones converge horizontally as they
+    blend out of takeoff, leaving the vertical stagger as the *only* separation,
+    and the show bottomed out at 0.77 m. Altitude steps now come from
+    ``tara_core.altitude_layers``, which derives them from the safety limits.
+
+    Pad offsets stay on a line here because ``sim/px4/launch_fleet.sh`` spawns
+    the Gazebo models at matching poses; moving both onto ``launch_grid`` is
+    part of the simulator work.
+    """
+    if spawn_offsets is None:
+        spawn_offsets = [
+            DEFAULT_LIMITS.design_separation_m * d_id for d_id in range(num_drones)
+        ]
+    if target_heights is None:
+        target_heights = altitude_layers(num_drones)
+    return spawn_offsets, target_heights
+
 def generate_circle(num_drones: int, duration: float, rate: float, spawn_offsets: list = None, target_heights: list = None) -> dict:
     total_steps = int(duration * rate)
     drones_wps = {d_id: [] for d_id in range(num_drones)}
     
-    if spawn_offsets is None:
-        spawn_offsets = [float(2.0 * d_id) for d_id in range(num_drones)]
-    if target_heights is None:
-        target_heights = [2.0 + d_id * 0.7 for d_id in range(num_drones)]
+    spawn_offsets, target_heights = _default_launch_state(
+        num_drones, spawn_offsets, target_heights
+    )
         
     start_positions = {d_id: {"x": 0.0, "y": float(spawn_offsets[d_id]), "z": 0.0} for d_id in range(num_drones)}
     target_heights = {d_id: float(target_heights[d_id]) for d_id in range(num_drones)}
@@ -92,10 +118,9 @@ def generate_helix(num_drones: int, duration: float, rate: float, spawn_offsets:
     total_steps = int(duration * rate)
     drones_wps = {d_id: [] for d_id in range(num_drones)}
     
-    if spawn_offsets is None:
-        spawn_offsets = [float(2.0 * d_id) for d_id in range(num_drones)]
-    if target_heights is None:
-        target_heights = [2.0 + d_id * 0.7 for d_id in range(num_drones)]
+    spawn_offsets, target_heights = _default_launch_state(
+        num_drones, spawn_offsets, target_heights
+    )
         
     start_positions = {d_id: {"x": 0.0, "y": float(spawn_offsets[d_id]), "z": 0.0} for d_id in range(num_drones)}
     target_heights = {d_id: float(target_heights[d_id]) for d_id in range(num_drones)}
@@ -173,10 +198,9 @@ def generate_heart(num_drones: int, duration: float, rate: float, spawn_offsets:
     total_steps = int(duration * rate)
     drones_wps = {d_id: [] for d_id in range(num_drones)}
     
-    if spawn_offsets is None:
-        spawn_offsets = [float(2.0 * d_id) for d_id in range(num_drones)]
-    if target_heights is None:
-        target_heights = [2.0 + d_id * 0.7 for d_id in range(num_drones)]
+    spawn_offsets, target_heights = _default_launch_state(
+        num_drones, spawn_offsets, target_heights
+    )
         
     start_positions = {d_id: {"x": 0.0, "y": float(spawn_offsets[d_id]), "z": 0.0} for d_id in range(num_drones)}
     target_heights = {d_id: float(target_heights[d_id]) for d_id in range(num_drones)}
@@ -270,10 +294,9 @@ def generate_cube(num_drones: int, duration: float, rate: float, spawn_offsets: 
     total_steps = int(duration * rate)
     drones_wps = {d_id: [] for d_id in range(num_drones)}
     
-    if spawn_offsets is None:
-        spawn_offsets = [float(2.0 * d_id) for d_id in range(num_drones)]
-    if target_heights is None:
-        target_heights = [2.0 + d_id * 0.7 for d_id in range(num_drones)]
+    spawn_offsets, target_heights = _default_launch_state(
+        num_drones, spawn_offsets, target_heights
+    )
         
     start_positions = {d_id: {"x": 0.0, "y": float(spawn_offsets[d_id]), "z": 0.0} for d_id in range(num_drones)}
     target_heights = {d_id: float(target_heights[d_id]) for d_id in range(num_drones)}
@@ -361,10 +384,9 @@ def generate_spline(num_drones: int, duration: float, rate: float, spawn_offsets
     total_steps = int(duration * rate)
     drones_wps = {d_id: [] for d_id in range(num_drones)}
     
-    if spawn_offsets is None:
-        spawn_offsets = [float(2.0 * d_id) for d_id in range(num_drones)]
-    if target_heights is None:
-        target_heights = [2.0 + d_id * 0.7 for d_id in range(num_drones)]
+    spawn_offsets, target_heights = _default_launch_state(
+        num_drones, spawn_offsets, target_heights
+    )
         
     start_positions = {d_id: {"x": 0.0, "y": float(spawn_offsets[d_id]), "z": 0.0} for d_id in range(num_drones)}
     target_heights = {d_id: float(target_heights[d_id]) for d_id in range(num_drones)}

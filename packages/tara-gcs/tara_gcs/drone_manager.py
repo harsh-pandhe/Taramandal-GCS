@@ -2,23 +2,40 @@ import asyncio
 import math
 import logging
 from scipy.spatial import cKDTree
+from tara_core import DEFAULT_LIMITS, altitude_layers, launch_grid
 from mavsdk import System
 from mavsdk.offboard import PositionNedYaw, PositionGlobalYaw, OffboardError, VelocityNedYaw, AccelerationNed
 
-# Default target altitudes for basic spatial separation (0.7m steps)
-DEFAULT_ALTITUDES = [2.0 + 0.7 * i for i in range(10)]
+# Fleet-wide safety limits and launch geometry come from tara_core so that this
+# runtime monitor, the upload gate and the Studio's design-time validator can no
+# longer disagree. Previously the altitudes here rose in 0.7m steps — below both
+# the 0.8m the Studio checked and the 1.5m this module aborts on, meaning a
+# fleet was in violation while still hovering over its own pads.
+MAX_FLEET_SIZE = 1000
+DEFAULT_ALTITUDES = altitude_layers(MAX_FLEET_SIZE)
 
 # Each drone's PX4/SITL local NED origin is set at its own spawn/launch pad, so
 # per-drone "local_x/y/z" telemetry is NOT directly comparable across drones.
-# scripts/launch_fleet.sh spawns pads spaced 2.0m apart on Y, and taramandal-studio's
-# generator bakes that same pad spacing into trajectory coordinates (a shared
-# "fleet frame"). This offset converts between the two frames consistently.
-LAUNCH_PAD_SPACING_Y_M = 2.0
+# sim/px4/launch_fleet.sh spawns pads on the same grid tara_core.launch_grid
+# defines, and the Studio's generator bakes that grid into trajectory
+# coordinates (a shared "fleet frame"). This offset converts between the two.
+LAUNCH_PAD_SPACING_Y_M = DEFAULT_LIMITS.design_separation_m
+
+
+#: Pads for the largest fleet we support, computed once. Indexing into a single
+#: fixed grid matters: deriving it per-drone from the current fleet size would
+#: move a drone's pad every time the fleet grew, because the grid's width is
+#: ceil(sqrt(n)).
+_PAD_GRID = launch_grid(MAX_FLEET_SIZE)
 
 
 def _pad_offset(drone_id: int) -> tuple[float, float]:
     """Returns (x, y) offset of a drone's own launch pad within the shared fleet frame."""
-    return (0.0, LAUNCH_PAD_SPACING_Y_M * drone_id)
+    if not 0 <= drone_id < MAX_FLEET_SIZE:
+        raise ValueError(
+            f"drone_id {drone_id} outside supported fleet size 0..{MAX_FLEET_SIZE - 1}"
+        )
+    return _PAD_GRID[drone_id]
 
 class DroneManager:
     def __init__(self, ports: list[int] = [14540, 14541, 14542]):
@@ -28,7 +45,7 @@ class DroneManager:
         self._tasks = []
         self.trajectory_task = None
         self.is_running_trajectory = False
-        self.geofence_radius = 30.0  # meters, horizontal distance from home (0,0)
+        self.geofence_radius = DEFAULT_LIMITS.geofence_radius_m  # horizontal distance from home (0,0)
         self.geofence_breaches = {}  # drone_id -> bool, tracks active geofence breaches
         self.proximity_breaches = {}  # tracks active proximity breaches per drone pair: (id1, id2) -> bool
         self.active_trajectory = None  # active trajectory stored for verification and start
@@ -665,7 +682,7 @@ class DroneManager:
             "az": 0.0
         }
 
-    async def _proximity_monitor_loop(self, safety_limit: float = 1.5):
+    async def _proximity_monitor_loop(self, safety_limit: float = DEFAULT_LIMITS.min_separation_m):
         """
         Monitors spatial separation between all active/armed drones at 10Hz.
         Triggers emergency failsafe (RTL) if distance is breached.
