@@ -8,10 +8,10 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 from typing import Optional
 
-from studio.generator import generate_circle, generate_helix, generate_heart, generate_cube, generate_spline
-from studio.validator import validate_choreography
-from studio.exporter import export_json, export_csv, export_kml
-from studio.assignment import optimal_assignment
+from tara_studio.generator import generate_circle, generate_helix, generate_heart, generate_cube, generate_spline
+from tara_studio.validator import validate_choreography
+from tara_studio.exporter import export_json, export_csv, export_kml
+from tara_studio.assignment import optimal_assignment
 
 app = FastAPI(title="Taramandal Studio Choreography Engine", version="1.0.0")
 

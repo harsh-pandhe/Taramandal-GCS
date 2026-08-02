@@ -60,6 +60,6 @@ echo "Waiting 3 seconds for the bridge to come up..."
 sleep 3
 
 echo "Launching RViz2..."
-rviz2 -d "$SCRIPT_DIR/../rviz/taramandal.rviz"
+rviz2 -d "$SCRIPT_DIR/rviz/taramandal.rviz"
 
 cleanup

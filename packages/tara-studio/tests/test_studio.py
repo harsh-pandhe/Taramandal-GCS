@@ -1,7 +1,7 @@
 import pytest
-from studio.generator import generate_circle, generate_helix, generate_heart, generate_cube, generate_spline
-from studio.validator import validate_choreography
-from studio.exporter import export_kml, export_csv, export_json
+from tara_studio.generator import generate_circle, generate_helix, generate_heart, generate_cube, generate_spline
+from tara_studio.validator import validate_choreography
+from tara_studio.exporter import export_kml, export_csv, export_json
 
 def test_generate_shapes():
     shapes = [

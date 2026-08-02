@@ -1,5 +1,5 @@
 import pytest
-from studio.assignment import optimal_assignment, total_cost
+from tara_studio.assignment import optimal_assignment, total_cost
 
 
 def pts(coords):

@@ -24,6 +24,12 @@ etc/
 /tmp/px4_*.log
 /tmp/gz_*.log
 
+# Generated show exports (Studio writes CSV/JSON/KML here).
+# NOTE: scoped to this directory on purpose. The old taramandal-studio repo
+# used a bare `*.json`, which silently untracked frontend/package.json and
+# package-lock.json — a fresh clone could not npm install. Do not reintroduce it.
+/exports/
+
 # System files
 .DS_Store
 Thumps.db

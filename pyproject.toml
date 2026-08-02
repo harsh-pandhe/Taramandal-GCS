@@ -1,0 +1,26 @@
+# Taramandal monorepo root.
+#
+# The Python packages use a src-style layout (packages/<name>/<import_name>/),
+# so `pythonpath` below is what lets `import tara_gcs` / `import tara_studio`
+# resolve from a plain `pytest` at the repo root without any install step.
+
+[tool.pytest.ini_options]
+testpaths = [
+    "packages/tara-core/tests",
+    "packages/tara-gcs/tests",
+    "packages/tara-sim/tests",
+    "packages/tara-studio/tests",
+]
+pythonpath = [
+    "packages/tara-core",
+    "packages/tara-gcs",
+    "packages/tara-sim",
+    "packages/tara-studio",
+    "apps",
+]
+# Each package has its own tests/ directory. Under the default import mode those
+# all resolve to a single `tests` package name and shadow each other, so use
+# importlib mode — it keys modules by file path and needs no __init__.py markers.
+addopts = "--import-mode=importlib"
+asyncio_mode = "auto"
+filterwarnings = ["ignore::DeprecationWarning"]

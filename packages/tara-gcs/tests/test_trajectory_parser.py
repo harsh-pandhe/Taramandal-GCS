@@ -1,13 +1,13 @@
 import pytest
 import pandas as pd
 import json
-from backend.trajectory_parser import (
+from tara_gcs.trajectory_parser import (
     _parse_json,
     _parse_csv,
     validate_trajectory_collisions,
     parse_trajectory_bytes
 )
-from backend.drone_manager import DroneManager
+from tara_gcs.drone_manager import DroneManager
 
 def test_parse_json_valid():
     valid_json = {

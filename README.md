@@ -87,38 +87,64 @@ graph TD
 * **Python:** 3.10+
 * **Node.js:** 18+
 
-### 1. Launching the Simulator
+### Repository layout
+
+This is a monorepo. Both the ground control station and the choreography studio
+live here, sharing one dependency set and one test suite.
+
+```
+packages/tara-gcs/          FastAPI fleet controller (tara_gcs/)
+packages/tara-studio/       Choreography generation + validation (tara_studio/)
+packages/tara-web/          GCS operator dashboard (React)
+packages/tara-studio-web/   Studio design app (React)
+sim/px4/                    PX4 SITL + Gazebo fleet launch scripts
+sim/ros/                    ROS 2 TF bridge + RViz config
+tools/                      Standalone generators/utilities
+examples/                   Sample choreography files
+```
+
+### 1. Install
+Once, from the repository root:
+```bash
+python3 -m venv .venv
+.venv/bin/pip install -r requirements.txt
+```
+
+### 2. Launching the Simulator
 To start the 3-drone simulation in Gazebo with the graphical GUI enabled:
 ```bash
-bash scripts/launch_fleet.sh -n 3
+bash sim/px4/launch_fleet.sh -n 3
 ```
 *Note: To run the simulator headlessly (no Gazebo UI window), pass the `-h` flag:*
 ```bash
-bash scripts/launch_fleet.sh -n 3 -h
+bash sim/px4/launch_fleet.sh -n 3 -h
 ```
 
-### 2. Sourcing and Running the Backend
+### 3. Running the GCS Backend
 From the root of the repository:
 ```bash
-# Activate Python Virtual Environment
-source .venv/bin/activate
-
-# Install requirements (if not done)
-pip install -r requirements.txt
-
-# Start FastAPI server
-uvicorn backend.main:app --host 0.0.0.0 --port 8000
+PYTHONPATH=packages/tara-gcs GCS_PORT=8090 NUM_DRONES=3 \
+  .venv/bin/uvicorn tara_gcs.main:app --port 8090
 ```
-The Swagger API documentation will be available at [http://localhost:8000/docs](http://localhost:8000/docs).
+The Studio backend runs the same way:
+```bash
+PYTHONPATH=packages/tara-studio .venv/bin/uvicorn tara_studio.server:app --port 8001
+```
+The Swagger API documentation will be available at [http://localhost:8090/docs](http://localhost:8090/docs).
 
-### 3. Launching the GCS Dashboard
+### 4. Launching the GCS Dashboard
 In a new terminal tab:
 ```bash
-cd frontend
+cd packages/tara-web
 npm install
-npm run dev -- --host 0.0.0.0 --port 5173
+npm run dev -- --port 5173
 ```
 Access the GCS interface in your browser at [http://localhost:5173/](http://localhost:5173/).
+
+### 5. Running the tests
+```bash
+.venv/bin/python -m pytest
+```
 
 ---
 

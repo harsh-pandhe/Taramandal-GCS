@@ -11,9 +11,9 @@ import os
 # Put parent directory in path to allow imports from studio
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
-from studio.generator import generate_circle, generate_helix, generate_heart, generate_cube
-from studio.validator import validate_choreography
-from studio.exporter import export_csv
+from tara_studio.generator import generate_circle, generate_helix, generate_heart, generate_cube
+from tara_studio.validator import validate_choreography
+from tara_studio.exporter import export_csv
 
 def main():
     parser = argparse.ArgumentParser(description="Taramandal Studio Choreography Engine MVP CLI")

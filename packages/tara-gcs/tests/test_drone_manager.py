@@ -1,7 +1,7 @@
 import pytest
 import asyncio
 from unittest.mock import AsyncMock, patch
-from backend.drone_manager import DroneManager, _pad_offset
+from tara_gcs.drone_manager import DroneManager, _pad_offset
 
 def _make_telemetry(local_x, local_y, local_z, drone_id):
     """Builds a telemetry entry with fleet_x/y/z derived the same way _monitor_position does."""
@@ -164,7 +164,7 @@ async def test_geofence_safety_safe():
 @pytest.mark.asyncio
 async def test_telemetry_fields_exist():
     manager = DroneManager(ports=[])
-    with patch('backend.drone_manager.System') as mock_system:
+    with patch('tara_gcs.drone_manager.System') as mock_system:
         mock_instance = mock_system.return_value
         mock_instance.connect = AsyncMock()
         
