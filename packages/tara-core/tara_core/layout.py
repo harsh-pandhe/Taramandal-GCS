@@ -23,6 +23,18 @@ from .safety import DEFAULT_LIMITS, SafetyLimits
 #: Altitude of the lowest hover layer, metres above ground.
 BASE_HOVER_ALT_M = 2.0
 
+#: The largest fleet size the pad grid and altitude layers are sized for.
+#: `tara_gcs.drone_manager` indexes a single grid built at this size (not one
+#: sized to whatever fleet is currently connected) so that a drone's pad
+#: never moves as the fleet grows — see `launch_grid`'s docstring. The Studio
+#: generator (`tara_studio.generator._default_launch_state`) uses the exact
+#: same fixed-size grid for its default spawn positions, which is what keeps
+#: an auto-generated show's pad assignments identical to the GCS's — the two
+#: previously disagreed past 32 drones (Studio placed everyone on a 1D line;
+#: the GCS wrapped into a new row at 32), silently misplacing any show larger
+#: than that.
+MAX_FLEET_SIZE = 1000
+
 
 def launch_grid(
     n: int,

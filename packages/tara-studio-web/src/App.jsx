@@ -26,6 +26,11 @@ const API_BASE = import.meta.env.VITE_API_BASE || "http://127.0.0.1:8001";
 // The GCS fleet backend the "Send to GCS" button pushes trajectories to.
 // Override with VITE_GCS_BASE (defaults to the GCS backend's default port 8000).
 const GCS_BASE = import.meta.env.VITE_GCS_BASE || "http://localhost:8000";
+// Mirrors tara_core.layout.MAX_FLEET_SIZE — kept in sync by hand, same as
+// geo.js/telemetry.js on the GCS side. Used only to bound the drone-count
+// input; this used to be hardcoded to 10, which silently capped every show
+// this app could ever produce well under the platform's actual target scale.
+const MAX_FLEET_SIZE = 1000;
 
 const interpolateWaypoint = (waypoints, t) => {
   if (!waypoints || waypoints.length === 0) return null;
@@ -189,26 +194,26 @@ const buildSequencedShow = (scenes, n, rate, targetIdx = null) => {
   return { drones: wps.map((w, i) => ({ id: i, waypoints: w })), _duration: round2(t - dt) };
 };
 
-// Computes the collision-free assignment chain across a scene list by asking the
-// backend for the min-travel matching between each consecutive formation pair.
-// Returns targetIdx[s][i] (point index drone i occupies at formation s), or null
-// if the backend is unreachable (caller falls back to identity mapping).
+// Computes the collision-free assignment chain across a scene list in ONE
+// request to /api/assign-chain, rather than one request per consecutive
+// formation pair. The chain is inherently sequential (formation s+1's
+// assignment depends on formation s's), so the old per-pair loop couldn't
+// parallelize those requests on the client anyway — every pair still paid a
+// full round trip, one after another. Moving the loop server-side collapses
+// N-1 sequential round trips into 1, which matters as a show's formation
+// count grows for a larger fleet.
+// Returns targetIdx[s][i] (point index drone i occupies at formation s), or
+// null if the backend is unreachable (caller falls back to identity mapping).
 const computeAssignmentChain = async (scenes, n, apiBase) => {
   const forms = scenes.map((s) => buildFormation(s.shape, n));
-  const targetIdx = [Array.from({ length: n }, (_, i) => i)]; // formation 0: identity
-  for (let s = 0; s < forms.length - 1; s++) {
-    const cur = targetIdx[s];
-    const fromPts = Array.from({ length: n }, (_, i) => forms[s][cur[i]]);
-    const resp = await fetch(`${apiBase}/api/assign`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ from: fromPts, to: forms[s + 1] }),
-    });
-    if (!resp.ok) throw new Error(`assign failed (${resp.status})`);
-    const data = await resp.json();
-    targetIdx.push(data.assignment);
-  }
-  return targetIdx;
+  const resp = await fetch(`${apiBase}/api/assign-chain`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ forms }),
+  });
+  if (!resp.ok) throw new Error(`assign-chain failed (${resp.status})`);
+  const data = await resp.json();
+  return data.target_idx;
 };
 
 export default function App() {
@@ -1707,16 +1712,16 @@ export default function App() {
                           <input
                             type="number"
                             min="1"
-                            max="10"
+                            max={MAX_FLEET_SIZE}
                             value={numDrones}
                             onChange={(e) => {
-                              const n = Math.max(1, Math.min(10, parseInt(e.target.value) || 1));
+                              const n = Math.max(1, Math.min(MAX_FLEET_SIZE, parseInt(e.target.value) || 1));
                               setNumDrones(n);
                             }}
                           />
                         </div>
                       </div>
-                      
+
                       {shape === "mesh" && (
                         <div className="form-group" style={{ marginTop: '0.25rem' }}>
                           <label style={{ display: 'flex', justifyContent: 'space-between' }}>

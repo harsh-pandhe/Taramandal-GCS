@@ -2,7 +2,7 @@ import asyncio
 import math
 import logging
 from scipy.spatial import cKDTree
-from tara_core import DEFAULT_LIMITS, altitude_layers, interpolate_waypoint, launch_grid
+from tara_core import DEFAULT_LIMITS, MAX_FLEET_SIZE, altitude_layers, interpolate_waypoint, launch_grid
 from mavsdk import System
 from mavsdk.offboard import PositionNedYaw, PositionGlobalYaw, OffboardError, VelocityNedYaw, AccelerationNed
 
@@ -11,7 +11,13 @@ from mavsdk.offboard import PositionNedYaw, PositionGlobalYaw, OffboardError, Ve
 # longer disagree. Previously the altitudes here rose in 0.7m steps — below both
 # the 0.8m the Studio checked and the 1.5m this module aborts on, meaning a
 # fleet was in violation while still hovering over its own pads.
-MAX_FLEET_SIZE = 1000
+#
+# MAX_FLEET_SIZE now lives in tara_core (not a local constant here) so the
+# Studio generator's default spawn positions are built from the exact same
+# fixed-size grid — the two previously disagreed past 32 drones, since this
+# module always used tara_core.launch_grid(MAX_FLEET_SIZE) while the Studio
+# generator used its own 1D line, and the two only coincided by accident for
+# fleets that fit in the grid's first row.
 DEFAULT_ALTITUDES = altitude_layers(MAX_FLEET_SIZE)
 
 # Each drone's PX4/SITL local NED origin is set at its own spawn/launch pad, so

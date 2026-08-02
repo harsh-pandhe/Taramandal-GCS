@@ -5,7 +5,7 @@ Taramandal Studio - Trajectory Generation Library
 import math
 import logging
 
-from tara_core import DEFAULT_LIMITS, altitude_layers
+from tara_core import MAX_FLEET_SIZE, altitude_layers, launch_grid
 
 
 def _default_launch_state(
@@ -20,17 +20,89 @@ def _default_launch_state(
     and the show bottomed out at 0.77 m. Altitude steps now come from
     ``tara_core.altitude_layers``, which derives them from the safety limits.
 
-    Pad offsets stay on a line here because ``sim/px4/launch_fleet.sh`` spawns
-    the Gazebo models at matching poses; moving both onto ``launch_grid`` is
-    part of the simulator work.
+    Default pad positions come from the SAME fixed-size grid
+    (``tara_core.launch_grid(MAX_FLEET_SIZE)``) that
+    ``tara_gcs.drone_manager._pad_offset`` uses, not a 1D line. Those two used
+    to disagree past 32 drones — a line keeps every drone at x=0 forever,
+    while the GCS's grid wraps into a new row at 32 columns — which would
+    silently misplace any auto-generated show larger than that once it
+    reached the GCS. Returns ``(x, y)`` pairs when defaulted.
+
+    An explicitly-passed ``spawn_offsets`` (the Studio UI's per-drone Y-offset
+    field) is honoured as-is for backward compatibility — a flat list of
+    floats, x=0 — since that is a public API shape (studio/server.py's
+    ``GenerateRequest.spawn_offsets``, the web app's ``spawnOffsets`` state).
+    Only the *default* (no override given) case gets the corrected 2D grid.
     """
     if spawn_offsets is None:
-        spawn_offsets = [
-            DEFAULT_LIMITS.design_separation_m * d_id for d_id in range(num_drones)
-        ]
+        spawn_offsets = launch_grid(MAX_FLEET_SIZE)[:num_drones]
     if target_heights is None:
         target_heights = altitude_layers(num_drones)
     return spawn_offsets, target_heights
+
+
+#: Fraction of the landing window spent returning to the pad horizontally
+#: before any descent begins. See _land_waypoint's docstring for why.
+LAND_RETURN_FRACTION = 0.6
+
+
+def _land_waypoint(d_id: int, ratio: float, start_positions: dict, target_heights: dict, land_entry: dict) -> dict:
+    """Computes one drone's position during the landing window.
+
+    Splits the window into two sequential sub-phases instead of blending
+    horizontal return and vertical descent simultaneously:
+
+      1. **Return** (first ``LAND_RETURN_FRACTION`` of the window): fly from
+         the choreography's end position to this drone's own pad, holding
+         the choreography's ending altitude.
+      2. **Descend** (the rest): drop straight down to the ground, XY already
+         fixed at the pad.
+
+    Blending both at once let one drone's horizontal return path and
+    another's converge in space at the same moment their altitude gap was
+    also shrinking, which measured as low as 1.09m of total separation for
+    the circle shape — under the 1.5m the fleet aborts on — even though the
+    launch-pad grid itself is spaced >=2m apart. Returning to the
+    already-safe pad grid *before* giving up altitude means the altitude
+    collapse at touchdown always has that >=2m of horizontal separation to
+    fall back on.
+
+    Args:
+        d_id: Drone index.
+        ratio: Progress through the landing window, 0 to 1.
+        start_positions: Each drone's pad ``{"x", "y"}``.
+        target_heights: Each drone's hover altitude.
+        land_entry: Each drone's ``{"x", "y", "z"}`` at the moment landing
+            began (the choreography's last waypoint) — captured once, not
+            re-read from the continuously-updating last-appended waypoint.
+
+    Returns:
+        ``{"x", "y", "z", "yaw"}``, unrounded.
+    """
+    return_ratio = min(1.0, ratio / LAND_RETURN_FRACTION)
+    descend_ratio = max(0.0, (ratio - LAND_RETURN_FRACTION) / (1.0 - LAND_RETURN_FRACTION))
+
+    entry = land_entry[d_id]
+    target_x = start_positions[d_id]["x"]
+    target_y = start_positions[d_id]["y"]
+
+    x_val = entry["x"] + return_ratio * (target_x - entry["x"])
+    y_val = entry["y"] + return_ratio * (target_y - entry["y"])
+    z_val = entry["z"] * (1.0 - descend_ratio)
+
+    return {"x": x_val, "y": y_val, "z": z_val, "yaw": 0.0}
+
+
+def _pad_xy(pad) -> tuple[float, float]:
+    """Extracts (x, y) from either pad representation `_default_launch_state` can return.
+
+    A defaulted pad is an ``(x, y)`` tuple from ``launch_grid``; an explicitly
+    passed ``spawn_offsets`` entry is a bare float (y-only, x=0) for backward
+    compatibility with the existing Studio UI/API.
+    """
+    if isinstance(pad, (tuple, list)):
+        return float(pad[0]), float(pad[1])
+    return 0.0, float(pad)
 
 def generate_circle(num_drones: int, duration: float, rate: float, spawn_offsets: list = None, target_heights: list = None) -> dict:
     total_steps = int(duration * rate)
@@ -40,13 +112,14 @@ def generate_circle(num_drones: int, duration: float, rate: float, spawn_offsets
         num_drones, spawn_offsets, target_heights
     )
         
-    start_positions = {d_id: {"x": 0.0, "y": float(spawn_offsets[d_id]), "z": 0.0} for d_id in range(num_drones)}
+    start_positions = {d_id: {"x": _pad_xy(spawn_offsets[d_id])[0], "y": _pad_xy(spawn_offsets[d_id])[1], "z": 0.0} for d_id in range(num_drones)}
     target_heights = {d_id: float(target_heights[d_id]) for d_id in range(num_drones)}
     
     center_x = 5.0
     center_y = float(num_drones - 1)
     radius = 4.0
     
+    land_entry = None  # captured once, at the moment landing begins
     for step in range(total_steps + 1):
         t = step / float(rate)
         
@@ -57,7 +130,7 @@ def generate_circle(num_drones: int, duration: float, rate: float, spawn_offsets
                 z_val = - (target_heights[d_id] * ratio)
                 drones_wps[d_id].append({
                     "time": round(t, 2),
-                    "x": 0.0,
+                    "x": start_positions[d_id]["x"],
                     "y": start_positions[d_id]["y"],
                     "z": round(z_val, 2),
                     "yaw": 0.0
@@ -78,7 +151,7 @@ def generate_circle(num_drones: int, duration: float, rate: float, spawn_offsets
                 target_y = center_y + radius * math.sin(angle)
                 target_z = - target_heights[d_id]
                 
-                x_val = blend_ratio * target_x
+                x_val = start_positions[d_id]["x"] + blend_ratio * (target_x - start_positions[d_id]["x"])
                 y_val = start_positions[d_id]["y"] + blend_ratio * (target_y - start_positions[d_id]["y"])
                 yaw_val = round(math.degrees(angle) % 360, 1)
                 
@@ -95,21 +168,17 @@ def generate_circle(num_drones: int, duration: float, rate: float, spawn_offsets
             elapsed = t - 25.0
             ratio = elapsed / land_duration
             
+            if land_entry is None:
+                land_entry = {d_id: dict(drones_wps[d_id][-1]) for d_id in range(num_drones)}
+
             for d_id in range(num_drones):
-                start_wp = drones_wps[d_id][-1]
-                target_x = 0.0
-                target_y = start_positions[d_id]["y"]
-                target_z = - (target_heights[d_id] * (1.0 - ratio))
-                
-                x_val = start_wp["x"] + ratio * (target_x - start_wp["x"])
-                y_val = start_wp["y"] + ratio * (target_y - start_wp["y"])
-                
+                wp = _land_waypoint(d_id, ratio, start_positions, target_heights, land_entry)
                 drones_wps[d_id].append({
                     "time": round(t, 2),
-                    "x": round(x_val, 2),
-                    "y": round(y_val, 2),
-                    "z": round(target_z, 2),
-                    "yaw": 0.0
+                    "x": round(wp["x"], 2),
+                    "y": round(wp["y"], 2),
+                    "z": round(wp["z"], 2),
+                    "yaw": wp["yaw"]
                 })
                 
     return {"drones": [{"id": d_id, "waypoints": wps} for d_id, wps in drones_wps.items()]}
@@ -122,13 +191,14 @@ def generate_helix(num_drones: int, duration: float, rate: float, spawn_offsets:
         num_drones, spawn_offsets, target_heights
     )
         
-    start_positions = {d_id: {"x": 0.0, "y": float(spawn_offsets[d_id]), "z": 0.0} for d_id in range(num_drones)}
+    start_positions = {d_id: {"x": _pad_xy(spawn_offsets[d_id])[0], "y": _pad_xy(spawn_offsets[d_id])[1], "z": 0.0} for d_id in range(num_drones)}
     target_heights = {d_id: float(target_heights[d_id]) for d_id in range(num_drones)}
     
     center_x = 6.0
     center_y = float(num_drones - 1)
     radius = 5.0
     
+    land_entry = None  # captured once, at the moment landing begins
     for step in range(total_steps + 1):
         t = step / float(rate)
         
@@ -138,7 +208,7 @@ def generate_helix(num_drones: int, duration: float, rate: float, spawn_offsets:
                 z_val = - (target_heights[d_id] * ratio)
                 drones_wps[d_id].append({
                     "time": round(t, 2),
-                    "x": 0.0,
+                    "x": start_positions[d_id]["x"],
                     "y": start_positions[d_id]["y"],
                     "z": round(z_val, 2),
                     "yaw": 0.0
@@ -160,7 +230,7 @@ def generate_helix(num_drones: int, duration: float, rate: float, spawn_offsets:
                 target_y = center_y + radius * math.sin(angle)
                 target_z = - max(1.5, target_height)
                 
-                x_val = blend_ratio * target_x
+                x_val = start_positions[d_id]["x"] + blend_ratio * (target_x - start_positions[d_id]["x"])
                 y_val = start_positions[d_id]["y"] + blend_ratio * (target_y - start_positions[d_id]["y"])
                 
                 drones_wps[d_id].append({
@@ -175,21 +245,17 @@ def generate_helix(num_drones: int, duration: float, rate: float, spawn_offsets:
             elapsed = t - 25.0
             ratio = elapsed / land_duration
             
+            if land_entry is None:
+                land_entry = {d_id: dict(drones_wps[d_id][-1]) for d_id in range(num_drones)}
+
             for d_id in range(num_drones):
-                start_wp = drones_wps[d_id][-1]
-                target_x = 0.0
-                target_y = start_positions[d_id]["y"]
-                target_z = - (target_heights[d_id] * (1.0 - ratio))
-                
-                x_val = start_wp["x"] + ratio * (target_x - start_wp["x"])
-                y_val = start_wp["y"] + ratio * (target_y - start_wp["y"])
-                
+                wp = _land_waypoint(d_id, ratio, start_positions, target_heights, land_entry)
                 drones_wps[d_id].append({
                     "time": round(t, 2),
-                    "x": round(x_val, 2),
-                    "y": round(y_val, 2),
-                    "z": round(target_z, 2),
-                    "yaw": 0.0
+                    "x": round(wp["x"], 2),
+                    "y": round(wp["y"], 2),
+                    "z": round(wp["z"], 2),
+                    "yaw": wp["yaw"]
                 })
                 
     return {"drones": [{"id": d_id, "waypoints": wps} for d_id, wps in drones_wps.items()]}
@@ -202,7 +268,7 @@ def generate_heart(num_drones: int, duration: float, rate: float, spawn_offsets:
         num_drones, spawn_offsets, target_heights
     )
         
-    start_positions = {d_id: {"x": 0.0, "y": float(spawn_offsets[d_id]), "z": 0.0} for d_id in range(num_drones)}
+    start_positions = {d_id: {"x": _pad_xy(spawn_offsets[d_id])[0], "y": _pad_xy(spawn_offsets[d_id])[1], "z": 0.0} for d_id in range(num_drones)}
     target_heights = {d_id: float(target_heights[d_id]) for d_id in range(num_drones)}
     
     center_x = 5.0
@@ -219,6 +285,7 @@ def generate_heart(num_drones: int, duration: float, rate: float, spawn_offsets:
         # Scale down to typical arena bounds (approx -4 to +4)
         return raw_x * 0.25, raw_y * 0.25
 
+    land_entry = None  # captured once, at the moment landing begins
     for step in range(total_steps + 1):
         t = step / float(rate)
         
@@ -229,7 +296,7 @@ def generate_heart(num_drones: int, duration: float, rate: float, spawn_offsets:
                 z_val = - (target_heights[d_id] * ratio)
                 drones_wps[d_id].append({
                     "time": round(t, 2),
-                    "x": 0.0,
+                    "x": start_positions[d_id]["x"],
                     "y": start_positions[d_id]["y"],
                     "z": round(z_val, 2),
                     "yaw": 0.0
@@ -254,7 +321,7 @@ def generate_heart(num_drones: int, duration: float, rate: float, spawn_offsets:
                 target_y = center_y + (hx * math.sin(rot_angle) + hy * math.cos(rot_angle))
                 target_z = - target_heights[d_id]
                 
-                x_val = blend_ratio * target_x
+                x_val = start_positions[d_id]["x"] + blend_ratio * (target_x - start_positions[d_id]["x"])
                 y_val = start_positions[d_id]["y"] + blend_ratio * (target_y - start_positions[d_id]["y"])
                 
                 drones_wps[d_id].append({
@@ -270,21 +337,17 @@ def generate_heart(num_drones: int, duration: float, rate: float, spawn_offsets:
             elapsed = t - 25.0
             ratio = elapsed / land_duration
             
+            if land_entry is None:
+                land_entry = {d_id: dict(drones_wps[d_id][-1]) for d_id in range(num_drones)}
+
             for d_id in range(num_drones):
-                start_wp = drones_wps[d_id][-1]
-                target_x = 0.0
-                target_y = start_positions[d_id]["y"]
-                target_z = - (target_heights[d_id] * (1.0 - ratio))
-                
-                x_val = start_wp["x"] + ratio * (target_x - start_wp["x"])
-                y_val = start_wp["y"] + ratio * (target_y - start_wp["y"])
-                
+                wp = _land_waypoint(d_id, ratio, start_positions, target_heights, land_entry)
                 drones_wps[d_id].append({
                     "time": round(t, 2),
-                    "x": round(x_val, 2),
-                    "y": round(y_val, 2),
-                    "z": round(target_z, 2),
-                    "yaw": 0.0
+                    "x": round(wp["x"], 2),
+                    "y": round(wp["y"], 2),
+                    "z": round(wp["z"], 2),
+                    "yaw": wp["yaw"]
                 })
                 
     return {"drones": [{"id": d_id, "waypoints": wps} for d_id, wps in drones_wps.items()]}
@@ -298,7 +361,7 @@ def generate_cube(num_drones: int, duration: float, rate: float, spawn_offsets: 
         num_drones, spawn_offsets, target_heights
     )
         
-    start_positions = {d_id: {"x": 0.0, "y": float(spawn_offsets[d_id]), "z": 0.0} for d_id in range(num_drones)}
+    start_positions = {d_id: {"x": _pad_xy(spawn_offsets[d_id])[0], "y": _pad_xy(spawn_offsets[d_id])[1], "z": 0.0} for d_id in range(num_drones)}
     target_heights = {d_id: float(target_heights[d_id]) for d_id in range(num_drones)}
     
     # Compute 3D grid layouts
@@ -314,6 +377,7 @@ def generate_cube(num_drones: int, duration: float, rate: float, spawn_offsets: 
             for x in range(side):
                 grid_coords.append((float(x * 2.5 + 4.0), float(y * 2.5 + 1.0), float(2.0 + z * 1.5)))
                 
+    land_entry = None  # captured once, at the moment landing begins
     for step in range(total_steps + 1):
         t = step / float(rate)
         
@@ -324,7 +388,7 @@ def generate_cube(num_drones: int, duration: float, rate: float, spawn_offsets: 
                 z_val = - (target_heights[d_id] * ratio)
                 drones_wps[d_id].append({
                     "time": round(t, 2),
-                    "x": 0.0,
+                    "x": start_positions[d_id]["x"],
                     "y": start_positions[d_id]["y"],
                     "z": round(z_val, 2),
                     "yaw": 0.0
@@ -345,7 +409,7 @@ def generate_cube(num_drones: int, duration: float, rate: float, spawn_offsets: 
                 target_y = gy
                 target_z = - gz
                 
-                x_val = blend_ratio * target_x
+                x_val = start_positions[d_id]["x"] + blend_ratio * (target_x - start_positions[d_id]["x"])
                 y_val = start_positions[d_id]["y"] + blend_ratio * (target_y - start_positions[d_id]["y"])
                 
                 drones_wps[d_id].append({
@@ -361,21 +425,17 @@ def generate_cube(num_drones: int, duration: float, rate: float, spawn_offsets: 
             elapsed = t - 25.0
             ratio = elapsed / land_duration
             
+            if land_entry is None:
+                land_entry = {d_id: dict(drones_wps[d_id][-1]) for d_id in range(num_drones)}
+
             for d_id in range(num_drones):
-                start_wp = drones_wps[d_id][-1]
-                target_x = 0.0
-                target_y = start_positions[d_id]["y"]
-                target_z = - (target_heights[d_id] * (1.0 - ratio))
-                
-                x_val = start_wp["x"] + ratio * (target_x - start_wp["x"])
-                y_val = start_wp["y"] + ratio * (target_y - start_wp["y"])
-                
+                wp = _land_waypoint(d_id, ratio, start_positions, target_heights, land_entry)
                 drones_wps[d_id].append({
                     "time": round(t, 2),
-                    "x": round(x_val, 2),
-                    "y": round(y_val, 2),
-                    "z": round(target_z, 2),
-                    "yaw": 0.0
+                    "x": round(wp["x"], 2),
+                    "y": round(wp["y"], 2),
+                    "z": round(wp["z"], 2),
+                    "yaw": wp["yaw"]
                 })
                 
     return {"drones": [{"id": d_id, "waypoints": wps} for d_id, wps in drones_wps.items()]}
@@ -388,9 +448,10 @@ def generate_spline(num_drones: int, duration: float, rate: float, spawn_offsets
         num_drones, spawn_offsets, target_heights
     )
         
-    start_positions = {d_id: {"x": 0.0, "y": float(spawn_offsets[d_id]), "z": 0.0} for d_id in range(num_drones)}
+    start_positions = {d_id: {"x": _pad_xy(spawn_offsets[d_id])[0], "y": _pad_xy(spawn_offsets[d_id])[1], "z": 0.0} for d_id in range(num_drones)}
     target_heights = {d_id: float(target_heights[d_id]) for d_id in range(num_drones)}
     
+    land_entry = None  # captured once, at the moment landing begins
     for step in range(total_steps + 1):
         t = step / float(rate)
         
@@ -401,7 +462,7 @@ def generate_spline(num_drones: int, duration: float, rate: float, spawn_offsets
                 z_val = - (target_heights[d_id] * ratio)
                 drones_wps[d_id].append({
                     "time": round(t, 2),
-                    "x": 0.0,
+                    "x": start_positions[d_id]["x"],
                     "y": start_positions[d_id]["y"],
                     "z": round(z_val, 2),
                     "yaw": 0.0
@@ -413,14 +474,18 @@ def generate_spline(num_drones: int, duration: float, rate: float, spawn_offsets
             ratio = elapsed / choreo_duration
             
             for d_id in range(num_drones):
+                pad_x = start_positions[d_id]["x"]
                 offset = start_positions[d_id]["y"]
                 alt = target_heights[d_id]
-                
-                # Define cubic bezier control points
-                p0 = (0.0, offset, -alt)
-                p1 = (4.0, offset + 4.0, -alt - 2.0)
-                p2 = (8.0, offset - 4.0, -alt + 1.5)
-                p3 = (12.0, offset, -alt)
+
+                # Define cubic bezier control points, offset from this
+                # drone's own pad x (was hardcoded from 0.0, which put every
+                # drone's sweep on the same line regardless of its actual pad
+                # column on the launch grid).
+                p0 = (pad_x + 0.0, offset, -alt)
+                p1 = (pad_x + 4.0, offset + 4.0, -alt - 2.0)
+                p2 = (pad_x + 8.0, offset - 4.0, -alt + 1.5)
+                p3 = (pad_x + 12.0, offset, -alt)
                 
                 # Symmetrical back-and-forth mapping of the spline trajectory
                 t_bezier = ratio * 2.0 if ratio <= 0.5 else (1.0 - ratio) * 2.0
@@ -447,21 +512,17 @@ def generate_spline(num_drones: int, duration: float, rate: float, spawn_offsets
             elapsed = t - 25.0
             ratio = elapsed / land_duration
             
+            if land_entry is None:
+                land_entry = {d_id: dict(drones_wps[d_id][-1]) for d_id in range(num_drones)}
+
             for d_id in range(num_drones):
-                start_wp = drones_wps[d_id][-1]
-                target_x = 0.0
-                target_y = start_positions[d_id]["y"]
-                target_z = - (target_heights[d_id] * (1.0 - ratio))
-                
-                x_val = start_wp["x"] + ratio * (target_x - start_wp["x"])
-                y_val = start_wp["y"] + ratio * (target_y - start_wp["y"])
-                
+                wp = _land_waypoint(d_id, ratio, start_positions, target_heights, land_entry)
                 drones_wps[d_id].append({
                     "time": round(t, 2),
-                    "x": round(x_val, 2),
-                    "y": round(y_val, 2),
-                    "z": round(target_z, 2),
-                    "yaw": 0.0
+                    "x": round(wp["x"], 2),
+                    "y": round(wp["y"], 2),
+                    "z": round(wp["z"], 2),
+                    "yaw": wp["yaw"]
                 })
                 
     return {"drones": [{"id": d_id, "waypoints": wps} for d_id, wps in drones_wps.items()]}

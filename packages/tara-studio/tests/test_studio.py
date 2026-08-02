@@ -4,6 +4,40 @@ from tara_studio.generator import generate_circle, generate_helix, generate_hear
 from tara_studio.validator import validate_choreography
 from tara_studio.exporter import export_kml, export_csv, export_json
 
+
+class TestPadPositionsAgreeWithGcs:
+    """Regression coverage for a real cross-repo bug: the generator used to lay
+    every drone out on a 1D line (x=0 always), while tara_gcs.drone_manager's
+    _pad_offset uses a 2D grid fixed at MAX_FLEET_SIZE (32 columns). The two
+    only coincided by accident for fleets under 32 drones; past that, an
+    auto-generated show was silently misplaced once it reached the GCS.
+    """
+
+    @pytest.mark.parametrize("n", [5, 32, 33, 60, 100])
+    @pytest.mark.parametrize(
+        "generate", [generate_circle, generate_helix, generate_heart, generate_cube, generate_spline]
+    )
+    def test_first_waypoint_matches_gcs_pad_offset(self, n, generate):
+        from tara_gcs.drone_manager import _pad_offset
+
+        choreo = generate(n, 30.0, 2.0)
+        for drone in choreo["drones"]:
+            gcs_x, gcs_y = _pad_offset(drone["id"])
+            first = drone["waypoints"][0]
+            assert first["x"] == pytest.approx(gcs_x), f"drone {drone['id']} x mismatch at n={n}"
+            assert first["y"] == pytest.approx(gcs_y), f"drone {drone['id']} y mismatch at n={n}"
+
+    def test_explicit_spawn_offsets_override_still_works_as_a_flat_y_list(self):
+        # Backward compatibility: the Studio UI/API's spawn_offsets is a
+        # public, flat list[float] (y-only, x=0) — an explicit override must
+        # not be silently reinterpreted as a 2D grid.
+        choreo = generate_circle(3, 30.0, 2.0, spawn_offsets=[0.0, 10.0, 20.0])
+        xs = [d["waypoints"][0]["x"] for d in choreo["drones"]]
+        ys = [d["waypoints"][0]["y"] for d in choreo["drones"]]
+        assert xs == [0.0, 0.0, 0.0]
+        assert ys == [0.0, 10.0, 20.0]
+
+
 def test_generate_shapes():
     shapes = [
         generate_circle(3, 10.0, 2.0),
@@ -45,22 +79,26 @@ def test_validator_passed():
 
 
 @pytest.mark.parametrize("shape", ["circle", "heart"])
-def test_builtin_shapes_are_known_unsafe_during_landing(shape):
-    """Documents a real defect rather than hiding it behind a loose threshold.
+def test_builtin_shapes_are_safe_during_landing(shape):
+    """Regression coverage for a real, now-fixed defect.
 
-    In the landing phase the generators drive z = -height * (1 - ratio), so the
-    vertical separation between stacked drones collapses to zero at touchdown
-    while they are simultaneously converging horizontally onto their pads. The
-    circle and heart shapes bottom out around 1.1 m — under the 1.5 m the fleet
-    aborts on.
+    The landing phase used to blend horizontal return-to-pad and vertical
+    descent simultaneously, driving z = -height * (1 - ratio) while x/y
+    converged onto the pad grid at the same time. That let two drones'
+    return paths and shrinking altitude gap coincide in space — the circle
+    and heart shapes bottomed out around 1.1m, under the 1.5m the fleet
+    aborts on, even though the launch-pad grid itself is spaced >=2m apart.
 
-    When the landing phase is fixed, this test should start failing; replace it
-    with an assertion that the shape PASSES.
+    Fixed in generator.py's _land_waypoint: return to the pad *first*
+    (holding altitude), only then descend — so the altitude collapse at
+    touchdown always has the pad grid's horizontal separation to fall back
+    on. This asserts the fix, at the same drone count/duration that used to
+    fail.
     """
     fn = {"circle": generate_circle, "heart": generate_heart}[shape]
     res = validate_choreography(fn(num_drones=3, duration=30.0, rate=2.0))
-    assert res["status"] == "FAILED"
-    assert res["metrics"]["min_distance_m"] < DEFAULT_LIMITS.min_separation_m
+    assert res["status"] == "PASSED"
+    assert res["metrics"]["min_distance_m"] >= DEFAULT_LIMITS.min_separation_m
 
 def test_validator_failed_proximity():
     # Force two drones to occupy exact same coordinate

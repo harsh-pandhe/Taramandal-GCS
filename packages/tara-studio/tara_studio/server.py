@@ -11,6 +11,7 @@ from typing import Optional
 from tara_studio.generator import generate_circle, generate_helix, generate_heart, generate_cube, generate_spline
 from tara_studio.validator import validate_choreography
 from tara_studio.exporter import export_json, export_csv, export_kml
+from tara_core import MAX_FLEET_SIZE
 from tara_core.assignment import optimal_assignment
 
 app = FastAPI(title="Taramandal Studio Choreography Engine", version="1.0.0")
@@ -25,7 +26,11 @@ app.add_middleware(
 
 class GenerateRequest(BaseModel):
     shape: str = Field("circle", description="Trajectory pattern: circle, helix, heart, cube")
-    num_drones: int = Field(3, ge=1, le=10, description="Number of drones")
+    # Was capped at 10 — a hard blocker for the 100-drone shows this platform
+    # targets, since Pydantic rejected the request outright before it ever
+    # reached the generator. Now matches tara_core.MAX_FLEET_SIZE, the same
+    # ceiling the GCS's own pad grid/altitude layering is built for.
+    num_drones: int = Field(3, ge=1, le=MAX_FLEET_SIZE, description="Number of drones")
     duration: float = Field(30.0, ge=10.0, le=120.0, description="Duration in seconds")
     rate: float = Field(2.0, ge=1.0, le=10.0, description="Sampling rate (Hz)")
     spawn_offsets: Optional[list[float]] = Field(None, description="Custom spawn offsets per drone")
@@ -89,6 +94,58 @@ def api_assign(req: AssignRequest):
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     return {"assignment": perm}
+
+
+class AssignChainRequest(BaseModel):
+    forms: list[list[dict]] = Field(
+        ..., description="One point-set [{x,y,z}, ...] per formation in sequence, 2+ formations"
+    )
+
+
+@app.post("/api/assign-chain")
+def api_assign_chain(req: AssignChainRequest):
+    """
+    Computes the full collision-free assignment chain across an entire show's
+    formation sequence in one request, instead of the sequencer making one
+    request per consecutive formation pair.
+
+    The chain is inherently sequential — the assignment into formation s+1
+    depends on which point each drone occupies in formation s, which depends
+    on the assignment before it — so those requests could never be
+    parallelized on the client; the previous per-pair round trips still had
+    to happen one after another. Computing the whole chain server-side
+    instead collapses N-1 sequential network round trips (each paying full
+    HTTP/TCP overhead) into exactly 1, which is what actually matters as a
+    show's formation count grows for a larger fleet, not the per-request
+    Hungarian-algorithm cost itself (still comfortably sub-millisecond at
+    100 drones).
+
+    Response: {"target_idx": [[int, ...], ...]} — one permutation per
+    formation, target_idx[0] is the identity (drones start at their own
+    index in formation 0).
+    """
+    if len(req.forms) < 1:
+        raise HTTPException(status_code=400, detail="forms must contain at least one formation")
+
+    n = len(req.forms[0])
+    for i, form in enumerate(req.forms):
+        if len(form) != n:
+            raise HTTPException(
+                status_code=400,
+                detail=f"formation {i} has {len(form)} points, expected {n} (all formations must be equal size)",
+            )
+
+    target_idx = [list(range(n))]
+    for s in range(len(req.forms) - 1):
+        current = target_idx[s]
+        from_pts = [req.forms[s][current[i]] for i in range(n)]
+        try:
+            perm = optimal_assignment(from_pts, req.forms[s + 1])
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+        target_idx.append(perm)
+
+    return {"target_idx": target_idx}
 
 @app.post("/api/export")
 def api_export(req: ExportRequest):

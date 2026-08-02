@@ -8,7 +8,7 @@ limits.
 
 from .assignment import optimal_assignment, total_cost
 from .geometry import EARTH_RADIUS_M, geodetic_to_ned, interpolate_waypoint, ned_to_geodetic, sweep_times
-from .layout import BASE_HOVER_ALT_M, altitude_layers, launch_grid
+from .layout import BASE_HOVER_ALT_M, MAX_FLEET_SIZE, altitude_layers, launch_grid
 from .proximity import close_pairs, min_separation
 from .safety import DEFAULT_LIMITS, SafetyLimits
 from .show import SHOW_FORMAT_VERSION, Show
@@ -16,6 +16,7 @@ from .validate import collision_errors, validate_show
 
 __all__ = [
     "BASE_HOVER_ALT_M",
+    "MAX_FLEET_SIZE",
     "DEFAULT_LIMITS",
     "EARTH_RADIUS_M",
     "SHOW_FORMAT_VERSION",
