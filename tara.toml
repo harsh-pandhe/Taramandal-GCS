@@ -1,0 +1,28 @@
+# Taramandal orchestrator configuration.
+#
+# `tara up` reads this file for defaults; every value here can also be
+# overridden with a CLI flag (see `tara up --help`).
+
+[fleet]
+# Default drone count when -n is not passed.
+num_drones = 3
+# "px4"  — real PX4 SITL + Gazebo. High fidelity, capped near 10 drones on a
+#          12-core/30GB dev machine.
+# "sim"  — vectorized kinematic simulator (packages/tara-sim). Scales to
+#          hundreds of drones. Lands in Phase 2 of the finishing plan; `tara up`
+#          reports a clear error if selected before it exists.
+backend = "px4"
+
+[px4]
+autopilot_dir = "/home/harsh-pandhe/PX4-Autopilot"
+
+[ports]
+gcs_backend = 8090
+gcs_web = 5173
+studio_backend = 8001
+studio_web = 5174
+
+[services]
+# Whether `tara up` also launches the ROS2/RViz TF bridge. Requires a display
+# and a sourced ROS 2 install; off by default since most runs are headless.
+rviz = false
