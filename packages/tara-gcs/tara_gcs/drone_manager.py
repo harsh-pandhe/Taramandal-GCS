@@ -2,7 +2,7 @@ import asyncio
 import math
 import logging
 from scipy.spatial import cKDTree
-from tara_core import DEFAULT_LIMITS, altitude_layers, launch_grid
+from tara_core import DEFAULT_LIMITS, altitude_layers, interpolate_waypoint, launch_grid
 from mavsdk import System
 from mavsdk.offboard import PositionNedYaw, PositionGlobalYaw, OffboardError, VelocityNedYaw, AccelerationNed
 
@@ -38,9 +38,29 @@ def _pad_offset(drone_id: int) -> tuple[float, float]:
     return _PAD_GRID[drone_id]
 
 class DroneManager:
-    def __init__(self, ports: list[int] = [14540, 14541, 14542]):
+    def __init__(self, ports: list[int] = [14540, 14541, 14542], backend: str = "px4"):
+        """
+        Args:
+            ports: UDP MAVLink ports, one per drone (backend="px4" only —
+                length still determines fleet size when backend="sim", but the
+                port *values* are unused since there is no real network layer).
+            backend: "px4" (default) connects to real MAVSDK/PX4 SITL exactly
+                as before. "sim" hands every drone a
+                tara_sim.system.SimSystem view over one shared, vectorized
+                tara_sim.FleetState instead — a single background tick task for
+                the whole fleet rather than a mavsdk_server process and 8
+                asyncio tasks per drone, which is what makes fleets of 100+
+                practical on one machine. SimSystem duck-types the exact
+                mavsdk.System surface this class calls, so every monitor loop,
+                the launch sequence, RTL, land, and the trajectory playback
+                loop below run completely unchanged on either backend.
+        """
+        if backend not in ("px4", "sim"):
+            raise ValueError(f"backend must be 'px4' or 'sim', got {backend!r}")
         self.ports = ports
-        self.drones = {}  # drone_id -> System
+        self.backend = backend
+        self._sim_fleet = None  # tara_sim.SimFleet, created in connect_all() when backend == "sim"
+        self.drones = {}  # drone_id -> System (real or SimSystem)
         self.telemetry = {}  # drone_id -> status dict
         self._tasks = []
         self.trajectory_task = None
@@ -52,11 +72,18 @@ class DroneManager:
 
     async def connect_all(self) -> None:
         """Connects to all drones concurrently."""
-        logging.info(f"Connecting to {len(self.ports)} drones on ports: {self.ports}")
+        logging.info(f"Connecting to {len(self.ports)} drones (backend={self.backend}) on ports: {self.ports}")
+
+        if self.backend == "sim":
+            from tara_sim import SimFleet
+
+            self._sim_fleet = SimFleet(len(self.ports))
+            self._tasks.append(self._sim_fleet.start())
+
         connect_tasks = []
         for i, port in enumerate(self.ports):
             connect_tasks.append(self._connect_drone(i, port))
-        
+
         # Use return_exceptions=True so that one failing drone doesn't break GCS startup
         results = await asyncio.gather(*connect_tasks, return_exceptions=True)
         for i, res in enumerate(results):
@@ -70,10 +97,14 @@ class DroneManager:
 
     async def _connect_drone(self, drone_id: int, port: int):
         try:
-            # Use unique gRPC port for each drone to avoid conflicts
-            drone = System(port=50051 + drone_id)
-            await drone.connect(system_address=f"udpin://127.0.0.1:{port}")
-            
+            if self.backend == "sim":
+                drone = self._sim_fleet.system(drone_id)
+                await drone.connect()
+            else:
+                # Use unique gRPC port for each drone to avoid conflicts
+                drone = System(port=50051 + drone_id)
+                await drone.connect(system_address=f"udpin://127.0.0.1:{port}")
+
             self.drones[drone_id] = drone
             self.telemetry[drone_id] = {
                 "id": drone_id,
@@ -475,7 +506,7 @@ class DroneManager:
                         
                     wps = trajectory_data[drone_id]
                     # Calculate interpolated point
-                    target = self._interpolate_waypoint(wps, elapsed)
+                    target = interpolate_waypoint(wps, elapsed)
                     
                     if target:
                         # Trajectory coordinates are expressed in the shared fleet frame
@@ -592,94 +623,6 @@ class DroneManager:
         return {
             "all_passed": all_passed,
             "drones": results
-        }
-
-    def _interpolate_waypoint(self, waypoints: list, elapsed_time: float) -> dict:
-        """Helper to lineary interpolate coordinates between waypoints based on elapsed time."""
-        if not waypoints:
-            return None
-            
-        # If before first waypoint
-        if elapsed_time <= waypoints[0]["time"]:
-            return {
-                "x": waypoints[0]["x"],
-                "y": waypoints[0]["y"],
-                "z": waypoints[0]["z"],
-                "yaw": waypoints[0]["yaw"],
-                "vx": 0.0,
-                "vy": 0.0,
-                "vz": 0.0,
-                "ax": 0.0,
-                "ay": 0.0,
-                "az": 0.0
-            }
-            
-        # If past last waypoint
-        if elapsed_time >= waypoints[-1]["time"]:
-            return {
-                "x": waypoints[-1]["x"],
-                "y": waypoints[-1]["y"],
-                "z": waypoints[-1]["z"],
-                "yaw": waypoints[-1]["yaw"],
-                "vx": 0.0,
-                "vy": 0.0,
-                "vz": 0.0,
-                "ax": 0.0,
-                "ay": 0.0,
-                "az": 0.0
-            }
-            
-        # Find the segment
-        for i in range(len(waypoints) - 1):
-            wp_start = waypoints[i]
-            wp_end = waypoints[i+1]
-            if wp_start["time"] <= elapsed_time <= wp_end["time"]:
-                # Interpolate
-                duration = wp_end["time"] - wp_start["time"]
-                if duration == 0:
-                    return {
-                        "x": wp_start["x"],
-                        "y": wp_start["y"],
-                        "z": wp_start["z"],
-                        "yaw": wp_start["yaw"],
-                        "vx": 0.0,
-                        "vy": 0.0,
-                        "vz": 0.0,
-                        "ax": 0.0,
-                        "ay": 0.0,
-                        "az": 0.0
-                    }
-                ratio = (elapsed_time - wp_start["time"]) / duration
-                
-                # Compute velocity as first derivative
-                vx = (wp_end["x"] - wp_start["x"]) / duration
-                vy = (wp_end["y"] - wp_start["y"]) / duration
-                vz = (wp_end["z"] - wp_start["z"]) / duration
-                
-                return {
-                    "x": wp_start["x"] + ratio * (wp_end["x"] - wp_start["x"]),
-                    "y": wp_start["y"] + ratio * (wp_end["y"] - wp_start["y"]),
-                    "z": wp_start["z"] + ratio * (wp_end["z"] - wp_start["z"]),
-                    "yaw": wp_start["yaw"] + ratio * (wp_end["yaw"] - wp_start["yaw"]),
-                    "vx": vx,
-                    "vy": vy,
-                    "vz": vz,
-                    "ax": 0.0,
-                    "ay": 0.0,
-                    "az": 0.0
-                }
-                
-        return {
-            "x": waypoints[-1]["x"],
-            "y": waypoints[-1]["y"],
-            "z": waypoints[-1]["z"],
-            "yaw": waypoints[-1]["yaw"],
-            "vx": 0.0,
-            "vy": 0.0,
-            "vz": 0.0,
-            "ax": 0.0,
-            "ay": 0.0,
-            "az": 0.0
         }
 
     async def _proximity_monitor_loop(self, safety_limit: float = DEFAULT_LIMITS.min_separation_m):

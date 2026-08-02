@@ -30,7 +30,11 @@ app.add_middleware(
 # Connect to simulation drones dynamically (defaulting to 3)
 NUM_DRONES = int(os.environ.get("NUM_DRONES", 3))
 ports = [14540 + i for i in range(NUM_DRONES)]
-drone_manager = DroneManager(ports=ports)
+# "px4" (default) is real MAVSDK/PX4 SITL; "sim" is the vectorized tara_sim
+# fleet, which scales past the ~10-drone ceiling real SITL hits on one
+# machine. Port values are irrelevant for "sim" — only the count matters.
+VEHICLE_BACKEND = os.environ.get("VEHICLE_BACKEND", "px4")
+drone_manager = DroneManager(ports=ports, backend=VEHICLE_BACKEND)
 
 @app.on_event("startup")
 async def startup_event():

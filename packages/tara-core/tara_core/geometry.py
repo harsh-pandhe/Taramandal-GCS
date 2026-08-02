@@ -22,14 +22,23 @@ def interpolate_waypoint(waypoints: list[dict], t: float) -> dict | None:
     arc, so a drone going from 350 deg to 10 deg turns 20 deg forward rather
     than 340 deg backward.
 
+    Within a segment, ``vx``/``vy``/``vz`` (m/s) are also included — the
+    segment's constant velocity, i.e. the analytic derivative of the linear
+    position interpolation above — so callers driving a velocity-feedforward
+    setpoint (the trajectory playback loop) don't need a second copy of this
+    function. Callers that only need position (the safety validator) simply
+    don't read those keys.
+
     Args:
         waypoints: Time-ordered waypoints for a single drone.
         t: Time in seconds.
 
     Returns:
-        A dict with ``time``/``x``/``y``/``z``/``yaw``, or ``None`` if the
-        waypoint list is empty. Outside the trajectory's time span the first or
-        last waypoint is returned unchanged (clamped, not extrapolated).
+        A dict with ``time``/``x``/``y``/``z``/``yaw`` (plus ``vx``/``vy``/``vz``
+        mid-segment), or ``None`` if the waypoint list is empty. Outside the
+        trajectory's time span the first or last waypoint is returned
+        unchanged (clamped, not extrapolated) — with no velocity keys, since a
+        held endpoint isn't moving; callers should treat a missing key as 0.
     """
     if not waypoints:
         return None
@@ -55,6 +64,9 @@ def interpolate_waypoint(waypoints: list[dict], t: float) -> dict | None:
                 "y": w1["y"] + ratio * (w2["y"] - w1["y"]),
                 "z": w1["z"] + ratio * (w2["z"] - w1["z"]),
                 "yaw": (yaw1 + ratio * diff) % 360,
+                "vx": (w2["x"] - w1["x"]) / span if span > 0 else 0.0,
+                "vy": (w2["y"] - w1["y"]) / span if span > 0 else 0.0,
+                "vz": (w2["z"] - w1["z"]) / span if span > 0 else 0.0,
             }
     return waypoints[-1]
 
@@ -96,3 +108,27 @@ def ned_to_geodetic(
         y / (EARTH_RADIUS_M * math.cos(math.radians(home_lat)))
     )
     return lat, lon
+
+
+def geodetic_to_ned(
+    lat: float, lon: float, home_lat: float, home_lon: float
+) -> tuple[float, float]:
+    """Convert latitude/longitude degrees to local NED metres about ``home``.
+
+    The exact inverse of :func:`ned_to_geodetic` under the same equirectangular
+    approximation, so a value round-tripped through both functions returns
+    unchanged. Used when a GLOBAL-mode setpoint (lat/lon) needs to drive a
+    controller that operates in local NED, e.g. the simulator's fleet physics.
+
+    Args:
+        lat: Target latitude, degrees.
+        lon: Target longitude, degrees.
+        home_lat: Home latitude, degrees.
+        home_lon: Home longitude, degrees.
+
+    Returns:
+        ``(x, y)`` metres (north, east) of ``home``.
+    """
+    x = math.radians(lat - home_lat) * EARTH_RADIUS_M
+    y = math.radians(lon - home_lon) * EARTH_RADIUS_M * math.cos(math.radians(home_lat))
+    return x, y

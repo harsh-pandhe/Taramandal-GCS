@@ -35,8 +35,9 @@ def build_services(
         entries depend on earlier ones being up.
 
     Raises:
-        UnsupportedBackendError: If ``backend == "sim"`` — packages/tara-sim
-            does not exist yet (Phase 2 of the finishing plan).
+        UnsupportedBackendError: If ``backend`` is neither "px4" nor "sim", or
+            ``rviz`` is requested with ``backend="sim"`` (there is no real
+            Gazebo TF to visualize without PX4).
     """
     root = config.repo_root
     py = str(config.venv_python)
@@ -63,12 +64,9 @@ def build_services(
             )
         )
     elif backend == "sim":
-        raise UnsupportedBackendError(
-            "backend = \"sim\" is not available yet — packages/tara-sim (the "
-            "vectorized 100+ drone simulator) is Phase 2 of the finishing plan "
-            "and has not been built in this repo yet. Use backend = \"px4\" "
-            "(capped near 10 drones on this machine) until then."
-        )
+        # No PX4, no Gazebo, no PX4_AUTOPILOT_DIR dependency at all — gcs-api
+        # (below) drives tara_sim's vectorized fleet directly in-process.
+        pass
     else:
         raise UnsupportedBackendError(f"unknown backend '{backend}', expected 'px4' or 'sim'")
 
@@ -84,9 +82,14 @@ def build_services(
             ],
             cwd=str(root),
             env={
-                "PYTHONPATH": f"{root / 'packages' / 'tara-gcs'}:{root / 'packages' / 'tara-core'}",
+                "PYTHONPATH": (
+                    f"{root / 'packages' / 'tara-gcs'}:"
+                    f"{root / 'packages' / 'tara-core'}:"
+                    f"{root / 'packages' / 'tara-sim'}"
+                ),
                 "GCS_PORT": str(config.gcs_backend_port),
                 "NUM_DRONES": str(num_drones),
+                "VEHICLE_BACKEND": backend,
             },
         )
     )

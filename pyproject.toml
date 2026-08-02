@@ -24,3 +24,6 @@ pythonpath = [
 addopts = "--import-mode=importlib"
 asyncio_mode = "auto"
 filterwarnings = ["ignore::DeprecationWarning"]
+markers = [
+    "slow: exercises the real (unshortened) production code path at a scale that takes real wall-clock time by design — e.g. the N=100 sim-backend milestone test, which honestly pays launch_sequence's intentional 1s per-drone stagger rather than special-casing it away. Excluded from a quick loop with `-m 'not slow'`; included by default.",
+]

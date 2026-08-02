@@ -7,7 +7,7 @@ limits.
 """
 
 from .assignment import optimal_assignment, total_cost
-from .geometry import EARTH_RADIUS_M, interpolate_waypoint, ned_to_geodetic, sweep_times
+from .geometry import EARTH_RADIUS_M, geodetic_to_ned, interpolate_waypoint, ned_to_geodetic, sweep_times
 from .layout import BASE_HOVER_ALT_M, altitude_layers, launch_grid
 from .proximity import close_pairs, min_separation
 from .safety import DEFAULT_LIMITS, SafetyLimits
@@ -24,6 +24,7 @@ __all__ = [
     "altitude_layers",
     "close_pairs",
     "collision_errors",
+    "geodetic_to_ned",
     "interpolate_waypoint",
     "launch_grid",
     "min_separation",
