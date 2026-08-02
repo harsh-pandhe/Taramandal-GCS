@@ -3,6 +3,7 @@ import { Canvas } from '@react-three/fiber';
 import { OrbitControls, Line, Text, Grid } from '@react-three/drei';
 import { decodeFastFrame } from './telemetry';
 import EarthView from './views/EarthView';
+import NightSkyView from './views/NightSkyView';
 
 const API_BASE = import.meta.env.VITE_API_BASE || `http://${window.location.hostname || 'localhost'}:8000`;
 const WS_URL = import.meta.env.VITE_WS_URL || `ws://${window.location.hostname || 'localhost'}:8000/ws/telemetry`;
@@ -27,7 +28,8 @@ export default function App() {
   // detail panel replaces it instead.
   const [selectedDroneId, setSelectedDroneId] = useState(null);
   // "operations" is the existing telemetry/control dashboard; "earth" is the
-  // Phase 4 georeferenced 3D globe.
+  // Phase 4 georeferenced 3D globe; "night" is the Phase 5 cinematic
+  // ground-level audience view.
   const [viewMode, setViewMode] = useState('operations');
   
   const fileInputRef = useRef(null);
@@ -436,11 +438,20 @@ export default function App() {
         <button className={`view-tab ${viewMode === 'earth' ? 'active' : ''}`} onClick={() => setViewMode('earth')}>
           3D EARTH VIEW
         </button>
+        <button className={`view-tab ${viewMode === 'night' ? 'active' : ''}`} onClick={() => setViewMode('night')}>
+          NIGHT SKY
+        </button>
       </div>
 
       {viewMode === 'earth' && (
         <div className="earth-view-panel">
           <EarthView telemetry={telemetry} />
+        </div>
+      )}
+
+      {viewMode === 'night' && (
+        <div className="earth-view-panel">
+          <NightSkyView telemetry={telemetry} />
         </div>
       )}
 
