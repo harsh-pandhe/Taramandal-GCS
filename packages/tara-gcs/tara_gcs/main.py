@@ -6,6 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from tara_gcs.drone_manager import DroneManager
 from tara_gcs.trajectory_parser import parse_trajectory_file, parse_trajectory_bytes
+from tara_gcs.telemetry_codec import FAST_HZ, SLOW_HZ, encode_fast_frame, encode_slow_frame
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
@@ -158,13 +159,29 @@ async def stop_trajectory():
 
 @app.websocket("/ws/telemetry")
 async def websocket_telemetry_endpoint(websocket: WebSocket):
+    """Streams two channels on one socket instead of the full telemetry dict as
+    JSON every tick (which serializes several hundred KB/s at 100 drones and
+    stops being viable at 1000). See tara_gcs.telemetry_codec for the format.
+
+    Binary (ArrayBuffer) frames at FAST_HZ carry position/heading/armed/
+    connected — what a live view needs to animate. JSON text frames at
+    SLOW_HZ carry battery/GPS/flight-mode/latency/home. The client tells them
+    apart by `event.data`'s type; no wrapper protocol needed.
+    """
     await websocket.accept()
     logger.info("WebSocket telemetry client connected.")
+    fast_interval = 1.0 / FAST_HZ
+    slow_interval = 1.0 / SLOW_HZ
+    next_slow_send = 0.0
+    elapsed = 0.0
     try:
         while True:
-            # Stream entire telemetry dictionary to the client
-            await websocket.send_json(drone_manager.telemetry)
-            await asyncio.sleep(0.2)  # Stream at 5Hz (every 200ms)
+            await websocket.send_bytes(encode_fast_frame(drone_manager.telemetry))
+            if elapsed >= next_slow_send:
+                await websocket.send_json(encode_slow_frame(drone_manager.telemetry))
+                next_slow_send = elapsed + slow_interval
+            await asyncio.sleep(fast_interval)
+            elapsed += fast_interval
     except WebSocketDisconnect:
         logger.info("WebSocket telemetry client disconnected.")
     except Exception as e:

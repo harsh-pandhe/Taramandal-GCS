@@ -317,6 +317,80 @@ body {
 .check-indicator.pass { color: var(--success); }
 .check-indicator.fail { color: var(--danger); }
 
+/* Fleet-wide aggregate strip — always visible above the card grid/matrix,
+   the at-a-glance numbers an operator needs regardless of fleet size. */
+.fleet-health-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1.5rem;
+  padding: 0.9rem 1.1rem;
+  margin-bottom: 1.1rem;
+  background: var(--bg-sunken);
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+}
+
+.fleet-stat {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+.fleet-stat-label {
+  font-size: 0.62rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-faint);
+}
+
+.fleet-stat-value {
+  font-family: var(--font-mono);
+  font-size: 1.1rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Compact status-matrix — replaces the 340px+ card grid past
+   MATRIX_THRESHOLD drones. One small tile per drone; click drills into the
+   full drone-card below via renderDroneCard(). */
+.status-matrix {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(44px, 1fr));
+  gap: 0.4rem;
+  margin-bottom: 1.1rem;
+}
+
+.status-tile {
+  aspect-ratio: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  font-weight: 600;
+  color: var(--text);
+  background: var(--bg-sunken);
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  cursor: pointer;
+  transition: border-color 0.15s, transform 0.1s;
+}
+
+.status-tile:hover {
+  border-color: var(--border-strong);
+  transform: scale(1.05);
+}
+
+.status-tile.selected {
+  border-color: var(--accent);
+  border-width: 2px;
+}
+
+.status-tile-offline { background: var(--bg-input); color: var(--text-faint); opacity: 0.6; }
+.status-tile-ready { background: var(--success-tint); color: var(--success); }
+.status-tile-armed { background: var(--warning-tint); color: var(--warning); }
+.status-tile-critical { background: var(--danger-tint); color: var(--danger); }
+
 /* Fleet Cards Grid */
 .fleet-grid {
   display: grid;

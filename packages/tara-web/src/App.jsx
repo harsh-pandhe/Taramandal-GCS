@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { Canvas } from '@react-three/fiber';
 import { OrbitControls, Line, Text, Grid } from '@react-three/drei';
+import { decodeFastFrame } from './telemetry';
 
 const API_BASE = import.meta.env.VITE_API_BASE || `http://${window.location.hostname || 'localhost'}:8000`;
 const WS_URL = import.meta.env.VITE_WS_URL || `ws://${window.location.hostname || 'localhost'}:8000/ws/telemetry`;
@@ -20,6 +21,10 @@ export default function App() {
   const [triggerDelay, setTriggerDelay] = useState(3);
   const [verificationReport, setVerificationReport] = useState(null);
   const [isVerifying, setIsVerifying] = useState(false);
+  // Above this many drones, per-drone cards (340px+ each) stop being a usable
+  // layout — a compact status-matrix tile grid plus a single drill-down
+  // detail panel replaces it instead.
+  const [selectedDroneId, setSelectedDroneId] = useState(null);
   
   const fileInputRef = useRef(null);
 
@@ -30,6 +35,10 @@ export default function App() {
 
     function connect() {
       ws = new WebSocket(WS_URL);
+      // Binary frames arrive as ArrayBuffer instead of the default Blob, so
+      // decodeFastFrame can read them directly without an async Blob->buffer
+      // conversion first.
+      ws.binaryType = 'arraybuffer';
 
       ws.onopen = () => {
         setWsConnected(true);
@@ -37,10 +46,36 @@ export default function App() {
         console.log('Telemetry WebSocket connected.');
       };
 
+      // Two channels share this socket (see tara_gcs.telemetry_codec): fast
+      // binary frames (position/heading/armed/connected, ~20Hz) and slow JSON
+      // frames (battery/GPS/flight-mode/latency/home, ~1Hz). Each merges into
+      // its own drones' entries rather than replacing the whole telemetry
+      // object, since either channel updating alone would otherwise wipe out
+      // whatever the other channel last reported.
       ws.onmessage = (event) => {
+        if (event.data instanceof ArrayBuffer) {
+          const fastDrones = decodeFastFrame(event.data);
+          setTelemetry((prev) => {
+            const next = { ...prev };
+            fastDrones.forEach((fields, id) => {
+              const key = String(id);
+              next[key] = { ...next[key], id, ...fields };
+            });
+            return next;
+          });
+          return;
+        }
         try {
           const data = JSON.parse(event.data);
-          setTelemetry(data);
+          if (data.type === 'slow' && data.drones) {
+            setTelemetry((prev) => {
+              const next = { ...prev };
+              Object.entries(data.drones).forEach(([key, fields]) => {
+                next[key] = { ...next[key], id: Number(key), ...fields };
+              });
+              return next;
+            });
+          }
         } catch (err) {
           console.error('Error parsing telemetry JSON:', err);
         }
@@ -100,8 +135,27 @@ export default function App() {
   const droneIds = Object.keys(telemetry);
   const connectedCount = droneIds.filter(id => telemetry[id].connected).length;
   const totalDrones = droneIds.length || 3;
-  
+
   const allConnected = droneIds.length > 0 && connectedCount === droneIds.length;
+
+  // Fleet-wide aggregates for the status strip, and the matrix/card layout switch.
+  const MATRIX_THRESHOLD = 12;
+  const useMatrixView = droneIds.length > MATRIX_THRESHOLD;
+  const armedCount = droneIds.filter(id => telemetry[id].armed).length;
+  const gpsLockedCount = droneIds.filter(id => telemetry[id].gps_lock).length;
+  const avgBattery = droneIds.length
+    ? droneIds.reduce((sum, id) => sum + (telemetry[id].battery_percent || 0), 0) / droneIds.length
+    : 0;
+  const minBattery = droneIds.length
+    ? Math.min(...droneIds.map(id => telemetry[id].battery_percent ?? 100))
+    : 0;
+
+  function droneTileStatus(drone) {
+    if (!drone || !drone.connected) return 'offline';
+    if (drone.battery_percent != null && drone.battery_percent < 20) return 'critical';
+    if (drone.armed) return 'armed';
+    return 'ready';
+  }
   
   const allGpsLocked = droneIds.length > 0 && droneIds.every(id => 
     !telemetry[id].connected || telemetry[id].gps_lock
@@ -227,6 +281,108 @@ export default function App() {
     return '#f87171';
   };
 
+  // The full per-drone detail card. Used directly for small fleets (<= 12
+  // drones, one grid of cards) and as the drill-down panel below the
+  // status-matrix tile grid for larger ones.
+  function renderDroneCard(id) {
+    const drone = telemetry[id];
+    if (!drone) return null;
+    const isConn = drone.connected;
+    return (
+      <div key={id} className={`drone-card ${isConn ? '' : 'disconnected'}`}>
+        <div className="drone-card-header">
+          <div className="drone-id">
+            DRONE {String(id).padStart(2, '0')}
+            <span style={{ fontSize: '0.85rem', color: 'var(--text-muted)', fontWeight: 400 }}>
+              (Port {drone.port})
+            </span>
+          </div>
+          <span className={`drone-badge ${(drone.flight_mode || 'unknown').toLowerCase()}`}>
+            {drone.flight_mode}
+          </span>
+        </div>
+
+        <div className="telemetry-subgrid">
+          <div className="telemetry-item">
+            <span className="telemetry-label">Status</span>
+            <span className="telemetry-value" style={{ color: isConn ? 'var(--success)' : 'var(--danger)' }}>
+              {isConn ? 'ONLINE' : 'OFFLINE'}
+            </span>
+          </div>
+          <div className="telemetry-item">
+            <span className="telemetry-label">Armed State</span>
+            <span className="telemetry-value" style={{ color: drone.armed ? 'var(--warning)' : 'var(--text-muted)' }}>
+              {drone.armed ? 'ARMED' : 'DISARMED'}
+            </span>
+          </div>
+          <div className="telemetry-item">
+            <span className="telemetry-label">GPS Satellites</span>
+            <span className="telemetry-value">
+              {isConn ? `${drone.satellites} SATS` : 'N/A'}
+            </span>
+          </div>
+          <div className="telemetry-item">
+            <span className="telemetry-label">GPS Lock</span>
+            <span className="telemetry-value" style={{ color: drone.gps_lock ? 'var(--success)' : 'var(--danger)' }}>
+              {isConn ? (drone.gps_lock ? 'FIX OK' : 'NO LOCK') : 'N/A'}
+            </span>
+          </div>
+          <div className="telemetry-item">
+            <span className="telemetry-label">RTK Status</span>
+            <span className="telemetry-value" style={{
+              color: isConn && (drone.gps_fix_type === 'RTK_FIXED' || drone.gps_fix_type === 'RTK_FLOAT') ? 'var(--primary)' : 'var(--text-muted)'
+            }}>
+              {isConn ? (drone.gps_fix_type || 'N/A') : 'N/A'}
+            </span>
+          </div>
+          <div className="telemetry-item">
+            <span className="telemetry-label">Latency</span>
+            <span className="telemetry-value" style={{
+              color: isConn ? (drone.comm_latency_ms < 50 ? 'var(--success)' : drone.comm_latency_ms < 150 ? 'var(--warning)' : 'var(--danger)') : 'var(--text-muted)'
+            }}>
+              {isConn ? `${drone.comm_latency_ms || 0.0} ms` : 'N/A'}
+            </span>
+          </div>
+        </div>
+
+        <div className="battery-container">
+          <div className="battery-header">
+            <span className="telemetry-label">Battery Level</span>
+            <span className="telemetry-value" style={{ fontSize: '0.9rem' }}>
+              {isConn ? `${drone.battery_percent}% (${drone.battery_voltage}V)` : 'N/A'}
+            </span>
+          </div>
+          <div className="battery-bar-bg">
+            <div
+              className="battery-bar-fill"
+              style={{
+                width: isConn ? `${Math.min(drone.battery_percent, 100)}%` : '0%',
+                backgroundColor: getBatteryColor(drone.battery_percent)
+              }}
+            />
+          </div>
+        </div>
+
+        <div className="coords-container">
+          <div className="coord-box">
+            <span className="coord-label">Local X (North)</span>
+            <span className="coord-val">{isConn ? `${drone.local_x}m` : '0.00m'}</span>
+          </div>
+          <div className="coord-box">
+            <span className="coord-label">Local Y (East)</span>
+            <span className="coord-val">{isConn ? `${drone.local_y}m` : '0.00m'}</span>
+          </div>
+          <div className="coord-box">
+            <span className="coord-label">Altitude (Z)</span>
+            <span className="coord-val" style={{ color: 'var(--success)' }}>
+              {isConn ? `${drone.local_z}m` : '0.00m'}
+            </span>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="app-container">
       {/* Header bar */}
@@ -324,104 +480,66 @@ export default function App() {
           <section className="gcs-panel">
             <h2 className="panel-header">FLEET TELEMETRY</h2>
             
+            <div className="fleet-health-strip">
+              <div className="fleet-stat">
+                <span className="fleet-stat-label">Connected</span>
+                <span className="fleet-stat-value">{connectedCount}/{droneIds.length}</span>
+              </div>
+              <div className="fleet-stat">
+                <span className="fleet-stat-label">Armed</span>
+                <span className="fleet-stat-value" style={{ color: armedCount > 0 ? 'var(--warning)' : 'var(--text-muted)' }}>
+                  {armedCount}/{droneIds.length}
+                </span>
+              </div>
+              <div className="fleet-stat">
+                <span className="fleet-stat-label">GPS Locked</span>
+                <span className="fleet-stat-value">{gpsLockedCount}/{droneIds.length}</span>
+              </div>
+              <div className="fleet-stat">
+                <span className="fleet-stat-label">Avg Battery</span>
+                <span className="fleet-stat-value" style={{ color: getBatteryColor(avgBattery) }}>
+                  {avgBattery.toFixed(0)}%
+                </span>
+              </div>
+              <div className="fleet-stat">
+                <span className="fleet-stat-label">Min Battery</span>
+                <span className="fleet-stat-value" style={{ color: getBatteryColor(minBattery) }}>
+                  {droneIds.length ? `${minBattery.toFixed(0)}%` : 'N/A'}
+                </span>
+              </div>
+            </div>
+
+            {useMatrixView ? (
+              <>
+                <div className="status-matrix">
+                  {droneIds.map((id) => {
+                    const drone = telemetry[id];
+                    const status = droneTileStatus(drone);
+                    return (
+                      <button
+                        key={id}
+                        className={`status-tile status-tile-${status} ${selectedDroneId === id ? 'selected' : ''}`}
+                        onClick={() => setSelectedDroneId(id)}
+                        title={`Drone ${id}: ${status.toUpperCase()}`}
+                      >
+                        {String(id).padStart(2, '0')}
+                      </button>
+                    );
+                  })}
+                </div>
+                <div className="fleet-grid">
+                  {selectedDroneId != null && telemetry[selectedDroneId]
+                    ? renderDroneCard(selectedDroneId)
+                    : (
+                      <div style={{ gridColumn: '1 / -1', padding: '2rem', textAlign: 'center', color: 'var(--text-muted)' }}>
+                        Click a tile above to inspect that drone.
+                      </div>
+                    )}
+                </div>
+              </>
+            ) : (
             <div className="fleet-grid">
-              {droneIds.map((id) => {
-                const drone = telemetry[id];
-                const isConn = drone.connected;
-                return (
-                  <div key={id} className={`drone-card ${isConn ? '' : 'disconnected'}`}>
-                    <div className="drone-card-header">
-                      <div className="drone-id">
-                        DRONE {String(id).padStart(2, '0')}
-                        <span style={{ fontSize: '0.85rem', color: 'var(--text-muted)', fontWeight: 400 }}>
-                          (Port {drone.port})
-                        </span>
-                      </div>
-                      <span className={`drone-badge ${drone.flight_mode.toLowerCase()}`}>
-                        {drone.flight_mode}
-                      </span>
-                    </div>
-
-                    <div className="telemetry-subgrid">
-                      <div className="telemetry-item">
-                        <span className="telemetry-label">Status</span>
-                        <span className="telemetry-value" style={{ color: isConn ? 'var(--success)' : 'var(--danger)' }}>
-                          {isConn ? 'ONLINE' : 'OFFLINE'}
-                        </span>
-                      </div>
-                      <div className="telemetry-item">
-                        <span className="telemetry-label">Armed State</span>
-                        <span className="telemetry-value" style={{ color: drone.armed ? 'var(--warning)' : 'var(--text-muted)' }}>
-                          {drone.armed ? 'ARMED' : 'DISARMED'}
-                        </span>
-                      </div>
-                      <div className="telemetry-item">
-                        <span className="telemetry-label">GPS Satellites</span>
-                        <span className="telemetry-value">
-                          {isConn ? `${drone.satellites} SATS` : 'N/A'}
-                        </span>
-                      </div>
-                      <div className="telemetry-item">
-                        <span className="telemetry-label">GPS Lock</span>
-                        <span className="telemetry-value" style={{ color: drone.gps_lock ? 'var(--success)' : 'var(--danger)' }}>
-                          {isConn ? (drone.gps_lock ? 'FIX OK' : 'NO LOCK') : 'N/A'}
-                        </span>
-                      </div>
-                      <div className="telemetry-item">
-                        <span className="telemetry-label">RTK Status</span>
-                        <span className="telemetry-value" style={{
-                          color: isConn && (drone.gps_fix_type === 'RTK_FIXED' || drone.gps_fix_type === 'RTK_FLOAT') ? 'var(--primary)' : 'var(--text-muted)'
-                        }}>
-                          {isConn ? (drone.gps_fix_type || 'N/A') : 'N/A'}
-                        </span>
-                      </div>
-                      <div className="telemetry-item">
-                        <span className="telemetry-label">Latency</span>
-                        <span className="telemetry-value" style={{
-                          color: isConn ? (drone.comm_latency_ms < 50 ? 'var(--success)' : drone.comm_latency_ms < 150 ? 'var(--warning)' : 'var(--danger)') : 'var(--text-muted)'
-                        }}>
-                          {isConn ? `${drone.comm_latency_ms || 0.0} ms` : 'N/A'}
-                        </span>
-                      </div>
-                    </div>
-
-                    <div className="battery-container">
-                      <div className="battery-header">
-                        <span className="telemetry-label">Battery Level</span>
-                        <span className="telemetry-value" style={{ fontSize: '0.9rem' }}>
-                          {isConn ? `${drone.battery_percent}% (${drone.battery_voltage}V)` : 'N/A'}
-                        </span>
-                      </div>
-                      <div className="battery-bar-bg">
-                        <div 
-                          className="battery-bar-fill" 
-                          style={{ 
-                            width: isConn ? `${Math.min(drone.battery_percent, 100)}%` : '0%',
-                            backgroundColor: getBatteryColor(drone.battery_percent)
-                          }}
-                        />
-                      </div>
-                    </div>
-
-                    <div className="coords-container">
-                      <div className="coord-box">
-                        <span className="coord-label">Local X (North)</span>
-                        <span className="coord-val">{isConn ? `${drone.local_x}m` : '0.00m'}</span>
-                      </div>
-                      <div className="coord-box">
-                        <span className="coord-label">Local Y (East)</span>
-                        <span className="coord-val">{isConn ? `${drone.local_y}m` : '0.00m'}</span>
-                      </div>
-                      <div className="coord-box">
-                        <span className="coord-label">Altitude (Z)</span>
-                        <span className="coord-val" style={{ color: 'var(--success)' }}>
-                          {isConn ? `${drone.local_z}m` : '0.00m'}
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-                );
-              })}
+              {droneIds.map((id) => renderDroneCard(id))}
 
               {droneIds.length === 0 && (
                 <div style={{ gridColumn: '1 / -1', padding: '3rem', textAlign: 'center', color: 'var(--text-muted)' }}>
@@ -429,6 +547,7 @@ export default function App() {
                 </div>
               )}
             </div>
+            )}
           </section>
         </main>
 
