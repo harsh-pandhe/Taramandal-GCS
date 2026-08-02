@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { Canvas } from '@react-three/fiber';
 import { OrbitControls, Line, Text, Grid } from '@react-three/drei';
 import { decodeFastFrame } from './telemetry';
+import EarthView from './views/EarthView';
 
 const API_BASE = import.meta.env.VITE_API_BASE || `http://${window.location.hostname || 'localhost'}:8000`;
 const WS_URL = import.meta.env.VITE_WS_URL || `ws://${window.location.hostname || 'localhost'}:8000/ws/telemetry`;
@@ -25,6 +26,9 @@ export default function App() {
   // layout — a compact status-matrix tile grid plus a single drill-down
   // detail panel replaces it instead.
   const [selectedDroneId, setSelectedDroneId] = useState(null);
+  // "operations" is the existing telemetry/control dashboard; "earth" is the
+  // Phase 4 georeferenced 3D globe.
+  const [viewMode, setViewMode] = useState('operations');
   
   const fileInputRef = useRef(null);
 
@@ -425,8 +429,23 @@ export default function App() {
         </div>
       )}
 
+      <div className="view-tabs">
+        <button className={`view-tab ${viewMode === 'operations' ? 'active' : ''}`} onClick={() => setViewMode('operations')}>
+          OPERATIONS
+        </button>
+        <button className={`view-tab ${viewMode === 'earth' ? 'active' : ''}`} onClick={() => setViewMode('earth')}>
+          3D EARTH VIEW
+        </button>
+      </div>
+
+      {viewMode === 'earth' && (
+        <div className="earth-view-panel">
+          <EarthView telemetry={telemetry} />
+        </div>
+      )}
+
       {/* Main Grid Layout */}
-      <div className="dashboard-grid">
+      <div className="dashboard-grid" style={{ display: viewMode === 'operations' ? undefined : 'none' }}>
         {/* Left side: Flight Controls and Fleet Status */}
         <main className="main-column">
           {/* Operations Panel */}

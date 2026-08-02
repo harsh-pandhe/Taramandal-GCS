@@ -159,6 +159,53 @@ body {
 
 .dot.green { background-color: var(--success); }
 .dot.red { background-color: var(--danger); }
+
+/* View switcher — Operations dashboard vs 3D Earth view vs (Phase 5) Night Sky */
+.view-tabs {
+  display: flex;
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+}
+
+.view-tab {
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  padding: 0.55rem 1.1rem;
+  cursor: pointer;
+  transition: color 0.15s, border-color 0.15s;
+}
+
+.view-tab:hover {
+  color: var(--text);
+  border-color: var(--border-strong);
+}
+
+.view-tab.active {
+  color: var(--primary);
+  border-color: var(--primary);
+  background: var(--primary-tint, var(--bg-surface));
+}
+
+.earth-view-panel {
+  height: 70vh;
+  min-height: 480px;
+  margin-bottom: 1.1rem;
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  overflow: hidden;
+}
+
+.earth-view-container {
+  width: 100%;
+  height: 100%;
+}
 .dot.orange { background-color: var(--warning); }
 
 /* Dashboard Layout */
