@@ -28,5 +28,5 @@ etc/
 .DS_Store
 Thumps.db
 
-# Claude Code session/worktree state
+# Claude Code session/worktree dirs
 .claude/

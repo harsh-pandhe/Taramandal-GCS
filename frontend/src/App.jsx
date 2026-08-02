@@ -16,6 +16,10 @@ export default function App() {
   const [trajSummary, setTrajSummary] = useState(null);
   const [trajectoryData, setTrajectoryData] = useState(null);
   const [isPlaying, setIsPlaying] = useState(false);
+  const [flightMode, setFlightMode] = useState("LOCAL");
+  const [triggerDelay, setTriggerDelay] = useState(3);
+  const [verificationReport, setVerificationReport] = useState(null);
+  const [isVerifying, setIsVerifying] = useState(false);
   
   const fileInputRef = useRef(null);
 
@@ -60,6 +64,36 @@ export default function App() {
       if (ws) ws.close();
       clearTimeout(reconnectTimer);
     };
+  }, []);
+
+  // Preload default trajectory on mount
+  useEffect(() => {
+    const loadDefaultTrajectory = async () => {
+      try {
+        const res = await fetch('/choreography.json');
+        if (res.ok) {
+          const data = await res.json();
+          const trajectory_data = {};
+          const summary = {};
+          data.drones.forEach(drone => {
+            trajectory_data[drone.id.toString()] = drone.waypoints;
+            summary[drone.id.toString()] = {
+              waypoints_count: drone.waypoints.length,
+              duration_seconds: drone.waypoints.length > 0 ? drone.waypoints[drone.waypoints.length - 1].time : 0.0
+            };
+          });
+          setTrajectoryData(trajectory_data);
+          setTrajSummary(summary);
+          setFileDetails({
+            name: 'choreography.json (Preloaded)',
+            size: 'Helix Pattern'
+          });
+        }
+      } catch (err) {
+        console.error('Failed to load default trajectory:', err);
+      }
+    };
+    loadDefaultTrajectory();
   }, []);
 
   // Calculate Checklist Evaluations
@@ -118,8 +152,13 @@ export default function App() {
       if (res.ok && data.status === 'success') {
         setTrajSummary(data.drones_summary);
         setTrajectoryData(data.trajectory_data);
-        setIsPlaying(true);
+        setIsPlaying(false);
         setErrorMsg('');
+        
+        // Auto-run verification check immediately
+        setTimeout(() => {
+          triggerVerifyLaunch();
+        }, 500);
       } else {
         setErrorMsg(data.detail || data.message || 'Failed to process trajectory');
         setTrajSummary(null);
@@ -127,6 +166,48 @@ export default function App() {
     } catch (err) {
       setErrorMsg(`Upload error: ${err.message}`);
       setTrajSummary(null);
+    }
+  };
+
+  const triggerVerifyLaunch = async () => {
+    setIsVerifying(true);
+    try {
+      const res = await fetch(`${API_BASE}/api/verify-launch-geometry?tolerance_m=0.5`, {
+        method: 'POST'
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setVerificationReport(data);
+      } else {
+        setErrorMsg(data.detail || 'Failed to verify launch geometry');
+      }
+    } catch (err) {
+      setErrorMsg(`Verification error: ${err.message}`);
+    } finally {
+      setIsVerifying(false);
+    }
+  };
+
+  const handleStartTrajectory = async () => {
+    try {
+      const triggerTimeEpoch = triggerDelay > 0 ? Date.now() + (triggerDelay * 1000) : 0.0;
+      const res = await fetch(`${API_BASE}/api/start-trajectory`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          mode: flightMode,
+          trigger_epoch_ms: triggerTimeEpoch
+        })
+      });
+      const data = await res.json();
+      if (res.ok && data.status === 'success') {
+        setIsPlaying(true);
+        setErrorMsg('');
+      } else {
+        setErrorMsg(data.detail || data.message || 'Failed to start trajectory');
+      }
+    } catch (err) {
+      setErrorMsg(`Start error: ${err.message}`);
     }
   };
 
@@ -141,9 +222,9 @@ export default function App() {
 
   // Battery bar color mapping
   const getBatteryColor = (percent) => {
-    if (percent > 50) return '#00E676';
-    if (percent > 25) return '#FFD600';
-    return '#FF1744';
+    if (percent > 50) return '#34d399';
+    if (percent > 25) return '#fbbf24';
+    return '#f87171';
   };
 
   return (
@@ -152,7 +233,16 @@ export default function App() {
       <header className="header-bar">
         <div className="logo-section">
           <h1>
-            <span className="logo-dot"></span>
+            <svg className="drone-logo-svg" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg" style={{ width: '38px', height: '38px', marginRight: '12px', filter: 'drop-shadow(0 0 8px var(--primary-glow))', verticalAlign: 'middle' }}>
+              <circle cx="16" cy="16" r="8" stroke="var(--primary)" strokeWidth="1.5" strokeDasharray="4 2" />
+              <circle cx="48" cy="16" r="8" stroke="var(--primary)" strokeWidth="1.5" strokeDasharray="4 2" />
+              <circle cx="16" cy="48" r="8" stroke="var(--primary)" strokeWidth="1.5" strokeDasharray="4 2" />
+              <circle cx="48" cy="48" r="8" stroke="var(--primary)" strokeWidth="1.5" strokeDasharray="4 2" />
+              <path d="M10 16h12M16 10v12M42 16h12M48 10v12M10 48h12M16 42v12M42 48h12M48 42v12" stroke="var(--primary)" strokeWidth="1.2" />
+              <path d="M21.6 21.6l20.8 20.8M42.4 21.6L21.6 42.4" stroke="var(--primary)" strokeWidth="2" />
+              <circle cx="32" cy="32" r="6" fill="#0f172a" stroke="var(--primary)" strokeWidth="2" />
+              <circle cx="32" cy="32" r="2" fill="var(--primary)" />
+            </svg>
             TARAMANDAL GCS
           </h1>
         </div>
@@ -166,15 +256,16 @@ export default function App() {
 
       {errorMsg && (
         <div style={{
-          background: 'rgba(255, 23, 68, 0.1)',
-          border: '1px solid rgba(255, 23, 68, 0.3)',
+          background: 'var(--danger-tint)',
+          border: '1px solid var(--danger)',
           padding: '1rem',
-          borderRadius: '12px',
-          color: '#FF1744',
+          borderRadius: 'var(--r)',
+          color: 'var(--danger)',
           fontWeight: 600,
-          fontSize: '0.95rem'
+          fontSize: '0.85rem',
+          fontFamily: 'var(--font-mono)'
         }}>
-          ⚠️ {errorMsg}
+          {errorMsg}
         </div>
       )}
 
@@ -197,21 +288,21 @@ export default function App() {
                 onClick={() => triggerAction('/api/launch')}
                 disabled={!launchEnabled || droneIds.length === 0}
               >
-                🛫 START SEQUENTIAL TAKEOFF
+                START SEQUENTIAL TAKEOFF
               </button>
               
               <button 
                 className="btn btn-land" 
                 onClick={() => triggerAction('/api/land')}
               >
-                🛬 EMER LAND
+                EMER LAND
               </button>
               
               <button 
                 className="btn btn-rtl" 
                 onClick={() => triggerAction('/api/rtl')}
               >
-                🚨 EMERGENCY RTL
+                EMERGENCY RTL
               </button>
             </div>
             
@@ -241,7 +332,7 @@ export default function App() {
                   <div key={id} className={`drone-card ${isConn ? '' : 'disconnected'}`}>
                     <div className="drone-card-header">
                       <div className="drone-id">
-                        🛸 DRONE 0{id}
+                        DRONE {String(id).padStart(2, '0')}
                         <span style={{ fontSize: '0.85rem', color: 'var(--text-muted)', fontWeight: 400 }}>
                           (Port {drone.port})
                         </span>
@@ -334,7 +425,7 @@ export default function App() {
 
               {droneIds.length === 0 && (
                 <div style={{ gridColumn: '1 / -1', padding: '3rem', textAlign: 'center', color: 'var(--text-muted)' }}>
-                  🛰️ Waiting for telemetry stream from PX4 SITL simulator...
+                  Waiting for telemetry stream from PX4 SITL simulator...
                 </div>
               )}
             </div>
@@ -370,7 +461,7 @@ export default function App() {
                 {droneIds.length > 0 ? (
                   droneIds.map((id) => (
                     <div className="checklist-item" key={id}>
-                      <span>Sats (Drone 0{id}):</span>
+                      <span>Sats (Drone {String(id).padStart(2, '0')}):</span>
                       <span className="val">{telemetry[id]?.satellites || 0}</span>
                     </div>
                   ))
@@ -416,7 +507,7 @@ export default function App() {
             <h2 className="panel-header">TRAJECTORY SWARM PLANNER</h2>
             
             <div className="uploader-box" onClick={handleBoxClick}>
-              <div className="uploader-icon">📥</div>
+              
               <div className="uploader-text">
                 <strong>Click to ingest trajectory</strong>
                 <br />
@@ -435,7 +526,7 @@ export default function App() {
               <div className="file-info">
                 <div className="file-info-header">
                   <span>
-                    📄 {fileDetails.name}
+                    {fileDetails.name}
                     <span style={{
                       color: isPlaying ? 'var(--success)' : 'var(--text-muted)',
                       fontSize: '0.75rem',
@@ -451,19 +542,127 @@ export default function App() {
                 {trajSummary ? (
                   <>
                     <div style={{ borderBottom: '1px solid rgba(255,255,255,0.05)', margin: '0.25rem 0' }}></div>
-                    {Object.keys(trajSummary).map((id) => (
-                      <div className="drone-stats-row" key={id}>
-                        <span>Drone 0{id} Waypoints:</span>
-                        <span>{trajSummary[id].waypoints_count} wps ({trajSummary[id].duration_seconds}s)</span>
+                    
+                    {/* Operational Settings */}
+                    <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr', gap: '0.4rem', marginBottom: '0.5rem' }}>
+                      <div>
+                        <label style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>MODE</label>
+                        <select 
+                          value={flightMode} 
+                          onChange={(e) => setFlightMode(e.target.value)}
+                          style={{
+                            width: '100%',
+                            background: 'rgba(0,0,0,0.3)',
+                            border: '1px solid rgba(255,255,255,0.1)',
+                            color: 'white',
+                            padding: '0.2rem',
+                            borderRadius: '4px',
+                            fontSize: '0.75rem',
+                            outline: 'none',
+                            marginTop: '0.15rem'
+                          }}
+                        >
+                          <option value="LOCAL">LOCAL (NED)</option>
+                          <option value="GLOBAL">GLOBAL (GPS)</option>
+                        </select>
                       </div>
-                    ))}
-                    <div className="trajectory-controls">
+                      <div>
+                        <label style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>DELAY (S)</label>
+                        <input 
+                          type="number" 
+                          min="0" 
+                          max="30"
+                          value={triggerDelay} 
+                          onChange={(e) => setTriggerDelay(parseInt(e.target.value) || 0)}
+                          style={{
+                            width: '100%',
+                            background: 'rgba(0,0,0,0.3)',
+                            border: '1px solid rgba(255,255,255,0.1)',
+                            color: 'white',
+                            padding: '0.2rem',
+                            borderRadius: '4px',
+                            fontSize: '0.75rem',
+                            outline: 'none',
+                            marginTop: '0.15rem'
+                          }}
+                        />
+                      </div>
+                    </div>
+
+                    {/* Preflight Check Verification Panel */}
+                    <div style={{ 
+                      background: 'rgba(255,255,255,0.02)', 
+                      padding: '0.4rem', 
+                      borderRadius: '4px', 
+                      marginBottom: '0.5rem', 
+                      border: '1px solid rgba(255,255,255,0.05)' 
+                    }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.3rem' }}>
+                        <span style={{ fontSize: '0.75rem', fontWeight: 600 }}>LAUNCH GEOMETRY CHECK</span>
+                        <button 
+                          onClick={triggerVerifyLaunch}
+                          disabled={isVerifying}
+                          style={{ 
+                            padding: '0.15rem 0.35rem', 
+                            fontSize: '0.65rem', 
+                            background: 'rgba(56, 189, 248, 0.1)', 
+                            border: '1px solid var(--primary)',
+                            color: 'var(--primary)',
+                            borderRadius: '3px',
+                            cursor: 'pointer'
+                          }}
+                        >
+                          {isVerifying ? 'Checking...' : 'Verify'}
+                        </button>
+                      </div>
+                      
+                      {verificationReport ? (
+                        <div style={{ fontSize: '0.72rem' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.25rem', marginBottom: '0.25rem' }}>
+                            <span>Status:</span>
+                            <span style={{ 
+                              color: verificationReport.all_passed ? 'var(--success)' : 'var(--danger)',
+                              fontWeight: 700,
+                              textShadow: verificationReport.all_passed ? '0 0 6px var(--success-glow)' : '0 0 6px rgba(255,23,68,0.3)'
+                            }}>
+                              {verificationReport.all_passed ? '✓ READY' : '✗ PLACEMENT ERROR'}
+                            </span>
+                          </div>
+                          {Object.keys(verificationReport.drones).map((id) => {
+                            const dReport = verificationReport.drones[id];
+                            return (
+                              <div key={id} style={{ display: 'flex', justifyContent: 'space-between', padding: '0.15rem 0', borderBottom: '1px solid rgba(255,255,255,0.02)' }}>
+                                <span>Drone {id}:</span>
+                                <span style={{ color: dReport.status === 'PASSED' ? 'var(--success)' : 'var(--danger)' }}>
+                                  {dReport.status} ({dReport.distance_error_m}m)
+                                </span>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      ) : (
+                        <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', fontStyle: 'italic' }}>
+                          No check performed yet.
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="trajectory-controls" style={{ display: 'flex', gap: '0.4rem', marginTop: '0.4rem' }}>
+                      <button 
+                        className="btn btn-launch" 
+                        onClick={handleStartTrajectory}
+                        disabled={isPlaying || (!bypassChecklist && (!verificationReport || !verificationReport.all_passed))}
+                        style={{ flex: 1.5, padding: '0.5rem', background: isPlaying ? 'var(--text-muted)' : 'var(--success)', cursor: 'pointer' }}
+                      >
+                        START SHOW
+                      </button>
                       <button 
                         className="btn btn-stop" 
                         onClick={handleStopTrajectory}
-                        style={{ flex: 1, padding: '0.6rem' }}
+                        disabled={!isPlaying}
+                        style={{ flex: 1, padding: '0.5rem', cursor: 'pointer' }}
                       >
-                        ⏹ Stop Trajectory
+                        ⏹ STOP SHOW
                       </button>
                     </div>
                     {/* Visual 2D swarm path preview */}
@@ -484,7 +683,7 @@ export default function App() {
 
 // ─── 3D Swarm Path Previewer (Three.js via react-three-fiber) ────────────────
 
-const DRONE_COLORS = ['#00E5FF', '#FF00FF', '#FF9100', '#00E676', '#FFFF00'];
+const DRONE_COLORS = ['#38bdf8', '#8b5cf6', '#f2a93b', '#34d399', '#f87171'];
 
 function DronePathLine({ waypoints, color }) {
   // NED → Three.js axes: X=East(y_NED), Y=Up(-z_NED), Z=North(x_NED)
@@ -540,15 +739,15 @@ function SwarmCanvasPreview({ trajectoryData }) {
   }, [trajectoryData]);
 
   return (
-    <div style={{ marginTop: '1rem', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '12px', background: '#080d18', overflow: 'hidden' }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.55rem 0.75rem', borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
-        <span style={{ fontSize: '0.74rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>🛸 3D Swarm Path Preview</span>
-        <span style={{ fontSize: '0.68rem', color: 'rgba(255,255,255,0.2)' }}>Drag · Orbit · Scroll to zoom</span>
+    <div style={{ marginTop: '1rem', border: '1px solid var(--border)', borderRadius: 'var(--r-lg)', background: 'var(--bg-sunken)', overflow: 'hidden' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.55rem 0.75rem', borderBottom: '1px solid var(--border)' }}>
+        <span style={{ fontSize: '0.7rem', color: 'var(--text-faint)', textTransform: 'uppercase', letterSpacing: '0.7px', fontFamily: 'var(--font-mono)' }}>3D Swarm Path Preview</span>
+        <span style={{ fontSize: '0.65rem', color: 'var(--text-faint)', fontFamily: 'var(--font-mono)' }}>Drag · Orbit · Scroll to zoom</span>
       </div>
 
       {!trajectoryData ? (
         <div style={{ height: '220px', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'rgba(255,255,255,0.18)', fontSize: '0.8rem', flexDirection: 'column', gap: '0.4rem' }}>
-          <span style={{ fontSize: '1.5rem' }}>📐</span>
+          
           Upload a trajectory to preview paths in 3D
         </div>
       ) : (
@@ -575,7 +774,7 @@ function SwarmCanvasPreview({ trajectoryData }) {
             {/* Origin pad */}
             <mesh position={[0, 0.02, 0]}>
               <cylinderGeometry args={[0.7, 0.7, 0.05, 32]} />
-              <meshStandardMaterial color="#00E5FF" emissive="#00E5FF" emissiveIntensity={0.5} />
+              <meshStandardMaterial color="#38bdf8" emissive="#38bdf8" emissiveIntensity={0.4} />
             </mesh>
 
             {droneEntries.map(({ id, waypoints, color }) => (
