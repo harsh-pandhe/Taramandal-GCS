@@ -1,0 +1,4 @@
+# Every path, no exceptions. There's no branch protection to enforce this
+# (private repo, no GitHub Pro), but this at least makes review ownership
+# explicit and shows up as a suggested reviewer on every PR.
+* @harsh-pandhe
