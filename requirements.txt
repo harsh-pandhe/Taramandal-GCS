@@ -1,7 +1,25 @@
-mavsdk
+# Taramandal monorepo — single dependency set for all Python packages.
+# Install once at the repo root: pip install -r requirements.txt
+
+# Web/API layer (tara-gcs, tara-studio)
 fastapi
 uvicorn
-websockets
-pandas
+pydantic
 python-multipart
+websockets
+
+# Fleet comms — real PX4/hardware backend only (tara-gcs)
+mavsdk
+
+# Numerics: trajectory math, cKDTree proximity, Hungarian assignment,
+# and the vectorized swarm simulator (tara-core, tara-sim)
+numpy
 scipy
+pandas
+
+# Orchestrator CLI (apps/tara)
+typer
+
+# Tests
+pytest
+pytest-asyncio

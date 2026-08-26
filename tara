@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+# One command to run the Taramandal stack. See `./tara --help`.
+#
+# This wrapper only resolves paths and hands off to the CLI; all the actual
+# orchestration logic lives in apps/tara/tara_cli.
+set -e
+ROOT="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+
+if [ ! -x "$ROOT/.venv/bin/python" ]; then
+  echo "error: $ROOT/.venv not found. Run:" >&2
+  echo "  python3 -m venv .venv && .venv/bin/pip install -r requirements.txt" >&2
+  exit 1
+fi
+
+export PYTHONPATH="$ROOT/apps/tara:$ROOT/packages/tara-core:$ROOT/packages/tara-gcs:$ROOT/packages/tara-studio"
+exec "$ROOT/.venv/bin/python" -m tara_cli "$@"
