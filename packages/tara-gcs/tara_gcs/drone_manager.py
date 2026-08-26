@@ -1,6 +1,8 @@
 import asyncio
+import csv
 import math
 import logging
+import time
 from scipy.spatial import cKDTree
 from tara_core import DEFAULT_LIMITS, MAX_FLEET_SIZE, altitude_layers, interpolate_waypoint, launch_grid
 from mavsdk import System
@@ -75,6 +77,12 @@ class DroneManager:
         self.geofence_breaches = {}  # drone_id -> bool, tracks active geofence breaches
         self.proximity_breaches = {}  # tracks active proximity breaches per drone pair: (id1, id2) -> bool
         self.active_trajectory = None  # active trajectory stored for verification and start
+
+        # Low-rate telemetry recording for post-flight CSV export (issue #8).
+        # Independent of the 10Hz control/safety loops above.
+        self.telemetry_log = []  # list of per-sample dicts, appended during a show
+        self._telemetry_recording_task = None
+        self.is_recording_telemetry = False
 
     async def connect_all(self) -> None:
         """Connects to all drones concurrently."""
@@ -152,7 +160,10 @@ class DroneManager:
     async def shutdown(self):
         """Cleans up all background monitoring tasks and disarms drones safely."""
         logging.info("Shutting down DroneManager...")
-        
+
+        # Stop telemetry recording if running
+        self.stop_telemetry_recording()
+
         # Stop trajectory playback if running
         if self.trajectory_task:
             self.trajectory_task.cancel()
@@ -459,15 +470,70 @@ class DroneManager:
         # Remap trajectory slots to currently healthy drones before playback
         remapped = self.remap_trajectory_to_healthy_drones(trajectory_data)
         self.is_running_trajectory = True
+        self.start_telemetry_recording()
         self.trajectory_task = asyncio.create_task(self._run_trajectory_loop(remapped, mode, trigger_epoch_ms))
 
     def stop_trajectory(self):
         """Stop current trajectory playback."""
         self.is_running_trajectory = False
+        self.stop_telemetry_recording()
         if self.trajectory_task:
             self.trajectory_task.cancel()
             self.trajectory_task = None
             print("Trajectory playback stopped.")
+
+    # --- Telemetry Recording & CSV Export (issue #8) ---
+
+    TELEMETRY_SAMPLE_INTERVAL_S = 0.5  # low-rate sampling, independent of the 10Hz control/safety loops
+
+    def start_telemetry_recording(self):
+        """
+        Begin periodically sampling per-drone telemetry into self.telemetry_log for
+        later CSV export. Safe to call multiple times: restarts recording from empty.
+        """
+        self.stop_telemetry_recording()
+        self.telemetry_log = []
+        self.is_recording_telemetry = True
+        self._telemetry_recording_task = asyncio.create_task(self._telemetry_recording_loop())
+
+    def stop_telemetry_recording(self):
+        """Stop periodic telemetry sampling. Already-recorded samples are kept for export."""
+        self.is_recording_telemetry = False
+        if self._telemetry_recording_task:
+            self._telemetry_recording_task.cancel()
+            self._telemetry_recording_task = None
+
+    async def _telemetry_recording_loop(self):
+        """Samples every drone's telemetry at TELEMETRY_SAMPLE_INTERVAL_S for post-flight CSV export."""
+        try:
+            while True:
+                sample_time = time.time()
+                for drone_id, tel in self.telemetry.items():
+                    self.telemetry_log.append({
+                        "timestamp": sample_time,
+                        "drone_id": drone_id,
+                        "x": tel.get("fleet_x", 0.0),
+                        "y": tel.get("fleet_y", 0.0),
+                        "z": tel.get("fleet_z", 0.0),
+                        "battery_pct": tel.get("battery_percent", 0.0),
+                        "mode": tel.get("flight_mode", "UNKNOWN"),
+                        "connected": tel.get("connected", False),
+                    })
+                await asyncio.sleep(self.TELEMETRY_SAMPLE_INTERVAL_S)
+        except asyncio.CancelledError:
+            pass
+
+    def export_telemetry_csv(self, filepath: str) -> int:
+        """
+        Writes all recorded telemetry samples (see self.telemetry_log) to a CSV file
+        at filepath. Returns the number of rows written.
+        """
+        fieldnames = ["timestamp", "drone_id", "x", "y", "z", "battery_pct", "mode", "connected"]
+        with open(filepath, "w", newline="") as f:
+            writer = csv.DictWriter(f, fieldnames=fieldnames)
+            writer.writeheader()
+            writer.writerows(self.telemetry_log)
+        return len(self.telemetry_log)
 
     async def _run_trajectory_loop(self, trajectory_data: dict, mode: str = "LOCAL", trigger_epoch_ms: float = 0.0):
         print(f"Starting trajectory playback loop in {mode} mode...")
@@ -576,6 +642,9 @@ class DroneManager:
             print("Trajectory playback loop cancelled.")
         finally:
             self.is_running_trajectory = False
+            # Natural completion doesn't go through stop_trajectory(), so stop
+            # recording here too (stop_trajectory() already covers the manual-stop path).
+            self.stop_telemetry_recording()
 
     def verify_launch_geometry(self, trajectory_data: dict, tolerance_m: float = 0.5) -> dict:
         """
