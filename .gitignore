@@ -36,3 +36,5 @@ Thumps.db
 
 # Claude Code session/worktree dirs
 .claude/
+
+packages/tara-gcs/tara_gcs/exports/

@@ -3,6 +3,7 @@ import logging
 import os
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, UploadFile, File, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from tara_gcs.drone_manager import DroneManager
 from tara_gcs.trajectory_parser import parse_trajectory_file, parse_trajectory_bytes
@@ -156,6 +157,23 @@ async def stop_trajectory():
     logger.info("API: Stopping trajectory playback...")
     drone_manager.stop_trajectory()
     return {"status": "success", "message": "Trajectory playback stopped."}
+
+@app.get("/api/export-telemetry")
+async def export_telemetry(filename: str = "telemetry_export.csv"):
+    """Exports per-drone telemetry recorded during the last show as a downloadable CSV."""
+    logger.info(f"API: Exporting recorded telemetry as {filename}...")
+    if not drone_manager.telemetry_log:
+        raise HTTPException(status_code=400, detail="No telemetry has been recorded yet. Run a trajectory first.")
+
+    # Sanitize to a bare filename to avoid writing outside the exports directory.
+    safe_filename = os.path.basename(filename) or "telemetry_export.csv"
+    export_dir = os.path.join(os.path.dirname(__file__), "exports")
+    os.makedirs(export_dir, exist_ok=True)
+    filepath = os.path.join(export_dir, safe_filename)
+
+    row_count = drone_manager.export_telemetry_csv(filepath)
+    logger.info(f"API: Wrote {row_count} telemetry rows to {filepath}.")
+    return FileResponse(filepath, media_type="text/csv", filename=safe_filename)
 
 @app.websocket("/ws/telemetry")
 async def websocket_telemetry_endpoint(websocket: WebSocket):
