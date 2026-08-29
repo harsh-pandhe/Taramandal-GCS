@@ -38,3 +38,6 @@ Thumps.db
 .claude/
 
 packages/tara-gcs/tara_gcs/exports/
+
+# Persisted active-show state (issue #4) — runtime data, not source.
+packages/tara-gcs/tara_gcs/show_state.json

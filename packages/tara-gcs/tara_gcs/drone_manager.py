@@ -7,6 +7,7 @@ from scipy.spatial import cKDTree
 from tara_core import DEFAULT_LIMITS, MAX_FLEET_SIZE, altitude_layers, interpolate_waypoint, launch_grid
 from mavsdk import System
 from mavsdk.offboard import PositionNedYaw, PositionGlobalYaw, OffboardError, VelocityNedYaw, AccelerationNed
+from tara_gcs.state_store import DEFAULT_STATE_PATH, discard_show_state, load_show_state, save_show_state
 
 # Fleet-wide safety limits and launch geometry come from tara_core so that this
 # runtime monitor, the upload gate and the Studio's design-time validator can no
@@ -46,7 +47,12 @@ def _pad_offset(drone_id: int) -> tuple[float, float]:
     return _PAD_GRID[drone_id]
 
 class DroneManager:
-    def __init__(self, ports: list[int] = [14540, 14541, 14542], backend: str = "px4"):
+    def __init__(
+        self,
+        ports: list[int] = [14540, 14541, 14542],
+        backend: str = "px4",
+        state_path: str = DEFAULT_STATE_PATH,
+    ):
         """
         Args:
             ports: UDP MAVLink ports, one per drone (backend="px4" only —
@@ -62,6 +68,9 @@ class DroneManager:
                 mavsdk.System surface this class calls, so every monitor loop,
                 the launch sequence, RTL, land, and the trajectory playback
                 loop below run completely unchanged on either backend.
+            state_path: where the active show (trajectory + playback position)
+                is persisted so a GCS restart can offer to resume it (issue #4).
+                Overridable so tests don't collide on/pollute the real file.
         """
         if backend not in ("px4", "sim"):
             raise ValueError(f"backend must be 'px4' or 'sim', got {backend!r}")
@@ -83,6 +92,15 @@ class DroneManager:
         self.telemetry_log = []  # list of per-sample dicts, appended during a show
         self._telemetry_recording_task = None
         self.is_recording_telemetry = False
+
+        # Show-state persistence (issue #4): periodically snapshot the active
+        # trajectory + playback position so a crashed/restarted GCS can offer
+        # to resume instead of starting blind.
+        self.state_path = state_path
+        self.show_mode = "LOCAL"
+        self.show_started_at = None  # time.time() when the current trajectory began playing
+        self.pending_resume_state = None  # loaded-but-not-yet-applied saved state, set by load_pending_resume_state()
+        self._state_snapshot_task = None
 
     async def connect_all(self) -> None:
         """Connects to all drones concurrently."""
@@ -163,6 +181,13 @@ class DroneManager:
 
         # Stop telemetry recording if running
         self.stop_telemetry_recording()
+
+        # If a show is active, persist one last snapshot before tearing down so
+        # a restart can offer to resume from here (issue #4) — deliberately not
+        # calling stop_trajectory()/discard_show_state() below, since shutdown
+        # is not "the show ended," it's "GCS is going away mid-show."
+        self.stop_state_snapshotting()
+        self._write_state_snapshot()
 
         # Stop trajectory playback if running
         if self.trajectory_task:
@@ -467,16 +492,22 @@ class DroneManager:
         """Start playing back waypoints in a background asyncio task."""
         self.stop_trajectory()
         self.active_trajectory = trajectory_data
+        self.show_mode = mode
+        self.show_started_at = time.time()
         # Remap trajectory slots to currently healthy drones before playback
         remapped = self.remap_trajectory_to_healthy_drones(trajectory_data)
         self.is_running_trajectory = True
         self.start_telemetry_recording()
+        self.start_state_snapshotting()
         self.trajectory_task = asyncio.create_task(self._run_trajectory_loop(remapped, mode, trigger_epoch_ms))
 
     def stop_trajectory(self):
         """Stop current trajectory playback."""
         self.is_running_trajectory = False
         self.stop_telemetry_recording()
+        self.stop_state_snapshotting()
+        # A deliberate stop ends the show; there is nothing left to offer resuming.
+        discard_show_state(self.state_path)
         if self.trajectory_task:
             self.trajectory_task.cancel()
             self.trajectory_task = None
@@ -534,6 +565,83 @@ class DroneManager:
             writer.writeheader()
             writer.writerows(self.telemetry_log)
         return len(self.telemetry_log)
+
+    # --- Show-state persistence & resume (issue #4) ---
+
+    STATE_SNAPSHOT_INTERVAL_S = 5.0  # periodic, not every 10Hz control tick
+
+    def start_state_snapshotting(self):
+        """Begin periodically persisting the active trajectory + playback position to disk."""
+        self.stop_state_snapshotting()
+        self._state_snapshot_task = asyncio.create_task(self._state_snapshot_loop())
+
+    def stop_state_snapshotting(self):
+        """Stop periodic snapshotting. Does not touch any file already on disk."""
+        if self._state_snapshot_task:
+            self._state_snapshot_task.cancel()
+            self._state_snapshot_task = None
+
+    async def _state_snapshot_loop(self):
+        """Writes a show-state snapshot to disk every STATE_SNAPSHOT_INTERVAL_S while a show runs."""
+        try:
+            while True:
+                await asyncio.sleep(self.STATE_SNAPSHOT_INTERVAL_S)
+                self._write_state_snapshot()
+        except asyncio.CancelledError:
+            pass
+
+    def _write_state_snapshot(self):
+        if not self.active_trajectory or self.show_started_at is None:
+            return
+        try:
+            save_show_state(
+                self.state_path,
+                self.active_trajectory,
+                self.show_mode,
+                self.show_started_at,
+                self.telemetry,
+            )
+        except Exception as e:
+            logging.error(f"Failed to persist show state to {self.state_path}: {e}")
+
+    def load_pending_resume_state(self) -> dict | None:
+        """
+        Called on GCS startup. If a saved show exists on disk, loads it into
+        `self.pending_resume_state` (for an operator-facing resume/discard
+        prompt) and returns it. Does NOT touch `active_trajectory`, arm, or
+        launch anything — that only happens if the operator explicitly calls
+        `resume_pending_show()`.
+        """
+        self.pending_resume_state = load_show_state(self.state_path)
+        return self.pending_resume_state
+
+    def resume_pending_show(self) -> float:
+        """
+        Applies a previously-loaded pending resume state: restores the active
+        trajectory and calculates how far into it playback had reached, but
+        does not start playback, arm, or launch anything — that still
+        requires an explicit operator action (e.g. /api/start-trajectory).
+
+        Returns the elapsed playback time (seconds) the show had reached
+        when it was last saved, for the caller/frontend to display.
+
+        Raises ValueError if there is no pending resume state.
+        """
+        if not self.pending_resume_state:
+            raise ValueError("No pending saved show state to resume.")
+
+        state = self.pending_resume_state
+        self.active_trajectory = state["trajectory"]
+        self.show_mode = state["mode"]
+        elapsed = max(0.0, state["saved_at"] - state["show_started_at"])
+        self.pending_resume_state = None
+        discard_show_state(self.state_path)
+        return elapsed
+
+    def discard_pending_show(self) -> None:
+        """Discards a previously-loaded pending resume state without applying it."""
+        self.pending_resume_state = None
+        discard_show_state(self.state_path)
 
     async def _run_trajectory_loop(self, trajectory_data: dict, mode: str = "LOCAL", trigger_epoch_ms: float = 0.0):
         print(f"Starting trajectory playback loop in {mode} mode...")
@@ -639,12 +747,23 @@ class DroneManager:
                 await asyncio.sleep(0.1)  # 10Hz
                 
         except asyncio.CancelledError:
+            # Cancellation comes from either stop_trajectory() (manual stop —
+            # already discarded saved state itself before cancelling) or
+            # shutdown() (GCS going away mid-show — deliberately leaves the
+            # last snapshot on disk so a restart can offer to resume). Either
+            # way, the finally block below must not discard state itself.
             print("Trajectory playback loop cancelled.")
+            cancelled = True
+        else:
+            cancelled = False
         finally:
             self.is_running_trajectory = False
             # Natural completion doesn't go through stop_trajectory(), so stop
             # recording here too (stop_trajectory() already covers the manual-stop path).
             self.stop_telemetry_recording()
+            if not cancelled:
+                self.stop_state_snapshotting()
+                discard_show_state(self.state_path)
 
     def verify_launch_geometry(self, trajectory_data: dict, tolerance_m: float = 0.5) -> dict:
         """
