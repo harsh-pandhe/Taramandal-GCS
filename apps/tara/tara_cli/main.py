@@ -13,8 +13,9 @@ import typer
 from .config import load_config
 from .doctor import run_checks
 from .process import Supervisor
-from .reset import check_stray_processes, reset_all
+from .reset import reset_all
 from .services import UnsupportedBackendError, build_services
+from .status import collect_status, to_json, to_text
 
 app = typer.Typer(add_completion=False, no_args_is_help=True)
 
@@ -83,15 +84,22 @@ def reset() -> None:
 
 
 @app.command()
-def status() -> None:
-    """List any known Taramandal processes still running."""
-    stray = check_stray_processes()
-    if not stray:
-        typer.echo("[tara] nothing running.")
-        return
-    typer.echo(f"[tara] {len(stray)} process(es) still running:")
-    for line in stray:
-        typer.echo(f"  {line}")
+def status(
+    as_json: bool = typer.Option(False, "--json", help="Emit the report as JSON for scripts and CI."),
+) -> None:
+    """Report whether the stack is up, and the fleet's connected/armed counts.
+
+    Exits 1 if processes are running but the GCS API can't be reached — a
+    half-dead stack. An idle machine with nothing running exits 0, since
+    "down" is not an error unless the stack was supposed to be up.
+    """
+    config = load_config()
+    snapshot = collect_status(config)
+
+    typer.echo(to_json(snapshot) if as_json else to_text(snapshot))
+
+    if snapshot.processes_running and not snapshot.api_reachable:
+        raise typer.Exit(1)
 
 
 @app.command()

@@ -10,6 +10,7 @@ testpaths = [
     "packages/tara-gcs/tests",
     "packages/tara-sim/tests",
     "packages/tara-studio/tests",
+    "apps/tara/tests",
 ]
 pythonpath = [
     "packages/tara-core",
@@ -17,6 +18,7 @@ pythonpath = [
     "packages/tara-sim",
     "packages/tara-studio",
     "apps",
+    "apps/tara",
 ]
 # Each package has its own tests/ directory. Under the default import mode those
 # all resolve to a single `tests` package name and shadow each other, so use
