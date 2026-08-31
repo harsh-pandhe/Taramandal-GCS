@@ -54,6 +54,24 @@ async def shutdown_event():
     logger.info("Shutting down Ground Control Station...")
     await drone_manager.shutdown()
 
+@app.get("/api/status")
+async def get_status():
+    """Point-in-time fleet health, for `tara status` and any scripted check.
+
+    Deliberately cheap and synchronous: it reads the telemetry dict the
+    monitor loops already maintain rather than polling the vehicles, so a
+    caller can hit it on a tight loop without competing with the 10Hz
+    control/safety loops for the drones' attention.
+    """
+    telemetry = drone_manager.telemetry
+    return {
+        "backend": drone_manager.backend,
+        "num_drones": len(drone_manager.ports),
+        "connected": sum(1 for t in telemetry.values() if t.get("connected")),
+        "armed": sum(1 for t in telemetry.values() if t.get("armed")),
+        "trajectory_running": drone_manager.is_running_trajectory,
+    }
+
 @app.post("/api/launch")
 async def launch_fleet():
     logger.info("API: Launching fleet...")
