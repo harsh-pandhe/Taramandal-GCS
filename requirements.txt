@@ -20,6 +20,9 @@ pandas
 # Orchestrator CLI (apps/tara)
 typer
 
+# Process CPU/RSS sampling for tools/benchmark_fleet_scale.py
+psutil
+
 # Tests
 pytest
 pytest-asyncio
