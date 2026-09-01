@@ -1,0 +1,52 @@
+# Fleet-scale latency budgets (issue #24).
+#
+# Split out from the main test job on purpose: these are timing assertions, and
+# timing on a shared CI runner is noisier than functional tests. Keeping them in
+# their own job means a budget breach is legible as "the proximity scan got
+# slower" rather than one red X across an otherwise unrelated suite.
+#
+# The budgets are deliberately loose (~7x measured cost, scored on medians) so
+# runner noise alone will not fail a build — see the module docstring in
+# packages/tara-gcs/tests/test_load_scale.py.
+
+name: Load & scale benchmarks
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    paths:
+      # Only the code these budgets actually measure. The proximity scan and the
+      # telemetry codec are the two hot paths under test; the workflow itself is
+      # included so changes to it get exercised.
+      - "packages/tara-core/tara_core/proximity.py"
+      - "packages/tara-gcs/tara_gcs/telemetry_codec.py"
+      - "packages/tara-gcs/tara_gcs/drone_manager.py"
+      - "packages/tara-gcs/tests/test_load_scale.py"
+      - "requirements.txt"
+      - ".github/workflows/load-scale.yml"
+  workflow_dispatch:
+
+jobs:
+  benchmark:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      # The command named in the issue's acceptance criteria. --durations=0
+      # prints every test's wall-clock time, so the benchmark numbers are
+      # readable in the job log rather than only surfacing on failure.
+      - name: Run load & scale benchmarks
+        run: pytest packages/tara-gcs/tests/test_load_scale.py -v --durations=0
