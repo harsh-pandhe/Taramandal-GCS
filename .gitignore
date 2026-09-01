@@ -52,3 +52,8 @@ packages/tara-gcs/tara_gcs/exports/
 # machine — the dashboard reads these back for diagnosing a failed launch, but
 # nothing about them belongs in version control.
 /sim_logs/
+
+# Proprietary In-House Hardware, CAD, BOM, and Strategic Plans (Local Only)
+plan/
+hardware/
+
