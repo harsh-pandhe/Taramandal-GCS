@@ -45,6 +45,12 @@ python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
 Gazebo instead of the simulator (needs PX4-Autopilot built locally; see
 `sim/px4/launch_fleet.sh`).
 
+Once the GCS is up, the simulation itself can also be started and stopped from
+the dashboard's Simulation Control Bar — pick a fleet size, hit **Launch Gazebo
+SITL**, and watch the status pills — so running a show does not require a
+terminal. `tara up` remains the developer path; the control bar is the operator
+one. RViz can be launched the same way once a PX4 fleet is running.
+
 Run the test suite:
 
 ```bash

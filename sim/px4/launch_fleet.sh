@@ -16,6 +16,23 @@ MAX_DRONES=${MAX_DRONES:-50}
 # in backend/drone_manager.py so the GCS fleet-frame math lines up with spawns.
 PAD_SPACING_Y=${PAD_SPACING_Y:-2}
 
+# Home/origin for the simulated world. PX4 SITL has no real GPS receiver: it
+# synthesizes GNSS from the simulator's world origin, and if that origin is
+# never set, the EKF has nothing to anchor a global position to. The visible
+# symptom is the home-position lock bug this project has been carrying —
+# `telemetry.health()` reports is_home_position_ok == false indefinitely, so
+# arming is rejected and GLOBAL-mode trajectories have no home_lat/home_lon to
+# offset against (drone_manager._monitor_home never receives a home message,
+# leaving home_lat/lon at 0.0, which start_trajectory then skips setpoints on).
+#
+# Setting these three exports before spawning gives every instance a
+# deterministic origin, so home latches within a second or two of boot instead
+# of never. Values default to the PX4 SITL standard Zurich origin; override for
+# a real show site so the georeferenced Earth view matches the actual field.
+PX4_HOME_LAT=${PX4_HOME_LAT:-47.397742}
+PX4_HOME_LON=${PX4_HOME_LON:-8.545594}
+PX4_HOME_ALT=${PX4_HOME_ALT:-488.0}
+
 # Parse options
 while getopts "n:hp:" opt; do
   case $opt in
@@ -62,6 +79,7 @@ echo "Starting multi-drone SITL simulation..."
 echo "  Number of drones: $NUM_DRONES"
 echo "  Headless mode: $HEADLESS"
 echo "  Autopilot Path: $PX4_AUTOPILOT_DIR"
+echo "  Home origin:    $PX4_HOME_LAT, $PX4_HOME_LON @ ${PX4_HOME_ALT}m"
 echo "========================================="
 
 # Call cleanup first
@@ -93,6 +111,14 @@ export GZ_PARTITION=taramandal
 
 # Disable interactive PX4 shell to prevent EOF infinite loops in log files
 export NO_PXH=1
+
+# Anchor the simulated GNSS origin (see PX4_HOME_* above). Exported here rather
+# than set per-instance on the px4 command line so every drone in the fleet
+# shares one origin — a per-instance origin would put each drone in its own
+# global frame and make fleet-frame GPS math meaningless.
+export PX4_HOME_LAT
+export PX4_HOME_LON
+export PX4_HOME_ALT
 
 # Export Headless if requested
 if [ "$HEADLESS" -eq 1 ]; then

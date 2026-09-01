@@ -93,9 +93,28 @@ class _Telemetry:
             yield bool(fs.armed[i])
 
     async def health(self):
+        """Mirrors the subset of mavsdk Health that DroneManager reads.
+
+        is_home_position_ok is reported alongside is_armable because the GCS
+        launch sequence gates arming on both (see DroneManager._launch_one and
+        HOME_LOCK_TIMEOUT_S) — a health object carrying only is_armable would
+        make the sim backend raise AttributeError on every launch. It tracks
+        is_armable rather than being hardcoded True: this adapter's contract is
+        to duck-type MAVSDK, and a drone that is not yet ready to arm has not
+        yet settled a home position either. The sim has no GNSS convergence to
+        model, so the two become true at the same moment here, whereas on real
+        SITL home lags armable — which is exactly the gap the GCS-side wait
+        exists to close.
+        """
         fs, i = self._sys._fs, self._sys.drone_id
         async for _ in _stream(_SLOW_INTERVAL_S, lambda: None):
-            yield _Obj(is_armable=fs.is_armable(i))
+            armable = fs.is_armable(i)
+            yield _Obj(
+                is_armable=armable,
+                is_home_position_ok=armable,
+                is_global_position_ok=armable,
+                is_local_position_ok=armable,
+            )
 
     async def home(self):
         sys_ = self._sys

@@ -46,3 +46,9 @@ packages/tara-gcs/tara_gcs/exports/
 # checked-in fixture a future tool needs.
 /tools/benchmark_results.json
 /tools/calibration_results.json
+
+# Per-process stdout/stderr from simulations the GCS launched (see
+# tara_gcs.sim_manager.LOG_DIR_NAME). Runtime output of one launch on one
+# machine — the dashboard reads these back for diagnosing a failed launch, but
+# nothing about them belongs in version control.
+/sim_logs/

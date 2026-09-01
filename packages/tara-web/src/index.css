@@ -160,6 +160,72 @@ body {
 .dot.green { background-color: var(--success); }
 .dot.red { background-color: var(--danger); }
 
+/* Simulation Control Bar — process-level controls for the simulator itself
+   (issue #2), distinct from the flight controls below it. Sits above the view
+   tabs because it gates everything under them: with no simulation running,
+   there is no fleet for any view to show. */
+.sim-control-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.85rem 1.1rem;
+  margin-bottom: 1rem;
+  background: var(--bg-sunken);
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+}
+
+.sim-pills {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+.sim-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+/* The buttons here are deliberately smaller than the flight-control buttons:
+   launching a simulator is setup, not a flight command, and the two should not
+   read as equally weighty on the same screen. */
+.sim-actions .btn {
+  padding: 0.5rem 0.9rem;
+  font-size: 0.7rem;
+}
+
+.sim-slider-label {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-family: var(--font-mono);
+  font-size: 0.62rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-faint);
+}
+
+.sim-select {
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  padding: 0.45rem 0.6rem;
+  color: var(--text);
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  cursor: pointer;
+}
+
+.sim-select:disabled {
+  color: var(--text-faint);
+  cursor: not-allowed;
+}
+
 /* View switcher — Operations dashboard vs 3D Earth view vs (Phase 5) Night Sky */
 .view-tabs {
   display: flex;

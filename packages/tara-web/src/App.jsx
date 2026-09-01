@@ -31,7 +31,13 @@ export default function App() {
   // Phase 4 georeferenced 3D globe; "night" is the Phase 5 cinematic
   // ground-level audience view.
   const [viewMode, setViewMode] = useState('operations');
-  
+
+  // Simulation Control Bar (issue #2): launching Gazebo/PX4 SITL and RViz from
+  // the dashboard, so running a show never requires a terminal.
+  const [simStatus, setSimStatus] = useState(null);
+  const [simBusy, setSimBusy] = useState(false);
+  const [simDroneCount, setSimDroneCount] = useState(5);
+
   const fileInputRef = useRef(null);
 
   // WebSocket Connection
@@ -156,6 +162,17 @@ export default function App() {
     ? Math.min(...droneIds.map(id => telemetry[id].battery_percent ?? 100))
     : 0;
 
+  // Simulation Control Bar readouts. The bar has to render before any status
+  // has been fetched, so every field is defaulted rather than guarded at each
+  // use site.
+  const simRunning = Boolean(simStatus?.running);
+  const simHeartbeat = simStatus?.heartbeat || { alive: false, connected: 0, expected: 0 };
+  // Expected node count comes from whichever source actually knows: the running
+  // fleet's own port count once it is up, the launch request before telemetry
+  // arrives, and the slider before anything is running at all.
+  const simNodeTotal = simHeartbeat.expected || simStatus?.num_drones || simDroneCount;
+  const simCpu = simStatus?.cpu_percent || 0;
+
   function droneTileStatus(drone) {
     if (!drone || !drone.connected) return 'offline';
     if (drone.battery_percent != null && drone.battery_percent < 20) return 'critical';
@@ -173,6 +190,101 @@ export default function App() {
 
   const checklistPassed = allConnected && allGpsLocked && allBatterySafe;
   const launchEnabled = checklistPassed || bypassChecklist;
+
+  // Poll simulation process status. Deliberately slower than telemetry: this
+  // reads the host's process table and psutil counters, which is expensive
+  // relative to how fast "is Gazebo up" actually changes. The telemetry
+  // WebSocket, not this, is what makes the fleet feel live.
+  useEffect(() => {
+    let cancelled = false;
+
+    const poll = async () => {
+      try {
+        const res = await fetch(`${API_BASE}/api/sim/status`);
+        if (!res.ok) return;
+        const data = await res.json();
+        if (!cancelled) setSimStatus(data);
+      } catch {
+        // The GCS API being unreachable is already surfaced by the WebSocket
+        // pill; a second error banner for the same cause would just be noise.
+        if (!cancelled) setSimStatus(null);
+      }
+    };
+
+    poll();
+    const timer = setInterval(poll, 2000);
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
+  }, []);
+
+  const handleSimLaunch = async () => {
+    setSimBusy(true);
+    try {
+      // Real SITL is capped well below the top preset (see sim_manager's
+      // PX4_MAX_DRONES), so large fleets go to the vectorized backend. The
+      // operator picks a fleet size, not a backend — the choice of which
+      // simulator can serve it is ours to make.
+      const backend = simDroneCount > 50 ? 'sim' : 'px4';
+      const res = await fetch(`${API_BASE}/api/sim/launch`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ num_drones: simDroneCount, backend, headless: true })
+      });
+      const data = await res.json();
+      if (res.ok && data.status === 'success') {
+        setSimStatus(data.sim);
+        setErrorMsg('');
+      } else {
+        setErrorMsg(data.detail || data.message || 'Failed to launch simulation');
+      }
+    } catch (err) {
+      setErrorMsg(`Sim launch error: ${err.message}`);
+    } finally {
+      setSimBusy(false);
+    }
+  };
+
+  const handleRvizLaunch = async () => {
+    setSimBusy(true);
+    try {
+      const res = await fetch(`${API_BASE}/api/rviz/launch`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ world: 'drone_show_field' })
+      });
+      const data = await res.json();
+      if (res.ok && data.status === 'success') {
+        setSimStatus(data.sim);
+        setErrorMsg('');
+      } else {
+        setErrorMsg(data.detail || data.message || 'Failed to launch RViz');
+      }
+    } catch (err) {
+      setErrorMsg(`RViz launch error: ${err.message}`);
+    } finally {
+      setSimBusy(false);
+    }
+  };
+
+  const handleSimStop = async () => {
+    setSimBusy(true);
+    try {
+      const res = await fetch(`${API_BASE}/api/sim/stop`, { method: 'POST' });
+      const data = await res.json();
+      if (res.ok && data.status === 'success') {
+        setSimStatus(data.sim);
+        setErrorMsg('');
+      } else {
+        setErrorMsg(data.detail || data.message || 'Failed to stop simulation');
+      }
+    } catch (err) {
+      setErrorMsg(`Sim stop error: ${err.message}`);
+    } finally {
+      setSimBusy(false);
+    }
+  };
 
   // Trigger POST Actions
   const triggerAction = async (endpoint) => {
@@ -430,6 +542,76 @@ export default function App() {
           {errorMsg}
         </div>
       )}
+
+      {/* Simulation Control Bar — start/stop the simulator itself, so a show
+          director never needs a terminal or `tara up`. */}
+      <section className="sim-control-bar">
+        <div className="sim-pills">
+          <div className="status-badge">
+            <span className={`dot ${simRunning ? 'green' : 'red'}`}></span>
+            SITL: {simRunning ? 'RUNNING' : 'INACTIVE'}
+          </div>
+          <div className="status-badge">
+            <span className={`dot ${simHeartbeat.alive ? 'green' : 'red'}`}></span>
+            NODES: {simHeartbeat.connected ?? 0}/{simNodeTotal}
+          </div>
+          <div className="status-badge">
+            <span className={`dot ${simCpu > 85 ? 'red' : simCpu > 60 ? 'orange' : 'green'}`}></span>
+            CPU: {simCpu.toFixed(0)}%
+          </div>
+          {simStatus?.memory_mb > 0 && (
+            <div className="status-badge">RAM: {(simStatus.memory_mb / 1024).toFixed(1)} GB</div>
+          )}
+          {simStatus?.rviz_running && (
+            <div className="status-badge">
+              <span className="dot green"></span>
+              RVIZ: UP
+            </div>
+          )}
+        </div>
+
+        <div className="sim-actions">
+          <label className="sim-slider-label" htmlFor="sim-drone-count">
+            FLEET SIZE
+            <select
+              id="sim-drone-count"
+              className="sim-select"
+              value={simDroneCount}
+              onChange={(e) => setSimDroneCount(Number(e.target.value))}
+              disabled={simRunning || simBusy}
+            >
+              {[5, 100, 500].map((n) => (
+                <option key={n} value={n}>{n} drones</option>
+              ))}
+            </select>
+          </label>
+
+          <button
+            className="btn btn-launch"
+            onClick={handleSimLaunch}
+            disabled={simRunning || simBusy}
+          >
+            🚀 LAUNCH GAZEBO SITL
+          </button>
+
+          <button
+            className="btn btn-stop"
+            onClick={handleRvizLaunch}
+            disabled={!simRunning || simBusy || simStatus?.rviz_running}
+            title={simRunning ? 'Open RViz2 with the drone-swarm display' : 'Launch the simulation first'}
+          >
+            👁️ LAUNCH RVIZ
+          </button>
+
+          <button
+            className="btn btn-rtl"
+            onClick={handleSimStop}
+            disabled={!simRunning || simBusy}
+          >
+            🛑 TERMINATE SIM
+          </button>
+        </div>
+      </section>
 
       <div className="view-tabs">
         <button className={`view-tab ${viewMode === 'operations' ? 'active' : ''}`} onClick={() => setViewMode('operations')}>

@@ -29,6 +29,15 @@ DEFAULT_ALTITUDES = altitude_layers(MAX_FLEET_SIZE)
 # coordinates (a shared "fleet frame"). This offset converts between the two.
 LAUNCH_PAD_SPACING_Y_M = DEFAULT_LIMITS.design_separation_m
 
+#: How long a drone gets to report both is_armable and is_home_position_ok
+#: before launch_sequence gives up on it. Raised from the old armable-only 15s
+#: because home lock legitimately takes longer than arming readiness: EKF2 has
+#: to converge on the GNSS origin PX4_HOME_LAT/LON/ALT anchors it to, and under
+#: the physics load of a multi-drone SITL fleet that convergence is measurably
+#: slower than on a single instance. 15s was enough for is_armable alone and is
+#: not enough for both.
+HOME_LOCK_TIMEOUT_S = 45.0
+
 
 #: Pads for the largest fleet we support, computed once. Indexing into a single
 #: fixed grid matters: deriving it per-drone from the current fleet size would
@@ -362,19 +371,37 @@ class DroneManager:
             except Exception as e:
                 logging.warning(f"Failed to set calibration bypass parameters for Drone {drone_id}: {e}")
 
-            # Wait for drone to become armable (bounded, so one stuck drone
-            # can't block the rest of the fleet — and callers can safely
-            # re-invoke launch_sequence() to retry just the stragglers).
-            logging.info(f"Drone {drone_id} waiting to become armable...")
+            # Wait for drone to become armable AND for home position to latch
+            # (bounded, so one stuck drone can't block the rest of the fleet —
+            # and callers can safely re-invoke launch_sequence() to retry just
+            # the stragglers).
+            #
+            # is_home_position_ok is checked alongside is_armable, not left
+            # implicit: PX4 will report armable slightly before it has set a
+            # home position, and arming in that window is the root of the
+            # home-lock bug. A drone armed without home has no origin for RTL to
+            # return to, and _monitor_home never receives a home message, so
+            # telemetry's home_lat/home_lon stay 0.0 — which start_trajectory
+            # treats as "not yet locked" and silently skips every GLOBAL-mode
+            # setpoint for. The fleet appears to launch fine and then simply
+            # does not fly the show.
+            #
+            # The simulator-side half of this fix is PX4_HOME_LAT/LON/ALT in
+            # sim/px4/launch_fleet.sh, which gives SITL an origin to derive a
+            # home position from in the first place.
+            logging.info(f"Drone {drone_id} waiting to become armable with home lock...")
             async def _wait_armable():
                 async for health in drone.telemetry.health():
-                    if health.is_armable:
-                        logging.info(f"Drone {drone_id} is now armable.")
+                    if health.is_armable and health.is_home_position_ok:
+                        logging.info(f"Drone {drone_id} is now armable with home position locked.")
                         break
             try:
-                await asyncio.wait_for(_wait_armable(), timeout=15.0)
+                await asyncio.wait_for(_wait_armable(), timeout=HOME_LOCK_TIMEOUT_S)
             except asyncio.TimeoutError:
-                logging.error(f"Drone {drone_id} did not become armable within 15s — skipping (retry later via /api/launch).")
+                logging.error(
+                    f"Drone {drone_id} did not become armable with home lock within "
+                    f"{HOME_LOCK_TIMEOUT_S}s — skipping (retry later via /api/launch)."
+                )
                 return
 
             # Arm
