@@ -1,6 +1,7 @@
 import asyncio
 import logging
 import os
+from pathlib import Path
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, UploadFile, File, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
@@ -8,6 +9,7 @@ from pydantic import BaseModel
 from tara_gcs.drone_manager import DroneManager
 from tara_gcs.trajectory_parser import parse_trajectory_file, parse_trajectory_bytes
 from tara_gcs.telemetry_codec import FAST_HZ, SLOW_HZ, encode_fast_frame, encode_slow_frame
+from tara_gcs.sim_manager import SimLaunchError, SimManager
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
@@ -38,6 +40,14 @@ ports = [14540 + i for i in range(NUM_DRONES)]
 VEHICLE_BACKEND = os.environ.get("VEHICLE_BACKEND", "px4")
 drone_manager = DroneManager(ports=ports, backend=VEHICLE_BACKEND)
 
+# Owns the Gazebo/PX4/RViz processes the dashboard's Simulation Control Bar
+# starts, so an operator never needs a terminal. Repo root is resolved from
+# this file's location (packages/tara-gcs/tara_gcs/main.py -> three levels up)
+# rather than the process CWD, which is whatever directory uvicorn happened to
+# be started from.
+REPO_ROOT = Path(__file__).resolve().parents[3]
+sim_manager = SimManager(repo_root=REPO_ROOT)
+
 @app.on_event("startup")
 async def startup_event():
     logger.info("Initializing Ground Control Station...")
@@ -53,6 +63,12 @@ async def startup_event():
 async def shutdown_event():
     logger.info("Shutting down Ground Control Station...")
     await drone_manager.shutdown()
+    # Processes the GCS spawned are the GCS's to clean up. Without this an API
+    # restart orphans a whole PX4/Gazebo fleet, and the next launch fails on a
+    # port and Gazebo-partition collision.
+    if sim_manager.processes:
+        logger.info("Stopping simulation processes started by this GCS...")
+        await sim_manager.stop()
 
 @app.get("/api/status")
 async def get_status():
@@ -192,6 +208,108 @@ async def export_telemetry(filename: str = "telemetry_export.csv"):
     row_count = drone_manager.export_telemetry_csv(filepath)
     logger.info(f"API: Wrote {row_count} telemetry rows to {filepath}.")
     return FileResponse(filepath, media_type="text/csv", filename=safe_filename)
+
+# --- Simulation process orchestration (issue #2) -------------------------
+#
+# These endpoints let the dashboard start and stop the simulation stack itself,
+# so running a show does not require a terminal and `tara up`. The `tara` CLI
+# remains the developer path and is unchanged; this is the operator path.
+
+class SimLaunchRequest(BaseModel):
+    """Body for POST /api/sim/launch.
+
+    Attributes:
+        num_drones: Fleet size to spawn.
+        backend: "px4" for real SITL + Gazebo, "sim" for the vectorized fleet.
+        headless: Run Gazebo without its GUI. Ignored for the sim backend.
+    """
+    num_drones: int = 5
+    backend: str = "px4"
+    headless: bool = True
+
+
+class RvizLaunchRequest(BaseModel):
+    world: str = "drone_show_field"
+
+
+@app.post("/api/sim/launch")
+async def sim_launch(req: SimLaunchRequest):
+    """Spawn the Gazebo/PX4 SITL fleet (or register the in-process sim fleet)."""
+    logger.info(
+        f"API: Launching simulation — backend={req.backend}, drones={req.num_drones}, "
+        f"headless={req.headless}"
+    )
+    try:
+        status = await sim_manager.launch(
+            num_drones=req.num_drones, backend=req.backend, headless=req.headless
+        )
+    except SimLaunchError as e:
+        # 409 for "already running", 501 for an unsupported platform, 400 for a
+        # bad request — an operator clicking Launch twice should not see the
+        # same error shape as one running the dashboard on Windows.
+        if "already running" in str(e):
+            raise HTTPException(status_code=409, detail=str(e))
+        if "POSIX-only" in str(e):
+            raise HTTPException(status_code=501, detail=str(e))
+        raise HTTPException(status_code=400, detail=str(e))
+    return {"status": "success", "message": "Simulation launch initiated.", "sim": status}
+
+
+@app.post("/api/sim/stop")
+async def sim_stop():
+    """Terminate every simulation process, escalating SIGINT -> SIGTERM -> SIGKILL."""
+    logger.info("API: Stopping simulation...")
+    result = await sim_manager.stop()
+    return {
+        "status": "success",
+        "message": f"Stopped {len(result['stopped'])} process(es).",
+        "stopped": result["stopped"],
+        "sim": result["status"],
+    }
+
+
+@app.get("/api/sim/status")
+async def sim_status():
+    """Report simulation PIDs, CPU/RAM, MAVLink ports, and fleet heartbeat.
+
+    Merges the process view (from SimManager) with the fleet view (from the
+    telemetry dict the monitor loops maintain), because the dashboard's status
+    pills need both and asking it to correlate two endpoints would just move
+    that join into the browser.
+    """
+    status = sim_manager.status()
+    telemetry = drone_manager.telemetry
+    connected = sum(1 for t in telemetry.values() if t.get("connected"))
+    status["heartbeat"] = {
+        # A fleet is only "alive" if something is actually reporting in —
+        # processes running with zero connected drones is precisely the
+        # half-started state an operator needs to see before pressing Launch.
+        "alive": connected > 0,
+        "connected": connected,
+        "armed": sum(1 for t in telemetry.values() if t.get("armed")),
+        "expected": len(drone_manager.ports),
+        "home_locked": sum(
+            1 for t in telemetry.values()
+            if t.get("home_lat") not in (None, 0.0) or t.get("home_lon") not in (None, 0.0)
+        ),
+    }
+    return status
+
+
+@app.post("/api/rviz/launch")
+async def rviz_launch(req: RvizLaunchRequest = RvizLaunchRequest()):
+    """Launch RViz2 with the pre-configured drone-swarm display."""
+    logger.info(f"API: Launching RViz on world '{req.world}'...")
+    try:
+        status = await sim_manager.launch_rviz(world=req.world)
+    except SimLaunchError as e:
+        if "already running" in str(e):
+            raise HTTPException(status_code=409, detail=str(e))
+        if "POSIX-only" in str(e):
+            raise HTTPException(status_code=501, detail=str(e))
+        raise HTTPException(status_code=400, detail=str(e))
+    return {"status": "success", "message": "RViz launch initiated.", "sim": status}
+
 
 @app.websocket("/ws/telemetry")
 async def websocket_telemetry_endpoint(websocket: WebSocket):
