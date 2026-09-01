@@ -666,7 +666,14 @@ class DroneManager:
                 
         print(f"Trajectory duration: {max_time} seconds.")
         R = 6378137.0 # Earth radius for GPS projection
-        
+
+        # Bound before the try so the finally block below can always read it —
+        # an unexpected exception (e.g. a drone dropping out of self.telemetry
+        # mid-tick, or a MAVSDK error from the setpoint gather) skips the
+        # except/else branches entirely, and an unbound name here would mask
+        # the real exception with an UnboundLocalError.
+        cancelled = False
+
         try:
             # 10Hz loop rate
             while self.is_running_trajectory:
@@ -754,8 +761,6 @@ class DroneManager:
             # way, the finally block below must not discard state itself.
             print("Trajectory playback loop cancelled.")
             cancelled = True
-        else:
-            cancelled = False
         finally:
             self.is_running_trajectory = False
             # Natural completion doesn't go through stop_trajectory(), so stop

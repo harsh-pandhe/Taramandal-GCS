@@ -177,6 +177,43 @@ def test_resume_without_pending_state_raises(tmp_path):
         manager.resume_pending_show()
 
 
+@pytest.mark.asyncio
+async def test_unexpected_error_mid_show_propagates_and_still_cleans_up(tmp_path):
+    """A non-CancelledError escaping the playback loop must surface as itself
+    and still run the finally-block cleanup.
+
+    The loop indexes self.telemetry[drone_id] directly, so a drone dropping out
+    of telemetry mid-tick raises KeyError. That path runs neither the
+    `except CancelledError` nor an `else` branch, so `cancelled` has to already
+    be bound before the try — otherwise the finally block raises
+    UnboundLocalError, which both masks the real exception and skips the
+    state-discard cleanup.
+    """
+    state_path = str(tmp_path / "show_state.json")
+    manager = DroneManager(ports=[0], backend="sim", state_path=state_path)
+    manager.STATE_SNAPSHOT_INTERVAL_S = 0.05
+    try:
+        await manager.connect_all()
+        await asyncio.sleep(0.2)
+
+        manager.start_trajectory(_short_show(duration=5.0), mode="LOCAL")
+        await asyncio.sleep(0.15)
+        assert os.path.exists(state_path)
+
+        # Drone drops out of telemetry mid-show while playback is still live.
+        manager.telemetry.clear()
+
+        with pytest.raises(KeyError):
+            await manager.trajectory_task
+        manager.trajectory_task = None
+
+        # finally ran: playback flag cleared and the snapshot discarded.
+        assert manager.is_running_trajectory is False
+        assert not os.path.exists(state_path)
+    finally:
+        await manager.shutdown()
+
+
 # --- The acceptance-criteria test: real process, real kill, real restart ---
 
 GCS_STARTUP_TIMEOUT_S = 20.0
