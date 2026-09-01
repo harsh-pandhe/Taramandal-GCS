@@ -1,15 +1,30 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { Canvas } from '@react-three/fiber';
 import { OrbitControls, Line, Text, Grid } from '@react-three/drei';
-import { decodeFastFrame } from './telemetry';
+import { decodeFastFrame, decodeFastFrameInto, FLOATS_PER_DRONE } from './telemetry';
 import EarthView from './views/EarthView';
 import NightSkyView from './views/NightSkyView';
 
 const API_BASE = import.meta.env.VITE_API_BASE || `http://${window.location.hostname || 'localhost'}:8000`;
 const WS_URL = import.meta.env.VITE_WS_URL || `ws://${window.location.hostname || 'localhost'}:8000/ws/telemetry`;
 
+// Keep in sync with NightSkyView's MAX_DRONES instance capacity.
+const MAX_NIGHTSKY_DRONES = 1000;
+
 export default function App() {
   const [telemetry, setTelemetry] = useState({});
+  // A zero-copy mirror of the latest fast frame, for the night-sky viewport.
+  // The object-shaped `telemetry` state above stays the source of truth for the
+  // dashboard's panels, but at 1000 drones it is far too expensive to rebuild
+  // per frame — the 3D view reads this flat Float32Array directly instead.
+  // MAX_NIGHTSKY_DRONES matches NightSkyView's instance capacity.
+  const fleetBufferRef = useRef(null);
+  if (fleetBufferRef.current === null) {
+    fleetBufferRef.current = {
+      data: new Float32Array(MAX_NIGHTSKY_DRONES * FLOATS_PER_DRONE),
+      count: 0,
+    };
+  }
   const [wsConnected, setWsConnected] = useState(false);
   const [bypassChecklist, setBypassChecklist] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
@@ -60,6 +75,12 @@ export default function App() {
       // whatever the other channel last reported.
       ws.onmessage = (event) => {
         if (event.data instanceof ArrayBuffer) {
+          // Feed the flat buffer first: the 3D view reads it every frame and
+          // must not wait on React's state commit.
+          fleetBufferRef.current.count = decodeFastFrameInto(
+            event.data,
+            fleetBufferRef.current.data,
+          );
           const fastDrones = decodeFastFrame(event.data);
           setTelemetry((prev) => {
             const next = { ...prev };
@@ -451,7 +472,7 @@ export default function App() {
 
       {viewMode === 'night' && (
         <div className="earth-view-panel">
-          <NightSkyView telemetry={telemetry} />
+          <NightSkyView telemetry={telemetry} fleetBuffer={fleetBufferRef} />
         </div>
       )}
 

@@ -141,7 +141,14 @@ class DroneManager:
                 "fleet_x": 0.0,
                 "fleet_y": 0.0,
                 "fleet_z": 0.0,
-                "heading": 0.0
+                "heading": 0.0,
+                # Planned fleet-frame position for the current trajectory tick.
+                # Only meaningful while planned_valid is True (see
+                # _run_trajectory_loop); a parked fleet has no plan to deviate from.
+                "planned_x": 0.0,
+                "planned_y": 0.0,
+                "planned_z": 0.0,
+                "planned_valid": False,
             }
 
             # Start telemetry loop for this drone
@@ -581,6 +588,18 @@ class DroneManager:
                     target = interpolate_waypoint(wps, elapsed)
                     
                     if target:
+                        # Publish the commanded point alongside the measured one so
+                        # clients can compute live deviation (|actual - planned|)
+                        # without re-deriving the interpolation. Stored in the fleet
+                        # frame and with z as altitude-positive-up, matching the
+                        # fleet_x/y/z the position monitor writes — so the two are
+                        # directly differenceable with no per-consumer conversion.
+                        tel = self.telemetry[drone_id]
+                        tel["planned_x"] = target["x"]
+                        tel["planned_y"] = target["y"]
+                        tel["planned_z"] = -target["z"]
+                        tel["planned_valid"] = True
+
                         # Trajectory coordinates are expressed in the shared fleet frame
                         # (pad spacing baked in by the Studio generator). Subtract this
                         # drone's own pad offset to get back to its own local/home frame.
@@ -642,6 +661,12 @@ class DroneManager:
             print("Trajectory playback loop cancelled.")
         finally:
             self.is_running_trajectory = False
+            # Once playback stops there is no commanded point any more, so clear
+            # the flag rather than leaving the last setpoint published — a stale
+            # plan would keep the HUD scoring deviation against a frozen target
+            # as the fleet lands or returns home.
+            for tel in self.telemetry.values():
+                tel["planned_valid"] = False
             # Natural completion doesn't go through stop_trajectory(), so stop
             # recording here too (stop_trajectory() already covers the manual-stop path).
             self.stop_telemetry_recording()
