@@ -9,8 +9,19 @@ from pydantic import BaseModel, Field
 from typing import Optional
 
 from tara_studio.generator import generate_circle, generate_helix, generate_heart, generate_cube, generate_spline
-from tara_studio.validator import validate_choreography
+from tara_studio.validator import (
+    DEFAULT_DYNAMIC_LIMITS,
+    DynamicLimits,
+    validate_choreography,
+    validate_dynamics,
+)
 from tara_studio.exporter import export_json, export_csv, export_kml
+from tara_studio.optimizer import (
+    DEFAULT_MORPH_SAMPLES,
+    DEFAULT_PENALTY_WEIGHT,
+    DOWNWASH_HALF_ANGLE_DEG,
+    aerodynamic_assignment,
+)
 from tara_core import MAX_FLEET_SIZE
 from tara_core.assignment import optimal_assignment
 
@@ -146,6 +157,100 @@ def api_assign_chain(req: AssignChainRequest):
         target_idx.append(perm)
 
     return {"target_idx": target_idx}
+
+
+class AeroAssignRequest(BaseModel):
+    from_pts: list = Field(..., alias="from", description="Current formation points [{x,y,z}]")
+    to_pts: list = Field(..., alias="to", description="Target formation points [{x,y,z}]")
+    penalty_weight: float = Field(
+        DEFAULT_PENALTY_WEIGHT, gt=0, description="Downwash penalty multiplier (lambda)"
+    )
+    samples: int = Field(
+        DEFAULT_MORPH_SAMPLES, ge=2, le=201, description="Morph-horizon sample count"
+    )
+    half_angle_deg: float = Field(
+        DOWNWASH_HALF_ANGLE_DEG, gt=0, lt=90, description="Downwash cone half-angle, degrees"
+    )
+
+    class Config:
+        populate_by_name = True
+
+
+@app.post("/api/assign-aero")
+def api_assign_aero(req: AeroAssignRequest):
+    """
+    Assignment that avoids rotor downwash, not just distance.
+
+    /api/assign minimises travel and will happily route one drone directly
+    beneath another — the paths never intersect, so a purely geometric solver
+    sees nothing wrong, but the lower drone flies into a >10 m/s jet and drops.
+    This endpoint adds the 30-degree cone penalty described in
+    tara_studio.optimizer and returns what the morph actually costs.
+
+    A non-empty `conflicts` with `clean: false` means no conflict-free
+    assignment exists for these two formations — most often because the
+    starting formation already stacks one drone above another, which no
+    reassignment can repair. That is reported rather than raised, so the caller
+    can decide whether to re-space the formation or accept the risk.
+
+    Response: {"assignment", "clean", "conflicts", "total_distance_m",
+    "iterations"}.
+    """
+    try:
+        report = aerodynamic_assignment(
+            req.from_pts,
+            req.to_pts,
+            penalty_weight=req.penalty_weight,
+            samples=req.samples,
+            half_angle_deg=req.half_angle_deg,
+        )
+    except (ValueError, KeyError, TypeError) as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    return {
+        "assignment": report.perm,
+        "clean": report.is_clean,
+        "conflicts": report.conflicts,
+        "total_distance_m": round(report.total_distance_m, 3),
+        "iterations": report.iterations,
+    }
+
+
+class DynamicsRequest(BaseModel):
+    choreo: dict = Field(..., description="Choreography dataset")
+    max_velocity_ms: float = Field(
+        DEFAULT_DYNAMIC_LIMITS.max_velocity_ms, gt=0, description="Speed ceiling, m/s"
+    )
+    max_centripetal_ms2: float = Field(
+        DEFAULT_DYNAMIC_LIMITS.max_centripetal_ms2, gt=0, description="Cornering ceiling, m/s^2"
+    )
+    min_separation_m: float = Field(
+        DEFAULT_DYNAMIC_LIMITS.min_separation_m, gt=0, description="Minimum separation, m"
+    )
+
+
+@app.post("/api/validate-dynamics")
+def api_validate_dynamics(req: DynamicsRequest):
+    """
+    Check a show is dynamically feasible: velocity, centripetal acceleration
+    and pairwise separation.
+
+    Distinct from /api/validate, which enforces the shared airframe envelope
+    the GCS aborts on. These are the tighter choreography-quality bounds, and
+    centripetal acceleration is a genuinely different quantity from the total
+    acceleration /api/validate reports — it excludes the along-track component,
+    so it isolates how hard the path is being bent.
+    """
+    limits = DynamicLimits(
+        max_velocity_ms=req.max_velocity_ms,
+        max_centripetal_ms2=req.max_centripetal_ms2,
+        min_separation_m=req.min_separation_m,
+    )
+    try:
+        return validate_dynamics(req.choreo, limits=limits)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
 
 @app.post("/api/export")
 def api_export(req: ExportRequest):
