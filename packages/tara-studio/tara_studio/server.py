@@ -3,6 +3,8 @@ Taramandal Studio - FastAPI Server
 Exposes API endpoints for generating, validating, and exporting drone shows.
 """
 
+import base64
+
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
@@ -10,7 +12,8 @@ from typing import Optional
 
 from tara_studio.generator import generate_circle, generate_helix, generate_heart, generate_cube, generate_spline
 from tara_studio.validator import validate_choreography
-from tara_studio.exporter import export_json, export_csv, export_kml
+from tara_studio.exporter import export_json, export_csv, export_kml, export_tara
+from tara_studio.led_engine import apply_track_to_choreo
 from tara_core import MAX_FLEET_SIZE
 from tara_core.assignment import optimal_assignment
 
@@ -38,9 +41,13 @@ class GenerateRequest(BaseModel):
 
 class ExportRequest(BaseModel):
     choreo: dict = Field(..., description="Choreography dataset")
-    format: str = Field("json", description="Export file format: json, csv, kml")
+    format: str = Field("json", description="Export file format: json, csv, kml, tara")
     home_lat: Optional[float] = Field(12.9716, description="Home latitude for KML maps")
     home_lon: Optional[float] = Field(77.5946, description="Home longitude for KML maps")
+    led_track: Optional[list[dict]] = Field(
+        None, description="LED keyframes to bake into the export (see led_engine.LedKeyframe)"
+    )
+    rate_hz: Optional[float] = Field(0.0, description="Sample rate recorded in the .tara header")
 
 @app.get("/status")
 def status():
@@ -151,6 +158,15 @@ def api_assign_chain(req: AssignChainRequest):
 def api_export(req: ExportRequest):
     fmt = req.format.lower()
     choreo = req.choreo
+
+    # Bake the LED track server-side when one is supplied, so a .tara compiled
+    # here matches what the Studio preview showed rather than depending on the
+    # client having already written r/g/b/w onto every waypoint.
+    if req.led_track:
+        try:
+            choreo = apply_track_to_choreo(choreo, req.led_track)
+        except (ValueError, KeyError) as e:
+            raise HTTPException(status_code=400, detail=f"Bad LED track: {e}")
     
     if fmt == "json":
         content = export_json(choreo)
@@ -164,13 +180,28 @@ def api_export(req: ExportRequest):
         content = export_kml(choreo, req.home_lat, req.home_lon)
         filename = "choreography.kml"
         mime_type = "application/vnd.google-earth.kml+xml"
+    elif fmt == "tara":
+        # Binary, so it travels base64-encoded; the client decodes before
+        # writing the file. Flagged with `encoding` so a caller can't mistake
+        # the payload for text.
+        try:
+            blob = export_tara(choreo, req.rate_hz or 0.0)
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=f"Cannot compile .tara: {e}")
+        return {
+            "filename": "choreography.tara",
+            "content": base64.b64encode(blob).decode("ascii"),
+            "mime_type": "application/octet-stream",
+            "encoding": "base64",
+        }
     else:
         raise HTTPException(status_code=400, detail=f"Unsupported export format: {req.format}")
         
     return {
         "filename": filename,
         "content": content,
-        "mime_type": mime_type
+        "mime_type": mime_type,
+        "encoding": "utf-8",
     }
 
 if __name__ == "__main__":

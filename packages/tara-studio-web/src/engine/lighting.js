@@ -4,6 +4,7 @@
 // designer sees in the viewport is what the fleet flies.
 
 import * as THREE from 'three';
+import { ledColorAt } from './ledPatterns.js';
 
 export const LIGHT_EFFECTS = [
   { value: 'perDrone', label: 'Per-Drone Palette' },
@@ -25,13 +26,24 @@ export const LIGHT_EFFECTS = [
  * @param {number} opts.numDrones
  * @param {number} opts.duration     show length, for the rainbow sweep
  * @param {number} opts.audioVolume  0..1, drives the beat pulse
+ * @param {Array}  [opts.ledTrack]    issue #14 keyframe track; when present it
+ *                                    overrides `effect` entirely
+ * @param {object} [opts.position]    {x,y,z} for position-aware LED patterns
  * @returns {THREE.Color}
  */
 export const droneColorAt = (idx, t, opts) => {
   const {
     effect = 'perDrone', baseColor = '#38bdf8', dronesList = [],
     numDrones = 1, duration = 1, audioVolume = 0,
+    ledTrack = null, position = null,
   } = opts || {};
+
+  // A keyframe track is an explicit, time-addressed choreography, so it wins
+  // over the global effect picker. With no track the original behaviour is
+  // untouched.
+  if (ledTrack && ledTrack.length) {
+    return ledColorAt(ledTrack, t, idx, Math.max(1, numDrones), position);
+  }
 
   const c = new THREE.Color();
   const n = Math.max(1, numDrones);
@@ -79,7 +91,7 @@ export const buildColoredChoreo = (choreoData, opts) => {
     drones: choreoData.drones.map((d, i) => ({
       ...d,
       waypoints: d.waypoints.map((wp) => {
-        const c = droneColorAt(i, wp.time, opts);
+        const c = droneColorAt(i, wp.time, { ...opts, position: wp });
         return {
           ...wp,
           r: Math.round(c.r * 255),

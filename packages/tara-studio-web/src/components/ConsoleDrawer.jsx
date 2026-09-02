@@ -3,13 +3,14 @@ import SequencerPanel from './sequencer/SequencerPanel.jsx';
 import LightPanel from './panels/LightPanel.jsx';
 import SafetyPanel from './panels/SafetyPanel.jsx';
 import TransmitPanel from './panels/TransmitPanel.jsx';
+import AudioPanel from './panels/AudioPanel.jsx';
 
-const TABS = ['sequence', 'light', 'safety', 'transmit'];
+const TABS = ['sequence', 'light', 'audio', 'safety', 'transmit'];
 
 /** The sliding control console: scene editing, lighting, safety, export. */
 export default function ConsoleDrawer({
   open, onClose, tab, onTab, list, loading, onBuild, onOpenLibrary,
-  light, choreoData, currentTime, lightingOpts, validation, venue, transmit,
+  light, choreoData, currentTime, lightingOpts, validation, venue, transmit, audio,
 }) {
   return (
     <div className={`control-drawer${open ? ' active' : ''}`}>
@@ -45,6 +46,13 @@ export default function ConsoleDrawer({
             effect={light.effect} onEffect={light.onEffect}
             baseColor={light.baseColor} onBaseColor={light.onBaseColor}
             choreoData={choreoData} currentTime={currentTime} lightingOpts={lightingOpts}
+          />
+        )}
+        {tab === 'audio' && (
+          <AudioPanel
+            audio={audio.track} zoom={audio.zoom} onZoom={audio.onZoom}
+            ledTrack={audio.ledTrack} onLedTrack={audio.onLedTrack}
+            duration={audio.duration} currentTime={currentTime} onScrub={audio.onScrub}
           />
         )}
         {tab === 'safety' && <SafetyPanel validation={validation} />}

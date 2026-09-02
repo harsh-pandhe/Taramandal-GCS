@@ -1007,3 +1007,85 @@ input[type="number"] { font-family: var(--mono); font-variant-numeric: tabular-n
 .studio-viewport .matrix-view-container {
   position: absolute; inset: 0; overflow-y: auto; padding: 1rem;
 }
+
+/* --------------------------------------------- Audio waveform + LED track ---- */
+/* Issue #14: soundtrack waveform lane and the LED choreography editor. */
+
+.tl-lane-wave {
+  height: 46px; background: var(--bg-sunken);
+  border: 1px solid var(--border); border-radius: var(--r-sm);
+  overflow: hidden; cursor: pointer; touch-action: none;
+}
+.tl-wave-canvas { display: block; width: 100%; height: 100%; }
+.tl-playhead-wave { background: var(--warning); opacity: 0.9; }
+
+.visually-hidden {
+  position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+  overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0;
+}
+
+.audio-loaded-row {
+  display: flex; align-items: center; justify-content: space-between; gap: 0.5rem;
+  padding: 0.45rem 0.55rem; background: var(--bg-sunken);
+  border: 1px solid var(--border); border-radius: var(--r-sm);
+}
+.audio-meta { display: flex; flex-direction: column; gap: 0.15rem; min-width: 0; }
+.audio-name {
+  font-size: 0.74rem; color: var(--text);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 15rem;
+}
+
+.zoom-row { display: flex; gap: 0.3rem; }
+.zoom-row .btn-ghost.active {
+  border-color: var(--accent); color: var(--accent);
+}
+
+.btn-tiny {
+  padding: 0.2rem 0.4rem; font-size: 0.7rem; line-height: 1;
+  min-width: auto;
+}
+
+.ui-field-tight { display: flex; flex-direction: column; gap: 0.2rem; flex: 1; min-width: 0; }
+.ui-field-tight input, .ui-field-tight select {
+  padding: 0.3rem 0.4rem; font-size: 0.74rem; width: 100%;
+}
+
+.led-track-editor { margin-top: 0.9rem; }
+/* The drawer is narrow and .section-subtitle is uppercase with wide letter
+   spacing, so "LED CHOREOGRAPHY TRACK" cannot sit beside a button on one line.
+   Stacking the two keeps the heading's underline rule spanning the full width,
+   consistent with every other section heading in the drawer. */
+.led-track-head { display: flex; flex-direction: column; gap: 0.5rem; }
+.led-track-head .btn-ghost { align-self: flex-start; white-space: nowrap; }
+
+.led-lane {
+  position: relative; height: 26px; margin: 0.4rem 0 0.6rem;
+  background: var(--bg-sunken);
+  border: 1px solid var(--border); border-radius: var(--r-sm);
+  overflow: hidden;
+}
+.led-lane-block {
+  position: absolute; top: 0; bottom: 0;
+  border: none; border-right: 1px solid var(--bg-sunken);
+  cursor: pointer; padding: 0;
+}
+.led-lane-block:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.led-lane-playhead {
+  position: absolute; top: 0; bottom: 0; width: 2px;
+  background: var(--warning); pointer-events: none; z-index: 3;
+}
+
+.led-kf-card {
+  display: flex; flex-direction: column; gap: 0.4rem;
+  padding: 0.5rem; margin-bottom: 0.5rem;
+  background: var(--bg-sunken);
+  border: 1px solid var(--border); border-radius: var(--r-sm);
+}
+.led-kf-row { display: flex; align-items: flex-end; gap: 0.4rem; }
+.led-kf-row select { flex: 1; min-width: 0; }
+.led-kf-row input[type="color"] {
+  width: 34px; height: 28px; padding: 0; border-radius: var(--r-sm);
+  border: 1px solid var(--border); background: none; cursor: pointer;
+}
+.led-palette-row { flex-wrap: wrap; align-items: center; }
+.led-palette-row input[type="color"] { width: 26px; height: 24px; }
