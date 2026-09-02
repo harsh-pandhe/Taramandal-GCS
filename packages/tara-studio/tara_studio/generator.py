@@ -7,6 +7,8 @@ import logging
 
 from tara_core import MAX_FLEET_SIZE, altitude_layers, launch_grid
 
+from .pacing import ShowPacing, formation_spread, plan_pacing
+
 
 def _default_launch_state(
     num_drones: int, spawn_offsets: list | None, target_heights: list | None
@@ -105,8 +107,8 @@ def _land_waypoint(d_id: int, ratio: float, start_positions: dict, target_height
     Returns:
         ``{"x", "y", "z", "yaw"}``, unrounded.
     """
-    return_ratio = min(1.0, ratio / LAND_RETURN_FRACTION)
-    descend_ratio = max(0.0, (ratio - LAND_RETURN_FRACTION) / (1.0 - LAND_RETURN_FRACTION))
+    return_ratio = _ease(ratio / LAND_RETURN_FRACTION)
+    descend_ratio = _ease((ratio - LAND_RETURN_FRACTION) / (1.0 - LAND_RETURN_FRACTION))
 
     entry = land_entry[d_id]
     target_x = start_positions[d_id]["x"]
@@ -116,7 +118,13 @@ def _land_waypoint(d_id: int, ratio: float, start_positions: dict, target_height
     y_val = entry["y"] + return_ratio * (target_y - entry["y"])
     z_val = entry["z"] * (1.0 - descend_ratio)
 
-    return {"x": x_val, "y": y_val, "z": z_val, "yaw": 0.0}
+    # Yaw unwinds to 0 across the return leg rather than snapping there on the
+    # first landing sample. A drone that ended the choreography facing 178 deg
+    # used to jump to 0 between two samples — 356 deg/s at 2 Hz sampling, over
+    # the 300 deg/s ceiling — regardless of how long the landing window was.
+    yaw_val = _blend_yaw(entry.get("yaw", 0.0), 0.0, return_ratio)
+
+    return {"x": x_val, "y": y_val, "z": z_val, "yaw": yaw_val}
 
 
 def _pad_xy(pad) -> tuple[float, float]:
@@ -130,425 +138,415 @@ def _pad_xy(pad) -> tuple[float, float]:
         return float(pad[0]), float(pad[1])
     return 0.0, float(pad)
 
-def generate_circle(num_drones: int, duration: float, rate: float, spawn_offsets: list = None, target_heights: list = None) -> dict:
-    total_steps = int(duration * rate)
-    drones_wps = {d_id: [] for d_id in range(num_drones)}
-    
+
+def _ease(ratio: float) -> float:
+    """Smoothstep: a 0->1 ramp that starts and ends at zero rate of change.
+
+    Phase transitions used to be linear ramps, which meant the drone's velocity
+    stepped discontinuously at every phase boundary — from a standstill to full
+    blend speed between two samples. Velocity/dt is acceleration, so those steps
+    read as acceleration spikes no matter how long the phases are, which is
+    exactly the kind of violation extra show time cannot fix. Easing the ramp
+    makes velocity go to zero at both ends of each phase instead.
+    """
+    r = min(1.0, max(0.0, ratio))
+    return r * r * (3.0 - 2.0 * r)
+
+
+def _blend_yaw(start_deg: float, target_deg: float, ratio: float) -> float:
+    """Interpolate a heading the short way round, in degrees.
+
+    Rotating 350 deg -> 10 deg has to cross 0, not sweep 340 deg backwards, so
+    the difference is wrapped into (-180, 180] before it is scaled.
+
+    Only valid for a *fixed* target. Interpolating towards a target that itself
+    moves (a drone's formation heading during the blend, say) has to be done on
+    the unwrapped angle instead — recomputing the short way round per sample
+    makes the interpolated heading reverse direction the moment the shortest
+    path flips at 180 deg, which is a discontinuity of its own. See
+    ``_run_show``, which blends the unwrapped yaw and wraps once at the end.
+    """
+    delta = (target_deg - start_deg + 180.0) % 360.0 - 180.0
+    return round((start_deg + delta * ratio) % 360.0, 1)
+
+
+def _launch_state(num_drones: int, spawn_offsets, target_heights) -> tuple[dict, dict]:
+    """Resolve pads and hover altitudes into the two per-drone dicts every shape uses."""
     spawn_offsets, target_heights = _default_launch_state(
         num_drones, spawn_offsets, target_heights
     )
-        
-    start_positions = {d_id: {"x": _pad_xy(spawn_offsets[d_id])[0], "y": _pad_xy(spawn_offsets[d_id])[1], "z": 0.0} for d_id in range(num_drones)}
-    target_heights = {d_id: float(target_heights[d_id]) for d_id in range(num_drones)}
-    
-    center_x = 5.0
-    center_y = float(num_drones - 1)
-    radius = 4.0
-    
+    start_positions = {
+        d_id: {
+            "x": _pad_xy(spawn_offsets[d_id])[0],
+            "y": _pad_xy(spawn_offsets[d_id])[1],
+            "z": 0.0,
+        }
+        for d_id in range(num_drones)
+    }
+    heights = {d_id: float(target_heights[d_id]) for d_id in range(num_drones)}
+    return start_positions, heights
+
+
+def plan_show_pacing(num_drones: int, shape: str, spawn_offsets: list = None, target_heights: list = None) -> ShowPacing:
+    """Return the pacing a generated show will use, without generating it.
+
+    Exposed so callers can report or preview the timeline (the Studio API
+    returns it alongside the show) rather than having to infer it from the
+    waypoints. This is the same call the generators make internally, so what it
+    reports is what they will produce.
+
+    Args:
+        num_drones: Fleet size.
+        shape: One of the supported shape names.
+        spawn_offsets: Optional per-drone pad override.
+        target_heights: Optional per-drone hover altitude override.
+
+    Returns:
+        The :class:`~tara_studio.pacing.ShowPacing` for that show.
+
+    Raises:
+        ValueError: If ``shape`` is not a supported shape name.
+    """
+    spec = _SHAPES.get(shape.lower())
+    if spec is None:
+        raise ValueError(f"unknown shape {shape!r}; expected one of {sorted(_SHAPES)}")
+    start_positions, heights = _launch_state(num_drones, spawn_offsets, target_heights)
+    return _pacing_for(spec, num_drones, start_positions, heights)
+
+
+def _pacing_for(spec, num_drones: int, start_positions: dict, target_heights: dict) -> ShowPacing:
+    """Measure a shape's geometry at this fleet size and plan the timeline for it.
+
+    The two distances that drive pacing are read off the shape itself rather
+    than assumed: ``climb_m`` is the tallest hover layer in play, and
+    ``spread_m`` is the longest pad-to-formation gap, evaluated at the moment
+    the blend ends (``ratio=0``, where every shape places its drones at the
+    formation's entry positions). That keeps a shape whose formation happens to
+    sit close to the pads from being paced as slowly as one that flings the
+    fleet across the arena at the same drone count.
+    """
+    entry_targets = {
+        d_id: spec.formation(d_id, num_drones, 0.0, target_heights[d_id])
+        for d_id in range(num_drones)
+    }
+    # The blend starts from where takeoff leaves each drone — over its pad, at
+    # its hover altitude — not from the pad on the ground, so that is the point
+    # the spread is measured from.
+    hover_positions = {
+        d_id: {"x": pad["x"], "y": pad["y"], "z": -target_heights[d_id]}
+        for d_id, pad in start_positions.items()
+    }
+    climb_m = max(target_heights.values()) if target_heights else 0.0
+    spread_m = formation_spread(hover_positions, entry_targets)
+    return plan_pacing(
+        num_drones,
+        climb_m=climb_m,
+        spread_m=spread_m,
+        revolutions=spec.revolutions,
+    )
+
+
+def _run_show(spec, num_drones: int, duration: float, rate: float, spawn_offsets, target_heights) -> dict:
+    """Generate one show, pacing its phases for the fleet size.
+
+    Replaces the identical takeoff/choreography/landing loop the five shape
+    functions each carried a copy of. The loop itself is unchanged in
+    structure; what changed is that the phase boundaries come from
+    :func:`~tara_studio.pacing.plan_pacing` instead of the literals 5.0/25.0,
+    and the timeline runs for however long the paced phases need rather than
+    for whatever the caller passed as ``duration``.
+
+    ``duration`` is still honoured as a *lower* bound: a caller asking for a
+    longer show than the pacing requires gets the extra time, spent on the
+    choreography (the part worth watching), exactly as a 30 s three-drone show
+    behaves today. What it can no longer do is make the show shorter than the
+    fleet can safely fly — a 100-drone show asked to finish in 30 s comes back
+    at the ~78 s it actually needs, because the alternative is handing back a
+    show that fails validation and cannot be fixed by any parameter the
+    operator controls.
+
+    Args:
+        spec: The :class:`_ShapeSpec` describing this formation.
+        num_drones: Fleet size.
+        duration: Requested show length, seconds. Treated as a floor.
+        rate: Waypoint sampling rate, Hz.
+        spawn_offsets: Optional per-drone pad override.
+        target_heights: Optional per-drone hover altitude override.
+
+    Returns:
+        ``{"drones": [{"id", "waypoints"}, ...]}``.
+    """
+    start_positions, heights = _launch_state(num_drones, spawn_offsets, target_heights)
+    pacing = _pacing_for(spec, num_drones, start_positions, heights)
+
+    takeoff_s = pacing.takeoff_s
+    blend_s = pacing.blend_s
+    land_s = pacing.land_s
+    # Spend any surplus the caller asked for on the choreography.
+    choreo_s = max(pacing.choreo_s, duration - takeoff_s - land_s)
+
+    choreo_start = takeoff_s
+    land_start = takeoff_s + choreo_s
+    total_s = land_start + land_s
+
+    drones_wps = {d_id: [] for d_id in range(num_drones)}
+    total_steps = int(round(total_s * rate))
+
     land_entry = None  # captured once, at the moment landing begins
     for step in range(total_steps + 1):
         t = step / float(rate)
-        
-        # Takeoff: 0s to 5s
-        if t <= 5.0:
-            ratio = t / 5.0
+
+        if t <= takeoff_s:
+            ratio = _ease(t / takeoff_s)
             for d_id in range(num_drones):
-                z_val = - (target_heights[d_id] * ratio)
+                z_val = -(heights[d_id] * ratio)
                 drones_wps[d_id].append({
                     "time": round(t, 2),
                     "x": start_positions[d_id]["x"],
                     "y": start_positions[d_id]["y"],
                     "z": round(z_val, 2),
-                    "yaw": 0.0
+                    "yaw": 0.0,
                 })
-        # Choreography: 5s to 25s
-        elif t <= 25.0:
-            choreo_duration = 20.0
-            elapsed = t - 5.0
-            ratio = elapsed / choreo_duration
-            
+        elif t <= land_start:
+            elapsed = t - choreo_start
+            ratio = elapsed / choreo_s
+            blend_ratio = _ease(elapsed / blend_s)
+
             for d_id in range(num_drones):
-                angle_offset = (2.0 * math.pi * d_id) / num_drones
-                angle = angle_offset + (2.0 * math.pi * ratio)
-                
-                blend_ratio = min(1.0, elapsed / 2.0)
-                
-                target_x = center_x + radius * math.cos(angle)
-                target_y = center_y + radius * math.sin(angle)
-                target_z = - target_heights[d_id]
-                
-                x_val = start_positions[d_id]["x"] + blend_ratio * (target_x - start_positions[d_id]["x"])
-                y_val = start_positions[d_id]["y"] + blend_ratio * (target_y - start_positions[d_id]["y"])
-                yaw_val = round(math.degrees(angle) % 360, 1)
-                
+                target_x, target_y, target_z = spec.formation(
+                    d_id, num_drones, ratio, heights[d_id]
+                )
+                # Yaw is blended over the same window as position. Each drone's
+                # formation heading starts at its own angle offset around the
+                # ring, so snapping straight to it on the first choreography
+                # step made the drone half-way round the ring rotate 180 deg
+                # between two samples — a yaw-rate violation that grew with n
+                # as the offsets spread out, and one no amount of extra show
+                # time could fix, since it happened *at* the phase boundary.
+                #
+                # The scaling is applied to the shape's *unwrapped* angle and
+                # wrapped exactly once here. Wrapping first and then blending
+                # towards the wrapped value makes the heading reverse whenever
+                # the shortest path flips sign at 180 deg.
+                yaw_val = round(
+                    (blend_ratio * spec.yaw(d_id, num_drones, ratio)) % 360.0, 1
+                )
+
+                pad = start_positions[d_id]
+                x_val = pad["x"] + blend_ratio * (target_x - pad["x"])
+                y_val = pad["y"] + blend_ratio * (target_y - pad["y"])
+                # z blends out of the altitude takeoff actually reached, rather
+                # than being taken from the formation directly. The cube is the
+                # shape that made this matter: its grid slots carry their own
+                # altitudes, unrelated to the hover layer a drone just climbed
+                # to, so the first choreography sample used to teleport a drone
+                # several metres vertically in one step.
+                climb_z = -heights[d_id]
+                z_val = climb_z + blend_ratio * (target_z - climb_z)
+
                 drones_wps[d_id].append({
                     "time": round(t, 2),
                     "x": round(x_val, 2),
                     "y": round(y_val, 2),
-                    "z": round(target_z, 2),
-                    "yaw": yaw_val
+                    "z": round(z_val, 2),
+                    "yaw": yaw_val,
                 })
-        # Land: 25s to 30s
         else:
-            land_duration = duration - 25.0
-            elapsed = t - 25.0
-            ratio = elapsed / land_duration
-            
+            elapsed = t - land_start
+            ratio = min(1.0, elapsed / land_s)
+
             if land_entry is None:
                 land_entry = {d_id: dict(drones_wps[d_id][-1]) for d_id in range(num_drones)}
 
             for d_id in range(num_drones):
-                wp = _land_waypoint(d_id, ratio, start_positions, target_heights, land_entry)
+                wp = _land_waypoint(d_id, ratio, start_positions, heights, land_entry)
                 drones_wps[d_id].append({
                     "time": round(t, 2),
                     "x": round(wp["x"], 2),
                     "y": round(wp["y"], 2),
                     "z": round(wp["z"], 2),
-                    "yaw": wp["yaw"]
+                    "yaw": wp["yaw"],
                 })
-                
+
     return {"drones": [{"id": d_id, "waypoints": wps} for d_id, wps in drones_wps.items()]}
+
+
+class _ShapeSpec:
+    """One formation: where each drone sits over the choreography, and its heading.
+
+    Args:
+        formation: ``(d_id, n, ratio, height) -> (x, y, z)``, the drone's
+            position in the formation at ``ratio`` through the choreography.
+            ``z`` is NED (negative up). Called at ``ratio=0`` during pacing to
+            measure how far the fleet has to travel to enter the formation.
+        yaw: ``(d_id, n, ratio) -> degrees``, **unwrapped** — an orbiting shape
+            returns 0, 90, ..., 360, 450 rather than wrapping back to 0.
+            ``_run_show`` scales this by the blend ratio and wraps into
+            ``[0, 360)`` exactly once, at the end. A pre-wrapped value cannot be
+            blended: the interpolation would reverse direction each time the
+            shortest path between the current and target heading flips at
+            180 deg.
+        revolutions: Full turns the heading makes across the choreography, used
+            to keep the yaw rate legal. 0 for shapes that hold a heading.
+    """
+
+    def __init__(self, formation, yaw, revolutions: float):
+        self.formation = formation
+        self.yaw = yaw
+        self.revolutions = revolutions
+
+
+def _circle_formation(d_id: int, n: int, ratio: float, height: float):
+    angle = (2.0 * math.pi * d_id) / n + (2.0 * math.pi * ratio)
+    return (
+        5.0 + 4.0 * math.cos(angle),
+        float(n - 1) + 4.0 * math.sin(angle),
+        -height,
+    )
+
+
+def _circle_yaw(d_id: int, n: int, ratio: float) -> float:
+    """Unwrapped heading, degrees — see _ShapeSpec.yaw on why it is not wrapped."""
+    angle = (2.0 * math.pi * d_id) / n + (2.0 * math.pi * ratio)
+    return math.degrees(angle)
+
+
+def _helix_formation(d_id: int, n: int, ratio: float, height: float):
+    angle = (2.0 * math.pi * d_id) / n + (2.0 * math.pi * ratio * 1.5)
+    height_osc = 1.2 * math.sin(2.0 * math.pi * ratio + d_id)
+    return (
+        6.0 + 5.0 * math.cos(angle),
+        float(n - 1) + 5.0 * math.sin(angle),
+        -max(1.5, height + height_osc),
+    )
+
+
+def _helix_yaw(d_id: int, n: int, ratio: float) -> float:
+    """Unwrapped heading, degrees — see _ShapeSpec.yaw on why it is not wrapped."""
+    angle = (2.0 * math.pi * d_id) / n + (2.0 * math.pi * ratio * 1.5)
+    return math.degrees(angle)
+
+
+def _heart_xy(theta: float) -> tuple[float, float]:
+    """The classic heart curve, scaled down to typical arena bounds (approx -4 to +4)."""
+    raw_x = 16.0 * (math.sin(theta) ** 3)
+    raw_y = (
+        13.0 * math.cos(theta)
+        - 5.0 * math.cos(2.0 * theta)
+        - 2.0 * math.cos(3.0 * theta)
+        - math.cos(4.0 * theta)
+    )
+    return raw_x * 0.25, raw_y * 0.25
+
+
+def _heart_formation(d_id: int, n: int, ratio: float, height: float):
+    hx, hy = _heart_xy((2.0 * math.pi * d_id) / n)
+    rot = 2.0 * math.pi * ratio * 0.25  # 90 degree spin
+    return (
+        5.0 + (hx * math.cos(rot) - hy * math.sin(rot)),
+        float(n - 1) + (hx * math.sin(rot) + hy * math.cos(rot)),
+        -height,
+    )
+
+
+def _heart_yaw(d_id: int, n: int, ratio: float) -> float:
+    """Unwrapped heading, degrees — see _ShapeSpec.yaw on why it is not wrapped."""
+    return math.degrees(2.0 * math.pi * ratio * 0.25)
+
+
+def _cube_grid(n: int) -> list[tuple[float, float, float]]:
+    """3D grid slots, side length chosen so n drones fit (minimum 2x2x2)."""
+    side = max(2, int(math.ceil(n ** (1 / 3.0))))
+    return [
+        (float(x * 2.5 + 4.0), float(y * 2.5 + 1.0), float(2.0 + z * 1.5))
+        for z in range(side)
+        for y in range(side)
+        for x in range(side)
+    ]
+
+
+def _cube_formation(d_id: int, n: int, ratio: float, height: float):
+    grid = _cube_grid(n)
+    gx, gy, gz = grid[d_id % len(grid)]
+    return gx + 1.0 * math.sin(2.0 * math.pi * ratio), gy, -gz
+
+
+def _spline_formation(d_id: int, n: int, ratio: float, height: float):
+    """Cubic Bezier sweep, swept out and back over the choreography."""
+    # Control points are offset from this drone's own pad so each drone sweeps
+    # from where it actually is. _run_show blends from the pad into this, so the
+    # pad offset is re-added by the blend; the curve here is pad-relative in x.
+    p0 = (0.0, 0.0, -height)
+    p1 = (4.0, 4.0, -height - 2.0)
+    p2 = (8.0, -4.0, -height + 1.5)
+    p3 = (12.0, 0.0, -height)
+
+    tb = ratio * 2.0 if ratio <= 0.5 else (1.0 - ratio) * 2.0
+    mt = 1.0 - tb
+    def bez(i):
+        return (
+            mt ** 3 * p0[i]
+            + 3 * mt ** 2 * tb * p1[i]
+            + 3 * mt * tb ** 2 * p2[i]
+            + tb ** 3 * p3[i]
+        )
+
+    return bez(0), bez(1), bez(2)
+
+
+def _spline_yaw(d_id: int, n: int, ratio: float) -> float:
+    """Heading along the sweep, turned rather than flipped at the turnaround.
+
+    This used to be a bare ``90 if ratio <= 0.5 else 270`` — the drone faces
+    down-course on the way out and back on the way in, which is the right
+    intent, but as a step it put 180 deg of rotation between two adjacent
+    samples. That is a yaw-rate violation at any show length, since the step
+    size does not shrink as the timeline stretches. The turn is now spread
+    over the middle fifth of the sweep, where the drone is at the far end of
+    the curve and physically slowest.
+    """
+    turn_half_width = 0.1
+    if ratio <= 0.5 - turn_half_width:
+        return 90.0
+    if ratio >= 0.5 + turn_half_width:
+        return 270.0
+    progress = (ratio - (0.5 - turn_half_width)) / (2.0 * turn_half_width)
+    return 90.0 + 180.0 * progress
+
+
+def _zero_yaw(d_id: int, n: int, ratio: float) -> float:
+    return 0.0
+
+
+#: Shape name -> its formation geometry. Keyed the same way the API dispatches.
+_SHAPES = {
+    "circle": _ShapeSpec(_circle_formation, _circle_yaw, revolutions=1.0),
+    "helix": _ShapeSpec(_helix_formation, _helix_yaw, revolutions=1.5),
+    "heart": _ShapeSpec(_heart_formation, _heart_yaw, revolutions=0.25),
+    "cube": _ShapeSpec(_cube_formation, _zero_yaw, revolutions=0.0),
+    # The spline holds a heading out and back, but turns 180 deg at the
+    # turnaround, and _spline_yaw compresses that turn into the middle fifth of
+    # the sweep — so the yaw budget it needs is that half-turn spread over 1/5
+    # of the window, i.e. 2.5 half-turns' worth of window.
+    "spline": _ShapeSpec(_spline_formation, _spline_yaw, revolutions=2.5),
+}
+
+
+def generate_circle(num_drones: int, duration: float, rate: float, spawn_offsets: list = None, target_heights: list = None) -> dict:
+    return _run_show(_SHAPES["circle"], num_drones, duration, rate, spawn_offsets, target_heights)
+
 
 def generate_helix(num_drones: int, duration: float, rate: float, spawn_offsets: list = None, target_heights: list = None) -> dict:
-    total_steps = int(duration * rate)
-    drones_wps = {d_id: [] for d_id in range(num_drones)}
-    
-    spawn_offsets, target_heights = _default_launch_state(
-        num_drones, spawn_offsets, target_heights
-    )
-        
-    start_positions = {d_id: {"x": _pad_xy(spawn_offsets[d_id])[0], "y": _pad_xy(spawn_offsets[d_id])[1], "z": 0.0} for d_id in range(num_drones)}
-    target_heights = {d_id: float(target_heights[d_id]) for d_id in range(num_drones)}
-    
-    center_x = 6.0
-    center_y = float(num_drones - 1)
-    radius = 5.0
-    
-    land_entry = None  # captured once, at the moment landing begins
-    for step in range(total_steps + 1):
-        t = step / float(rate)
-        
-        if t <= 5.0:
-            ratio = t / 5.0
-            for d_id in range(num_drones):
-                z_val = - (target_heights[d_id] * ratio)
-                drones_wps[d_id].append({
-                    "time": round(t, 2),
-                    "x": start_positions[d_id]["x"],
-                    "y": start_positions[d_id]["y"],
-                    "z": round(z_val, 2),
-                    "yaw": 0.0
-                })
-        elif t <= 25.0:
-            choreo_duration = 20.0
-            elapsed = t - 5.0
-            ratio = elapsed / choreo_duration
-            
-            for d_id in range(num_drones):
-                angle_offset = (2.0 * math.pi * d_id) / num_drones
-                angle = angle_offset + (2.0 * math.pi * ratio * 1.5)
-                
-                blend_ratio = min(1.0, elapsed / 2.0)
-                height_osc = 1.2 * math.sin(2.0 * math.pi * ratio + d_id)
-                target_height = target_heights[d_id] + height_osc
-                
-                target_x = center_x + radius * math.cos(angle)
-                target_y = center_y + radius * math.sin(angle)
-                target_z = - max(1.5, target_height)
-                
-                x_val = start_positions[d_id]["x"] + blend_ratio * (target_x - start_positions[d_id]["x"])
-                y_val = start_positions[d_id]["y"] + blend_ratio * (target_y - start_positions[d_id]["y"])
-                
-                drones_wps[d_id].append({
-                    "time": round(t, 2),
-                    "x": round(x_val, 2),
-                    "y": round(y_val, 2),
-                    "z": round(target_z, 2),
-                    "yaw": round(math.degrees(angle) % 360, 1)
-                })
-        else:
-            land_duration = duration - 25.0
-            elapsed = t - 25.0
-            ratio = elapsed / land_duration
-            
-            if land_entry is None:
-                land_entry = {d_id: dict(drones_wps[d_id][-1]) for d_id in range(num_drones)}
+    return _run_show(_SHAPES["helix"], num_drones, duration, rate, spawn_offsets, target_heights)
 
-            for d_id in range(num_drones):
-                wp = _land_waypoint(d_id, ratio, start_positions, target_heights, land_entry)
-                drones_wps[d_id].append({
-                    "time": round(t, 2),
-                    "x": round(wp["x"], 2),
-                    "y": round(wp["y"], 2),
-                    "z": round(wp["z"], 2),
-                    "yaw": wp["yaw"]
-                })
-                
-    return {"drones": [{"id": d_id, "waypoints": wps} for d_id, wps in drones_wps.items()]}
 
 def generate_heart(num_drones: int, duration: float, rate: float, spawn_offsets: list = None, target_heights: list = None) -> dict:
-    total_steps = int(duration * rate)
-    drones_wps = {d_id: [] for d_id in range(num_drones)}
-    
-    spawn_offsets, target_heights = _default_launch_state(
-        num_drones, spawn_offsets, target_heights
-    )
-        
-    start_positions = {d_id: {"x": _pad_xy(spawn_offsets[d_id])[0], "y": _pad_xy(spawn_offsets[d_id])[1], "z": 0.0} for d_id in range(num_drones)}
-    target_heights = {d_id: float(target_heights[d_id]) for d_id in range(num_drones)}
-    
-    center_x = 5.0
-    center_y = float(num_drones - 1)
-    
-    # Heart parametric helper scaled down
-    def get_heart_xy(theta):
-        # theta is in [0, 2pi]
-        # x = 16 * sin^3(t)
-        # y = 13 * cos(t) - 5 * cos(2t) - 2 * cos(3t) - cos(4t)
-        raw_x = 16.0 * (math.sin(theta) ** 3)
-        raw_y = 13.0 * math.cos(theta) - 5.0 * math.cos(2.0*theta) - 2.0 * math.cos(3.0*theta) - math.cos(4.0*theta)
-        
-        # Scale down to typical arena bounds (approx -4 to +4)
-        return raw_x * 0.25, raw_y * 0.25
+    return _run_show(_SHAPES["heart"], num_drones, duration, rate, spawn_offsets, target_heights)
 
-    land_entry = None  # captured once, at the moment landing begins
-    for step in range(total_steps + 1):
-        t = step / float(rate)
-        
-        # Takeoff
-        if t <= 5.0:
-            ratio = t / 5.0
-            for d_id in range(num_drones):
-                z_val = - (target_heights[d_id] * ratio)
-                drones_wps[d_id].append({
-                    "time": round(t, 2),
-                    "x": start_positions[d_id]["x"],
-                    "y": start_positions[d_id]["y"],
-                    "z": round(z_val, 2),
-                    "yaw": 0.0
-                })
-        # Heart formation
-        elif t <= 25.0:
-            choreo_duration = 20.0
-            elapsed = t - 5.0
-            ratio = elapsed / choreo_duration
-            
-            for d_id in range(num_drones):
-                # Spread out drones along heart perimeter
-                theta = (2.0 * math.pi * d_id) / num_drones
-                hx, hy = get_heart_xy(theta)
-                
-                # Blend entry
-                blend_ratio = min(1.0, elapsed / 2.0)
-                
-                # Rotate the heart slightly over time
-                rot_angle = 2.0 * math.pi * ratio * 0.25 # 90 degree spin
-                target_x = center_x + (hx * math.cos(rot_angle) - hy * math.sin(rot_angle))
-                target_y = center_y + (hx * math.sin(rot_angle) + hy * math.cos(rot_angle))
-                target_z = - target_heights[d_id]
-                
-                x_val = start_positions[d_id]["x"] + blend_ratio * (target_x - start_positions[d_id]["x"])
-                y_val = start_positions[d_id]["y"] + blend_ratio * (target_y - start_positions[d_id]["y"])
-                
-                drones_wps[d_id].append({
-                    "time": round(t, 2),
-                    "x": round(x_val, 2),
-                    "y": round(y_val, 2),
-                    "z": round(target_z, 2),
-                    "yaw": round(math.degrees(rot_angle) % 360, 1)
-                })
-        # Landing
-        else:
-            land_duration = duration - 25.0
-            elapsed = t - 25.0
-            ratio = elapsed / land_duration
-            
-            if land_entry is None:
-                land_entry = {d_id: dict(drones_wps[d_id][-1]) for d_id in range(num_drones)}
-
-            for d_id in range(num_drones):
-                wp = _land_waypoint(d_id, ratio, start_positions, target_heights, land_entry)
-                drones_wps[d_id].append({
-                    "time": round(t, 2),
-                    "x": round(wp["x"], 2),
-                    "y": round(wp["y"], 2),
-                    "z": round(wp["z"], 2),
-                    "yaw": wp["yaw"]
-                })
-                
-    return {"drones": [{"id": d_id, "waypoints": wps} for d_id, wps in drones_wps.items()]}
 
 def generate_cube(num_drones: int, duration: float, rate: float, spawn_offsets: list = None, target_heights: list = None) -> dict:
-    # Position drones in a 3D grid layout
-    total_steps = int(duration * rate)
-    drones_wps = {d_id: [] for d_id in range(num_drones)}
-    
-    spawn_offsets, target_heights = _default_launch_state(
-        num_drones, spawn_offsets, target_heights
-    )
-        
-    start_positions = {d_id: {"x": _pad_xy(spawn_offsets[d_id])[0], "y": _pad_xy(spawn_offsets[d_id])[1], "z": 0.0} for d_id in range(num_drones)}
-    target_heights = {d_id: float(target_heights[d_id]) for d_id in range(num_drones)}
-    
-    # Compute 3D grid layouts
-    # Let's map drone IDs to grid positions
-    # Up to 8 drones fit in a 2x2x2 cube
-    grid_coords = []
-    side = int(math.ceil(num_drones ** (1/3.0)))
-    if side < 2:
-        side = 2
-        
-    for z in range(side):
-        for y in range(side):
-            for x in range(side):
-                grid_coords.append((float(x * 2.5 + 4.0), float(y * 2.5 + 1.0), float(2.0 + z * 1.5)))
-                
-    land_entry = None  # captured once, at the moment landing begins
-    for step in range(total_steps + 1):
-        t = step / float(rate)
-        
-        # Takeoff
-        if t <= 5.0:
-            ratio = t / 5.0
-            for d_id in range(num_drones):
-                z_val = - (target_heights[d_id] * ratio)
-                drones_wps[d_id].append({
-                    "time": round(t, 2),
-                    "x": start_positions[d_id]["x"],
-                    "y": start_positions[d_id]["y"],
-                    "z": round(z_val, 2),
-                    "yaw": 0.0
-                })
-        # Form Cube
-        elif t <= 25.0:
-            choreo_duration = 20.0
-            elapsed = t - 5.0
-            ratio = elapsed / choreo_duration
-            
-            for d_id in range(num_drones):
-                gx, gy, gz = grid_coords[d_id % len(grid_coords)]
-                blend_ratio = min(1.0, elapsed / 2.0)
-                
-                # Slowly translate or rotate the cube
-                offset_x = 1.0 * math.sin(2.0 * math.pi * ratio)
-                target_x = gx + offset_x
-                target_y = gy
-                target_z = - gz
-                
-                x_val = start_positions[d_id]["x"] + blend_ratio * (target_x - start_positions[d_id]["x"])
-                y_val = start_positions[d_id]["y"] + blend_ratio * (target_y - start_positions[d_id]["y"])
-                
-                drones_wps[d_id].append({
-                    "time": round(t, 2),
-                    "x": round(x_val, 2),
-                    "y": round(y_val, 2),
-                    "z": round(target_z, 2),
-                    "yaw": 0.0
-                })
-        # Land
-        else:
-            land_duration = duration - 25.0
-            elapsed = t - 25.0
-            ratio = elapsed / land_duration
-            
-            if land_entry is None:
-                land_entry = {d_id: dict(drones_wps[d_id][-1]) for d_id in range(num_drones)}
+    return _run_show(_SHAPES["cube"], num_drones, duration, rate, spawn_offsets, target_heights)
 
-            for d_id in range(num_drones):
-                wp = _land_waypoint(d_id, ratio, start_positions, target_heights, land_entry)
-                drones_wps[d_id].append({
-                    "time": round(t, 2),
-                    "x": round(wp["x"], 2),
-                    "y": round(wp["y"], 2),
-                    "z": round(wp["z"], 2),
-                    "yaw": wp["yaw"]
-                })
-                
-    return {"drones": [{"id": d_id, "waypoints": wps} for d_id, wps in drones_wps.items()]}
 
 def generate_spline(num_drones: int, duration: float, rate: float, spawn_offsets: list = None, target_heights: list = None) -> dict:
-    total_steps = int(duration * rate)
-    drones_wps = {d_id: [] for d_id in range(num_drones)}
-    
-    spawn_offsets, target_heights = _default_launch_state(
-        num_drones, spawn_offsets, target_heights
-    )
-        
-    start_positions = {d_id: {"x": _pad_xy(spawn_offsets[d_id])[0], "y": _pad_xy(spawn_offsets[d_id])[1], "z": 0.0} for d_id in range(num_drones)}
-    target_heights = {d_id: float(target_heights[d_id]) for d_id in range(num_drones)}
-    
-    land_entry = None  # captured once, at the moment landing begins
-    for step in range(total_steps + 1):
-        t = step / float(rate)
-        
-        # Takeoff
-        if t <= 5.0:
-            ratio = t / 5.0
-            for d_id in range(num_drones):
-                z_val = - (target_heights[d_id] * ratio)
-                drones_wps[d_id].append({
-                    "time": round(t, 2),
-                    "x": start_positions[d_id]["x"],
-                    "y": start_positions[d_id]["y"],
-                    "z": round(z_val, 2),
-                    "yaw": 0.0
-                })
-        # Choreography (Cubic Bezier curve sweep)
-        elif t <= 25.0:
-            choreo_duration = 20.0
-            elapsed = t - 5.0
-            ratio = elapsed / choreo_duration
-            
-            for d_id in range(num_drones):
-                pad_x = start_positions[d_id]["x"]
-                offset = start_positions[d_id]["y"]
-                alt = target_heights[d_id]
-
-                # Define cubic bezier control points, offset from this
-                # drone's own pad x (was hardcoded from 0.0, which put every
-                # drone's sweep on the same line regardless of its actual pad
-                # column on the launch grid).
-                p0 = (pad_x + 0.0, offset, -alt)
-                p1 = (pad_x + 4.0, offset + 4.0, -alt - 2.0)
-                p2 = (pad_x + 8.0, offset - 4.0, -alt + 1.5)
-                p3 = (pad_x + 12.0, offset, -alt)
-                
-                # Symmetrical back-and-forth mapping of the spline trajectory
-                t_bezier = ratio * 2.0 if ratio <= 0.5 else (1.0 - ratio) * 2.0
-                
-                # Cubic Bezier interpolation formula
-                mt = 1.0 - t_bezier
-                x = mt**3 * p0[0] + 3 * mt**2 * t_bezier * p1[0] + 3 * mt * t_bezier**2 * p2[0] + t_bezier**3 * p3[0]
-                y = mt**3 * p0[1] + 3 * mt**2 * t_bezier * p1[1] + 3 * mt * t_bezier**2 * p2[1] + t_bezier**3 * p3[1]
-                z = mt**3 * p0[2] + 3 * mt**2 * t_bezier * p1[2] + 3 * mt * t_bezier**2 * p2[2] + t_bezier**3 * p3[2]
-                
-                # Calculate simple yaw heading based on trajectory direction
-                yaw = 90.0 if ratio <= 0.5 else 270.0
-                
-                drones_wps[d_id].append({
-                    "time": round(t, 2),
-                    "x": round(x, 2),
-                    "y": round(y, 2),
-                    "z": round(z, 2),
-                    "yaw": yaw
-                })
-        # Land
-        else:
-            land_duration = duration - 25.0
-            elapsed = t - 25.0
-            ratio = elapsed / land_duration
-            
-            if land_entry is None:
-                land_entry = {d_id: dict(drones_wps[d_id][-1]) for d_id in range(num_drones)}
-
-            for d_id in range(num_drones):
-                wp = _land_waypoint(d_id, ratio, start_positions, target_heights, land_entry)
-                drones_wps[d_id].append({
-                    "time": round(t, 2),
-                    "x": round(wp["x"], 2),
-                    "y": round(wp["y"], 2),
-                    "z": round(wp["z"], 2),
-                    "yaw": wp["yaw"]
-                })
-                
-    return {"drones": [{"id": d_id, "waypoints": wps} for d_id, wps in drones_wps.items()]}
+    return _run_show(_SHAPES["spline"], num_drones, duration, rate, spawn_offsets, target_heights)
