@@ -46,26 +46,37 @@ class ExportRequest(BaseModel):
 def status():
     return {"status": "ONLINE", "engine": "Taramandal-Studio-v1"}
 
+#: Shape name -> generator. All five share one signature, so the endpoint
+#: dispatches through this instead of an if/elif chain that repeated the same
+#: five arguments per branch.
+_GENERATORS = {
+    "circle": generate_circle,
+    "helix": generate_helix,
+    "heart": generate_heart,
+    "cube": generate_cube,
+    "spline": generate_spline,
+}
+
 @app.post("/api/generate")
 def api_generate(req: GenerateRequest):
     shape = req.shape.lower()
-    
-    if shape == "circle":
-        choreo = generate_circle(req.num_drones, req.duration, req.rate, req.spawn_offsets, req.target_heights)
-    elif shape == "helix":
-        choreo = generate_helix(req.num_drones, req.duration, req.rate, req.spawn_offsets, req.target_heights)
-    elif shape == "heart":
-        choreo = generate_heart(req.num_drones, req.duration, req.rate, req.spawn_offsets, req.target_heights)
-    elif shape == "cube":
-        choreo = generate_cube(req.num_drones, req.duration, req.rate, req.spawn_offsets, req.target_heights)
-    elif shape == "spline":
-        choreo = generate_spline(req.num_drones, req.duration, req.rate, req.spawn_offsets, req.target_heights)
-    else:
+
+    generate = _GENERATORS.get(shape)
+    if generate is None:
         raise HTTPException(status_code=400, detail=f"Unsupported shape format: {req.shape}")
-        
+
+    try:
+        choreo = generate(req.num_drones, req.duration, req.rate, req.spawn_offsets, req.target_heights)
+    except ValueError as e:
+        # A mismatched spawn_offsets/target_heights override is a bad request,
+        # not a server fault. Pydantic can't catch it: the valid length depends
+        # on num_drones, another field. Before this it escaped as an IndexError
+        # from inside the shape's waypoint loop and surfaced as a blank 500.
+        raise HTTPException(status_code=400, detail=str(e))
+
     # Perform safety validation check automatically
     validation = validate_choreography(choreo)
-    
+
     return {
         "choreo": choreo,
         "validation": validation
