@@ -1,6 +1,7 @@
 import { Compass, Globe, Activity, AlertTriangle } from 'lucide-react';
 import SequencerHeader from '../sequencer/SequencerHeader.jsx';
 import TimelineTrack from '../sequencer/TimelineTrack.jsx';
+import WaveformTrack from '../sequencer/WaveformTrack.jsx';
 import StageViewport3D from './StageViewport3D.jsx';
 import ViewportControls from './ViewportControls.jsx';
 import MatrixView from './MatrixView.jsx';
@@ -16,7 +17,7 @@ const VIEWS = [
 export default function StagePage({
   header, viewMode, onViewMode, showPaths, onShowPaths,
   drawerOpen, onOpenDrawer, choreoData, currentTime, lightingOpts,
-  dronesList, rate, loading, error, playback, segments, duration,
+  dronesList, rate, loading, error, playback, segments, duration, audioPeaks, zoom,
   onScrub, onStep, activeSceneId, onSelectScene,
 }) {
   return (
@@ -81,6 +82,11 @@ export default function StagePage({
           speed={playback.speed} onSpeed={playback.setSpeed}
           currentTime={currentTime} duration={duration}
         />
+        <WaveformTrack
+          peaks={audioPeaks} duration={duration} currentTime={currentTime}
+          zoom={zoom} onScrub={onScrub}
+        />
+
         <TimelineTrack
           segments={segments} duration={duration} currentTime={currentTime}
           onScrub={onScrub} onSelectScene={onSelectScene} activeSceneId={activeSceneId}

@@ -24,6 +24,10 @@ export default function TransmitPanel({
         </button>
       </div>
 
+      <button type="button" className="btn-secondary btn-inline" onClick={() => onExport('tara')} disabled={!hasShow}>
+        Compile .tara (binary)
+      </button>
+
       <button type="button" className="btn-primary btn-inline" onClick={() => onExport('kml')} disabled={!hasShow}>
         <Globe size={15} /> Export Google Earth KML
       </button>

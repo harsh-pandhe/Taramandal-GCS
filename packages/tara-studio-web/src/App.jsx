@@ -13,9 +13,11 @@ import usePlayback from './hooks/usePlayback.js';
 import useFleet, { defaultFleet } from './hooks/useFleet.js';
 import useShowBuilder from './hooks/useShowBuilder.js';
 import useProjects from './hooks/useProjects.js';
+import useAudioTrack from './hooks/useAudioTrack.js';
 
 import { makeScene, computeShowDuration, buildTimelineSegments } from './engine/sequencer.js';
 import { buildColoredChoreo } from './engine/lighting.js';
+import { serializeTrack } from './engine/ledPatterns.js';
 import { exportShow, sendShowToGCS, downloadExport } from './engine/api.js';
 import './App.css';
 
@@ -44,7 +46,10 @@ export default function App() {
   const [homeLat, setHomeLat] = useState(12.9716);
   const [homeLon, setHomeLon] = useState(77.5946);
   const [sending, setSending] = useState(false);
+  const [ledTrack, setLedTrack] = useState([]);
+  const [zoom, setZoom] = useState(1);
 
+  const audio = useAudioTrack();
   const list = useSceneList(INITIAL_SCENES);
   const fleet = useFleet(defaultFleet(6));
   const builder = useShowBuilder();
@@ -65,16 +70,18 @@ export default function App() {
   const builtDuration = choreoData?._duration ?? 0;
   // Scrub against what's actually rendered, so the playhead can never point past
   // the built trajectory.
-  const timelineDuration = builtDuration || predictedDuration;
+  const showDuration = builtDuration || predictedDuration;
+  const timelineDuration = Math.max(showDuration, audio.duration);
   const stale = !!choreoData && Math.abs(builtDuration - predictedDuration) > 0.01;
 
-  const playback = usePlayback(timelineDuration);
+  const playback = usePlayback(timelineDuration, audio.hasTrack ? audio.clock : null);
   const { currentTime, scrub, setIsPlaying } = playback;
 
   const lightingOpts = useMemo(() => ({
     effect: lightEffect, baseColor: lightColor, dronesList: fleet.dronesList,
     numDrones, duration: timelineDuration || 1, audioVolume: 0,
-  }), [lightEffect, lightColor, fleet.dronesList, numDrones, timelineDuration]);
+    ledTrack: ledTrack.length ? ledTrack : null,
+  }), [lightEffect, lightColor, fleet.dronesList, numDrones, timelineDuration, ledTrack]);
 
   const projects = useProjects({
     scenes, setScenes: list.setScenes, rate, setRate,
@@ -106,11 +113,13 @@ export default function App() {
     try {
       downloadExport(await exportShow({
         choreo: buildColoredChoreo(choreoData, lightingOpts), format, homeLat, homeLon,
+        ledTrack: ledTrack.length ? serializeTrack(ledTrack) : null,
+        rateHz: rate,
       }));
     } catch (e) {
       builder.setError(`Export failed: ${e.message}`);
     }
-  }, [choreoData, lightingOpts, homeLat, homeLon, builder]);
+  }, [choreoData, lightingOpts, homeLat, homeLon, builder, ledTrack, rate]);
 
   const handleSendToGCS = useCallback(async () => {
     if (!choreoData) return;
@@ -164,6 +173,12 @@ export default function App() {
               validation={validation}
               venue={{ homeLat, homeLon, onHomeLat: setHomeLat, onHomeLon: setHomeLon }}
               transmit={{ onExport: handleExport, onSendToGCS: handleSendToGCS, sending }}
+              audio={{
+                track: audio, zoom, onZoom: setZoom,
+                ledTrack, onLedTrack: setLedTrack,
+                duration: timelineDuration,
+                onScrub: (t) => { setIsPlaying(false); scrub(t); },
+              }}
             />
 
             <StagePage
@@ -185,6 +200,8 @@ export default function App() {
               loading={loading}
               error={error}
               playback={playback}
+              audioPeaks={audio.peaks}
+              zoom={zoom}
               segments={segments}
               duration={timelineDuration}
               onScrub={(t) => { setIsPlaying(false); scrub(t); }}

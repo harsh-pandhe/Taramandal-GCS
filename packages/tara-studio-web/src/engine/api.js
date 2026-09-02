@@ -37,9 +37,12 @@ export const generateShow = async (payload) => {
 };
 
 /** Renders a show to a downloadable file in the requested format. */
-export const exportShow = async ({ choreo, format, homeLat, homeLon }) => {
+export const exportShow = async ({ choreo, format, homeLat, homeLon, ledTrack, rateHz }) => {
   const res = await postJson(`${API_BASE}/api/export`, {
     choreo, format, home_lat: Number(homeLat), home_lon: Number(homeLon),
+    // Only sent when a track exists, so existing callers keep their payload.
+    ...(ledTrack ? { led_track: ledTrack } : {}),
+    ...(rateHz ? { rate_hz: Number(rateHz) } : {}),
   });
   if (!res.ok) throw new Error('File export failed.');
   return res.json();
@@ -66,7 +69,13 @@ export const sendShowToGCS = async ({ choreo, homeLat, homeLon }) => {
 /** Triggers a browser download of an exported file payload. */
 export const downloadExport = (data) => {
   const el = document.createElement('a');
-  const file = new Blob([data.content], { type: data.mime_type });
+  // Binary formats (.tara) arrive base64-encoded; writing the string straight
+  // into a Blob would save the base64 text and produce a file no player can
+  // read. Decode back to bytes first.
+  const body = data.encoding === 'base64'
+    ? Uint8Array.from(atob(data.content), (ch) => ch.charCodeAt(0))
+    : data.content;
+  const file = new Blob([body], { type: data.mime_type });
   el.href = URL.createObjectURL(file);
   el.download = data.filename;
   document.body.appendChild(el);
