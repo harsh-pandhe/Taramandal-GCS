@@ -29,6 +29,12 @@ from tara_studio.optimizer import (
     DOWNWASH_HALF_ANGLE_DEG,
     aerodynamic_assignment,
 )
+from tara_studio.voxelizer import (
+    DEFAULT_FONT_FAMILY,
+    DEFAULT_MIN_SEPARATION_M,
+    GLYPH_FONT_SIZE,
+    voxelize,
+)
 from tara_core import MAX_FLEET_SIZE
 from tara_core.assignment import optimal_assignment
 
@@ -126,6 +132,90 @@ def api_generate(req: GenerateRequest):
 @app.post("/api/validate")
 def api_validate(choreo: dict):
     return validate_choreography(choreo)
+
+
+class VoxelizeRequest(BaseModel):
+    source_type: str = Field("text", description="Geometry source: text, svg, mesh")
+    content: str = Field(
+        ...,
+        description=(
+            "Text to form, SVG path/document markup, or a path to an .obj/.stl file"
+        ),
+    )
+    drone_count: int = Field(
+        100, ge=1, le=MAX_FLEET_SIZE, description="Exact number of points to return"
+    )
+    scale_meters: float = Field(
+        20.0, gt=0, le=1000.0, description="Requested largest formation dimension, m"
+    )
+    altitude_meters: float = Field(
+        15.0, ge=0, le=120.0, description="Centre altitude above ground, m (positive up)"
+    )
+    plane: str = Field("XY", description="XY vertical billboard, or XZ horizontal")
+    min_separation_m: float = Field(
+        DEFAULT_MIN_SEPARATION_M, gt=0, description="Minimum inter-drone distance, m"
+    )
+    font_family: str = Field(DEFAULT_FONT_FAMILY, description="Font family (text source)")
+    font_size: float = Field(
+        GLYPH_FONT_SIZE, gt=0, description="Glyph extraction size (text source)"
+    )
+    file_type: Optional[str] = Field(
+        None, description="Mesh format override: obj or stl"
+    )
+    auto_scale: bool = Field(
+        True,
+        description=(
+            "Grow scale_meters when drone_count cannot fit at min_separation_m"
+        ),
+    )
+
+
+@app.post("/api/voxelize")
+def api_voxelize(req: VoxelizeRequest):
+    """
+    Rasterize arbitrary geometry into exactly `drone_count` drone positions.
+
+    Covers the shapes the six parametric generators in /api/generate cannot:
+    arbitrary strings ("5", "INDIA"), SVG logo paths, and .obj/.stl meshes.
+    Points are placed by measured geometry rather than by curve parameter —
+    equal arc length along an outline, Poisson-disk across a mesh surface — so
+    drones are spread evenly instead of bunching wherever the source curve
+    happens to be dense.
+
+    Returns a static point cloud, not a timed choreography: the result is one
+    formation, which the caller feeds to /api/assign to morph into. `plane`
+    picks the orientation — "XY" stands the shape up as a billboard facing the
+    audience, "XZ" lays it flat to be read from above.
+
+    Two fields are worth reading in the response. `min_separation_m` is the
+    spacing actually achieved, measured on the rounded output; and
+    `scale_meters` is the size actually used, which exceeds
+    `requested_scale_meters` when `auto_scale` had to grow the formation — an
+    outline of perimeter L holds only L / min_separation_m drones, so a large
+    fleet on a small glyph does not fit at any spacing.
+
+    Note the default `min_separation_m` of 0.8 m is looser than the platform's
+    own flight limits (tara_core.safety: 1.5 m runtime abort, 2.0 m design).
+    Pass 2.0 for a formation intended to actually fly.
+    """
+    try:
+        return voxelize(
+            source_type=req.source_type,
+            content=req.content,
+            drone_count=req.drone_count,
+            scale_meters=req.scale_meters,
+            altitude_meters=req.altitude_meters,
+            plane=req.plane,
+            min_separation_m=req.min_separation_m,
+            font_family=req.font_family,
+            font_size=req.font_size,
+            file_type=req.file_type,
+            auto_scale=req.auto_scale,
+        )
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=400, detail=f"mesh file not found: {e}")
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 class AssignRequest(BaseModel):
     from_pts: list = Field(..., alias="from", description="Current formation points [{x,y,z}]")

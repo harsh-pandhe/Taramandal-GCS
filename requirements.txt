@@ -17,6 +17,12 @@ numpy
 scipy
 pandas
 
+# Geometry ingest for the Studio voxelizer: font glyph outlines (matplotlib),
+# SVG path parsing (svgpathtools) and .obj/.stl meshes (trimesh)
+matplotlib
+svgpathtools
+trimesh
+
 # Orchestrator CLI (apps/tara)
 typer
 
