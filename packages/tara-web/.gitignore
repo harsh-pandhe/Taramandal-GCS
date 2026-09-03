@@ -22,3 +22,9 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Playwright generated output (traces/screenshots from failed runs).
+# Baseline snapshots under e2e/*-snapshots/ are committed and must not match this.
+/test-results/
+/playwright-report/
+/blob-report/

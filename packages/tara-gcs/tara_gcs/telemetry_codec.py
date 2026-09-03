@@ -9,8 +9,10 @@ into two channels instead, each streamed at the rate it actually needs:
     position, heading, armed, connected — the fields a live 3D view and the
     per-drone coordinate readout both need to update smoothly. One flat
     ``Float32Array``, no JSON parsing, no per-field key names sent over the
-    wire — 9 floats x 4 bytes = 36 bytes per drone (3.6KB/frame at 100 drones,
-    20Hz -> ~72KB/s, versus several hundred KB/s of JSON for the same data).
+    wire — 13 floats x 4 bytes = 52 bytes per drone (5.2KB/frame at 100 drones,
+    20Hz -> ~104KB/s, versus several hundred KB/s of JSON for the same data).
+    At the 1000-drone ceiling that is 52KB/frame, ~1MB/s — still an order of
+    magnitude under the equivalent JSON.
   * **Slow channel** (JSON text, ``SLOW_HZ``): battery, GPS, flight mode,
     comm latency, home position, and the static UDP port — everything that
     changes at human-perceptible speed (or never, for the port), where JSON's
@@ -21,11 +23,11 @@ Both channels share one WebSocket connection: binary frames arrive as
 ``ArrayBuffer`` and text frames as ``string`` in the browser, so the client
 tells them apart by ``event.data`` type without needing a wrapper protocol.
 
-Drones are keyed by their sorted integer ID; the fast frame's Nth 24-byte
-record is drone ID N (the *sorted position*, not the ID value — but
-`DroneManager.telemetry` keys are always a contiguous ``range(len(ports))``,
-so today the two coincide). There is no header — the client determines drone
-count as ``buffer.byteLength / BYTES_PER_DRONE``.
+Drones are keyed by their sorted integer ID; the fast frame's Nth
+``BYTES_PER_DRONE``-byte record is drone ID N (the *sorted position*, not the ID
+value — but `DroneManager.telemetry` keys are always a contiguous
+``range(len(ports))``, so today the two coincide). There is no header — the
+client determines drone count as ``buffer.byteLength / BYTES_PER_DRONE``.
 """
 
 from __future__ import annotations
@@ -38,6 +40,7 @@ FAST_FIELDS = (
     "fleet_x", "fleet_y", "fleet_z",
     "local_x", "local_y", "local_z",
     "heading", "armed", "connected",
+    "planned_x", "planned_y", "planned_z", "planned_valid",
 )
 FLOATS_PER_DRONE = len(FAST_FIELDS)
 BYTES_PER_DRONE = FLOATS_PER_DRONE * 4
@@ -82,6 +85,15 @@ def encode_fast_frame(telemetry: dict[int, dict]) -> bytes:
         values.append(float(tel.get("heading", 0.0)))
         values.append(1.0 if tel.get("armed") else 0.0)
         values.append(1.0 if tel.get("connected") else 0.0)
+        # Planned (commanded) fleet-frame position, written by the trajectory
+        # playback loop. ``planned_valid`` is the flag the client needs to tell
+        # "deviation is genuinely zero" apart from "no trajectory is running, so
+        # there is nothing to deviate from" — without it a parked fleet would
+        # render as uniformly nominal-green rather than as unmonitored.
+        values.append(float(tel.get("planned_x", 0.0)))
+        values.append(float(tel.get("planned_y", 0.0)))
+        values.append(float(tel.get("planned_z", 0.0)))
+        values.append(1.0 if tel.get("planned_valid") else 0.0)
     return struct.pack(f"<{len(values)}f", *values) if values else b""
 
 
