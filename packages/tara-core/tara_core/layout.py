@@ -43,12 +43,39 @@ def launch_grid(
 ) -> list[tuple[float, float]]:
     """Return ``n`` launch-pad ``(x, y)`` positions in the shared fleet frame.
 
-    Pads are laid out row-major on a near-square grid anchored so that drone 0
-    sits at the origin, which keeps it usable as the fleet's local NED reference.
+    Pads are laid out row-major, anchored so that drone 0 sits at the origin,
+    which keeps it usable as the fleet's local NED reference. Row width is
+    ``min(ceil(sqrt(n)), floor(geofence_radius_m / spacing))`` — near-square as
+    before for any ``n`` small enough that a square row already clears the
+    geofence, but capped rather than left to grow past it.
+
+    Both ``tara_studio.generator._default_launch_state`` (the Studio's default
+    spawn layout) and ``tara_gcs.drone_manager._pad_offset`` (the live fleet's
+    fixed per-drone pad, indexed into ``launch_grid(MAX_FLEET_SIZE)``) draw
+    from this same function. Uncapped, a 1000-drone-sized grid needs 32
+    columns, so drone id 16 — a low id, plausibly within a 50-drone show —
+    landed at row 0, column 16: 32 m out on a single axis, exceeding
+    ``DEFAULT_LIMITS.geofence_radius_m`` (30 m) at the moment a show starts,
+    regardless of how many drones the show actually used. Capping the row
+    width at ``floor(geofence_radius_m / spacing)`` (15, at the defaults)
+    bounds how far a single row can reach before wrapping.
+
+    The cap only changes behaviour once ``ceil(sqrt(n))`` would itself exceed
+    that width (``n > 225`` at the defaults) — below that, including every
+    ``n`` this module's and the Studio's own tests exercise, the grid is
+    unchanged from the uncapped near-square layout. In particular every id
+    below the row width (0..14 at the defaults) still lands on a single line
+    at x=0, exactly as before: this is what keeps `sim/px4/launch_fleet.sh`'s
+    real PX4 SITL spawn layout — a plain Y-axis line, matched against this
+    grid only up to the fleet sizes real SITL is practical for — in agreement
+    with `_pad_offset`'s fleet-frame conversion, and is why capping the row
+    width (rather than a more compact but reordered layout) was chosen: it
+    changes *only* the ids a straight line was already too wide for.
 
     Args:
         n: Number of drones.
-        limits: Safety limits supplying the default spacing.
+        limits: Safety limits supplying the default spacing and the row-width
+            cap.
         spacing: Pad separation in metres. Defaults to ``design_separation_m``,
             which guarantees every pad clears the runtime abort threshold with
             margin, so drones may share a hover altitude safely.
@@ -62,7 +89,8 @@ def launch_grid(
     if spacing <= 0:
         raise ValueError(f"spacing must be positive, got {spacing}")
 
-    cols = max(1, math.ceil(math.sqrt(n)))
+    max_cols = max(1, math.floor(limits.geofence_radius_m / spacing))
+    cols = max(1, min(math.ceil(math.sqrt(n)), max_cols))
     return [
         (float(i // cols) * spacing, float(i % cols) * spacing) for i in range(n)
     ]
