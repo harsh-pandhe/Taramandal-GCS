@@ -33,7 +33,33 @@ def _default_launch_state(
     floats, x=0 — since that is a public API shape (studio/server.py's
     ``GenerateRequest.spawn_offsets``, the web app's ``spawnOffsets`` state).
     Only the *default* (no override given) case gets the corrected 2D grid.
+
+    Both overrides are indexed per drone id by every generator, so a list
+    shorter than ``num_drones`` used to fail with a bare ``IndexError`` out of
+    the middle of a shape's waypoint loop — the API surfaced that as an opaque
+    500 with no indication of which field was wrong. Since a designer only
+    hand-places pads for a fleet they have already sized, a short list is a
+    caller bug, not something to pad with defaults: silently filling the tail
+    from the grid would hand back a show whose pads disagree with the ones the
+    operator actually set. Both are therefore length-checked up front, and
+    reported by name and by the lengths involved.
+
+    Raises:
+        ValueError: If ``num_drones`` is outside ``1..MAX_FLEET_SIZE``, or if a
+            supplied override's length does not match ``num_drones``.
     """
+    if not 1 <= num_drones <= MAX_FLEET_SIZE:
+        raise ValueError(
+            f"num_drones must be between 1 and {MAX_FLEET_SIZE}, got {num_drones}"
+        )
+
+    for name, override in (("spawn_offsets", spawn_offsets), ("target_heights", target_heights)):
+        if override is not None and len(override) != num_drones:
+            raise ValueError(
+                f"{name} has {len(override)} entries but num_drones is {num_drones}; "
+                f"supply exactly one per drone or omit it to use the default grid"
+            )
+
     if spawn_offsets is None:
         spawn_offsets = launch_grid(MAX_FLEET_SIZE)[:num_drones]
     if target_heights is None:

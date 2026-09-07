@@ -160,6 +160,72 @@ body {
 .dot.green { background-color: var(--success); }
 .dot.red { background-color: var(--danger); }
 
+/* Simulation Control Bar — process-level controls for the simulator itself
+   (issue #2), distinct from the flight controls below it. Sits above the view
+   tabs because it gates everything under them: with no simulation running,
+   there is no fleet for any view to show. */
+.sim-control-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.85rem 1.1rem;
+  margin-bottom: 1rem;
+  background: var(--bg-sunken);
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+}
+
+.sim-pills {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+.sim-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+/* The buttons here are deliberately smaller than the flight-control buttons:
+   launching a simulator is setup, not a flight command, and the two should not
+   read as equally weighty on the same screen. */
+.sim-actions .btn {
+  padding: 0.5rem 0.9rem;
+  font-size: 0.7rem;
+}
+
+.sim-slider-label {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-family: var(--font-mono);
+  font-size: 0.62rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-faint);
+}
+
+.sim-select {
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  padding: 0.45rem 0.6rem;
+  color: var(--text);
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  cursor: pointer;
+}
+
+.sim-select:disabled {
+  color: var(--text-faint);
+  cursor: not-allowed;
+}
+
 /* View switcher — Operations dashboard vs 3D Earth view vs (Phase 5) Night Sky */
 .view-tabs {
   display: flex;
@@ -205,6 +271,111 @@ body {
 .earth-view-container {
   width: 100%;
   height: 100%;
+}
+
+/* Night-sky viewport: the canvas fills the panel and the deviation HUD floats
+   over it, so the cinematic view keeps the full frame while the operator's
+   at-a-glance numbers stay legible in the corner. */
+.nightsky-root {
+  position: relative;
+  width: 100%;
+  height: 100%;
+}
+
+.nightsky-hud {
+  position: absolute;
+  top: 0.85rem;
+  right: 0.85rem;
+  min-width: 15rem;
+  padding: 0.7rem 0.8rem;
+  /* Deliberately translucent rather than opaque: the HUD sits on top of the
+     show, and a solid panel would punch a hole in it. */
+  background: rgba(6, 9, 16, 0.72);
+  backdrop-filter: blur(6px);
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  font-size: 0.72rem;
+  letter-spacing: 0.04em;
+  /* The canvas below owns orbit/zoom drag — the HUD must never eat those. */
+  pointer-events: none;
+  user-select: none;
+}
+
+.nightsky-hud-title {
+  color: var(--text-muted);
+  font-weight: 600;
+  margin-bottom: 0.55rem;
+  padding-bottom: 0.4rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.nightsky-hud-row {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.18rem 0;
+}
+
+.nightsky-hud-dot {
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.nightsky-hud-label {
+  color: var(--text-secondary, var(--text-muted));
+  font-weight: 600;
+}
+
+.nightsky-hud-hint {
+  color: var(--text-muted);
+  opacity: 0.7;
+  margin-left: auto;
+  font-size: 0.66rem;
+}
+
+.nightsky-hud-count {
+  min-width: 2.6rem;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+}
+
+.nightsky-hud-footer {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.6rem;
+  margin-top: 0.5rem;
+  padding-top: 0.4rem;
+  border-top: 1px solid var(--border);
+  color: var(--text-muted);
+  font-size: 0.66rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.nightsky-hud-alert {
+  margin-top: 0.5rem;
+  padding: 0.35rem 0.45rem;
+  border-radius: var(--r-sm, 4px);
+  background: rgba(244, 63, 94, 0.14);
+  border: 1px solid rgba(244, 63, 94, 0.45);
+  color: #fda4af;
+  font-weight: 700;
+  font-size: 0.68rem;
+  text-align: center;
+  animation: nightsky-hud-pulse 1s ease-in-out infinite;
+}
+
+/* Matches the in-scene flash on critical drones, so the HUD ring and the
+   drones it refers to read as the same alarm. */
+@keyframes nightsky-hud-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.45; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .nightsky-hud-alert { animation: none; }
 }
 .dot.orange { background-color: var(--warning); }
 
