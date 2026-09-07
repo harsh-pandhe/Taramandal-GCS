@@ -119,7 +119,11 @@ class TestCompiledTaraBinary:
                 assert b["y"] == pytest.approx(a["y"], abs=0.005)
                 assert b["z"] == pytest.approx(a["z"], abs=0.005)
                 assert b["time"] == pytest.approx(a["time"], abs=0.0005)
-                assert b["yaw"] == pytest.approx(a["yaw"], abs=0.005)
+                # Yaw normalises to 0..360 on the way out (see
+                # _wrap_yaw_cdeg), so a generator's closing 360.0 comes back
+                # as 0.0 - compare modulo a full turn, as the dedicated yaw
+                # roundtrip test below does.
+                assert b["yaw"] == pytest.approx(a["yaw"] % 360.0, abs=0.005)
                 assert (b["r"], b["g"], b["b"]) == (a["r"], a["g"], a["b"])
 
     @pytest.mark.parametrize("yaw", [0.0, 90.0, 180.0, 270.0, 351.0, 359.99])
