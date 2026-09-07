@@ -26,3 +26,9 @@ psutil
 # Tests
 pytest
 pytest-asyncio
+# starlette >=1.0 moved TestClient's HTTP backend from httpx to httpx2 and kept
+# it an optional extra, so an unpinned `fastapi` install never pulls it in and
+# `fastapi.testclient` raises at import. Listed explicitly rather than pinning
+# fastapi/starlette back to a pre-1.0 pair, which would hold the runtime on an
+# old release to satisfy a test-only dependency.
+httpx2
