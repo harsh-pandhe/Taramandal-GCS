@@ -38,7 +38,10 @@ ports = [14540 + i for i in range(NUM_DRONES)]
 # fleet, which scales past the ~10-drone ceiling real SITL hits on one
 # machine. Port values are irrelevant for "sim" — only the count matters.
 VEHICLE_BACKEND = os.environ.get("VEHICLE_BACKEND", "px4")
-drone_manager = DroneManager(ports=ports, backend=VEHICLE_BACKEND)
+kwargs = {}
+if os.environ.get("GCS_STATE_PATH"):
+    kwargs["state_path"] = os.environ["GCS_STATE_PATH"]
+drone_manager = DroneManager(ports=ports, backend=VEHICLE_BACKEND, **kwargs)
 
 # Owns the Gazebo/PX4/RViz processes the dashboard's Simulation Control Bar
 # starts, so an operator never needs a terminal. Repo root is resolved from
@@ -51,6 +54,17 @@ sim_manager = SimManager(repo_root=REPO_ROOT)
 @app.on_event("startup")
 async def startup_event():
     logger.info("Initializing Ground Control Station...")
+
+    # If a previous run left a saved show on disk (crash or restart mid-show,
+    # issue #4), surface it for the operator to resume/discard — never applied
+    # automatically, and never arms or launches anything on its own.
+    saved_state = drone_manager.load_pending_resume_state()
+    if saved_state:
+        logger.info(
+            "Found a saved show state from a previous run — waiting for operator "
+            "to resume (/api/resume-show) or discard (/api/discard-show) it."
+        )
+
     # Run drone manager connections in background with error handling
     async def run_connections():
         try:
@@ -191,6 +205,58 @@ async def stop_trajectory():
     logger.info("API: Stopping trajectory playback...")
     drone_manager.stop_trajectory()
     return {"status": "success", "message": "Trajectory playback stopped."}
+
+@app.get("/api/saved-show-state")
+async def get_saved_show_state():
+    """
+    Reports whether a saved show from a previous run (crash or restart
+    mid-show, issue #4) is pending resume/discard, and a summary of it for
+    the operator to decide with.
+    """
+    state = drone_manager.pending_resume_state
+    if not state:
+        return {"pending": False}
+
+    elapsed = max(0.0, state["saved_at"] - state["show_started_at"])
+    return {
+        "pending": True,
+        "mode": state["mode"],
+        "elapsed_seconds": round(elapsed, 1),
+        "saved_at": state["saved_at"],
+        "drones_summary": {
+            str(drone_id): {"waypoints_count": len(wps)}
+            for drone_id, wps in state["trajectory"].items()
+        },
+    }
+
+@app.post("/api/resume-show")
+async def resume_show():
+    """
+    Reloads a saved show's trajectory and playback position so the operator
+    can continue it. Deliberately does NOT re-arm or re-launch drones — the
+    operator still has to trigger /api/launch and /api/start-trajectory
+    themselves once they're ready.
+    """
+    logger.info("API: Resuming saved show state...")
+    try:
+        elapsed = drone_manager.resume_pending_show()
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    return {
+        "status": "success",
+        "message": "Saved show state reloaded. Launch and start the trajectory explicitly to continue.",
+        "mode": drone_manager.show_mode,
+        "elapsed_seconds": round(elapsed, 1),
+        "trajectory_data": drone_manager.active_trajectory,
+    }
+
+@app.post("/api/discard-show")
+async def discard_show():
+    """Discards a saved show from a previous run without resuming it."""
+    logger.info("API: Discarding saved show state...")
+    drone_manager.discard_pending_show()
+    return {"status": "success", "message": "Saved show state discarded."}
 
 @app.get("/api/export-telemetry")
 async def export_telemetry(filename: str = "telemetry_export.csv"):

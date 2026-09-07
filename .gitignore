@@ -57,3 +57,8 @@ packages/tara-gcs/tara_gcs/exports/
 plan/
 hardware/
 
+# Local working runbook for this environment - personal notes, not project source.
+WORKFLOW.md
+
+# Persisted active-show state (issue #4) — runtime data, not source.
+packages/tara-gcs/tara_gcs/show_state.json
