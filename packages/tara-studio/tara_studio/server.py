@@ -8,7 +8,14 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 from typing import Optional
 
-from tara_studio.generator import generate_circle, generate_helix, generate_heart, generate_cube, generate_spline
+from tara_studio.generator import (
+    generate_circle,
+    generate_helix,
+    generate_heart,
+    generate_cube,
+    generate_spline,
+    plan_show_pacing,
+)
 from tara_studio.validator import (
     DEFAULT_DYNAMIC_LIMITS,
     DynamicLimits,
@@ -88,9 +95,32 @@ def api_generate(req: GenerateRequest):
     # Perform safety validation check automatically
     validation = validate_choreography(choreo)
 
+    # Report the pacing the generator chose. The show's length is no longer
+    # whatever `duration` said — it is stretched to whatever the fleet size can
+    # actually fly safely — so the UI needs to be told, rather than left to
+    # assume its request was honoured verbatim.
+    pacing = plan_show_pacing(
+        req.num_drones, shape, req.spawn_offsets, req.target_heights
+    )
+    actual_s = max(
+        (d["waypoints"][-1]["time"] for d in choreo["drones"] if d["waypoints"]),
+        default=0.0,
+    )
+
     return {
         "choreo": choreo,
-        "validation": validation
+        "validation": validation,
+        "pacing": {
+            "multiplier": round(pacing.multiplier, 2),
+            "takeoff_s": round(pacing.takeoff_s, 2),
+            "choreo_s": round(pacing.choreo_s, 2),
+            "land_s": round(pacing.land_s, 2),
+            # The pacing floor, versus the length actually generated — they
+            # differ when `duration` asks for more than the floor requires.
+            "minimum_s": round(pacing.total_s, 2),
+            "total_s": round(actual_s, 2),
+            "requested_duration_s": req.duration,
+        },
     }
 
 @app.post("/api/validate")
