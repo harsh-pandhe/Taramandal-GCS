@@ -2,6 +2,8 @@
 Taramandal Studio - Trajectory Generation Library
 """
 
+import bisect
+import functools
 import math
 import logging
 
@@ -413,7 +415,24 @@ def _circle_yaw(d_id: int, n: int, ratio: float) -> float:
 
 def _helix_formation(d_id: int, n: int, ratio: float, height: float):
     angle = (2.0 * math.pi * d_id) / n + (2.0 * math.pi * ratio * 1.5)
-    height_osc = 1.2 * math.sin(2.0 * math.pi * ratio + d_id)
+    # Shared across every drone -- no d_id term -- rather than the previous
+    # per-drone phase offset (`+ d_id`). The ring (radius 5) only spaces
+    # adjacent drones 0.3-0.6 m apart horizontally at N=50/100, so the entire
+    # show relied on the altitude-layer stagger (2 m between adjacent layers)
+    # for real separation. A per-drone phase meant adjacent drones' oscillations
+    # were up to 1 rad out of phase, and `1.2 * (sin(phi) - sin(phi+1))` swings
+    # up to ~1.15 m -- enough to periodically cancel most of that 2 m stagger,
+    # which is what actually produced the ~0.85-1.06 m separations measured
+    # across blend/choreo/landing. Applying the *same* oscillation to every
+    # drone is a common shift, like the cube's sway term: it moves the whole
+    # ring's altitude up and down together but never touches the difference
+    # between any two drones' heights, so the layer stagger is exactly 2 m at
+    # every instant instead of only on average. Amplitude is also reduced from
+    # 1.2 to 0.4 m so it can never trigger the `max(1.5, ...)` floor below --
+    # the lowest hover layer is 2.0 m, and 2.0 - 0.4 = 1.6 stays clear of it;
+    # letting the floor clip only some drones' altitudes was exactly the kind
+    # of per-drone inconsistency this fix removes everywhere else.
+    height_osc = 0.4 * math.sin(2.0 * math.pi * ratio)
     return (
         6.0 + 5.0 * math.cos(angle),
         float(n - 1) + 5.0 * math.sin(angle),
@@ -427,8 +446,8 @@ def _helix_yaw(d_id: int, n: int, ratio: float) -> float:
     return math.degrees(angle)
 
 
-def _heart_xy(theta: float) -> tuple[float, float]:
-    """The classic heart curve, scaled down to typical arena bounds (approx -4 to +4)."""
+def _heart_xy(theta: float, scale: float = 0.25) -> tuple[float, float]:
+    """The classic heart curve, scaled down to typical arena bounds (approx -4 to +4) at the default scale."""
     raw_x = 16.0 * (math.sin(theta) ** 3)
     raw_y = (
         13.0 * math.cos(theta)
@@ -436,11 +455,64 @@ def _heart_xy(theta: float) -> tuple[float, float]:
         - 2.0 * math.cos(3.0 * theta)
         - math.cos(4.0 * theta)
     )
-    return raw_x * 0.25, raw_y * 0.25
+    return raw_x * scale, raw_y * scale
+
+
+@functools.lru_cache(maxsize=1)
+def _heart_arc_length_table(samples: int = 4000) -> tuple[list[float], list[float], float]:
+    """``(thetas, cumulative arc length at each, total perimeter)``, at the
+    curve's *raw* (``scale=1.0``) size.
+
+    Arc-length *fractions* are scale-invariant, so this table -- built once,
+    independent of ``n`` -- is what every fleet size's theta lookup shares.
+
+    Drones used to be placed at ``theta = 2*pi*d_id/n``: n evenly-spaced
+    *angles*, not n evenly-spaced *points* on the curve. The heart has a cusp
+    at ``theta=0``/``2*pi`` (the point at the bottom) where both
+    ``dx/dtheta`` and ``dy/dtheta`` go to zero, so arc length per radian
+    collapses to almost nothing right there while staying roughly constant
+    over the rest of the curve. Equal-angle sampling crowds a disproportionate
+    share of drones into that near-zero-length neighbourhood: at N=100 the two
+    drones straddling the cusp (ids 49 and 51, symmetric around ``d_id=50`` ->
+    ``theta=pi``) landed 0.00 m apart -- not close, coincident. Sampling by
+    arc length instead spaces every drone evenly along the curve's actual
+    perimeter, which is what "n drones around a shape" should mean regardless
+    of how unevenly its parametrization happens to move through theta.
+    """
+    thetas = [2.0 * math.pi * i / samples for i in range(samples + 1)]
+    points = [_heart_xy(t, scale=1.0) for t in thetas]
+    cumulative = [0.0]
+    for i in range(1, len(points)):
+        cumulative.append(cumulative[-1] + math.dist(points[i - 1], points[i]))
+    return thetas, cumulative, cumulative[-1]
+
+
+def _heart_theta_at_arc_fraction(fraction: float) -> float:
+    """The theta whose cumulative arc length is ``fraction`` of the way around the curve."""
+    thetas, cumulative, total = _heart_arc_length_table()
+    target = fraction * total
+    idx = bisect.bisect_left(cumulative, target)
+    if idx <= 0:
+        return thetas[0]
+    if idx >= len(cumulative):
+        return thetas[-1]
+    c0, c1 = cumulative[idx - 1], cumulative[idx]
+    t0, t1 = thetas[idx - 1], thetas[idx]
+    local = 0.0 if c1 == c0 else (target - c0) / (c1 - c0)
+    return t0 + local * (t1 - t0)
 
 
 def _heart_formation(d_id: int, n: int, ratio: float, height: float):
-    hx, hy = _heart_xy((2.0 * math.pi * d_id) / n)
+    # Arc-length spacing alone (above) fixes the cusp-crowding degeneracy, but
+    # the curve's perimeter at the historical fixed 0.25 scale is only ~25 m --
+    # far too small to hold 100 drones design_separation_m apart no matter how
+    # evenly they're spread along it (avg spacing ~0.26 m). Scale grows with
+    # n so the perimeter grows with the fleet it has to hold, floored at the
+    # original 0.25 so small fleets -- where the fixed scale was never the
+    # problem -- are unaffected.
+    scale = max(0.25, 0.06 * n)
+    theta = _heart_theta_at_arc_fraction(d_id / n)
+    hx, hy = _heart_xy(theta, scale=scale)
     rot = 2.0 * math.pi * ratio * 0.25  # 90 degree spin
     return (
         5.0 + (hx * math.cos(rot) - hy * math.sin(rot)),
@@ -454,32 +526,78 @@ def _heart_yaw(d_id: int, n: int, ratio: float) -> float:
     return math.degrees(2.0 * math.pi * ratio * 0.25)
 
 
-def _cube_grid(n: int) -> list[tuple[float, float, float]]:
-    """3D grid slots, side length chosen so n drones fit (minimum 2x2x2)."""
+def _compact_lane_grid(n: int) -> list[tuple[float, float]]:
+    """A compact (x, y) footprint of side*side*side slots, side = ceil(n**(1/3)).
+
+    Shared by the cube and spline formations so that any two drones assigned
+    *different* footprint cells sit >= 2.5 m apart horizontally — comfortably
+    clear of ``design_separation_m`` — while the whole footprint stays a few
+    metres wide regardless of fleet size (side grows as the cube root of n,
+    not sqrt(n)), which is what keeps it inside the geofence at N=100 without
+    having to touch the launch-pad grid.
+
+    The list has more entries (``side**3``) than distinct (x, y) pairs
+    (``side**2``): built with an extra outer loop so the same footprint cell
+    repeats every ``side**2`` entries. A shape indexes into it with
+    ``d_id % len(grid)`` and leans on a *third*, per-drone-unique axis to
+    separate the drones that land on a repeated cell — see
+    ``_cube_formation``/``_spline_formation``, which both use ``height`` (this
+    drone's own altitude layer, unchanged since takeoff) for exactly that,
+    rather than adding a second, coarser grid axis of their own. That used to
+    be `_cube_grid`'s own z step: 1.5 m, independently of `height`, is both
+    below `design_separation_m` on its own and, being unrelated to the
+    altitude layer already separating drones since takeoff, offered no
+    protection at all during the pad<->formation blend or the landing return,
+    where two drones assigned to unrelated grid cells fly straight lines that
+    can cross — separation there measured as low as 0.2 m. Vertical
+    separation that is *never* zero (because it never changes across the
+    whole show) removes that crossing hazard everywhere the footprint alone
+    cannot, at the modest cost of drones on the same footprint cell being
+    stacked by the same layering every other shape already uses instead of by
+    a shape-specific z-grid.
+    """
     side = max(2, int(math.ceil(n ** (1 / 3.0))))
     return [
-        (float(x * 2.5 + 4.0), float(y * 2.5 + 1.0), float(2.0 + z * 1.5))
-        for z in range(side)
+        (float(x * 2.5 + 4.0), float(y * 2.5 + 1.0))
+        for _z in range(side)
         for y in range(side)
         for x in range(side)
     ]
 
 
 def _cube_formation(d_id: int, n: int, ratio: float, height: float):
-    grid = _cube_grid(n)
-    gx, gy, gz = grid[d_id % len(grid)]
-    return gx + 1.0 * math.sin(2.0 * math.pi * ratio), gy, -gz
+    grid = _compact_lane_grid(n)
+    gx, gy = grid[d_id % len(grid)]
+    return gx + 1.0 * math.sin(2.0 * math.pi * ratio), gy, -height
 
 
 def _spline_formation(d_id: int, n: int, ratio: float, height: float):
-    """Cubic Bezier sweep, swept out and back over the choreography."""
-    # Control points are offset from this drone's own pad so each drone sweeps
-    # from where it actually is. _run_show blends from the pad into this, so the
-    # pad offset is re-added by the blend; the curve here is pad-relative in x.
-    p0 = (0.0, 0.0, -height)
-    p1 = (4.0, 4.0, -height - 2.0)
-    p2 = (8.0, -4.0, -height + 1.5)
-    p3 = (12.0, 0.0, -height)
+    """Cubic Bezier sweep, swept out and back over the choreography.
+
+    Control points used to be the same four points for every drone —
+    ``d_id``/``n`` were accepted but never read — so at full blend every
+    drone converged onto the identical curve; only the altitude layer kept
+    them apart, and that layer cycles every ~60 drones (`tara_core.layout`),
+    so two drones 60 apart landed on literally the same point at N=100
+    (measured separation: 0.0 m). Each drone now sweeps its own curve, offset
+    to its own cell of the same compact footprint grid `_cube_formation`
+    uses — a rigid per-drone translation, so it changes where the sweep sits
+    but not its shape, and any two drones on different cells stay >= 2.5 m
+    apart horizontally at every instant of the sweep, not just at rest. The
+    sweep amplitude here (2/4/6 m, half the original 4/8/12 m) is deliberately
+    modest: the launch-pad grid a drone blends in from already reaches to
+    within a few tenths of a metre of the geofence at N=100 (`tara_core.
+    layout.launch_grid`'s own near-square-then-capped layout — a separate,
+    already-tracked gap, not something this fix widens), so the formation
+    itself has very little headroom left to add before tipping a drone
+    starting near that edge over 30 m from the origin.
+    """
+    lane = _compact_lane_grid(n)
+    lx, ly = lane[d_id % len(lane)]
+    p0 = (lx, ly, -height)
+    p1 = (lx + 2.0, ly + 2.0, -height - 2.0)
+    p2 = (lx + 4.0, ly - 2.0, -height + 1.5)
+    p3 = (lx + 6.0, ly, -height)
 
     tb = ratio * 2.0 if ratio <= 0.5 else (1.0 - ratio) * 2.0
     mt = 1.0 - tb
