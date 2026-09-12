@@ -71,6 +71,21 @@ def _geofence_violations(choreo: dict, radius: float, dt: float = 0.1) -> list[d
 # instead of silently staying green — a forcing function to come back and
 # delete that entry from _KNOWN_FAILING rather than the marker rotting in
 # place. Update this set (not the test body) as cases get fixed one at a time.
+#
+# cube and spline were fixed and removed here (both were purely proximity
+# bugs — cube's own z-grid ignored the altitude layering every other shape
+# relies on, spline's formation ignored d_id/n entirely — and neither shape's
+# formation reaches the geofence, so fixing proximity was enough for the case
+# to fully pass). circle, heart and helix stay: heart and helix each had a
+# real, separate proximity bug fixed alongside this change (heart's
+# equal-angle sampling crowded drones at the curve's cusp; helix's per-drone
+# height-oscillation phase cancelled the altitude-layer stagger it depended
+# on), but all three shapes still fail on the geofence sweep below —
+# `float(n - 1)` puts the formation centre 45-103 m from the fleet origin,
+# unrelated to entry-blend and out of this fix's scope (tracked separately,
+# `fix/launch-pad-geofence`). heart-50 and helix-50, like circle-50, remain
+# proximity-clean only because N=50 never hits the altitude layer's 60-drone
+# cycle — left as-is per the same reasoning as circle-50.
 _KNOWN_FAILING = {
     ("circle", 50),
     ("circle", 100),
@@ -78,10 +93,6 @@ _KNOWN_FAILING = {
     ("helix", 100),
     ("heart", 50),
     ("heart", 100),
-    ("cube", 50),
-    ("cube", 100),
-    ("spline", 50),
-    ("spline", 100),
 }
 
 # Generation + validation at N=100 runs well under a second per shape (see
