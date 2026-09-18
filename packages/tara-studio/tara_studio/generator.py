@@ -7,7 +7,8 @@ import functools
 import math
 import logging
 
-from tara_core import MAX_FLEET_SIZE, altitude_layers, launch_grid
+from tara_core import DEFAULT_LIMITS, MAX_FLEET_SIZE, altitude_layers, launch_grid
+from tara_core.assignment import optimal_assignment
 
 from .pacing import ShowPacing, formation_spread, plan_pacing
 
@@ -398,11 +399,40 @@ class _ShapeSpec:
         self.revolutions = revolutions
 
 
+def _circle_radius(n: int) -> float:
+    """Ring radius large enough that adjacent drones clear design_separation_m
+    horizontally on their own, without leaning on the altitude-layer stagger
+    for the margin the ring itself should provide.
+
+    Fixed at 4.0 m regardless of n, the ring's adjacent-drone chord shrinks as
+    ``2*4*sin(pi/n)`` -- already only ~0.50 m at n=50, and never more than
+    that at any n -- so every fleet size relied entirely on the per-drone
+    altitude layer for proximity margin. That margin is real in 3D, but
+    horizontal-only distance (ignoring z, i.e. what a purely horizontal sensor
+    or a same-layer pair actually sees) measured as low as ~0.004 m during
+    entry-blend at n=50, between two drones that happened to share a layer.
+    Solving ``2*r*sin(pi/n) == design_separation_m`` for r keeps that chord
+    exactly at the threshold at rest; the 1.2x margin covers points closing in
+    further than their steady-state gap while blending in from the launch
+    grid. Floored at the original 4.0 m so small fleets, where this was never
+    tight, are unaffected. ``n=1`` has no "adjacent drone" at all, and
+    ``sin(pi/1)`` is only zero to floating-point rounding, so it is excluded
+    rather than fed through the formula -- otherwise the near-zero
+    denominator sends the radius (and everything paced off it) to the
+    billions.
+    """
+    if n <= 1:
+        return 4.0
+    min_r = (DEFAULT_LIMITS.design_separation_m / 2.0) / math.sin(math.pi / n)
+    return max(4.0, 1.2 * min_r)
+
+
 def _circle_formation(d_id: int, n: int, ratio: float, height: float):
+    radius = _circle_radius(n)
     angle = (2.0 * math.pi * d_id) / n + (2.0 * math.pi * ratio)
     return (
-        5.0 + 4.0 * math.cos(angle),
-        float(n - 1) + 4.0 * math.sin(angle),
+        5.0 + radius * math.cos(angle),
+        float(n - 1) + radius * math.sin(angle),
         -height,
     )
 
@@ -502,7 +532,9 @@ def _heart_theta_at_arc_fraction(fraction: float) -> float:
     return t0 + local * (t1 - t0)
 
 
-def _heart_formation(d_id: int, n: int, ratio: float, height: float):
+def _heart_scale(n: int) -> float:
+    """Curve scale, grown with n so the perimeter grows with the fleet it has
+    to hold. See _heart_formation."""
     # Arc-length spacing alone (above) fixes the cusp-crowding degeneracy, but
     # the curve's perimeter at the historical fixed 0.25 scale is only ~25 m --
     # far too small to hold 100 drones design_separation_m apart no matter how
@@ -510,8 +542,48 @@ def _heart_formation(d_id: int, n: int, ratio: float, height: float):
     # n so the perimeter grows with the fleet it has to hold, floored at the
     # original 0.25 so small fleets -- where the fixed scale was never the
     # problem -- are unaffected.
-    scale = max(0.25, 0.06 * n)
-    theta = _heart_theta_at_arc_fraction(d_id / n)
+    return max(0.25, 0.06 * n)
+
+
+@functools.lru_cache(maxsize=8)
+def _heart_theta_assignment(n: int) -> tuple[int, ...]:
+    """Which of the n evenly-arc-spaced curve points each drone id flies to.
+
+    Arc-length spacing (``_heart_theta_at_arc_fraction``) makes the n curve
+    points themselves well-separated at rest, but ``_run_show`` blends every
+    drone in along a straight line from its own launch pad to its formation
+    target *as that target continues moving* (the formation keeps rotating
+    through the whole choreography, not just after blend completes). Handing
+    out those n points in raw ``d_id`` order ignores where each drone's pad
+    actually is, so a pad nowhere near a given curve point can still be
+    assigned it -- e.g. at n=100, ids 60 apart share an altitude layer (the
+    layer cycle) *and* can land on opposite sides of the heart, so their pads
+    (a few metres apart) blend toward wildly different targets and their
+    straight-line paths cross close to the pads, before altitude or distance
+    has grown enough to separate them: measured as low as 0.22 m, well under
+    design_separation_m, though the curve's own points are never that close.
+    ``optimal_assignment`` -- built for exactly this "naive index-order
+    mapping makes drones cross" failure mode -- instead matches each pad to
+    the curve point minimizing total travel, which almost never crosses.
+    Assumes the default launch grid (``launch_grid``); an explicit
+    ``spawn_offsets`` override is a rare, legacy path this does not special-case.
+    """
+    pads = launch_grid(MAX_FLEET_SIZE)[:n]
+    scale = _heart_scale(n)
+    curve_points = [
+        _heart_xy(_heart_theta_at_arc_fraction(i / n), scale=scale) for i in range(n)
+    ]
+    from_pts = [{"x": x, "y": y, "z": 0.0} for x, y in pads]
+    to_pts = [
+        {"x": 5.0 + hx, "y": float(n - 1) + hy, "z": 0.0} for hx, hy in curve_points
+    ]
+    return tuple(optimal_assignment(from_pts, to_pts))
+
+
+def _heart_formation(d_id: int, n: int, ratio: float, height: float):
+    scale = _heart_scale(n)
+    curve_idx = _heart_theta_assignment(n)[d_id]
+    theta = _heart_theta_at_arc_fraction(curve_idx / n)
     hx, hy = _heart_xy(theta, scale=scale)
     rot = 2.0 * math.pi * ratio * 0.25  # 90 degree spin
     return (
