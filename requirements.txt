@@ -9,7 +9,10 @@ python-multipart
 websockets
 
 # Fleet comms — real PX4/hardware backend only (tara-gcs)
-mavsdk
+# mavsdk 4.0 replaced the gRPC-based Python API (mavsdk.offboard, System, ...)
+# with a native binding that drops those modules; drone_manager.py still
+# targets the pre-4.0 API, so pin below the break.
+mavsdk<4
 
 # Numerics: trajectory math, cKDTree proximity, Hungarian assignment,
 # and the vectorized swarm simulator (tara-core, tara-sim)
