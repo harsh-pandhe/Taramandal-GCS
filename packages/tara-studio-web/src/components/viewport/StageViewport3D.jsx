@@ -12,6 +12,23 @@ import { droneColorAt } from '../../engine/lighting.js';
 
 const UP_AXIS_SCALE = 1; // NED z is negated when mapped to three's Y
 
+// The camera backs off to frame the whole formation (see orbit.radius below),
+// which at large fleet sizes spread over a wide formation can put it hundreds
+// of units away. A fixed-radius sphere shrinks with distance like anything
+// else in perspective — at N=100 on a wide glyph formation it measured out to
+// ~1.3px on screen, effectively invisible, while the path lines stayed
+// visible because line width doesn't attenuate with distance the way a mesh's
+// apparent size does. BASE_SPHERE_RADIUS is the original, artistically-tuned
+// size for close-up formations; MIN_SCALE keeps that unchanged there, and the
+// per-frame scale-up below only kicks in once the formation is far enough
+// that the fixed size would start disappearing. MAX_SCALE is capped so drones
+// stay individually legible rather than merging into a blob at the 2m design
+// separation between neighbours.
+const BASE_SPHERE_RADIUS = 0.28;
+const TARGET_SCREEN_PX = 5;
+const MIN_SCALE = 1;
+const MAX_SCALE = 3;
+
 /**
  * Three.js preview of a built show.
  *
@@ -119,6 +136,17 @@ export default function StageViewport3D({
 
       if (mesh && show) {
         const t = timeRef.current;
+        // Constant on-screen size regardless of how far the camera sits:
+        // world-size needed for TARGET_SCREEN_PX grows linearly with distance
+        // (basic perspective), clamped so nearby formations keep their
+        // original tuned size and far/spread ones don't balloon into overlap.
+        const canvasH = renderer.domElement.clientHeight || 1;
+        const worldPerPx = (2 * st.orbit.radius * Math.tan((camera.fov * Math.PI) / 360)) / canvasH;
+        const scale = Math.min(
+          Math.max((TARGET_SCREEN_PX * worldPerPx) / (2 * BASE_SPHERE_RADIUS), MIN_SCALE),
+          MAX_SCALE,
+        );
+        dummy.scale.setScalar(scale);
         for (let i = 0; i < show.drones.length; i++) {
           const wp = interpolateWaypoint(show.drones[i].waypoints, t);
           if (!wp) continue;
