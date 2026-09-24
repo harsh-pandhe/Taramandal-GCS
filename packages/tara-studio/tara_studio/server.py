@@ -124,8 +124,25 @@ def api_generate(req: GenerateRequest):
         # from inside the shape's waypoint loop and surfaced as a blank 500.
         raise HTTPException(status_code=400, detail=str(e))
 
-    # Perform safety validation check automatically
-    validation = _with_limits(validate_choreography(choreo))
+    # Perform safety validation check automatically. validate_choreography
+    # covers the shared airframe/abort envelope (proximity, velocity, accel,
+    # yaw rate); validate_dynamics adds the tighter choreography-quality
+    # bounds, including jerk (issue #60) — folded into the same `violations`
+    # dict so the frontend's existing per-category rendering (SafetyPanel)
+    # picks up a "jerk" category the same way it already does for the other
+    # three, without needing a second report shape wired through the UI.
+    validation = validate_choreography(choreo)
+    dynamics = validate_dynamics(choreo)
+    validation["violations"]["jerk"] = dynamics["violations"]["jerk"]
+    validation["metrics"]["max_jerk_m_s3"] = dynamics["metrics"]["max_jerk_m_s3"]
+    # Deliberately not `dynamics["status"]` — see certify_feasibility's
+    # docstring for why the rest of validate_dynamics (velocity/centripetal)
+    # is a separate, stricter advisory check that real shows routinely don't
+    # clear, and isn't part of this gate.
+    validation["feasibility_certified"] = (
+        validation["status"] == "PASSED" and not dynamics["violations"]["jerk"]
+    )
+    validation = _with_limits(validation)
 
     # Report the pacing the generator chose. The show's length is no longer
     # whatever `duration` said — it is stretched to whatever the fleet size can
@@ -414,6 +431,16 @@ def api_export(req: ExportRequest):
     fmt = req.format.lower()
     choreo = req.choreo
     rate_hz = req.rate_hz or 0.0
+
+    # Feasibility certification (issue #60 — jerk/velocity/acceleration/
+    # separation bounds) is deliberately NOT enforced here. It's surfaced to
+    # the operator via /api/generate's `feasibility_certified` field and
+    # SafetyPanel's jerk category instead: two pre-existing generator gaps
+    # (coarse default waypoint sampling, and a velocity mismatch at the
+    # choreography->land phase handoff — see follow-up issues) mean no shape
+    # generator's default output currently clears the jerk bound, unrelated
+    # to what #60 asked for. Hard-blocking here would break every real export
+    # the moment this merges. Revisit once those are fixed.
 
     # Bake the LED track server-side when one is supplied, so a .tara compiled
     # here matches what the Studio preview showed rather than depending on the

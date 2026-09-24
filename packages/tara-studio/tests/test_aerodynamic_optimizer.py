@@ -388,13 +388,20 @@ class TestDynamicFeasibility:
         assert "No drones" in report["summary"]
 
     def test_report_shape_matches_the_other_validator(self):
+        # Issue #60 added jerk detection: a "jerk" violations category, a
+        # "max_jerk_m_s3" metric, and a top-level "feasibility_certified"
+        # gate (True iff no violations across any category — see
+        # certify_feasibility's docstring for why the *other* validator's
+        # velocity/acceleration checks, not this one's own centripetal one,
+        # are what combine with it for an export-time certification).
         show = straight_line_show({0: [(i * 0.1, 0.0, -10.0) for i in range(10)]})
         report = validate_dynamics(show)
-        assert set(report) == {"status", "summary", "metrics", "violations"}
-        assert set(report["violations"]) == {"velocity", "centripetal", "separation"}
+        assert set(report) == {"status", "summary", "metrics", "violations", "feasibility_certified"}
+        assert set(report["violations"]) == {"velocity", "centripetal", "jerk", "separation"}
         assert set(report["metrics"]) == {
             "max_velocity_m_s",
             "max_centripetal_m_s2",
+            "max_jerk_m_s3",
             "min_distance_m",
         }
 

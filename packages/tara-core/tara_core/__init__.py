@@ -7,7 +7,16 @@ limits.
 """
 
 from .assignment import optimal_assignment, total_cost
-from .geometry import EARTH_RADIUS_M, geodetic_to_ned, interpolate_waypoint, ned_to_geodetic, sweep_times
+from .geometry import (
+    EARTH_RADIUS_M,
+    geodetic_to_ned,
+    interpolate_waypoint,
+    jerk_from_positions,
+    ned_to_geodetic,
+    quintic_profile,
+    quintic_segment,
+    sweep_times,
+)
 from .layout import BASE_HOVER_ALT_M, MAX_FLEET_SIZE, altitude_layers, launch_grid
 from .mission import (
     MissionHeader,
@@ -47,11 +56,14 @@ __all__ = [
     "encode_show_trigger",
     "geodetic_to_ned",
     "interpolate_waypoint",
+    "jerk_from_positions",
     "launch_grid",
     "min_separation",
     "mission_crc32",
     "ned_to_geodetic",
     "optimal_assignment",
+    "quintic_profile",
+    "quintic_segment",
     "sweep_times",
     "total_cost",
     "validate_show",
