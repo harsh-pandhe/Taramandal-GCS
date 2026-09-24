@@ -3,14 +3,53 @@ Taramandal Studio - Trajectory Generation Library
 """
 
 import bisect
+import dataclasses
 import functools
 import math
 import logging
+
+import numpy as np
 
 from tara_core import DEFAULT_LIMITS, MAX_FLEET_SIZE, altitude_layers, launch_grid
 from tara_core.assignment import optimal_assignment
 
 from .pacing import ShowPacing, formation_spread, plan_pacing
+from .voxelizer import _contour_length, _sample_contours
+
+#: Where circle, helix and heart formations are centred: the fleet origin, the
+#: point the GCS geofence is measured from. They rotate about this centre, so
+#: a formation that fits inside the fence stays inside it at every angle, and
+#: the straight blend/landing legs between the pads and the formation stay
+#: inside it too (both ends lie in the same convex disc).
+FORMATION_CENTER = (0.0, 0.0)
+
+#: Farthest a flat outline formation may reach from FORMATION_CENTER: the
+#: geofence radius less a 2 m margin for waypoint rounding and position noise.
+FORMATION_MAX_RADIUS = DEFAULT_LIMITS.geofence_radius_m - 2.0
+
+#: Horizontal spacing kept between neighbouring drones on an outline, and
+#: between nested outlines. The same 1.2x margin over design_separation_m the
+#: single-ring radius has always used, so a same-layer pair is never relying
+#: on the altitude stagger for its clearance.
+OUTLINE_SPACING = 1.2 * DEFAULT_LIMITS.design_separation_m
+
+#: Room left under the altitude ceiling for shapes that move drones above their
+#: own hover layer. The spline's highest control point sits 2 m above the
+#: layer (and a Bezier curve never leaves its control points' hull); the
+#: helix's bob is 0.4 m. Without it, the top layer at N>=60 sits exactly on
+#: the 120 m ceiling and both shapes cross it.
+FORMATION_HEADROOM_M = 2.0
+
+_LAYER_LIMITS = dataclasses.replace(
+    DEFAULT_LIMITS, max_altitude_m=DEFAULT_LIMITS.max_altitude_m - FORMATION_HEADROOM_M
+)
+
+#: Fastest an orbiting ring's outermost drone may travel around its orbit.
+#: Pacing sizes the choreography window from the climb, the blend and the yaw
+#: rate, on the premise that orbiting a small fixed ring is always legal at
+#: the base 20 s; a ring grown to fill the geofence breaks that premise (one
+#: turn of a 28 m ring in 20 s is 8.8 m/s). See _circle_sweep.
+MAX_ORBIT_SPEED_MS = 2.5
 
 
 def _default_launch_state(
@@ -68,7 +107,7 @@ def _default_launch_state(
     if spawn_offsets is None:
         spawn_offsets = launch_grid(MAX_FLEET_SIZE)[:num_drones]
     if target_heights is None:
-        target_heights = altitude_layers(num_drones)
+        target_heights = altitude_layers(num_drones, limits=_LAYER_LIMITS)
     return spawn_offsets, target_heights
 
 
@@ -427,24 +466,192 @@ def _circle_radius(n: int) -> float:
     return max(4.0, 1.2 * min_r)
 
 
-def _circle_formation(d_id: int, n: int, ratio: float, height: float):
-    radius = _circle_radius(n)
-    angle = (2.0 * math.pi * d_id) / n + (2.0 * math.pi * ratio)
-    return (
-        5.0 + radius * math.cos(angle),
-        float(n - 1) + radius * math.sin(angle),
-        -height,
+def _min_gap(a: np.ndarray, b: np.ndarray) -> float:
+    """Smallest distance between any vertex of polyline ``a`` and any of ``b``."""
+    return float(np.sqrt(((a[:, None, :] - b[None, :, :]) ** 2).sum(axis=2)).min())
+
+
+def _nested_outlines(outline, reach: float, natural_scale: float, n: int) -> list[np.ndarray]:
+    """Closed outlines that hold ``n`` drones OUTLINE_SPACING apart within
+    FORMATION_MAX_RADIUS of the formation centre.
+
+    A single outline has a hard capacity: 100 drones on one ring at the
+    spacing the ring needs is a 38 m radius, past the 30 m geofence no matter
+    where it is centred. When the shape's natural size fits, it is used
+    unchanged. Otherwise the outermost copy is scaled to touch
+    FORMATION_MAX_RADIUS and smaller copies are nested inside it, each scaled
+    down just far enough to sit OUTLINE_SPACING clear of the one outside it,
+    until their combined length can hold the fleet at that spacing (with 10%
+    for rounding when drones are shared out between outlines).
+
+    Args:
+        outline: ``scale -> (M, 2)`` dense closed polyline about the origin.
+        reach: Farthest point of ``outline(1.0)`` from the origin.
+        natural_scale: The scale the shape would use if nothing constrained it.
+        n: Fleet size.
+    """
+    if natural_scale * reach <= FORMATION_MAX_RADIUS:
+        return [outline(natural_scale)]
+
+    scale = FORMATION_MAX_RADIUS / reach
+    outlines = [outline(scale)]
+    length = _contour_length(outlines[0])
+    while length < 1.1 * n * OUTLINE_SPACING:
+        # The gap to the enclosing outline grows as the copy shrinks, so the
+        # largest scale that still clears it is found by bisection.
+        lo, hi = 0.0, scale
+        for _ in range(40):
+            mid = (lo + hi) / 2.0
+            if _min_gap(outlines[-1], outline(mid)) >= OUTLINE_SPACING:
+                lo = mid
+            else:
+                hi = mid
+        if lo * reach < OUTLINE_SPACING:
+            break  # no room left for another outline; the validator reports the shortfall
+        scale = lo
+        outlines.append(outline(scale))
+        length += _contour_length(outlines[-1])
+    return outlines
+
+
+def _ring(scale: float, samples: int = 720) -> np.ndarray:
+    theta = np.linspace(0.0, 2.0 * np.pi, samples, endpoint=False)
+    return np.column_stack([scale * np.cos(theta), scale * np.sin(theta)])
+
+
+def _heart_outline(scale: float, samples: int = 720) -> np.ndarray:
+    return np.array([
+        _heart_xy(_heart_theta_at_arc_fraction(i / samples), scale=scale) for i in range(samples)
+    ])
+
+
+@functools.lru_cache(maxsize=16)
+def _outline_slots(shape: str, n: int) -> tuple[tuple[float, float], ...]:
+    """Each drone's (x, y) in a flat outline formation, relative to its centre.
+
+    Points are spread over the outlines by length with the voxelizer's own
+    contour sampler, then handed to drones with ``optimal_assignment`` from
+    their launch pads: the minimum-travel matching that keeps the straight
+    pad-to-formation legs from crossing (see _heart_formation for the failure
+    it replaced). Assumes the default launch grid; an explicit
+    ``spawn_offsets`` override is a rare, legacy path this does not special-case.
+    """
+    if shape == "circle":
+        outlines = _nested_outlines(_ring, 1.0, _circle_radius(n), n)
+    else:
+        outlines = _nested_outlines(_heart_outline, _HEART_REACH, _heart_scale(n), n)
+    points = _sample_contours(outlines, n)
+    pads = launch_grid(MAX_FLEET_SIZE)[:n]
+    cx, cy = FORMATION_CENTER
+    perm = optimal_assignment(
+        [{"x": x, "y": y, "z": 0.0} for x, y in pads],
+        [{"x": cx + px, "y": cy + py, "z": 0.0} for px, py in points],
     )
+    return tuple((float(points[k][0]), float(points[k][1])) for k in perm)
+
+
+def _rotated_slot(shape: str, d_id: int, n: int, angle: float) -> tuple[float, float]:
+    sx, sy = _outline_slots(shape, n)[d_id]
+    c, s = math.cos(angle), math.sin(angle)
+    return FORMATION_CENTER[0] + sx * c - sy * s, FORMATION_CENTER[1] + sx * s + sy * c
+
+
+@functools.lru_cache(maxsize=16)
+def _circle_sweep(n: int) -> float:
+    """How far the ring turns over the choreography, radians.
+
+    The ring keeps turning while drones are still blending in from their
+    pads, so the two speeds add. The orbit therefore gets whatever the
+    blend's eased peak (1.5x its mean) leaves under 90% of the speed ceiling,
+    capped at MAX_ORBIT_SPEED_MS, over the shortest choreography window
+    pacing allows. A full turn when that fits; otherwise as much of one as
+    the outermost ring can make at that speed. Assumes the default launch
+    grid and hover layers, like the slot assignment.
+    """
+    slots = _outline_slots("circle", n)
+    reach = max(math.hypot(x, y) for x, y in slots)
+    if reach <= 0:
+        return 2.0 * math.pi
+    # Same measurement _pacing_for makes, taken straight from the slots (the
+    # ring at ratio 0) so this does not recurse through _circle_formation.
+    start_positions, heights = _launch_state(n, None, None)
+    hover = {d: {"x": p["x"], "y": p["y"], "z": -heights[d]} for d, p in start_positions.items()}
+    entry = {
+        d: (FORMATION_CENTER[0] + sx, FORMATION_CENTER[1] + sy, -heights[d])
+        for d, (sx, sy) in enumerate(slots)
+    }
+    spread_m = formation_spread(hover, entry)
+    pacing = plan_pacing(n, climb_m=max(heights.values()), spread_m=spread_m, revolutions=1.0)
+    blend_peak = 1.5 * spread_m / pacing.blend_s
+    orbit = min(MAX_ORBIT_SPEED_MS, 0.9 * DEFAULT_LIMITS.max_velocity_ms - blend_peak)
+    return max(0.0, min(2.0 * math.pi, orbit * pacing.choreo_s / reach))
+
+
+def _circle_formation(d_id: int, n: int, ratio: float, height: float):
+    x, y = _rotated_slot("circle", d_id, n, _circle_sweep(n) * ratio)
+    return x, y, -height
 
 
 def _circle_yaw(d_id: int, n: int, ratio: float) -> float:
     """Unwrapped heading, degrees — see _ShapeSpec.yaw on why it is not wrapped."""
-    angle = (2.0 * math.pi * d_id) / n + (2.0 * math.pi * ratio)
-    return math.degrees(angle)
+    sx, sy = _outline_slots("circle", n)[d_id]
+    return math.degrees(math.atan2(sy, sx) + _circle_sweep(n) * ratio)
+
+
+@functools.lru_cache(maxsize=16)
+def _helix_angles(n: int) -> tuple[tuple[float, ...], float]:
+    """Each drone's starting angle on the helix ring, and the turns it makes.
+
+    Up to one drone per hover layer the helix is unchanged: drone i at
+    ``2*pi*i/n``, one and a half turns. Past that, drones share layers
+    (``altitude_layers`` cycles), and a shared layer means only horizontal
+    distance keeps the pair apart. With the old ``2*pi*i/n`` spacing the
+    offset between two such drones pointed a different way for every pair
+    while their pads differed in roughly the same direction, so about half
+    the pairs crossed on their landing legs (measured 0.69 m at N=100).
+
+    So the helix becomes a double helix: the drones on a layer sit on opposite
+    sides of the ring, and each pair is placed so its ring offset points the
+    same way as its pad offset. Their straight legs between pad and ring then
+    run side by side instead of crossing. The helix also makes a whole turn
+    instead of one and a half, so the landing legs start from the same ring
+    positions the blend ended on rather than the opposite side.
+    Assumes the default launch grid and hover layers.
+    """
+    layers = altitude_layers(n, limits=_LAYER_LIMITS)
+    distinct = sorted(set(layers))
+    if len(distinct) == n:
+        return tuple(2.0 * math.pi * i / n for i in range(n)), 1.5
+
+    pads = launch_grid(MAX_FLEET_SIZE)[:n]
+    level = {h: k for k, h in enumerate(distinct)}
+    groups: dict[int, list[int]] = {}
+    for d_id, h in enumerate(layers):
+        groups.setdefault(level[h], []).append(d_id)
+
+    angles = [0.0] * n
+    for k, members in groups.items():
+        base = 2.0 * math.pi * k / len(distinct)
+        if len(members) == 2:
+            i, j = members
+            ring = (math.cos(base) - math.cos(base + math.pi), math.sin(base) - math.sin(base + math.pi))
+            pad = (pads[i][0] - pads[j][0], pads[i][1] - pads[j][1])
+            if ring[0] * pad[0] + ring[1] * pad[1] < 0:
+                i, j = j, i
+            angles[i], angles[j] = base, base + math.pi
+        else:
+            for m, d_id in enumerate(members):
+                angles[d_id] = base + 2.0 * math.pi * m / len(members)
+    return tuple(angles), 1.0
+
+
+def _helix_angle(d_id: int, n: int, ratio: float) -> float:
+    starts, turns = _helix_angles(n)
+    return starts[d_id] + 2.0 * math.pi * ratio * turns
 
 
 def _helix_formation(d_id: int, n: int, ratio: float, height: float):
-    angle = (2.0 * math.pi * d_id) / n + (2.0 * math.pi * ratio * 1.5)
+    angle = _helix_angle(d_id, n, ratio)
     # Shared across every drone -- no d_id term -- rather than the previous
     # per-drone phase offset (`+ d_id`). The ring (radius 5) only spaces
     # adjacent drones 0.3-0.6 m apart horizontally at N=50/100, so the entire
@@ -464,16 +671,15 @@ def _helix_formation(d_id: int, n: int, ratio: float, height: float):
     # of per-drone inconsistency this fix removes everywhere else.
     height_osc = 0.4 * math.sin(2.0 * math.pi * ratio)
     return (
-        6.0 + 5.0 * math.cos(angle),
-        float(n - 1) + 5.0 * math.sin(angle),
+        FORMATION_CENTER[0] + 5.0 * math.cos(angle),
+        FORMATION_CENTER[1] + 5.0 * math.sin(angle),
         -max(1.5, height + height_osc),
     )
 
 
 def _helix_yaw(d_id: int, n: int, ratio: float) -> float:
     """Unwrapped heading, degrees — see _ShapeSpec.yaw on why it is not wrapped."""
-    angle = (2.0 * math.pi * d_id) / n + (2.0 * math.pi * ratio * 1.5)
-    return math.degrees(angle)
+    return math.degrees(_helix_angle(d_id, n, ratio))
 
 
 def _heart_xy(theta: float, scale: float = 0.25) -> tuple[float, float]:
@@ -545,52 +751,22 @@ def _heart_scale(n: int) -> float:
     return max(0.25, 0.06 * n)
 
 
-@functools.lru_cache(maxsize=8)
-def _heart_theta_assignment(n: int) -> tuple[int, ...]:
-    """Which of the n evenly-arc-spaced curve points each drone id flies to.
-
-    Arc-length spacing (``_heart_theta_at_arc_fraction``) makes the n curve
-    points themselves well-separated at rest, but ``_run_show`` blends every
-    drone in along a straight line from its own launch pad to its formation
-    target *as that target continues moving* (the formation keeps rotating
-    through the whole choreography, not just after blend completes). Handing
-    out those n points in raw ``d_id`` order ignores where each drone's pad
-    actually is, so a pad nowhere near a given curve point can still be
-    assigned it -- e.g. at n=100, ids 60 apart share an altitude layer (the
-    layer cycle) *and* can land on opposite sides of the heart, so their pads
-    (a few metres apart) blend toward wildly different targets and their
-    straight-line paths cross close to the pads, before altitude or distance
-    has grown enough to separate them: measured as low as 0.22 m, well under
-    design_separation_m, though the curve's own points are never that close.
-    ``optimal_assignment`` -- built for exactly this "naive index-order
-    mapping makes drones cross" failure mode -- instead matches each pad to
-    the curve point minimizing total travel, which almost never crosses.
-    Assumes the default launch grid (``launch_grid``); an explicit
-    ``spawn_offsets`` override is a rare, legacy path this does not special-case.
-    """
-    pads = launch_grid(MAX_FLEET_SIZE)[:n]
-    scale = _heart_scale(n)
-    curve_points = [
-        _heart_xy(_heart_theta_at_arc_fraction(i / n), scale=scale) for i in range(n)
-    ]
-    from_pts = [{"x": x, "y": y, "z": 0.0} for x, y in pads]
-    to_pts = [
-        {"x": 5.0 + hx, "y": float(n - 1) + hy, "z": 0.0} for hx, hy in curve_points
-    ]
-    return tuple(optimal_assignment(from_pts, to_pts))
+#: Farthest point of the unit heart (``_heart_xy`` at scale 1) from its origin,
+#: which is the point the heart spins about.
+_HEART_REACH = max(
+    math.hypot(*_heart_xy(2.0 * math.pi * i / 4000, scale=1.0)) for i in range(4000)
+)
 
 
 def _heart_formation(d_id: int, n: int, ratio: float, height: float):
-    scale = _heart_scale(n)
-    curve_idx = _heart_theta_assignment(n)[d_id]
-    theta = _heart_theta_at_arc_fraction(curve_idx / n)
-    hx, hy = _heart_xy(theta, scale=scale)
-    rot = 2.0 * math.pi * ratio * 0.25  # 90 degree spin
-    return (
-        5.0 + (hx * math.cos(rot) - hy * math.sin(rot)),
-        float(n - 1) + (hx * math.sin(rot) + hy * math.cos(rot)),
-        -height,
-    )
+    # Why each drone's point on the curve comes from an optimal assignment
+    # rather than d_id order: at n=100, ids a layer-cycle apart share an
+    # altitude and, handed out in index order, could land on opposite sides of
+    # the heart with pads a few metres apart, so their straight blend legs
+    # crossed near the pads (measured 0.22 m). Matching pads to curve points by
+    # minimum travel (see _outline_slots) almost never crosses.
+    x, y = _rotated_slot("heart", d_id, n, 2.0 * math.pi * ratio * 0.25)  # 90 degree spin
+    return x, y, -height
 
 
 def _heart_yaw(d_id: int, n: int, ratio: float) -> float:
