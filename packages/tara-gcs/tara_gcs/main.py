@@ -152,10 +152,18 @@ async def upload_trajectory(file: UploadFile = File(...)):
             
     try:
         parsed_trajectory = parse_trajectory_bytes(bytes(content), file.filename)
-        
+
         # Save active trajectory
         drone_manager.active_trajectory = parsed_trajectory
-        
+
+        # Compute this show's two-tier geofence radii now (issue #53) so both
+        # the live RTL monitor and the web UI (which reads it from this
+        # response, not by recomputing it itself) have it before the operator
+        # ever hits start-trajectory. start_trajectory() recomputes this again
+        # from whatever trajectory actually starts playing, so this call just
+        # makes it available immediately for display/verification.
+        drone_manager._apply_geofence_envelope(parsed_trajectory)
+
         # Calculate summary details for response
         summary = {}
         for drone_id, wps in parsed_trajectory.items():
@@ -163,12 +171,16 @@ async def upload_trajectory(file: UploadFile = File(...)):
                 "waypoints_count": len(wps),
                 "duration_seconds": wps[-1]["time"] if wps else 0.0
             }
-            
+
         return {
             "status": "success",
             "message": "Trajectory uploaded and saved to active slot.",
             "drones_summary": summary,
-            "trajectory_data": parsed_trajectory
+            "trajectory_data": parsed_trajectory,
+            "geofence": {
+                "soft_warning_radius_m": drone_manager.soft_geofence_radius,
+                "hard_geofence_radius_m": drone_manager.geofence_radius,
+            },
         }
     except Exception as e:
         logger.error(f"Failed parsing trajectory file: {e}")

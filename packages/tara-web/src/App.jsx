@@ -33,6 +33,11 @@ export default function App() {
   const [fileDetails, setFileDetails] = useState(null);
   const [trajSummary, setTrajSummary] = useState(null);
   const [trajectoryData, setTrajectoryData] = useState(null);
+  // Two-tier geofence radii computed server-side from the loaded show's full
+  // trajectory envelope (issue #53). null until a show that carries this
+  // field has been loaded; EarthView/GeofenceRing fall back to the static
+  // 30m default in that case (old exports, or before any show is loaded).
+  const [geofenceRadii, setGeofenceRadii] = useState(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const [flightMode, setFlightMode] = useState("LOCAL");
   const [triggerDelay, setTriggerDelay] = useState(3);
@@ -152,6 +157,7 @@ export default function App() {
           });
           setTrajectoryData(trajectory_data);
           setTrajSummary(summary);
+          setGeofenceRadii(data._geofence || null);
           setFileDetails({
             name: 'choreography.json (Preloaded)',
             size: 'Helix Pattern'
@@ -345,6 +351,7 @@ export default function App() {
       if (res.ok && data.status === 'success') {
         setTrajSummary(data.drones_summary);
         setTrajectoryData(data.trajectory_data);
+        setGeofenceRadii(data.geofence || null);
         setIsPlaying(false);
         setErrorMsg('');
         
@@ -648,7 +655,7 @@ export default function App() {
 
       {viewMode === 'earth' && (
         <div className="earth-view-panel">
-          <EarthView telemetry={telemetry} />
+          <EarthView telemetry={telemetry} geofenceRadiusM={geofenceRadii?.hard_geofence_radius_m ?? 30.0} />
         </div>
       )}
 
@@ -1018,7 +1025,7 @@ export default function App() {
                       </button>
                     </div>
                     {/* Visual 2D swarm path preview */}
-                    <SwarmCanvasPreview trajectoryData={trajectoryData} />
+                    <SwarmCanvasPreview trajectoryData={trajectoryData} geofenceRadiusM={geofenceRadii?.hard_geofence_radius_m ?? 30.0} />
                   </>
                 ) : (
                   <div style={{ color: 'var(--danger)', fontSize: '0.8rem' }}>Parsing...</div>
@@ -1069,7 +1076,7 @@ function GeofenceRing({ radius = 30 }) {
   return <Line points={pts} color="#FF3D00" lineWidth={1.2} />;
 }
 
-function SwarmCanvasPreview({ trajectoryData }) {
+function SwarmCanvasPreview({ trajectoryData, geofenceRadiusM = 30.0 }) {
   const droneEntries = useMemo(() => {
     if (!trajectoryData) return [];
     return Object.keys(trajectoryData)
@@ -1120,8 +1127,8 @@ function SwarmCanvasPreview({ trajectoryData }) {
               position={[0, 0, 0]}
             />
 
-            {/* 30m geofence ring */}
-            <GeofenceRing radius={30} />
+            {/* Geofence ring: hard RTL radius from the loaded show's computed envelope */}
+            <GeofenceRing radius={geofenceRadiusM} />
 
             {/* Origin pad */}
             <mesh position={[0, 0.02, 0]}>
@@ -1157,7 +1164,7 @@ function SwarmCanvasPreview({ trajectoryData }) {
           ))}
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.3rem', marginLeft: 'auto' }}>
             <div style={{ width: 14, height: 2, background: '#FF3D00', opacity: 0.7 }} />
-            <span style={{ fontSize: '0.68rem', color: 'rgba(255,255,255,0.28)' }}>30m Geofence</span>
+            <span style={{ fontSize: '0.68rem', color: 'rgba(255,255,255,0.28)' }}>{geofenceRadiusM.toFixed(0)}m Geofence</span>
           </div>
         </div>
       )}

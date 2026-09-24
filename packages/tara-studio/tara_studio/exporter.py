@@ -9,8 +9,22 @@ import math
 import struct
 import zlib
 
+from tara_core.show import Show
+
 def export_json(choreo_data: dict) -> str:
-    return json.dumps(choreo_data, indent=2)
+    """Serialises a choreography, stamping it with its computed geofence radii.
+
+    ``_geofence`` (envelope_radius_m / soft_warning_radius_m /
+    hard_geofence_radius_m — see ``tara_core.show.Show.geofence_envelope``) is
+    computed once here so the GCS and the web UI's EarthView both read the
+    same numbers from the exported file instead of each re-deriving them
+    (issue #53). Always recomputed from the current waypoints on export, so a
+    re-export after editing a show can't ship a stale radius.
+    """
+    data = dict(choreo_data)
+    if isinstance(data.get("drones"), list):
+        data["_geofence"] = Show.from_any(data).geofence_envelope()
+    return json.dumps(data, indent=2)
 
 def export_csv(choreo_data: dict) -> str:
     output = io.StringIO()
