@@ -9,7 +9,9 @@
     "lint": "oxlint",
     "preview": "vite preview",
     "test:e2e": "playwright test",
-    "test:e2e:update": "playwright test --update-snapshots"
+    "test:e2e:update": "playwright test --update-snapshots",
+    "test:e2e:docker": "node e2e/run-in-docker.mjs",
+    "test:e2e:docker:update": "node e2e/run-in-docker.mjs --update-snapshots"
   },
   "dependencies": {
     "@react-three/drei": "^10.7.7",
