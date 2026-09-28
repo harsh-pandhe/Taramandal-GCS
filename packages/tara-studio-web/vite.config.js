@@ -1,9 +1,14 @@
 import { defineConfig } from 'vite'
+import { configDefaults } from 'vitest/config'
 import react from '@vitejs/plugin-react'
 
 // https://vite.dev/config/
 export default defineConfig({
   plugins: [react()],
+  // e2e/ holds Playwright specs, which run under `npm run test:e2e`, not Vitest.
+  test: {
+    exclude: [...configDefaults.exclude, 'e2e/**'],
+  },
   build: {
     rollupOptions: {
       output: {
