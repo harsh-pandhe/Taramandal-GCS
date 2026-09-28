@@ -1,6 +1,5 @@
 import os
 
-import pytest
 
 from tara_gcs.state_store import discard_show_state, load_show_state, save_show_state
 

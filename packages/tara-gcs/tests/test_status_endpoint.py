@@ -87,7 +87,7 @@ async def test_status_answers_before_any_drone_connects(patched_manager):
     exception — otherwise the CLI could not tell "backend down" from "backend
     up, fleet dead".
     """
-    manager = patched_manager(DroneManager(ports=[14540, 14541], backend="sim"))
+    patched_manager(DroneManager(ports=[14540, 14541], backend="sim"))
 
     status = await gcs_main.get_status()
 

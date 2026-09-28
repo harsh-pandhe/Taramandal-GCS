@@ -5,7 +5,6 @@ in 0.7 m steps, which is below every safety threshold in the system. A fleet
 was in violation while still sitting over its own pads.
 """
 
-import math
 
 import pytest
 
