@@ -11,6 +11,7 @@ import { droneColorAt } from '../../engine/lighting.js';
 // only its per-instance matrices and colours change per frame.
 
 const UP_AXIS_SCALE = 1; // NED z is negated when mapped to three's Y
+const AUDIENCE_EYE_HEIGHT_M = 1.7; // a spectator standing on the ground
 
 /**
  * Three.js preview of a built show.
@@ -64,6 +65,19 @@ export default function StageViewport3D({
     const applyCamera = () => {
       if (viewModeRef.current === 'top-down') {
         camera.position.set(orbit.target.x, orbit.radius, orbit.target.z + 0.001);
+      } else if (viewModeRef.current === 'audience') {
+        // A spectator standing at ground level on the -X side, looking
+        // toward +X. Not an arbitrary side: a text formation (see
+        // engine/formations.js fmtText) puts fleet x = 0 (a wall in this
+        // scene's X=0 plane) with the glyph's own left-to-right reading
+        // axis mapped to fleet y -> this scene's Z axis. A camera looking
+        // down -X has its screen-right pointing along -Z, which reads that
+        // axis backwards (mirrored); one looking down +X (i.e. standing on
+        // the -X side, which is what this branch does) has screen-right
+        // along +Z, matching the glyph's own left-to-right order. See
+        // engine/audienceView.test.js for the coordinate derivation this
+        // is pinned against.
+        camera.position.set(orbit.target.x - orbit.radius, AUDIENCE_EYE_HEIGHT_M, orbit.target.z);
       } else {
         camera.position.set(
           orbit.target.x + orbit.radius * Math.sin(orbit.phi) * Math.sin(orbit.theta),
@@ -78,7 +92,7 @@ export default function StageViewport3D({
     let dragging = false, px = 0, py = 0;
     const onDown = (e) => { dragging = true; px = e.clientX; py = e.clientY; };
     const onMove = (e) => {
-      if (!dragging || viewModeRef.current === 'top-down') return;
+      if (!dragging || viewModeRef.current === 'top-down' || viewModeRef.current === 'audience') return;
       orbit.theta -= (e.clientX - px) * 0.005;
       orbit.phi -= (e.clientY - py) * 0.005;
       orbit.phi = Math.max(0.05, Math.min(Math.PI / 2.05, orbit.phi)); // stay above ground
