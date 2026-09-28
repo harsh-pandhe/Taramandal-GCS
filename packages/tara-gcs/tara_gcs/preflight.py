@@ -180,7 +180,9 @@ class ProfilePolicy:
         return self.severities.get(rule_id, Severity.IGNORED)
 
 
-B, W, I = Severity.BLOCKING, Severity.WARNING, Severity.IGNORED
+# One-letter shorthand keeps each profile's severity table below readable at a
+# glance; `I` only ever means Severity.IGNORED here.
+B, W, I = Severity.BLOCKING, Severity.WARNING, Severity.IGNORED  # noqa: E741
 
 POLICIES: dict[OperationalProfile, ProfilePolicy] = {
     # Simulated fleets have no RTK base station and no real cells: a 3D fix and
