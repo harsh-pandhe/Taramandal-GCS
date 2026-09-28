@@ -235,6 +235,37 @@ test.describe('trajectory deviation colour coding', () => {
   });
 });
 
+// NightSkyView's Canvas repaints every animation frame by design (issue #23:
+// OrbitControls damping and live telemetry need to land on screen with no
+// explicit invalidate() call from outside the component) — correct for the
+// dashboard, but it means a snapshot taken mid-loop is racing the next paint.
+// Under GitHub Actions' software-rendered GL stack specifically (reproduced
+// there, not locally: 2/2 CI runs failed this way, 12+ local runs across
+// plain and CPU-throttled containers all passed), the multi-pass float bloom
+// pipeline (see NightSkyView's EffectComposer/Bloom) does not repaint
+// bit-identically frame to frame, so Playwright's pre-comparison stability
+// wait ("waiting for element to be stable") never converges and times out
+// before any pixel comparison runs — not a baseline mismatch, and not
+// something a longer timeout fixes, since a loop that never repeats exactly
+// doesn't converge given more time either.
+//
+// Freezing the render loop for the capture is what these two tests actually
+// want: they assert a single settled frame's colours, never animation, and
+// the one genuinely time-dependent effect in this view (the critical flash)
+// is already excluded by using only nominal/warning fleets. See `freeze` in
+// e2e/harness/nightsky.jsx.
+async function freezeForCapture(page) {
+  await page.evaluate(() => window.__nightsky.freeze());
+  // frameloop='demand' takes effect from the next React commit, not
+  // synchronously, so the in-flight 'always' loop may still owe one more
+  // paint after this call returns. Two frames is enough for that paint to
+  // land and for `demand` mode's own no-op frame (nothing invalidates after
+  // it) to confirm nothing further changes.
+  await page.evaluate(
+    () => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))),
+  );
+}
+
 test.describe('visual regression', () => {
   test.beforeEach(async ({ page }) => {
     await bootHarness(page);
@@ -249,6 +280,7 @@ test.describe('visual regression', () => {
     // The flash phase of critical drones is time-dependent, so snapshots are
     // only taken of states with no critical drones in them; the green-to-red
     // shift itself is asserted on sampled pixels above, which is stable.
+    await freezeForCapture(page);
     await expect(page.locator('canvas')).toHaveScreenshot('fleet-nominal.png');
   });
 
@@ -258,6 +290,7 @@ test.describe('visual regression', () => {
       { count: 64, deviations: Array(64).fill(0.6) },
       { warning: 64, critical: 0 },
     );
+    await freezeForCapture(page);
     await expect(page.locator('canvas')).toHaveScreenshot('fleet-warning.png');
   });
 });
