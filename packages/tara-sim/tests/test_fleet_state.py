@@ -8,7 +8,7 @@ directly and deterministically (following the parametrized, mock-free style of
 import numpy as np
 import pytest
 
-from tara_sim.fleet_state import LANDED_ALTITUDE_M, FleetState, SimConfig
+from tara_sim.fleet_state import FleetState, SimConfig
 
 
 def run_ticks(fs: FleetState, n: int) -> None:

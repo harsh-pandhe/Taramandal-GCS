@@ -29,3 +29,13 @@ filterwarnings = ["ignore::DeprecationWarning"]
 markers = [
     "slow: exercises the real (unshortened) production code path at a scale that takes real wall-clock time by design — e.g. the N=100 sim-backend milestone test, which honestly pays launch_sequence's intentional 1s per-drone stagger rather than special-casing it away. Excluded from a quick loop with `-m 'not slow'`; included by default.",
 ]
+
+# Lint/type gates for CI (issue #66). Deliberately the minimal rule set —
+# pyflakes plus pycodestyle's syntax/statement errors — so turning the gate on
+# didn't turn into a repo-wide cleanup. Widen `select` in follow-up PRs.
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F"]
+
+[tool.mypy]
+# scipy ships no type stubs; don't fail tara-core on third-party imports.
+ignore_missing_imports = true
