@@ -13,16 +13,20 @@ import struct
 import pytest
 
 from tara_gcs.broadcast_manager import (
+    AUTH_TAG_SIZE,
     BROADCAST_SYSID,
     DOWNLINK_HZ,
     FRAME_SIZE,
     MAC_FRAMING_BYTES,
     PAYLOAD_SIZE,
     BroadcastManager,
+    BroadcastReceiver,
+    FrameStatus,
     SwarmState,
     decode_broadcast_frame,
     downlink_bitrate_bps,
     encode_broadcast_frame,
+    generate_show_key,
     sync_checksum,
 )
 from tara_gcs.tdma_scheduler import (
@@ -39,29 +43,34 @@ from tara_gcs.tdma_scheduler import (
 
 FLEET = 500
 
+#: Fixed so the codec tests are deterministic; the auth tests also use fresh keys.
+KEY = bytes(range(32))
+
 
 class TestDownlinkPacketSize:
     """Acceptance criterion: the broadcast frame fits in 52 bytes on the wire."""
 
     def test_downlink_packet_size(self):
         payload = encode_broadcast_frame(
+            KEY,
             utc_timestamp_usec=1_700_000_000_000_000,
             state=SwarmState.RUN,
             sequence_id=42,
+            frame_counter=1,
         )
         framed = len(payload) + MAC_FRAMING_BYTES
         assert framed <= 52, f"broadcast frame is {framed} bytes, budget is 52"
         assert framed == FRAME_SIZE
 
     def test_payload_is_exactly_the_specified_size(self):
-        payload = encode_broadcast_frame(0, SwarmState.IDLE, 0)
+        payload = encode_broadcast_frame(KEY, 0, SwarmState.IDLE, 0, 0)
         assert len(payload) == PAYLOAD_SIZE == 32
 
     def test_size_is_independent_of_field_values(self):
         # Fixed-width by construction — a max-value frame must not be larger
         # than an all-zero one, or the budget would hold only on a good day.
-        biggest = encode_broadcast_frame(2**64 - 1, SwarmState.ESTOP, 2**32 - 1)
-        smallest = encode_broadcast_frame(0, SwarmState.IDLE, 0)
+        biggest = encode_broadcast_frame(KEY, 2**64 - 1, SwarmState.ESTOP, 2**32 - 1, 2**64 - 1)
+        smallest = encode_broadcast_frame(KEY, 0, SwarmState.IDLE, 0, 0)
         assert len(biggest) == len(smallest) == PAYLOAD_SIZE
 
     def test_downlink_cost_does_not_scale_with_fleet_size(self):
@@ -207,16 +216,17 @@ class TestBandwidthUtilization:
 
 class TestBroadcastFrameCodec:
     def test_round_trips_every_field(self):
-        payload = encode_broadcast_frame(1_700_000_000_123_456, SwarmState.HOLD, 7)
-        decoded = decode_broadcast_frame(payload)
+        payload = encode_broadcast_frame(KEY, 1_700_000_000_123_456, SwarmState.HOLD, 7, 99)
+        decoded = decode_broadcast_frame(payload, KEY)
         assert decoded["utc_timestamp_usec"] == 1_700_000_000_123_456
         assert decoded["state"] == SwarmState.HOLD
         assert decoded["sequence_id"] == 7
+        assert decoded["frame_counter"] == 99
         assert decoded["valid"]
 
     def test_round_trips_every_swarm_state(self):
         for state in SwarmState:
-            decoded = decode_broadcast_frame(encode_broadcast_frame(0, state, 0))
+            decoded = decode_broadcast_frame(encode_broadcast_frame(KEY, 0, state, 0, 0), KEY)
             assert decoded["state"] == state
             assert decoded["valid"]
 
@@ -230,21 +240,32 @@ class TestBroadcastFrameCodec:
         # Pinned explicitly: a drone's C parser reads these offsets literally,
         # so struct's default alignment sneaking in a pad byte would desync the
         # whole fleet rather than fail loudly.
-        payload = encode_broadcast_frame(0xDEADBEEFCAFEF00D, SwarmState.RUN, 0x11223344)
+        payload = encode_broadcast_frame(
+            KEY, 0xDEADBEEFCAFEF00D, SwarmState.RUN, 0x11223344, 0x0102030405060708
+        )
         assert struct.unpack_from("<Q", payload, 0)[0] == 0xDEADBEEFCAFEF00D
         assert struct.unpack_from("<B", payload, 8)[0] == int(SwarmState.RUN)
         assert struct.unpack_from("<I", payload, 9)[0] == 0x11223344
+        assert struct.unpack_from("<Q", payload, 15)[0] == 0x0102030405060708
 
-    def test_reserved_tail_is_zero_filled(self):
-        payload = encode_broadcast_frame(2**64 - 1, SwarmState.ESTOP, 2**32 - 1)
-        assert payload[15:] == bytes(PAYLOAD_SIZE - 15)
+    def test_reserved_byte_is_zero_filled(self):
+        payload = encode_broadcast_frame(KEY, 2**64 - 1, SwarmState.ESTOP, 2**32 - 1, 2**64 - 1)
+        assert payload[23] == 0
 
-    def test_corrupted_state_byte_is_caught_by_the_checksum(self):
-        # The failure this guards: a garbled ESTOP arriving as something the
-        # fleet would happily keep flying.
-        payload = bytearray(encode_broadcast_frame(1_700_000_000_000_000, SwarmState.ESTOP, 1))
-        payload[8] = int(SwarmState.RUN)
-        assert not decode_broadcast_frame(bytes(payload))["valid"]
+    def test_tag_is_the_last_eight_bytes(self):
+        payload = encode_broadcast_frame(KEY, 1, SwarmState.RUN, 2, 3)
+        assert AUTH_TAG_SIZE == 8
+        assert payload[24:] != bytes(8)
+
+    def test_known_answer_vector(self):
+        # Pinned so drone firmware can check its HMAC construction against a
+        # fixed input: HMAC-SHA256(key, b"TARA-BCAST\x01" + payload[0:24])[:8].
+        payload = encode_broadcast_frame(
+            KEY, 1_700_000_000_000_000, SwarmState.ESTOP, 7, 1_700_000_000_000_000
+        )
+        assert payload.hex() == (
+            "00401e18240a06000507000000546200401e18240a060000" "8cf18f23eb68c946"
+        )
 
     def test_checksum_catches_a_flip_in_the_high_half_of_the_timestamp(self):
         # A plain 16-bit truncation would miss this entirely.
@@ -256,13 +277,164 @@ class TestBroadcastFrameCodec:
 
     def test_rejects_a_wrong_sized_payload(self):
         with pytest.raises(ValueError):
-            decode_broadcast_frame(b"\x00" * 16)
+            decode_broadcast_frame(b"\x00" * 16, KEY)
+
+    def test_rejects_a_short_key(self):
+        with pytest.raises(ValueError):
+            encode_broadcast_frame(b"too-short", 0, SwarmState.IDLE, 0, 0)
+        with pytest.raises(ValueError):
+            BroadcastManager(b"")
+
+
+class TestBroadcastAuthentication:
+    """Issue #50 acceptance criteria: authenticated frames and anti-replay."""
+
+    NOW = 1_700_000_000.0
+
+    def _pair(self, key=None):
+        key = key or generate_show_key()
+        clock = [self.NOW]
+        mgr = BroadcastManager(key, clock=lambda: clock[0])
+        rx = BroadcastReceiver(key, clock=lambda: clock[0])
+        return mgr, rx, clock
+
+    def test_valid_hmac_frames_decode_with_status_ok(self):
+        mgr, rx, clock = self._pair()
+        mgr.set_state(SwarmState.RUN)
+        for _ in range(20):
+            frame = rx.receive(mgr.tick())
+            assert frame["status"] is FrameStatus.OK
+            assert frame["state"] == SwarmState.RUN
+            clock[0] += 1 / DOWNLINK_HZ
+
+    def test_tampered_state_byte_fails_hmac_and_is_dropped(self):
+        mgr, rx, _ = self._pair()
+        mgr.set_state(SwarmState.RUN)
+        rx.receive(mgr.tick())
+        mgr.set_state(SwarmState.HOLD)
+        forged = bytearray(mgr.tick())
+        forged[8] = int(SwarmState.ESTOP)
+
+        frame = rx.receive(bytes(forged))
+
+        assert frame["status"] is FrameStatus.BAD_TAG
+        assert not frame["valid"]
+        # Dropped: the receiver still acts on the last good frame.
+        assert rx.last_frame["state"] == SwarmState.RUN
+
+    def test_tamperer_who_fixes_up_the_checksum_still_fails(self):
+        # The old checksum is public arithmetic; recomputing it is exactly what
+        # a forger does, so it must not rescue a tampered frame.
+        mgr, rx, _ = self._pair()
+        forged = bytearray(mgr.tick())
+        forged[8] = int(SwarmState.ESTOP)
+        utc, _, seq = struct.unpack_from("<QBI", forged, 0)
+        struct.pack_into("<H", forged, 13, sync_checksum(utc, int(SwarmState.ESTOP), seq))
+
+        assert rx.receive(bytes(forged))["status"] is FrameStatus.BAD_TAG
+
+    def test_every_single_bit_flip_fails_the_tag(self):
+        mgr, _, _ = self._pair()
+        key = mgr._key
+        payload = mgr.tick()
+        for i in range(PAYLOAD_SIZE):
+            for bit in range(8):
+                tampered = bytearray(payload)
+                tampered[i] ^= 1 << bit
+                assert decode_broadcast_frame(bytes(tampered), key)["status"] is FrameStatus.BAD_TAG
+
+    def test_frame_under_another_key_fails(self):
+        mgr, _, _ = self._pair()
+        rx = BroadcastReceiver(generate_show_key(), clock=lambda: self.NOW)
+        assert rx.receive(mgr.tick())["status"] is FrameStatus.BAD_TAG
+
+    def test_replayed_past_frame_is_rejected_by_the_sequence_counter(self):
+        mgr, rx, clock = self._pair()
+        mgr.set_state(SwarmState.ESTOP)
+        captured = mgr.tick()
+        assert rx.receive(captured)["status"] is FrameStatus.OK
+        clock[0] += 0.1
+        mgr.set_state(SwarmState.RUN)
+        assert rx.receive(mgr.tick())["status"] is FrameStatus.OK
+
+        # Replayed within the 200ms skew window, so only the counter stops it.
+        frame = rx.receive(captured)
+
+        assert frame["status"] is FrameStatus.REPLAYED
+        assert rx.last_frame["state"] == SwarmState.RUN
+
+    def test_the_same_frame_twice_is_a_replay(self):
+        mgr, rx, _ = self._pair()
+        payload = mgr.tick()
+        assert rx.receive(payload)["status"] is FrameStatus.OK
+        assert rx.receive(payload)["status"] is FrameStatus.REPLAYED
+
+    def test_old_frame_beyond_200ms_is_rejected_for_skew(self):
+        mgr, rx, clock = self._pair()
+        payload = mgr.tick()
+        clock[0] += 0.201
+        assert rx.receive(payload)["status"] is FrameStatus.CLOCK_SKEW
+        assert rx.last_frame_counter is None
+
+    def test_future_frame_beyond_200ms_is_rejected_for_skew(self):
+        key = generate_show_key()
+        mgr = BroadcastManager(key, clock=lambda: self.NOW + 0.201)
+        rx = BroadcastReceiver(key, clock=lambda: self.NOW)
+        assert rx.receive(mgr.tick())["status"] is FrameStatus.CLOCK_SKEW
+
+    def test_skew_of_exactly_200ms_is_accepted(self):
+        key = generate_show_key()
+        mgr = BroadcastManager(key, clock=lambda: self.NOW)
+        rx = BroadcastReceiver(key, clock=lambda: self.NOW + 0.2)
+        assert rx.receive(mgr.tick())["status"] is FrameStatus.OK
+
+    def test_rejected_frames_never_advance_the_counter(self):
+        # If a forged frame could raise last_frame_counter, one bogus frame
+        # with counter 2^64-1 would make the fleet drop every genuine frame.
+        mgr, rx, clock = self._pair()
+        assert rx.receive(mgr.tick())["status"] is FrameStatus.OK
+        before = rx.last_frame_counter
+        forged = bytearray(mgr.tick())
+        struct.pack_into("<Q", forged, 15, 2**64 - 1)
+        assert rx.receive(bytes(forged))["status"] is FrameStatus.BAD_TAG
+        assert rx.last_frame_counter == before
+        clock[0] += 0.1
+        assert rx.receive(mgr.tick())["status"] is FrameStatus.OK
+
+    def test_counter_is_strictly_increasing_even_if_the_clock_stalls_or_steps_back(self):
+        mgr, _, clock = self._pair()
+        counters = []
+        for step in (0.0, 0.0, -5.0, 0.0):
+            clock[0] += step
+            counters.append(decode_broadcast_frame(mgr.tick(), mgr._key)["frame_counter"])
+        assert all(b > a for a, b in zip(counters, counters[1:]))
+
+    def test_a_restarted_gcs_is_not_mistaken_for_a_replay(self):
+        # A new BroadcastManager (GCS process restart) must not start from 0
+        # and be dropped by every drone that heard the previous run.
+        key = generate_show_key()
+        clock = [self.NOW]
+        rx = BroadcastReceiver(key, clock=lambda: clock[0])
+        first = BroadcastManager(key, clock=lambda: clock[0])
+        for _ in range(50):
+            assert rx.receive(first.tick())["status"] is FrameStatus.OK
+            clock[0] += 1 / DOWNLINK_HZ
+
+        clock[0] += 3.0  # GCS down for a few seconds
+        restarted = BroadcastManager(key, clock=lambda: clock[0])
+
+        assert rx.receive(restarted.tick())["status"] is FrameStatus.OK
+
+    def test_malformed_payload_is_dropped_not_raised(self):
+        _, rx, _ = self._pair()
+        assert rx.receive(b"\x00" * 16)["status"] is FrameStatus.MALFORMED
+        assert rx.last_frame is None
 
 
 class TestBroadcastManager:
     def test_transmits_to_the_broadcast_sysid(self):
         sent = []
-        mgr = BroadcastManager(transmit=lambda payload, sysid: sent.append((payload, sysid)))
+        mgr = BroadcastManager(KEY, transmit=lambda payload, sysid: sent.append((payload, sysid)))
         mgr.tick()
         assert len(sent) == 1
         payload, sysid = sent[0]
@@ -271,31 +443,31 @@ class TestBroadcastManager:
 
     def test_one_frame_per_tick_regardless_of_fleet_size(self):
         sent = []
-        mgr = BroadcastManager(transmit=lambda payload, sysid: sent.append(payload))
+        mgr = BroadcastManager(KEY, transmit=lambda payload, sysid: sent.append(payload))
         for _ in range(10):
             mgr.tick()
         assert len(sent) == 10 == mgr.frames_sent
 
     def test_broadcasts_the_current_state_and_sequence(self):
-        mgr = BroadcastManager(clock=lambda: 1_700_000_000.0)
+        mgr = BroadcastManager(KEY, clock=lambda: 1_700_000_000.0)
         mgr.set_state(SwarmState.RUN)
         mgr.set_sequence(9)
-        decoded = decode_broadcast_frame(mgr.tick())
+        decoded = decode_broadcast_frame(mgr.tick(), KEY)
         assert decoded["state"] == SwarmState.RUN
         assert decoded["sequence_id"] == 9
         assert decoded["valid"]
 
     def test_stamps_utc_microseconds_from_the_clock(self):
-        mgr = BroadcastManager(clock=lambda: 1_700_000_000.5)
-        decoded = decode_broadcast_frame(mgr.tick())
+        mgr = BroadcastManager(KEY, clock=lambda: 1_700_000_000.5)
+        decoded = decode_broadcast_frame(mgr.tick(), KEY)
         assert decoded["utc_timestamp_usec"] == 1_700_000_000_500_000
 
     def test_starts_idle(self):
-        assert BroadcastManager().state is SwarmState.IDLE
+        assert BroadcastManager(KEY).state is SwarmState.IDLE
 
     def test_rejects_an_unknown_state(self):
         with pytest.raises(ValueError):
-            BroadcastManager().set_state(99)
+            BroadcastManager(KEY).set_state(99)
 
 
 class TestStatusPayloadCodec:
