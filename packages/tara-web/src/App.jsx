@@ -5,8 +5,8 @@ import { decodeFastFrame, decodeFastFrameInto, FLOATS_PER_DRONE } from './teleme
 import EarthView from './views/EarthView';
 import NightSkyView from './views/NightSkyView';
 
-const API_BASE = import.meta.env.VITE_API_BASE || `http://${window.location.hostname || 'localhost'}:8000`;
-const WS_URL = import.meta.env.VITE_WS_URL || `ws://${window.location.hostname || 'localhost'}:8000/ws/telemetry`;
+const API_BASE = import.meta.env.VITE_API_BASE || `http://${window.location.hostname || 'localhost'}:8090`;
+const WS_URL = import.meta.env.VITE_WS_URL || `ws://${window.location.hostname || 'localhost'}:8090/ws/telemetry`;
 
 // Keep in sync with NightSkyView's MAX_DRONES instance capacity.
 const MAX_NIGHTSKY_DRONES = 1000;

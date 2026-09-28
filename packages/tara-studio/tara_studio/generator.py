@@ -5,7 +5,6 @@ Taramandal Studio - Trajectory Generation Library
 import bisect
 import functools
 import math
-import logging
 
 from tara_core import DEFAULT_LIMITS, MAX_FLEET_SIZE, altitude_layers, launch_grid
 from tara_core.assignment import optimal_assignment

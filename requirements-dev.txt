@@ -1,0 +1,4 @@
+# Lint / type-check tooling for the CI `lint-and-typecheck` job (issue #66).
+# Install alongside the runtime set: pip install -r requirements.txt -r requirements-dev.txt
+ruff
+mypy

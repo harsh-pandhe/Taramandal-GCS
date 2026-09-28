@@ -60,7 +60,7 @@ def run_checks(config: TaraConfig) -> list[CheckResult]:
             CheckResult(
                 "PX4-Autopilot build",
                 px4_binary.exists(),
-                str(px4_binary) if px4_binary.exists() else f"not found at {px4_binary} — build PX4 first, or set [px4].autopilot_dir in tara.toml",
+                str(px4_binary) if px4_binary.exists() else f"not found at {px4_binary} — build PX4 first, or set PX4_AUTOPILOT_DIR (or [px4].autopilot_dir in tara.toml)",
             )
         )
         # `tara up` prepends /usr/bin to PATH for the fleet service specifically

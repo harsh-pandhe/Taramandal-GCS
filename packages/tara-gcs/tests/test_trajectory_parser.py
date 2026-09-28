@@ -1,11 +1,9 @@
 import pytest
-import pandas as pd
 import json
 from tara_gcs.trajectory_parser import (
     _parse_json,
     _parse_csv,
-    validate_trajectory_collisions,
-    parse_trajectory_bytes
+    validate_trajectory_collisions
 )
 from tara_gcs.drone_manager import DroneManager
 

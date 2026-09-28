@@ -1,3 +1,13 @@
+# Automated quality gates (issue #66). Independent jobs so a red X says
+# which gate broke: lint/types, Python tests, frontend tests, the 100-drone
+# safety regression, or the Playwright visual/E2E suite. All must pass for
+# a PR to merge.
+#
+# Not run here: apps/tara/tests/test_up_down_lifecycle.py (marked `slow`). It
+# launches `tara up` through config.venv_python, which hardcodes
+# <repo>/.venv/bin/python — a path a setup-python runner doesn't have, so the
+# test errors rather than skipping. Tracked in #46.
+
 name: Taramandal Monorepo CI
 
 on:
@@ -7,30 +17,80 @@ on:
     branches: [ main ]
 
 jobs:
-  test-python:
-    name: Python Test Suite
+  lint-and-typecheck:
+    name: Lint & Typecheck
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up Python 3.12
+      - name: Set up Python 3.13
         uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
+          python-version: "3.13"
+          cache: "pip"
+          cache-dependency-path: |
+            requirements.txt
+            requirements-dev.txt
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt -r requirements-dev.txt
+
+      - name: Ruff
+        run: ruff check .
+
+      - name: Mypy (tara-core)
+        run: mypy packages/tara-core
+
+      # Warnings are reported but not fatal: tara-web carries 3 pre-existing
+      # react-hooks/exhaustive-deps warnings in EarthView.jsx.
+      - name: oxlint (tara-web)
+        working-directory: packages/tara-web
+        run: |
+          npm ci
+          npm run lint
+
+      - name: oxlint (tara-studio-web)
+        working-directory: packages/tara-studio-web
+        run: |
+          npm ci
+          npm run lint
+
+  python-tests:
+    name: Python Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.13
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
           cache: "pip"
 
-      - name: Install Dependencies
+      - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Run Pytest Suite (Fast Path)
-        run: |
-          pytest -p asyncio -m "not slow"
+      # The `slow` tests are covered elsewhere: the 100-drone show runs in the
+      # scale-regression job below, and the lifecycle test is excluded (see the
+      # note at the top of this file).
+      - name: Pytest (all packages, fast path)
+        run: pytest -p asyncio -m "not slow"
 
-  test-frontend:
-    name: Frontend Build Check
+  frontend-tests:
+    name: Frontend Tests
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
 
@@ -39,14 +99,80 @@ jobs:
         with:
           node-version: "20"
 
-      - name: Build tara-web (GCS)
+      - name: tara-studio-web — Vitest + build
+        working-directory: packages/tara-studio-web
+        run: |
+          npm ci
+          npm test
+          npm run build
+
+      - name: tara-web — build
         working-directory: packages/tara-web
         run: |
           npm ci
           npm run build
 
-      - name: Build tara-studio-web (Studio)
-        working-directory: packages/tara-studio-web
+      - name: tara-web — install Playwright Chromium
+        working-directory: packages/tara-web
+        run: npx playwright install --with-deps chromium
+
+      # The 2 "visual regression" snapshot tests are excluded here: they run in
+      # the dedicated test-e2e job below, against the pinned Docker image whose
+      # exact browser/GL build produced the committed -linux baselines. Running
+      # them again here, against this job's plain chromium install, would just
+      # diff against baselines rendered by a different browser build.
+      - name: tara-web — Playwright E2E
+        working-directory: packages/tara-web
+        run: npx playwright test --grep-invert "visual regression"
+
+  scale-regression:
+    name: Scale Regression (100 drones)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.13
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: "pip"
+
+      - name: Install dependencies
         run: |
-          npm ci
-          npm run build
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      # Flies 100 drones through the real DroneManager sim backend and fails on
+      # any proximity or geofence breach. tools/benchmark_fleet_scale.py is not
+      # used: it reports breaches but always exits 0.
+      - name: 100-drone show, zero safety breaches
+        run: pytest packages/tara-gcs/tests/test_sim_backend.py::test_100_drone_sim_show_completes_with_zero_safety_violations -v --durations=0
+
+  test-e2e:
+    name: Playwright E2E (tara-web)
+    runs-on: ubuntu-latest
+    # The same image `npm run test:e2e:docker` uses, so the committed -linux
+    # snapshot baselines were rendered by exactly this browser build and GL
+    # stack. The tag must match @playwright/test in tara-web's package-lock.json.
+    container:
+      image: mcr.microsoft.com/playwright:v1.62.1-jammy
+      options: --ipc=host
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        working-directory: packages/tara-web
+        run: npm ci
+
+      - name: Run Playwright
+        working-directory: packages/tara-web
+        run: npm run test:e2e
+
+      - name: Upload failure artifacts
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-test-results
+          path: packages/tara-web/test-results/
+          retention-days: 7

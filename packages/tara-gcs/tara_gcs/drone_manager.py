@@ -489,7 +489,7 @@ class DroneManager:
             async def stop_and_rtl(d_id, d_obj):
                 try:
                     await d_obj.offboard.stop()
-                except Exception as e:
+                except Exception:
                     pass  # Ignore if not in offboard
                 try:
                     await d_obj.action.return_to_launch()
@@ -511,7 +511,7 @@ class DroneManager:
             async def stop_and_land(d_id, d_obj):
                 try:
                     await d_obj.offboard.stop()
-                except Exception as e:
+                except Exception:
                     pass
                 try:
                     await d_obj.action.land()

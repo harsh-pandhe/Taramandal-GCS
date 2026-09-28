@@ -87,7 +87,7 @@ async def main():
             drone = await run_drone_mvp(i, port, target_alt)
             if drone:
                 drones.append((i, drone))
-            print(f"Waiting 1 second before commanding next drone...")
+            print("Waiting 1 second before commanding next drone...")
             await asyncio.sleep(1.0)
         except Exception as e:
             print(f"Error launching Drone {i} on port {port}: {e}")

@@ -7,7 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from tara_gcs.drone_manager import DroneManager
-from tara_gcs.trajectory_parser import parse_trajectory_file, parse_trajectory_bytes
+from tara_gcs.trajectory_parser import parse_trajectory_bytes
 from tara_gcs.telemetry_codec import FAST_HZ, SLOW_HZ, encode_fast_frame, encode_slow_frame
 from tara_gcs.sim_manager import SimLaunchError, SimManager
 
@@ -422,5 +422,5 @@ async def websocket_telemetry_endpoint(websocket: WebSocket):
 if __name__ == "__main__":
     import uvicorn
     host = os.environ.get("GCS_HOST", "0.0.0.0")
-    port = int(os.environ.get("GCS_PORT", 8000))
+    port = int(os.environ.get("GCS_PORT", 8090))
     uvicorn.run("tara_gcs.main:app", host=host, port=port, reload=True)
