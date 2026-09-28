@@ -6,11 +6,18 @@
 set -e
 ROOT="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 
-if [ ! -x "$ROOT/.venv/bin/python" ]; then
-  echo "error: $ROOT/.venv not found. Run:" >&2
+# An activated virtualenv wins, so one living outside the repo works; the
+# in-repo .venv is the fallback. tara_cli reuses this interpreter for every
+# Python service it spawns (sys.executable).
+if [ -n "$VIRTUAL_ENV" ] && [ -x "$VIRTUAL_ENV/bin/python" ]; then
+  PY="$VIRTUAL_ENV/bin/python"
+elif [ -x "$ROOT/.venv/bin/python" ]; then
+  PY="$ROOT/.venv/bin/python"
+else
+  echo "error: no virtualenv found. Activate one, or run:" >&2
   echo "  python3 -m venv .venv && .venv/bin/pip install -r requirements.txt" >&2
   exit 1
 fi
 
 export PYTHONPATH="$ROOT/apps/tara:$ROOT/packages/tara-core:$ROOT/packages/tara-gcs:$ROOT/packages/tara-studio"
-exec "$ROOT/.venv/bin/python" -m tara_cli "$@"
+exec "$PY" -m tara_cli "$@"

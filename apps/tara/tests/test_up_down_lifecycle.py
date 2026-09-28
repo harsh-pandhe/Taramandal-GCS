@@ -70,6 +70,10 @@ def _port_is_free(port: int) -> bool:
     instead of a confusing failure over a port collision.
     """
     with socket.socket() as s:
+        # Match uvicorn/vite, which set SO_REUSEADDR: without it, the TIME_WAIT
+        # sockets the previous parametrized run's shutdown leaves behind read
+        # as "in use" and skip the next run, though nothing is listening.
+        s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         try:
             s.bind(("127.0.0.1", port))
             return True

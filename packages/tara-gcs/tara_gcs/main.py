@@ -410,5 +410,5 @@ async def websocket_telemetry_endpoint(websocket: WebSocket):
 if __name__ == "__main__":
     import uvicorn
     host = os.environ.get("GCS_HOST", "0.0.0.0")
-    port = int(os.environ.get("GCS_PORT", 8000))
+    port = int(os.environ.get("GCS_PORT", 8090))
     uvicorn.run("tara_gcs.main:app", host=host, port=port, reload=True)
