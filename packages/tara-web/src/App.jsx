@@ -5,6 +5,8 @@ import { decodeFastFrame, decodeFastFrameInto, FLOATS_PER_DRONE } from './teleme
 import EarthView from './views/EarthView';
 import NightSkyView from './views/NightSkyView';
 import ConfirmButton from './ConfirmButton';
+import { InterlockCards, PreflightModal, ProfileBadge } from './PreflightChecklist';
+import { usePreflight } from './preflight';
 
 const API_BASE = import.meta.env.VITE_API_BASE || `http://${window.location.hostname || 'localhost'}:8090`;
 const WS_URL = import.meta.env.VITE_WS_URL || `ws://${window.location.hostname || 'localhost'}:8090/ws/telemetry`;
@@ -28,6 +30,10 @@ export default function App() {
   }
   const [wsConnected, setWsConnected] = useState(false);
   const [bypassChecklist, setBypassChecklist] = useState(false);
+  // Pre-arm gates are evaluated by the GCS (issue #48); the dashboard only
+  // renders the verdict and opens the gated launch modal.
+  const { report: preflight, error: preflightError } = usePreflight(API_BASE);
+  const [showPreflight, setShowPreflight] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
   // Which emergency action (if any) is waiting for its confirming click
   // (issue #98). One at a time, so a confirm can't land on the wrong action.
@@ -180,12 +186,8 @@ export default function App() {
     loadDefaultTrajectory();
   }, []);
 
-  // Calculate Checklist Evaluations
   const droneIds = Object.keys(telemetry);
   const connectedCount = droneIds.filter(id => telemetry[id].connected).length;
-  const totalDrones = droneIds.length || 3;
-
-  const allConnected = droneIds.length > 0 && connectedCount === droneIds.length;
 
   // Fleet-wide aggregates for the status strip, and the matrix/card layout switch.
   const MATRIX_THRESHOLD = 12;
@@ -217,17 +219,6 @@ export default function App() {
     return 'ready';
   }
   
-  const allGpsLocked = droneIds.length > 0 && droneIds.every(id => 
-    !telemetry[id].connected || telemetry[id].gps_lock
-  );
-  
-  const allBatterySafe = droneIds.length > 0 && droneIds.every(id => 
-    !telemetry[id].connected || telemetry[id].battery_percent > 75
-  );
-
-  const checklistPassed = allConnected && allGpsLocked && allBatterySafe;
-  const launchEnabled = checklistPassed || bypassChecklist;
-
   // Poll simulation process status. Deliberately slower than telemetry: this
   // reads the host's process table and psutil counters, which is expensive
   // relative to how fast "is Gazebo up" actually changes. The telemetry
@@ -721,10 +712,10 @@ export default function App() {
             <div className="master-controls">
               <button 
                 className="btn btn-launch" 
-                onClick={() => triggerAction('/api/launch')}
-                disabled={!launchEnabled || droneIds.length === 0}
+                onClick={() => setShowPreflight(true)}
+                data-testid="open-preflight"
               >
-                START SEQUENTIAL TAKEOFF
+                PRE-ARM CHECK &amp; TAKEOFF
               </button>
               
               <ConfirmButton
@@ -757,10 +748,20 @@ export default function App() {
                 style={{ accentColor: 'var(--primary)', cursor: 'pointer' }}
               />
               <label htmlFor="bypass" style={{ fontSize: '0.85rem', color: 'var(--text-muted)', cursor: 'pointer' }}>
-                Bypass pre-flight checklist restrictions (For testing/simulation)
+                Bypass launch-geometry check for START SHOW (For testing/simulation)
               </label>
             </div>
           </section>
+
+          {showPreflight && (
+            <PreflightModal
+              apiBase={API_BASE}
+              report={preflight}
+              error={preflightError}
+              onClose={() => setShowPreflight(false)}
+              onLaunched={() => setErrorMsg('')}
+            />
+          )}
 
           {/* Fleet Status */}
           <section className="gcs-panel">
@@ -839,72 +840,13 @@ export default function App() {
 
         {/* Right side: Sidebar (Checklist & Trajectory Parser) */}
         <aside className="sidebar">
-          {/* Preflight Checklist Panel */}
+          {/* Pre-arm interlocks, live from GET /api/preflight-check */}
           <section className="gcs-panel">
-            <h2 className="panel-header">PRE-FLIGHT CHECKLIST</h2>
-            <div className="checklist-grid">
-              <div className={`checklist-card ${allConnected ? 'valid' : ''}`}>
-                <div className="checklist-title">
-                  Connectivity
-                  <span className={`check-indicator ${allConnected ? 'pass' : 'fail'}`}>
-                    {allConnected ? '✓ PASS' : '✗ FAIL'}
-                  </span>
-                </div>
-                <div className="checklist-item">
-                  <span>Drones Connected:</span>
-                  <span className="val">{connectedCount}/{totalDrones}</span>
-                </div>
-              </div>
-
-              <div className={`checklist-card ${allGpsLocked ? 'valid' : ''}`}>
-                <div className="checklist-title">
-                  GPS Health
-                  <span className={`check-indicator ${allGpsLocked ? 'pass' : 'fail'}`}>
-                    {allGpsLocked ? '✓ PASS' : '✗ FAIL'}
-                  </span>
-                </div>
-                {droneIds.length > 0 ? (
-                  droneIds.map((id) => (
-                    <div className="checklist-item" key={id}>
-                      <span>Sats (Drone {String(id).padStart(2, '0')}):</span>
-                      <span className="val">{telemetry[id]?.satellites || 0}</span>
-                    </div>
-                  ))
-                ) : (
-                  <>
-                    <div className="checklist-item">
-                      <span>Sats (Drone 00):</span>
-                      <span className="val">0</span>
-                    </div>
-                    <div className="checklist-item">
-                      <span>Sats (Drone 01):</span>
-                      <span className="val">0</span>
-                    </div>
-                    <div className="checklist-item">
-                      <span>Sats (Drone 02):</span>
-                      <span className="val">0</span>
-                    </div>
-                  </>
-                )}
-              </div>
-
-              <div className={`checklist-card ${allBatterySafe ? 'valid' : ''}`}>
-                <div className="checklist-title">
-                  Battery Safety
-                  <span className={`check-indicator ${allBatterySafe ? 'pass' : 'fail'}`}>
-                    {allBatterySafe ? '✓ PASS' : '✗ FAIL'}
-                  </span>
-                </div>
-                <div className="checklist-item">
-                  <span>Charge Threshold:</span>
-                  <span className="val">&gt; 75%</span>
-                </div>
-                <div className="checklist-item">
-                  <span>Status:</span>
-                  <span className="val">{allBatterySafe ? 'Safe' : 'Insufficient'}</span>
-                </div>
-              </div>
-            </div>
+            <h2 className="panel-header">
+              PRE-ARM INTERLOCKS
+              <ProfileBadge report={preflight} />
+            </h2>
+            <InterlockCards report={preflight} error={preflightError} />
           </section>
 
           {/* Trajectory Planner Ingestion */}

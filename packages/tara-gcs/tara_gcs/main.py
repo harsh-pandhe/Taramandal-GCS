@@ -12,6 +12,7 @@ from tara_gcs.telemetry_codec import FAST_HZ, SLOW_HZ, encode_fast_frame, encode
 from tara_gcs.sim_manager import SimLaunchError, SimManager
 from tara_gcs.show_auth import load_trust_policy
 from tara_core.signing import MAX_MANIFEST_BYTES, SignatureError
+from tara_gcs.preflight import AuditLog, ConfirmationError, PreArmChecklistEngine, load_safety_config
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
@@ -55,10 +56,23 @@ sim_manager = SimManager(repo_root=REPO_ROOT)
 
 # Trusted show-signing keys come from tara.toml's [security] table (issue #49).
 # GCS_CONFIG_PATH points at a different tara.toml, e.g. a test's temp one.
+_tara_toml_path = Path(os.environ.get("GCS_CONFIG_PATH") or REPO_ROOT / "tara.toml")
 trust_policy = load_trust_policy(
-    Path(os.environ.get("GCS_CONFIG_PATH") or REPO_ROOT / "tara.toml"),
+    _tara_toml_path,
     allow_unsigned=os.environ.get("GCS_ALLOW_UNSIGNED", "").lower() in ("1", "true", "yes"),
 )
+
+# Pre-arm checklist engine (issue #48). The operational profile comes from
+# tara.toml's [safety] table (or TARA_OPERATIONAL_PROFILE), never from the API,
+# so nothing a browser sends can relax the gate a GCS was started with.
+safety_config = load_safety_config(_tara_toml_path)
+audit_kwargs = {"path": os.environ["GCS_AUDIT_PATH"]} if os.environ.get("GCS_AUDIT_PATH") else {}
+preflight_engine = PreArmChecklistEngine(
+    profile=safety_config.profile,
+    battery_cells=safety_config.battery_cells,
+    audit_log=AuditLog(**audit_kwargs),
+)
+logger.info(f"Pre-arm safety profile: {safety_config.profile.value}")
 
 @app.on_event("startup")
 async def startup_event():
@@ -111,25 +125,116 @@ async def get_status():
         "trajectory_running": drone_manager.is_running_trajectory,
     }
 
+@app.get("/api/preflight-check")
+async def preflight_check():
+    """Per-drone, per-rule pre-arm gate status under the active safety profile.
+
+    Reads the telemetry dict the monitor loops maintain, like /api/status, so
+    the dashboard's checklist HUD can poll it.
+    """
+    return preflight_engine.evaluate_manager(drone_manager)
+
+
+@app.get("/api/preflight/audit")
+async def preflight_audit(limit: int = 50):
+    """Most recent audit-trail entries (latch/override steps, launch decisions)."""
+    entries = list(preflight_engine.audit.recent)[-max(0, limit):]
+    return {"entries": entries}
+
+
+class ConfirmationRequest(BaseModel):
+    operator: str = "operator"
+
+
+class OverrideRequest(BaseModel):
+    rules: list[str]
+    reason: str
+    operator: str = "operator"
+
+
+class ConfirmationCommit(BaseModel):
+    token: str
+    operator: str = "operator"
+
+
+@app.post("/api/preflight/latch/request")
+async def preflight_latch_request(req: ConfirmationRequest = ConfirmationRequest()):
+    """Step 1 of the two-step launch confirmation latch. Returns the token step 2 needs."""
+    return preflight_engine.request_latch(operator=req.operator)
+
+
+@app.post("/api/preflight/latch/confirm")
+async def preflight_latch_confirm(req: ConfirmationCommit):
+    """Step 2: confirms the latch. Consumed by the next accepted launch."""
+    gates = preflight_engine.evaluate_manager(drone_manager)
+    summary = {"launch_permitted": gates["launch_permitted"], "blocking_reasons": gates["blocking_reasons"]}
+    try:
+        return preflight_engine.confirm_latch(req.token, operator=req.operator, gates=summary)
+    except ConfirmationError as e:
+        raise HTTPException(status_code=409, detail=str(e))
+
+
+@app.post("/api/preflight/override/request")
+async def preflight_override_request(req: OverrideRequest):
+    """Step 1 of overriding BLOCKING rules the active profile marks overridable."""
+    try:
+        return preflight_engine.request_override(req.rules, req.reason, operator=req.operator)
+    except ConfirmationError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.post("/api/preflight/override/confirm")
+async def preflight_override_confirm(req: ConfirmationCommit):
+    """Step 2: activates the override. Consumed by the next accepted launch."""
+    try:
+        return preflight_engine.confirm_override(req.token, operator=req.operator)
+    except ConfirmationError as e:
+        raise HTTPException(status_code=409, detail=str(e))
+
+
 @app.post("/api/launch")
 async def launch_fleet():
     logger.info("API: Launching fleet...")
+    decision = preflight_engine.authorize_launch(drone_manager)
+    if not decision.permitted:
+        # 412: the request is well-formed, but a precondition the server
+        # enforces (a red pre-arm gate) does not hold.
+        raise HTTPException(
+            status_code=412,
+            detail={
+                "message": "Launch refused: pre-arm gates are red.",
+                "profile": decision.report["profile"],
+                "blocking_reasons": decision.report["blocking_reasons"],
+            },
+        )
+
     # Checked here as well as inside launch_sequence() so a refusal reaches the
     # operator as a 409, rather than only as a log line from the background task.
-    gate = drone_manager.launch_gate()
-    if not gate["ok"]:
-        raise HTTPException(status_code=409, detail=gate["reason"])
+    if drone_manager.staged_show is not None:
+        gate = drone_manager.launch_gate()
+        if not gate["ok"]:
+            raise HTTPException(status_code=409, detail=gate["reason"])
 
     # Wrap launch sequence task with error handling
     async def run_launch():
         try:
-            await drone_manager.launch_sequence()
+            await drone_manager.launch_sequence(
+                drone_ids=decision.drone_ids,
+                require_ekf_health="ekf_health" not in decision.overridden_rules,
+            )
         except LaunchGateError as e:
             logger.error(f"Launch refused: {e}")
         except Exception as e:
             logger.error(f"Error during launch sequence execution: {e}")
     asyncio.create_task(run_launch())
-    return {"status": "success", "message": "Launch sequence initiated."}
+    return {
+        "status": "success",
+        "message": "Launch sequence initiated.",
+        "profile": decision.report["profile"],
+        "drone_ids": decision.drone_ids,
+        "excluded_drone_ids": decision.report["excluded_drone_ids"],
+        "overridden_rules": sorted(decision.overridden_rules),
+    }
 
 @app.post("/api/rtl")
 async def trigger_rtl():

@@ -270,6 +270,16 @@ class DroneManager:
                 "planned_y": 0.0,
                 "planned_z": 0.0,
                 "planned_valid": False,
+                # Pre-arm checklist inputs (tara_gcs.preflight, issue #48).
+                # time.monotonic() when the link last came up with no dropped
+                # heartbeat or failed latency probe since; None while down.
+                "link_stable_since": None,
+                "health_armable": False,
+                "health_home_ok": False,
+                # Hash of the mission the vehicle holds onboard, as reported
+                # by whatever uploaded it. None under streamed execution, where
+                # the GCS sends setpoints and nothing is stored onboard.
+                "mission_hash": None,
             }
 
             # On the sim backend one fleet-wide task fills this in instead
@@ -286,6 +296,7 @@ class DroneManager:
             self._tasks.append(asyncio.create_task(self._monitor_armed_state(drone_id)))
             self._tasks.append(asyncio.create_task(self._measure_latency_loop(drone_id)))
             self._tasks.append(asyncio.create_task(self._monitor_home(drone_id)))
+            self._tasks.append(asyncio.create_task(self._monitor_health(drone_id)))
         except Exception as e:
             logging.error(f"Error during _connect_drone initialization for Drone {drone_id}: {e}")
             raise e
@@ -430,7 +441,12 @@ class DroneManager:
         try:
             drone = self.drones[drone_id]
             async for state in drone.core.connection_state():
-                self.telemetry[drone_id]["connected"] = state.is_connected
+                tel = self.telemetry[drone_id]
+                if state.is_connected and tel["link_stable_since"] is None:
+                    tel["link_stable_since"] = time.monotonic()
+                elif not state.is_connected:
+                    tel["link_stable_since"] = None
+                tel["connected"] = state.is_connected
         except asyncio.CancelledError:
             pass
         except Exception as e:
@@ -525,6 +541,9 @@ class DroneManager:
                     self.telemetry[drone_id]["comm_latency_ms"] = latency_ms
                 except Exception:
                     self.telemetry[drone_id]["comm_latency_ms"] = -1.0
+                    # A probe that got no answer is a dropped exchange: restart
+                    # the heartbeat-continuity window the pre-arm check reads.
+                    self.telemetry[drone_id]["link_stable_since"] = time.monotonic()
                 await asyncio.sleep(1.0)
         except asyncio.CancelledError:
             pass
@@ -726,13 +745,25 @@ class DroneManager:
             "launch_gate": gate,
         }
 
+    async def _monitor_health(self, drone_id):
+        """Mirrors the two health flags _launch_one waits on, for the pre-arm checklist."""
+        try:
+            drone = self.drones[drone_id]
+            async for health in drone.telemetry.health():
+                self.telemetry[drone_id]["health_armable"] = bool(health.is_armable)
+                self.telemetry[drone_id]["health_home_ok"] = bool(health.is_home_position_ok)
+        except asyncio.CancelledError:
+            pass
+        except Exception as e:
+            logging.error(f"Error in _monitor_health for Drone {drone_id}: {e}")
+
     # --- Flight commands ---
 
     # Max drones armed/climbed concurrently in one launch batch. Keeps gRPC/CPU
     # load bounded as fleet size grows, instead of one drone at a time.
     LAUNCH_BATCH_SIZE = 5
 
-    async def launch_sequence(self):
+    async def launch_sequence(self, drone_ids: list[int] | None = None, require_ekf_health: bool = True):
         """
         Arm, switch to offboard, and take off in bounded-concurrency batches,
         with each drone in a batch staggered by 1s (preserves the original
@@ -742,22 +773,38 @@ class DroneManager:
         pick up stragglers (e.g. drones that missed the armable window) does
         not re-command drones that are already flying back to (0,0,0).
 
-        Gated on the show upload (issue #47): nothing arms unless launch_gate()
-        passes, and only drones holding a verified mission are armed.
+        Args:
+            drone_ids: Launch only these drones (the set the pre-arm checklist
+                cleared). Defaults to armable drones from the verified upload gate
+                (if staged) or all connected drones.
+            require_ekf_health: If False, skip waiting for is_armable/home lock
+                and attempt to arm straight away. Only for an operator-confirmed
+                EKF bypass on the bench (ENGINEERING profile, issue #48).
 
         Raises:
             LaunchGateError: If the gate does not pass.
         """
-        gate = self.launch_gate()
-        if not gate["ok"]:
-            raise LaunchGateError(gate["reason"])
+        if drone_ids is None:
+            gate = self.launch_gate()
+            if not gate["ok"]:
+                raise LaunchGateError(gate["reason"])
+            drone_ids = gate["armable"]
+        else:
+            drone_ids = [d for d in drone_ids if d in self.drones]
+            if self.staged_show is not None:
+                gate = self.launch_gate()
+                if not gate["ok"]:
+                    raise LaunchGateError(gate["reason"])
+                drone_ids = [d for d in drone_ids if d in gate["armable"]]
         logging.info("Launching fleet (batched, concurrent)...")
-        drone_ids = gate["armable"]
         for batch_start in range(0, len(drone_ids), self.LAUNCH_BATCH_SIZE):
             batch = drone_ids[batch_start:batch_start + self.LAUNCH_BATCH_SIZE]
-            await asyncio.gather(*(self._launch_one(drone_id, stagger_index=i) for i, drone_id in enumerate(batch)))
+            await asyncio.gather(*(
+                self._launch_one(drone_id, stagger_index=i, require_ekf_health=require_ekf_health)
+                for i, drone_id in enumerate(batch)
+            ))
 
-    async def _launch_one(self, drone_id: int, stagger_index: int = 0):
+    async def _launch_one(self, drone_id: int, stagger_index: int = 0, require_ekf_health: bool = True):
         """Arms, engages offboard, and climbs a single drone. Safe to re-call on an already-armed drone (no-op)."""
         if self.telemetry[drone_id]["armed"]:
             logging.info(f"Drone {drone_id} already armed — skipping (idempotent launch).")
@@ -805,14 +852,17 @@ class DroneManager:
                     if health.is_armable and health.is_home_position_ok:
                         logging.info(f"Drone {drone_id} is now armable with home position locked.")
                         break
-            try:
-                await asyncio.wait_for(_wait_armable(), timeout=HOME_LOCK_TIMEOUT_S)
-            except asyncio.TimeoutError:
-                logging.error(
-                    f"Drone {drone_id} did not become armable with home lock within "
-                    f"{HOME_LOCK_TIMEOUT_S}s — skipping (retry later via /api/launch)."
-                )
-                return
+            if not require_ekf_health:
+                logging.warning(f"Drone {drone_id}: EKF health wait bypassed by operator override.")
+            else:
+                try:
+                    await asyncio.wait_for(_wait_armable(), timeout=HOME_LOCK_TIMEOUT_S)
+                except asyncio.TimeoutError:
+                    logging.error(
+                        f"Drone {drone_id} did not become armable with home lock within "
+                        f"{HOME_LOCK_TIMEOUT_S}s — skipping (retry later via /api/launch)."
+                    )
+                    return
 
             # Arm
             try:
