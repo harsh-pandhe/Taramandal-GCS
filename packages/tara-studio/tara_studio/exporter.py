@@ -83,16 +83,16 @@ def export_kml(choreo_data: dict, home_lat: float = 12.9716, home_lon: float = 7
         coords_block = " ".join(coord_strings)
         
         kml_parts.extend([
-            f'    <Placemark>',
+            '    <Placemark>',
             f'      <name>Drone {d_id:02d}</name>',
-            f'      <styleUrl>#path_style</styleUrl>',
-            f'      <LineString>',
-            f'        <extrude>1</extrude>',
-            f'        <tessellate>1</tessellate>',
-            f'        <altitudeMode>relativeToGround</altitudeMode>',
+            '      <styleUrl>#path_style</styleUrl>',
+            '      <LineString>',
+            '        <extrude>1</extrude>',
+            '        <tessellate>1</tessellate>',
+            '        <altitudeMode>relativeToGround</altitudeMode>',
             f'        <coordinates>{coords_block}</coordinates>',
-            f'      </LineString>',
-            f'    </Placemark>'
+            '      </LineString>',
+            '    </Placemark>'
         ])
         
     kml_parts.extend([

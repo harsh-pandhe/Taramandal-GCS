@@ -14,7 +14,10 @@ num_drones = 3
 backend = "px4"
 
 [px4]
-autopilot_dir = "/home/harsh-pandhe/PX4-Autopilot"
+# Path to your PX4-Autopilot checkout. Resolved in this order: the
+# PX4_AUTOPILOT_DIR environment variable, this key, then ~/PX4-Autopilot.
+# Prefer the env var for a machine-specific path so it stays out of git.
+# autopilot_dir = "~/PX4-Autopilot"
 
 [ports]
 gcs_backend = 8090
