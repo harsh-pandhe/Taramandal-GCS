@@ -19,7 +19,6 @@ from __future__ import annotations
 from fastapi.testclient import TestClient
 
 from tara_core.geometry import quintic_segment
-from tara_studio.generator import generate_circle
 from tara_studio.server import app
 
 client = TestClient(app)
