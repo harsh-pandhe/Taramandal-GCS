@@ -337,7 +337,7 @@ const EMPTY_SUMMARY = {
   worstId: null,
 };
 
-export default function NightSkyView({ telemetry, fleetBuffer }) {
+export default function NightSkyView({ telemetry, fleetBuffer, frameloop = 'always' }) {
   const [summary, setSummary] = useState(EMPTY_SUMMARY);
 
   // The fleet lives in one preallocated Float32Array for the lifetime of the
@@ -407,6 +407,13 @@ export default function NightSkyView({ telemetry, fleetBuffer }) {
         gl={{ antialias: false, powerPreference: 'high-performance' }}
         dpr={[1, 1.75]}
         style={{ background: '#000000' }}
+        // Always on in production (the default every caller but the e2e
+        // harness gets): the scene keeps painting so OrbitControls' damping
+        // and telemetry updates land on screen without an explicit
+        // invalidate() call from outside this component. The harness switches
+        // this to 'demand' only to freeze a settled frame for screenshotting
+        // — see e2e/harness/nightsky.jsx.
+        frameloop={frameloop}
       >
         <fog attach="fog" args={['#000814', 40, 320]} />
         <ambientLight intensity={0.15} />

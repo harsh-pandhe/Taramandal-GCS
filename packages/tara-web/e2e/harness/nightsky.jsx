@@ -34,6 +34,9 @@ function Harness() {
     count: 0,
   });
   const [ready, setReady] = useState(false);
+  // 'always' (NightSkyView's own default, matching production) until a
+  // visual-regression test freezes the scene for a deterministic screenshot.
+  const [frameloop, setFrameloop] = useState('always');
 
   useEffect(() => {
     const fleet = fleetRef.current;
@@ -73,7 +76,21 @@ function Harness() {
       }
     }
 
-    window.__nightsky = { setFleet, clearPlan, fleet };
+    // Stops NightSkyView's Canvas repainting so a visual-regression test can
+    // capture one bit-stable frame. The scene keeps painting on 'always' (the
+    // default) for every other test here, which need the render loop live to
+    // reflect setFleet/clearPlan without an explicit invalidate() call; the
+    // 2 visual-regression tests call this immediately before toHaveScreenshot,
+    // after the fleet/HUD state they're capturing has already settled.
+    // React Three Fiber's frameloop switch takes effect from the render this
+    // triggers onward — not synchronously — so callers must still wait a
+    // couple of animation frames before treating the canvas as frozen (see
+    // the visual-regression tests in deviation.spec.js).
+    function freeze() {
+      setFrameloop('demand');
+    }
+
+    window.__nightsky = { setFleet, clearPlan, freeze, fleet };
     setReady(true);
   }, []);
 
@@ -81,7 +98,7 @@ function Harness() {
 
   return (
     <div style={{ width: '100vw', height: '100vh' }}>
-      <NightSkyView fleetBuffer={fleetRef} />
+      <NightSkyView fleetBuffer={fleetRef} frameloop={frameloop} />
     </div>
   );
 }
