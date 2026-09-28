@@ -1,6 +1,7 @@
-# Automated quality gates (issue #66). Four independent jobs so a red X says
-# which gate broke: lint/types, Python tests, frontend tests, or the 100-drone
-# safety regression. All four must pass for a PR to merge.
+# Automated quality gates (issue #66). Independent jobs so a red X says
+# which gate broke: lint/types, Python tests, frontend tests, the 100-drone
+# safety regression, or the Playwright visual/E2E suite. All must pass for
+# a PR to merge.
 #
 # Not run here: apps/tara/tests/test_up_down_lifecycle.py (marked `slow`). It
 # launches `tara up` through config.venv_python, which hardcodes
@@ -115,10 +116,11 @@ jobs:
         working-directory: packages/tara-web
         run: npx playwright install --with-deps chromium
 
-      # The 2 "visual regression" snapshot tests are excluded until #45 commits
-      # Linux baselines — only *-chromium-win32.png exist, and a missing
-      # baseline fails toHaveScreenshot. The other 9 tests assert on sampled
-      # pixels, HUD text and draw calls, and need no baselines.
+      # The 2 "visual regression" snapshot tests are excluded here: they run in
+      # the dedicated test-e2e job below, against the pinned Docker image whose
+      # exact browser/GL build produced the committed -linux baselines. Running
+      # them again here, against this job's plain chromium install, would just
+      # diff against baselines rendered by a different browser build.
       - name: tara-web — Playwright E2E
         working-directory: packages/tara-web
         run: npx playwright test --grep-invert "visual regression"
@@ -146,3 +148,31 @@ jobs:
       # used: it reports breaches but always exits 0.
       - name: 100-drone show, zero safety breaches
         run: pytest packages/tara-gcs/tests/test_sim_backend.py::test_100_drone_sim_show_completes_with_zero_safety_violations -v --durations=0
+
+  test-e2e:
+    name: Playwright E2E (tara-web)
+    runs-on: ubuntu-latest
+    # The same image `npm run test:e2e:docker` uses, so the committed -linux
+    # snapshot baselines were rendered by exactly this browser build and GL
+    # stack. The tag must match @playwright/test in tara-web's package-lock.json.
+    container:
+      image: mcr.microsoft.com/playwright:v1.62.1-jammy
+      options: --ipc=host
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        working-directory: packages/tara-web
+        run: npm ci
+
+      - name: Run Playwright
+        working-directory: packages/tara-web
+        run: npm run test:e2e
+
+      - name: Upload failure artifacts
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-test-results
+          path: packages/tara-web/test-results/
+          retention-days: 7

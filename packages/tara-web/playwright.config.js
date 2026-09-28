@@ -14,6 +14,14 @@ export default defineConfig({
   reporter: process.env.CI ? 'github' : 'list',
   timeout: 120_000,
 
+  // Baselines are kept per platform (…-chromium-linux.png, …-chromium-win32.png)
+  // because the same scene rasterises differently across OS/GL stacks by more
+  // than the thresholds below absorb. The Linux baselines are the ones CI checks,
+  // and they are only reproducible inside the pinned Playwright image the CI job
+  // runs in — regenerate them with `npm run test:e2e:docker:update` from any OS,
+  // never from a native Linux run, whose GPU/driver/fonts won't match CI's.
+  snapshotPathTemplate: '{testDir}/{testFileDir}/{testFileName}-snapshots/{arg}{-projectName}{-platform}{ext}',
+
   use: {
     baseURL: 'http://localhost:5183',
     trace: 'retain-on-failure',
