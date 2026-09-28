@@ -1,6 +1,6 @@
 """A `System`-shaped object backed by :class:`~tara_sim.fleet_state.FleetState`.
 
-`tara_gcs.drone_manager.DroneManager` calls exactly 19 methods across 4 MAVSDK
+`tara_gcs.drone_manager.DroneManager` calls exactly 22 methods across 5 MAVSDK
 submodules on whatever object it stores at ``self.drones[drone_id]``:
 ``.core.connection_state()``; ``.telemetry.battery()``, ``.flight_mode()``,
 ``.gps_info()``, ``.position_velocity_ned()``, ``.armed()``, ``.health()``,
@@ -8,7 +8,13 @@ submodules on whatever object it stores at ``self.drones[drone_id]``:
 ``.return_to_launch()``, ``.get_takeoff_altitude()``; ``.offboard.start()``,
 ``.stop()``, ``.set_position_ned()``, ``.set_position_global()``,
 ``.set_position_velocity_acceleration_ned()``; ``.param.set_param_int()``,
-``.set_param_float()``.
+``.set_param_float()``; ``.ftp.create_directory()``, ``.upload()``,
+``.are_files_identical()``.
+
+The show broadcast trigger has no MAVSDK method — it is one frame addressed to
+every drone at once, not a call on any one of them — so it arrives through
+:meth:`SimFleet.broadcast` instead, which plays the part of the drones' shared
+radio.
 
 ``SimSystem`` implements exactly that surface — nothing more — so
 `DroneManager` cannot tell the difference between a real `mavsdk.System` and
@@ -25,8 +31,11 @@ never needs the class itself.
 from __future__ import annotations
 
 import asyncio
+import logging
+import os
+import zlib
 
-from tara_core import geodetic_to_ned, ned_to_geodetic
+from tara_core import ShowCommand, decode_mission, decode_show_trigger, geodetic_to_ned, ned_to_geodetic
 
 from .fleet_state import FleetState
 
@@ -159,7 +168,7 @@ class _Offboard:
         self._sys = system
 
     async def start(self):
-        self._sys._fs.offboard_active[self._sys.drone_id] = True
+        self._sys._fs.command_offboard_start(self._sys.drone_id)
 
     async def stop(self):
         self._sys._fs.offboard_active[self._sys.drone_id] = False
@@ -185,6 +194,47 @@ class _Offboard:
             accel_ff=(a.north_m_s2, a.east_m_s2, -a.down_m_s2),
             yaw_deg=p.yaw_deg,
         )
+
+
+class SimFtpError(Exception):
+    """Stands in for ``mavsdk.ftp.FtpError`` — raised on a failed transfer."""
+
+
+class _Ftp:
+    """MAVLink FTP against the drone's onboard storage (``FleetState.storage``).
+
+    Transfers need the link: a drone whose ``connected`` flag is down fails
+    them, exactly as a real FTP session would time out.
+    """
+
+    def __init__(self, system: "SimSystem"):
+        self._sys = system
+
+    def _require_link(self, op: str) -> None:
+        if not self._sys._fs.connected[self._sys.drone_id]:
+            raise SimFtpError(f"{op}: drone {self._sys.drone_id} is not reachable")
+
+    async def create_directory(self, remote_dir: str):
+        self._require_link("create_directory")
+
+    async def upload(self, local_file_path: str, remote_dir: str):
+        """Mirrors MAVSDK: an async generator yielding progress until done."""
+        self._require_link("upload")
+        with open(local_file_path, "rb") as f:
+            data = f.read()
+        remote_path = f"{remote_dir.rstrip('/')}/{os.path.basename(local_file_path)}"
+        self._sys._fs.storage[self._sys.drone_id][remote_path] = data
+        yield _Obj(bytes_transferred=len(data), total_bytes=len(data))
+
+    async def are_files_identical(self, local_file_path: str, remote_file_path: str) -> bool:
+        """Mirrors MAVSDK: the drone reports its copy's CRC-32, compared locally."""
+        self._require_link("are_files_identical")
+        stored = self._sys._fs.storage[self._sys.drone_id].get(remote_file_path)
+        if stored is None:
+            raise SimFtpError(f"are_files_identical: {remote_file_path} not found on drone {self._sys.drone_id}")
+        with open(local_file_path, "rb") as f:
+            local = f.read()
+        return zlib.crc32(stored) == zlib.crc32(local)
 
 
 class _Param:
@@ -217,6 +267,7 @@ class SimSystem:
         self.action = _Action(self)
         self.offboard = _Offboard(self)
         self.param = _Param()
+        self.ftp = _Ftp(self)
 
     async def connect(self, system_address: str = ""):
         self._fs._connected_since[self.drone_id] = self._fs.time_s
@@ -258,6 +309,52 @@ class SimFleet:
             home_lat, home_lon = self._homes[drone_id]
             self._systems[drone_id] = SimSystem(self.state, drone_id, home_lat, home_lon)
         return self._systems[drone_id]
+
+    def broadcast(self, payload: bytes, target_system: int = 0) -> None:
+        """Put one show-trigger frame on the fleet's shared radio.
+
+        Every drone whose link is up hears the same frame; a drone whose link
+        is down simply misses it. Each drone then does what its firmware would:
+        on START, look through its own storage for a mission matching the
+        trigger's show id and addressed to itself, and schedule it; on CANCEL,
+        stop and hold. No reply comes back — a broadcast has no acks, and
+        whether a drone took the trigger shows up in its telemetry
+        (flight mode ``SHOW``), not here.
+        """
+        if target_system != 0:
+            raise ValueError("SimFleet.broadcast only models the broadcast address (target_system=0)")
+        try:
+            trigger = decode_show_trigger(payload)
+        except ValueError:
+            return
+        if not trigger["valid"]:
+            return
+
+        fs = self.state
+        for i in range(fs.n):
+            if not fs.connected[i]:
+                continue
+            if trigger["command"] == ShowCommand.CANCEL:
+                if fs.mission_show_id[i] == trigger["show_id"]:
+                    fs.cancel_mission(i)
+                continue
+            if not self._load_stored_mission(i, trigger["show_id"]):
+                continue
+            fs.start_mission(i, trigger["start_utc_usec"] / 1_000_000)
+
+    def _load_stored_mission(self, drone_id: int, show_id: bytes) -> bool:
+        """Find, validate and load this drone's stored mission for ``show_id``."""
+        fs = self.state
+        for path, blob in fs.storage[drone_id].items():
+            try:
+                header, waypoints = decode_mission(blob)
+            except ValueError as e:
+                logging.warning(f"Sim drone {drone_id}: ignoring unreadable mission {path}: {e}")
+                continue
+            if header.show_id == show_id and header.drone_id == drone_id:
+                fs.load_mission(drone_id, show_id, waypoints)
+                return True
+        return False
 
     def start(self):
         return self.state.start()

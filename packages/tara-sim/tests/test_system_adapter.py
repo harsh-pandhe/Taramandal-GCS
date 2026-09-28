@@ -9,9 +9,9 @@ import asyncio
 
 import pytest
 
-from tara_core import ned_to_geodetic
+from tara_core import ShowCommand, compile_mission, encode_show_trigger, ned_to_geodetic
 from tara_sim.fleet_state import SimConfig
-from tara_sim.system import SimFleet
+from tara_sim.system import SimFleet, SimFtpError
 
 
 class _Pos:
@@ -247,3 +247,102 @@ class TestNoMavsdkDependency:
         for module in (tara_sim, tara_sim.fleet_state, tara_sim.system):
             source = inspect.getsource(module)
             assert "import mavsdk" not in source and "from mavsdk" not in source
+
+
+class TestFtpAndBroadcast:
+    """The staging half (MAVLink FTP into onboard storage) and the start half
+    (one broadcast frame) of an onboard show, issue #47."""
+
+    SHOW_ID = b"\x11" * 16
+    REMOTE_DIR = "/fs/microsd/tara"
+    WPS = [
+        {"time": 0.0, "x": 0.0, "y": 0.0, "z": -2.0, "yaw": 0.0},
+        {"time": 3.0, "x": 1.0, "y": 0.0, "z": -2.0, "yaw": 0.0},
+    ]
+
+    def _write(self, tmp_path, drone_id, show_id=None):
+        path = tmp_path / str(drone_id) / "show.tmsn"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(compile_mission(self.WPS, drone_id=drone_id, show_id=show_id or self.SHOW_ID))
+        return str(path)
+
+    async def _upload(self, sys_, local):
+        async for _ in sys_.ftp.upload(local, self.REMOTE_DIR):
+            pass
+
+    def test_upload_stores_the_file_and_crc_compare_passes(self, tmp_path):
+        async def go():
+            fleet = SimFleet(1)
+            sys_ = fleet.system(0)
+            local = self._write(tmp_path, 0)
+            await self._upload(sys_, local)
+            remote = f"{self.REMOTE_DIR}/show.tmsn"
+            assert remote in fleet.state.storage[0]
+            assert await sys_.ftp.are_files_identical(local, remote)
+
+            fleet.state.storage[0][remote] = b"corrupt"
+            assert not await sys_.ftp.are_files_identical(local, remote)
+
+        run(go())
+
+    def test_ftp_fails_without_a_link(self, tmp_path):
+        async def go():
+            fleet = SimFleet(1)
+            fleet.state.connected[0] = False
+            with pytest.raises(SimFtpError):
+                await self._upload(fleet.system(0), self._write(tmp_path, 0))
+
+        run(go())
+
+    def _staged_fleet(self, tmp_path, n=3):
+        fleet = SimFleet(n)
+        fleet.state.armed[:] = True
+
+        async def go():
+            for i in range(n):
+                await self._upload(fleet.system(i), self._write(tmp_path, i))
+
+        run(go())
+        return fleet
+
+    def test_start_trigger_schedules_every_listening_drone(self, tmp_path):
+        fleet = self._staged_fleet(tmp_path)
+        fleet.state.connected[2] = False  # misses the frame
+        fleet.broadcast(encode_show_trigger(ShowCommand.START, self.SHOW_ID, 1_234_000_000))
+        assert list(fleet.state.mission_active) == [True, True, False]
+        assert fleet.state.mission_start_utc[0] == pytest.approx(1234.0)
+
+    def test_trigger_for_another_show_is_ignored(self, tmp_path):
+        fleet = self._staged_fleet(tmp_path)
+        fleet.broadcast(encode_show_trigger(ShowCommand.START, b"\x22" * 16, 0))
+        assert not fleet.state.mission_active.any()
+
+    def test_mission_addressed_to_another_drone_is_not_flown(self, tmp_path):
+        fleet = SimFleet(2)
+        fleet.state.armed[:] = True
+        # Drone 1 is handed drone 0's file.
+        run(self._upload(fleet.system(1), self._write(tmp_path, 0)))
+        fleet.broadcast(encode_show_trigger(ShowCommand.START, self.SHOW_ID, 0))
+        assert not fleet.state.mission_active[1]
+
+    def test_corrupted_trigger_is_ignored(self, tmp_path):
+        fleet = self._staged_fleet(tmp_path)
+        frame = bytearray(encode_show_trigger(ShowCommand.START, self.SHOW_ID, 0))
+        frame[-1] ^= 0xFF
+        fleet.broadcast(bytes(frame))
+        assert not fleet.state.mission_active.any()
+
+    def test_corrupted_stored_mission_is_not_flown(self, tmp_path):
+        fleet = self._staged_fleet(tmp_path, n=1)
+        remote = f"{self.REMOTE_DIR}/show.tmsn"
+        blob = bytearray(fleet.state.storage[0][remote])
+        blob[-3] ^= 0x01
+        fleet.state.storage[0][remote] = bytes(blob)
+        fleet.broadcast(encode_show_trigger(ShowCommand.START, self.SHOW_ID, 0))
+        assert not fleet.state.mission_active[0]
+
+    def test_cancel_trigger_stops_the_show(self, tmp_path):
+        fleet = self._staged_fleet(tmp_path)
+        fleet.broadcast(encode_show_trigger(ShowCommand.START, self.SHOW_ID, 0))
+        fleet.broadcast(encode_show_trigger(ShowCommand.CANCEL, self.SHOW_ID))
+        assert not fleet.state.mission_active.any()

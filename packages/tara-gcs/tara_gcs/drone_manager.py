@@ -2,11 +2,26 @@ import asyncio
 import csv
 import math
 import logging
+import os
+import shutil
+import tempfile
 import time
 from scipy.spatial import cKDTree
-from tara_core import DEFAULT_LIMITS, MAX_FLEET_SIZE, altitude_layers, interpolate_waypoint, launch_grid
+from tara_core import (
+    DEFAULT_LIMITS,
+    MAX_FLEET_SIZE,
+    ShowCommand,
+    altitude_layers,
+    compile_mission,
+    compute_show_id,
+    encode_show_trigger,
+    interpolate_waypoint,
+    launch_grid,
+    mission_crc32,
+)
 from mavsdk import System
 from mavsdk.offboard import PositionNedYaw, PositionGlobalYaw, OffboardError, VelocityNedYaw, AccelerationNed
+from tara_gcs.broadcast_manager import BROADCAST_SYSID
 from tara_gcs.state_store import DEFAULT_STATE_PATH, discard_show_state, load_show_state, save_show_state
 
 # Fleet-wide safety limits and launch geometry come from tara_core so that this
@@ -40,6 +55,23 @@ LAUNCH_PAD_SPACING_Y_M = DEFAULT_LIMITS.design_separation_m
 HOME_LOCK_TIMEOUT_S = 45.0
 
 
+#: Where each drone's compiled mission lives on its own storage. PX4 exposes the
+#: SD card to MAVLink FTP under /fs/microsd.
+MISSION_REMOTE_DIR = "/fs/microsd/tara"
+MISSION_FILE_NAME = "show.tmsn"
+
+#: How far ahead of "now" the broadcast start instant is set when the operator
+#: asks to start immediately. Long enough to hand every drone off from offboard
+#: and get the trigger repeated a few times before t=0, so a drone that misses
+#: one frame on a lossy radio still hears another in time.
+TRIGGER_LEAD_S = 1.0
+TRIGGER_REPEAT_INTERVAL_S = 0.2
+
+
+class LaunchGateError(RuntimeError):
+    """Arming refused because the fleet does not hold a verified copy of the show."""
+
+
 #: Pads for the largest fleet we support, computed once. Indexing into a single
 #: fixed grid matters: deriving it per-drone from the current fleet size would
 #: move a drone's pad every time the fleet grew, because the grid's width is
@@ -61,6 +93,7 @@ class DroneManager:
         ports: list[int] = [14540, 14541, 14542],
         backend: str = "px4",
         state_path: str = DEFAULT_STATE_PATH,
+        broadcast_transmit=None,
     ):
         """
         Args:
@@ -80,6 +113,13 @@ class DroneManager:
             state_path: where the active show (trajectory + playback position)
                 is persisted so a GCS restart can offer to resume it (issue #4).
                 Overridable so tests don't collide on/pollute the real file.
+            broadcast_transmit: called with ``(payload_bytes, target_system)``
+                to put a show-trigger frame on the fleet radio — the same
+                injected-transmit seam ``BroadcastManager`` uses. On
+                backend="sim" it defaults to the sim fleet's shared radio. On
+                backend="px4" there is no default: stock PX4 has no onboard
+                show executor to act on the trigger (see #47), so onboard
+                execution is refused until a radio and firmware are wired in.
         """
         if backend not in ("px4", "sim"):
             raise ValueError(f"backend must be 'px4' or 'sim', got {backend!r}")
@@ -111,6 +151,16 @@ class DroneManager:
         self.pending_resume_state = None  # loaded-but-not-yet-applied saved state, set by load_pending_resume_state()
         self._state_snapshot_task = None
 
+        # Onboard show execution (issue #47): each drone is uploaded its own
+        # compiled mission during staging, arming is gated on every one being
+        # verified, and the show is started by one broadcast trigger instead
+        # of a 10Hz unicast setpoint stream.
+        self._broadcast_transmit = broadcast_transmit
+        self.staged_show = None  # see upload_show()
+        self._mission_dir = None  # local copies of compiled missions (FTP uploads from a file path)
+        self._onboard_show_id = None  # show_id of an onboard show currently triggered, for CANCEL
+        self.trigger_frames_sent = 0
+
     async def connect_all(self) -> None:
         """Connects to all drones concurrently."""
         logging.info(f"Connecting to {len(self.ports)} drones (backend={self.backend}) on ports: {self.ports}")
@@ -120,6 +170,8 @@ class DroneManager:
 
             self._sim_fleet = SimFleet(len(self.ports))
             self._tasks.append(self._sim_fleet.start())
+            if self._broadcast_transmit is None:
+                self._broadcast_transmit = self._sim_fleet.broadcast
 
         connect_tasks = []
         for i, port in enumerate(self.ports):
@@ -237,6 +289,10 @@ class DroneManager:
             self._tasks.clear()
 
         self.drones.clear()
+
+        if self._mission_dir:
+            shutil.rmtree(self._mission_dir, ignore_errors=True)
+            self._mission_dir = None
 
     # --- Telemetry loops ---
 
@@ -357,6 +413,189 @@ class DroneManager:
         except Exception as e:
             logging.error(f"Error in _monitor_home for Drone {drone_id}: {e}")
 
+    # --- Show staging: per-drone mission upload (issue #47) ---
+
+    #: Drones uploaded concurrently. MAVLink FTP is chatty (many small
+    #: acknowledged chunks), and on a shared radio a whole fleet uploading at
+    #: once would collide itself into timeouts.
+    UPLOAD_CONCURRENCY = 5
+    UPLOAD_TIMEOUT_S = 60.0
+
+    async def upload_show(self, trajectory_data: dict) -> dict:
+        """Compile the show into one mission file per drone and upload each
+        drone its own, verifying every copy against its CRC-32.
+
+        Slots are assigned to healthy drones exactly as playback always has
+        (remap_trajectory_to_healthy_drones), but here the assignment is fixed
+        into the files themselves — each is compiled in its drone's own pad
+        frame and addressed to that drone — so it is what the fleet will fly.
+        Any change in fleet health afterwards means uploading again, which
+        launch_gate() enforces.
+
+        Returns:
+            mission_status(): per-drone upload status and the launch gate.
+
+        Raises:
+            ValueError: If the show cannot be compiled (e.g. a position outside
+                the mission format's range).
+        """
+        show_id = compute_show_id(trajectory_data)
+        assignment = self.remap_trajectory_to_healthy_drones(trajectory_data)
+
+        if self._mission_dir:
+            shutil.rmtree(self._mission_dir, ignore_errors=True)
+        self._mission_dir = tempfile.mkdtemp(prefix="tara-missions-")
+
+        drones = {}
+        local_paths = {}
+        for drone_id, wps in assignment.items():
+            blob = compile_mission(wps, drone_id=drone_id, show_id=show_id, origin=_pad_offset(drone_id))
+            # MAVSDK's FTP upload keeps the local basename, so each drone's
+            # file gets its own directory rather than its own name.
+            local_dir = os.path.join(self._mission_dir, str(drone_id))
+            os.makedirs(local_dir)
+            local_paths[drone_id] = os.path.join(local_dir, MISSION_FILE_NAME)
+            with open(local_paths[drone_id], "wb") as f:
+                f.write(blob)
+            drones[drone_id] = {
+                "status": "PENDING",
+                "bytes": len(blob),
+                "crc32": f"{mission_crc32(blob):08x}",
+                "msg": "",
+            }
+
+        excluded = {
+            drone_id: "disconnected" if not tel["connected"] else "no trajectory slot (unhealthy, or surplus to the show)"
+            for drone_id, tel in self.telemetry.items()
+            if drone_id not in assignment
+        }
+        self.staged_show = {
+            "show_id": show_id,
+            "trajectory": assignment,
+            "drones": drones,
+            "excluded": excluded,
+        }
+
+        semaphore = asyncio.Semaphore(self.UPLOAD_CONCURRENCY)
+
+        async def _bounded(drone_id):
+            async with semaphore:
+                await self._upload_mission(drone_id, local_paths[drone_id], drones[drone_id])
+
+        await asyncio.gather(*(_bounded(drone_id) for drone_id in drones))
+
+        verified = sum(1 for entry in drones.values() if entry["status"] == "VERIFIED")
+        logging.info(
+            f"Show {show_id.hex()[:8]} uploaded: {verified}/{len(drones)} missions verified, "
+            f"{len(excluded)} drone(s) excluded."
+        )
+        return self.mission_status()
+
+    async def _upload_mission(self, drone_id: int, local_path: str, entry: dict) -> None:
+        """Upload one drone's mission over MAVLink FTP and have the drone
+        confirm its copy's CRC-32. Records the outcome in ``entry``."""
+        drone = self.drones[drone_id]
+        remote_path = f"{MISSION_REMOTE_DIR}/{MISSION_FILE_NAME}"
+        entry["status"] = "UPLOADING"
+
+        async def _transfer() -> bool:
+            try:
+                await drone.ftp.create_directory(MISSION_REMOTE_DIR)
+            except Exception:
+                pass  # PX4's FTP server reports an existing directory as an error
+            async for _ in drone.ftp.upload(local_path, MISSION_REMOTE_DIR):
+                pass
+            return await drone.ftp.are_files_identical(local_path, remote_path)
+
+        try:
+            identical = await asyncio.wait_for(_transfer(), timeout=self.UPLOAD_TIMEOUT_S)
+        except Exception as e:
+            entry["status"] = "FAILED"
+            entry["msg"] = str(e) or type(e).__name__
+            logging.error(f"Mission upload to Drone {drone_id} failed: {entry['msg']}")
+            return
+
+        if identical:
+            entry["status"] = "VERIFIED"
+            entry["msg"] = "Drone-reported CRC-32 matches the compiled mission."
+        else:
+            entry["status"] = "MISMATCH"
+            entry["msg"] = "Drone's stored copy fails the CRC-32 comparison."
+            logging.error(f"Mission on Drone {drone_id} does not match what was uploaded.")
+
+    def launch_gate(self) -> dict:
+        """Whether the fleet may arm: every connected drone must be accounted for
+        by the current upload, and every drone given a mission must hold a
+        verified copy of it and still be connected.
+
+        Drones the upload deliberately left out (disconnected, unhealthy, or
+        surplus to the show) hold no mission and are never armed, so they do
+        not block the rest. A drone that connects *after* the upload does —
+        the fleet has changed under the plan, and the plan is re-made by
+        uploading again.
+
+        Returns:
+            ``{"ok", "reason", "armable", "problems"}``, where ``armable`` is
+            the drones launch_sequence() may arm.
+        """
+        staged = self.staged_show
+        if staged is None:
+            reason = "No show has been uploaded to the fleet. Upload it (POST /api/upload-mission) before arming."
+            return {"ok": False, "reason": reason, "armable": [], "problems": [reason]}
+
+        problems = []
+        if self.active_trajectory is not None:
+            try:
+                current_id = compute_show_id(self.active_trajectory)
+            except ValueError:
+                current_id = None
+            if current_id != staged["show_id"]:
+                problems.append("the loaded trajectory is not the show uploaded to the fleet — upload it again")
+
+        armable = []
+        for drone_id, tel in sorted(self.telemetry.items()):
+            entry = staged["drones"].get(drone_id)
+            if entry is None:
+                if tel["connected"] and drone_id not in staged["excluded"]:
+                    problems.append(f"drone {drone_id} connected after the upload and holds no mission")
+                continue
+            if not tel["connected"]:
+                problems.append(f"drone {drone_id} holds a mission but is disconnected")
+            elif entry["status"] != "VERIFIED":
+                problems.append(f"drone {drone_id} mission {entry['status']}")
+            else:
+                armable.append(drone_id)
+
+        if not staged["drones"]:
+            problems.append("no drone was assigned a mission")
+
+        ok = not problems
+        reason = ""
+        if not ok:
+            shown = "; ".join(problems[:5])
+            more = f" (+{len(problems) - 5} more)" if len(problems) > 5 else ""
+            reason = f"Arming refused: {shown}{more}."
+        return {"ok": ok, "reason": reason, "armable": armable, "problems": problems}
+
+    def mission_status(self) -> dict:
+        """Operator-facing summary of the staged show and the launch gate."""
+        gate = self.launch_gate()
+        staged = self.staged_show
+        if staged is None:
+            return {"staged": False, "launch_gate": gate}
+        drones = staged["drones"]
+        verified = sum(1 for entry in drones.values() if entry["status"] == "VERIFIED")
+        return {
+            "staged": True,
+            "show_id": staged["show_id"].hex(),
+            "assigned_count": len(drones),
+            "verified_count": verified,
+            "all_verified": bool(drones) and verified == len(drones),
+            "drones": {str(drone_id): dict(entry) for drone_id, entry in sorted(drones.items())},
+            "excluded": {str(drone_id): why for drone_id, why in sorted(staged["excluded"].items())},
+            "launch_gate": gate,
+        }
+
     # --- Flight commands ---
 
     # Max drones armed/climbed concurrently in one launch batch. Keeps gRPC/CPU
@@ -372,9 +611,18 @@ class DroneManager:
         Idempotent: already-armed drones are skipped, so re-calling this to
         pick up stragglers (e.g. drones that missed the armable window) does
         not re-command drones that are already flying back to (0,0,0).
+
+        Gated on the show upload (issue #47): nothing arms unless launch_gate()
+        passes, and only drones holding a verified mission are armed.
+
+        Raises:
+            LaunchGateError: If the gate does not pass.
         """
+        gate = self.launch_gate()
+        if not gate["ok"]:
+            raise LaunchGateError(gate["reason"])
         logging.info("Launching fleet (batched, concurrent)...")
-        drone_ids = list(self.drones.keys())
+        drone_ids = gate["armable"]
         for batch_start in range(0, len(drone_ids), self.LAUNCH_BATCH_SIZE):
             batch = drone_ids[batch_start:batch_start + self.LAUNCH_BATCH_SIZE]
             await asyncio.gather(*(self._launch_one(drone_id, stagger_index=i) for i, drone_id in enumerate(batch)))
@@ -522,21 +770,128 @@ class DroneManager:
 
     # --- Trajectory Playback ---
 
-    def start_trajectory(self, trajectory_data: dict, mode: str = "LOCAL", trigger_epoch_ms: float = 0.0):
-        """Start playing back waypoints in a background asyncio task."""
+    def start_trajectory(
+        self,
+        trajectory_data: dict,
+        mode: str = "LOCAL",
+        trigger_epoch_ms: float = 0.0,
+        execution: str = "onboard",
+    ):
+        """Start the show; the GCS-side watch/playback runs in a background task.
+
+        Args:
+            trajectory_data: The show. For onboard execution it must be the one
+                last passed to upload_show().
+            mode: "LOCAL" or "GLOBAL" — how streamed setpoints are expressed.
+                Onboard missions are always flown in each drone's own pad
+                frame, so this only affects execution="streamed".
+            trigger_epoch_ms: UTC instant (ms) the show's t=0 should land on;
+                0 or a past instant means "as soon as possible".
+            execution: "onboard" (default, issue #47): every drone flies the
+                mission upload_show() gave it, from its own storage and clock.
+                The GCS stops offboard streaming, broadcasts one start trigger,
+                and from then on transmits nothing per-drone — so losing the
+                link mid-show does not trip the offboard-loss failsafe.
+                "streamed": the legacy 10Hz unicast setpoint loop. Kept only
+                because stock PX4 SITL has no onboard show executor; it does
+                not scale over a real radio and is not for flying real shows.
+
+        Raises:
+            ValueError: On an unknown ``execution``, or an onboard start that
+                has no verified upload of this show / no broadcast transport.
+        """
+        if execution not in ("onboard", "streamed"):
+            raise ValueError(f"execution must be 'onboard' or 'streamed', got {execution!r}")
+        if execution == "onboard":
+            plan = self._onboard_show_plan(trajectory_data)
+
         self.stop_trajectory()
         self.active_trajectory = trajectory_data
         self.show_mode = mode
         self.show_started_at = time.time()
-        # Remap trajectory slots to currently healthy drones before playback
-        remapped = self.remap_trajectory_to_healthy_drones(trajectory_data)
+        if execution == "streamed":
+            # Remap trajectory slots to currently healthy drones before playback
+            plan = self.remap_trajectory_to_healthy_drones(trajectory_data)
         self.is_running_trajectory = True
         self.start_telemetry_recording()
         self.start_state_snapshotting()
-        self.trajectory_task = asyncio.create_task(self._run_trajectory_loop(remapped, mode, trigger_epoch_ms))
+        self.trajectory_task = asyncio.create_task(
+            self._run_trajectory_loop(plan, mode, trigger_epoch_ms, execution)
+        )
+
+    def _onboard_show_plan(self, trajectory_data: dict) -> dict:
+        """The per-drone trajectories an onboard start will fly, i.e. the
+        staged assignment for drones holding a verified mission. Raises
+        ValueError if an onboard start is not possible."""
+        if self._broadcast_transmit is None:
+            raise ValueError(
+                "Onboard execution needs a broadcast radio and drone firmware with an onboard "
+                f"show executor; the {self.backend} backend has neither (stock PX4 cannot fly a "
+                "timed trajectory from storage). Use execution='streamed' for PX4 SITL development."
+            )
+        staged = self.staged_show
+        if staged is None or compute_show_id(trajectory_data) != staged["show_id"]:
+            raise ValueError(
+                "This trajectory has not been uploaded to the fleet. Upload it "
+                "(POST /api/upload-mission) before starting the show."
+            )
+        verified = [d for d, entry in staged["drones"].items() if entry["status"] == "VERIFIED"]
+        if not verified:
+            raise ValueError("No drone holds a verified mission for this show. Upload it again.")
+        return {drone_id: staged["trajectory"][drone_id] for drone_id in verified}
+
+    def _broadcast(self, payload: bytes) -> None:
+        """One frame to every drone at once (target_system 0), never per-drone."""
+        self._broadcast_transmit(payload, BROADCAST_SYSID)
+        self.trigger_frames_sent += 1
+
+    async def _trigger_onboard_show(self, trajectory_data: dict, trigger_epoch_ms: float) -> float:
+        """Hand the fleet to its onboard executors and broadcast the start.
+
+        Returns:
+            The UTC instant (seconds) the show's t=0 was set to.
+        """
+        show_id = self.staged_show["show_id"]
+
+        # Offboard is released first. MAVSDK's offboard plugin keeps re-sending
+        # the last setpoint for as long as offboard is engaged, so leaving it on
+        # would keep a unicast stream per drone on the air for the whole show —
+        # and a dropout in it would still trip PX4's offboard-loss failsafe.
+        async def _release(drone_id):
+            try:
+                await self.drones[drone_id].offboard.stop()
+            except Exception as e:
+                logging.debug(f"Drone {drone_id}: offboard.stop() before onboard show: {e}")
+
+        await asyncio.gather(*(_release(d) for d in trajectory_data if d in self.drones))
+
+        start_s = max(trigger_epoch_ms / 1000.0, time.time() + TRIGGER_LEAD_S)
+        frame = encode_show_trigger(ShowCommand.START, show_id, int(start_s * 1_000_000))
+        self._onboard_show_id = show_id
+        print(f"Onboard show {show_id.hex()[:8]}: broadcasting start trigger for UTC {start_s:.3f}...")
+
+        # The same frame, repeated until t=0. It carries an absolute start
+        # instant, so a repeat is idempotent and reception jitter cannot skew
+        # the start — repetition only buys reliability on a lossy radio.
+        while True:
+            self._broadcast(frame)
+            remaining = start_s - time.time()
+            if remaining <= 0:
+                break
+            await asyncio.sleep(min(TRIGGER_REPEAT_INTERVAL_S, remaining))
+        return start_s
 
     def stop_trajectory(self):
         """Stop current trajectory playback."""
+        if self._onboard_show_id is not None:
+            # The drones are flying from their own storage, so cancelling the
+            # GCS-side watch loop alone would leave them flying. One broadcast
+            # stops them all; each holds where it is.
+            try:
+                self._broadcast(encode_show_trigger(ShowCommand.CANCEL, self._onboard_show_id))
+            except Exception as e:
+                logging.error(f"Failed to broadcast show CANCEL: {e}")
+            self._onboard_show_id = None
         self.is_running_trajectory = False
         self.stop_telemetry_recording()
         self.stop_state_snapshotting()
@@ -677,20 +1032,34 @@ class DroneManager:
         self.pending_resume_state = None
         discard_show_state(self.state_path)
 
-    async def _run_trajectory_loop(self, trajectory_data: dict, mode: str = "LOCAL", trigger_epoch_ms: float = 0.0):
-        print(f"Starting trajectory playback loop in {mode} mode...")
-        
-        # Clock synchronization (millisecond precision time-of-day trigger delay)
-        if trigger_epoch_ms > 0:
-            import time
-            curr_epoch_s = time.time()
-            trigger_s = trigger_epoch_ms / 1000.0
-            wait_s = trigger_s - curr_epoch_s
-            if wait_s > 0:
-                print(f"Clock Sync: Waiting {wait_s:.3f} seconds to trigger show at Epoch {trigger_s}...")
-                await asyncio.sleep(wait_s)
-                
-        start_time = asyncio.get_event_loop().time()
+    async def _run_trajectory_loop(
+        self,
+        trajectory_data: dict,
+        mode: str = "LOCAL",
+        trigger_epoch_ms: float = 0.0,
+        execution: str = "streamed",
+    ):
+        onboard = execution == "onboard"
+        print(f"Starting trajectory playback loop in {mode} mode ({execution} execution)...")
+
+        if onboard:
+            # From here the GCS only watches: it publishes the planned point
+            # for the HUD and notices the end of the show, but sends nothing.
+            start_epoch_s = await self._trigger_onboard_show(trajectory_data, trigger_epoch_ms)
+            # Align the loop's clock with the drones' UTC one, not with when
+            # this line happened to run.
+            start_time = asyncio.get_event_loop().time() - max(0.0, time.time() - start_epoch_s)
+        else:
+            # Clock synchronization (millisecond precision time-of-day trigger delay)
+            if trigger_epoch_ms > 0:
+                curr_epoch_s = time.time()
+                trigger_s = trigger_epoch_ms / 1000.0
+                wait_s = trigger_s - curr_epoch_s
+                if wait_s > 0:
+                    print(f"Clock Sync: Waiting {wait_s:.3f} seconds to trigger show at Epoch {trigger_s}...")
+                    await asyncio.sleep(wait_s)
+
+            start_time = asyncio.get_event_loop().time()
         
         # Calculate overall duration
         max_time = 0.0
@@ -741,6 +1110,9 @@ class DroneManager:
                         tel["planned_y"] = target["y"]
                         tel["planned_z"] = -target["z"]
                         tel["planned_valid"] = True
+
+                        if onboard:
+                            continue  # the drone is flying this itself
 
                         # Trajectory coordinates are expressed in the shared fleet frame
                         # (pad spacing baked in by the Studio generator). Subtract this
@@ -815,6 +1187,10 @@ class DroneManager:
             # as the fleet lands or returns home.
             for tel in self.telemetry.values():
                 tel["planned_valid"] = False
+            # A finished (or abandoned-by-shutdown) onboard show needs no
+            # CANCEL: drones hold their last waypoint on their own.
+            if onboard:
+                self._onboard_show_id = None
             # Natural completion doesn't go through stop_trajectory(), so stop
             # recording here too (stop_trajectory() already covers the manual-stop path).
             self.stop_telemetry_recording()

@@ -114,6 +114,9 @@ async def fly_and_record(backend: str, n: int) -> dict[int, list[tuple[float, fl
         # index — the signature of unarmed real drones sitting at the origin
         # while their sim counterparts flew the full trajectory).
         await asyncio.sleep(3.0 if backend == "sim" else 25.0)
+        show = reference_trajectory(n)
+        # Arming is gated on every drone holding a verified mission (#47).
+        await manager.upload_show(show)
         await manager.launch_sequence()
         # One retry pass for any drone that missed the armable window the
         # first time (launch_sequence is explicitly idempotent/safe to re-call).
@@ -121,8 +124,9 @@ async def fly_and_record(backend: str, n: int) -> dict[int, list[tuple[float, fl
             await asyncio.sleep(5.0)
             await manager.launch_sequence()
         await asyncio.sleep(2.0 + 1.0 * n)  # bounded-batch stagger, matches launch_sequence's own timing
-        show = reference_trajectory(n)
-        manager.start_trajectory(show, mode="LOCAL")
+        # Streamed on both backends: this calibrates sim physics against PX4
+        # tracking offboard setpoints, and stock PX4 has no onboard executor.
+        manager.start_trajectory(show, mode="LOCAL", execution="streamed")
         trace = await record_trace(manager, n, SHOW_DURATION_S + 1.0, SAMPLE_HZ)
         return trace
     finally:

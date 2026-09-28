@@ -40,7 +40,9 @@ async def test_starting_trajectory_records_show_started_at(tmp_path):
         await asyncio.sleep(0.2)
 
         before = time.time()
-        manager.start_trajectory(_short_show(), mode="LOCAL")
+        show = _short_show()
+        await manager.upload_show(show)
+        manager.start_trajectory(show, mode="LOCAL")
         assert manager.show_started_at is not None
         assert manager.show_started_at >= before
         assert manager.show_mode == "LOCAL"
@@ -58,7 +60,9 @@ async def test_snapshot_is_written_periodically_not_every_tick(tmp_path):
         await manager.connect_all()
         await asyncio.sleep(0.2)
 
-        manager.start_trajectory(_short_show(duration=5.0), mode="LOCAL")
+        show = _short_show(duration=5.0)
+        await manager.upload_show(show)
+        manager.start_trajectory(show, mode="LOCAL")
         assert not os.path.exists(state_path)  # nothing written yet at tick 0
 
         await asyncio.sleep(0.35)  # a few snapshot intervals
@@ -82,7 +86,9 @@ async def test_stop_trajectory_discards_saved_state(tmp_path):
         await manager.connect_all()
         await asyncio.sleep(0.2)
 
-        manager.start_trajectory(_short_show(duration=5.0), mode="LOCAL")
+        show = _short_show(duration=5.0)
+        await manager.upload_show(show)
+        manager.start_trajectory(show, mode="LOCAL")
         await asyncio.sleep(0.15)
         assert os.path.exists(state_path)
 
@@ -102,7 +108,9 @@ async def test_shutdown_mid_show_leaves_state_for_resume(tmp_path):
     await manager.connect_all()
     await asyncio.sleep(0.2)
 
-    manager.start_trajectory(_short_show(duration=5.0), mode="LOCAL")
+    show = _short_show(duration=5.0)
+    await manager.upload_show(show)
+    manager.start_trajectory(show, mode="LOCAL")
     await asyncio.sleep(0.2)
 
     await manager.shutdown()
@@ -121,7 +129,9 @@ async def test_resume_pending_show_reloads_trajectory_without_starting_playback(
     first = DroneManager(ports=[0], backend="sim", state_path=state_path)
     await first.connect_all()
     await asyncio.sleep(0.2)
-    first.start_trajectory(_short_show(duration=5.0), mode="LOCAL")
+    show = _short_show(duration=5.0)
+    await first.upload_show(show)
+    first.start_trajectory(show, mode="LOCAL")
     await asyncio.sleep(0.3)
     await first.shutdown()
 
@@ -155,7 +165,9 @@ async def test_discard_pending_show_clears_state_without_applying(tmp_path):
     first = DroneManager(ports=[0], backend="sim", state_path=state_path)
     await first.connect_all()
     await asyncio.sleep(0.2)
-    first.start_trajectory(_short_show(duration=5.0), mode="LOCAL")
+    show = _short_show(duration=5.0)
+    await first.upload_show(show)
+    first.start_trajectory(show, mode="LOCAL")
     await asyncio.sleep(0.2)
     await first.shutdown()
 
@@ -196,7 +208,9 @@ async def test_unexpected_error_mid_show_propagates_and_still_cleans_up(tmp_path
         await manager.connect_all()
         await asyncio.sleep(0.2)
 
-        manager.start_trajectory(_short_show(duration=5.0), mode="LOCAL")
+        show = _short_show(duration=5.0)
+        await manager.upload_show(show)
+        manager.start_trajectory(show, mode="LOCAL")
         await asyncio.sleep(0.15)
         assert os.path.exists(state_path)
 
@@ -315,6 +329,17 @@ def test_kill_and_restart_gcs_process_recovers_state(tmp_path):
         with urllib.request.urlopen(req, timeout=5.0) as resp:
             upload_result = json.loads(resp.read())
         assert upload_result["status"] == "success"
+
+        # Onboard execution needs each drone to hold a verified copy (#47).
+        # The fleet connects in the background after startup, so retry until
+        # the drone is up and its mission verifies.
+        deadline = time.time() + GCS_STARTUP_TIMEOUT_S
+        while True:
+            mission = _post(base_url, "/api/upload-mission")
+            if mission.get("all_verified") or time.time() > deadline:
+                break
+            time.sleep(0.5)
+        assert mission["all_verified"], mission
 
         _post(base_url, "/api/start-trajectory", {"mode": "LOCAL", "trigger_epoch_ms": 0})
 

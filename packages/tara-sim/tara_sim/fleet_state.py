@@ -18,6 +18,7 @@ simulator as drives real MAVSDK.
 from __future__ import annotations
 
 import asyncio
+import time
 from dataclasses import dataclass
 
 import numpy as np
@@ -37,6 +38,10 @@ RTL_ARRIVAL_RADIUS_M = 0.3
 
 #: Altitude, in metres, below which a descending drone is considered landed.
 LANDED_ALTITUDE_M = 0.05
+
+#: PX4's COM_OF_LOSS_T default: how long a drone in offboard mode tolerates
+#: hearing no setpoint before it gives up on the GCS and fails safe.
+DEFAULT_OFFBOARD_LOSS_TIMEOUT_S = 1.0
 
 
 @dataclass
@@ -61,6 +66,13 @@ class SimConfig:
             default so deterministic tests are actually deterministic.
         armable_delay_s: Simulated EKF/health settle time after connect.
         descent_rate_ms: Vertical speed during the LAND/RTL descent phase.
+        offboard_loss_timeout_s: PX4's COM_OF_LOSS_T. A drone in offboard
+            mode that stops receiving setpoints for this long fails safe to
+            LAND (PX4's COM_OBL_ACT default with no RC). Setpoints are
+            considered received whenever offboard is active and the link is
+            up, modelling MAVSDK's offboard plugin re-sending the last
+            setpoint for as long as offboard is engaged — so this only fires
+            on a genuine link loss, never on a GCS that is merely quiet.
         rng_seed: Seed for the noise/wind/dropout generator. ``None`` for
             nondeterministic (real) runs.
     """
@@ -77,6 +89,7 @@ class SimConfig:
     dropout_prob_per_tick: float = 0.0
     armable_delay_s: float = DEFAULT_ARMABLE_DELAY_S
     descent_rate_ms: float = DEFAULT_DESCENT_RATE_MS
+    offboard_loss_timeout_s: float = DEFAULT_OFFBOARD_LOSS_TIMEOUT_S
     rng_seed: int | None = None
 
     @property
@@ -133,6 +146,28 @@ class FleetState:
         self.rtl_pending = np.zeros(n, dtype=bool)  # "flying home" phase of RTL
         self._connected_since = np.zeros(n)
 
+        # Offboard link-loss failsafe (see SimConfig.offboard_loss_timeout_s).
+        self._last_setpoint_rx = np.full(n, -np.inf)
+        self.offboard_failsafe = np.zeros(n, dtype=bool)
+        #: Unicast offboard setpoints each drone has received from the GCS —
+        #: what a test counts to prove a show flew without any.
+        self.setpoints_received = np.zeros(n, dtype=int)
+
+        # Onboard storage and the onboard mission executor: what lets a drone
+        # fly a show with no GCS in the loop. `storage` stands in for the SD
+        # card MAVLink FTP writes to; a loaded mission is held as arrays in
+        # the drone's own local frame (altitude-up, like `position`).
+        self.storage: list[dict[str, bytes]] = [{} for _ in range(n)]
+        self._mission: list[tuple[np.ndarray, np.ndarray, np.ndarray] | None] = [None] * n
+        self.mission_show_id: list[bytes | None] = [None] * n
+        self.mission_start_utc = np.full(n, np.nan)
+        self.mission_active = np.zeros(n, dtype=bool)
+        self.mission_complete = np.zeros(n, dtype=bool)
+        #: The drone's GNSS-disciplined UTC clock, in seconds. A mission's
+        #: timeline runs off this, not `time_s` — a real fleet shares UTC, not
+        #: a simulator tick count. Replaceable so tests can pin it.
+        self.utc_clock = time.time
+
         self.flight_mode = ["MANUAL"] * n
         self.gps_fix_type = ["FIX_3D"] * n
 
@@ -180,16 +215,20 @@ class FleetState:
         self._staged_yaw_deg[drone_id] = yaw_deg
         self._staged_at[drone_id] = self.time_s
         self._staged_pending[drone_id] = True
+        self._last_setpoint_rx[drone_id] = self.time_s
+        self.setpoints_received[drone_id] += 1
         self.landing[drone_id] = False
         self.rtl_pending[drone_id] = False
 
     def command_land(self, drone_id: int) -> None:
         """Descend straight down from the current position, then disarm."""
+        self.mission_active[drone_id] = False
         self.rtl_pending[drone_id] = False
         self.landing[drone_id] = True
 
     def command_rtl(self, drone_id: int) -> None:
         """Fly to (0, 0) at the current altitude, then land."""
+        self.mission_active[drone_id] = False
         self.landing[drone_id] = False
         self.rtl_pending[drone_id] = True
 
@@ -199,8 +238,56 @@ class FleetState:
     def command_disarm(self, drone_id: int) -> None:
         self.armed[drone_id] = False
         self.offboard_active[drone_id] = False
+        self.mission_active[drone_id] = False
         self.landing[drone_id] = False
         self.rtl_pending[drone_id] = False
+
+    def command_offboard_start(self, drone_id: int) -> None:
+        """Engage offboard mode. Takes over from any onboard mission."""
+        self.offboard_active[drone_id] = True
+        self._last_setpoint_rx[drone_id] = self.time_s
+        self.mission_active[drone_id] = False
+
+    # ------------------------------------------------------ onboard mission
+
+    def load_mission(self, drone_id: int, show_id: bytes, waypoints: list[dict]) -> None:
+        """Load a decoded mission (drone-local NED waypoints) ready to fly.
+
+        Args:
+            drone_id: Which drone.
+            show_id: The show the mission belongs to, matched against triggers.
+            waypoints: As returned by ``tara_core.decode_mission`` — NED, so z
+                is flipped to altitude-up here to match this class's frame.
+        """
+        times = np.array([wp["time"] for wp in waypoints], dtype=float)
+        positions = np.array([(wp["x"], wp["y"], -wp["z"]) for wp in waypoints], dtype=float)
+        yaws = np.array([wp.get("yaw", 0.0) for wp in waypoints], dtype=float)
+        self._mission[drone_id] = (times, positions, yaws)
+        self.mission_show_id[drone_id] = show_id
+        self.mission_active[drone_id] = False
+        self.mission_complete[drone_id] = False
+
+    def start_mission(self, drone_id: int, start_utc_s: float) -> bool:
+        """Arm the loaded mission to begin at ``start_utc_s``. Returns whether it did.
+
+        Refused (False) when nothing is loaded or the drone is not armed — a
+        grounded drone has nothing to fly the show with.
+        """
+        if self._mission[drone_id] is None or not self.armed[drone_id]:
+            return False
+        self.mission_start_utc[drone_id] = start_utc_s
+        self.mission_active[drone_id] = True
+        self.mission_complete[drone_id] = False
+        return True
+
+    def cancel_mission(self, drone_id: int) -> None:
+        """Abandon the mission and hold wherever the drone is right now."""
+        if not self.mission_active[drone_id]:
+            return
+        self.mission_active[drone_id] = False
+        self.target_position[drone_id] = self.position[drone_id]
+        self.target_velocity_ff[drone_id] = 0.0
+        self.target_accel_ff[drone_id] = 0.0
 
     def is_armable(self, drone_id: int) -> bool:
         return (self.time_s - self._connected_since[drone_id]) >= self.config.armable_delay_s
@@ -220,6 +307,8 @@ class FleetState:
             self.target_yaw_deg[due] = self._staged_yaw_deg[due]
             self._staged_pending[due] = False
 
+        self._apply_offboard_loss_failsafe()
+        self._apply_mission()
         self._apply_landing_and_rtl()
 
         pos_err = self.target_position - self.position
@@ -253,6 +342,70 @@ class FleetState:
         for drone_id in np.nonzero(landed)[0]:
             self.command_disarm(int(drone_id))
             self.flight_mode[int(drone_id)] = "LANDED"
+
+    def _apply_offboard_loss_failsafe(self) -> None:
+        cfg = self.config
+        # MAVSDK keeps re-sending the last setpoint while offboard is engaged,
+        # so an offboard drone hears one every tick its link is up.
+        hearing = self.offboard_active & self.connected
+        self._last_setpoint_rx[hearing] = self.time_s
+
+        lost = (
+            self.armed
+            & self.offboard_active
+            & ~self.landing
+            & ~self.rtl_pending
+            & ((self.time_s - self._last_setpoint_rx) > cfg.offboard_loss_timeout_s)
+        )
+        for i in np.nonzero(lost)[0]:
+            i = int(i)
+            self.offboard_active[i] = False
+            self.offboard_failsafe[i] = True
+            self.command_land(i)
+
+    def _apply_mission(self) -> None:
+        """Drive every drone flying an onboard mission straight from its own
+        stored trajectory — no staging latency, because nothing crosses a link."""
+        flying = self.mission_active & self.armed
+        if not np.any(flying):
+            return
+        now = self.utc_clock()
+        for i in np.nonzero(flying)[0]:
+            i = int(i)
+            elapsed = now - self.mission_start_utc[i]
+            if elapsed < 0.0:
+                continue  # trigger received, t=0 not yet reached: keep holding
+            times, positions, yaws = self._mission[i]
+            self._staged_pending[i] = False
+
+            if elapsed >= times[-1]:
+                self.target_position[i] = positions[-1]
+                self.target_velocity_ff[i] = 0.0
+                self.target_accel_ff[i] = 0.0
+                self.target_yaw_deg[i] = yaws[-1]
+                self.mission_active[i] = False
+                self.mission_complete[i] = True
+                continue
+
+            k = int(np.searchsorted(times, elapsed, side="right"))
+            if k == 0:
+                self.target_position[i] = positions[0]
+                self.target_velocity_ff[i] = 0.0
+                self.target_accel_ff[i] = 0.0
+                self.target_yaw_deg[i] = yaws[0]
+                continue
+            t0, t1 = times[k - 1], times[k]
+            span = t1 - t0
+            ratio = (elapsed - t0) / span if span > 0 else 0.0
+            p0, p1 = positions[k - 1], positions[k]
+            self.target_position[i] = p0 + ratio * (p1 - p0)
+            self.target_velocity_ff[i] = (p1 - p0) / span if span > 0 else 0.0
+            # Shorter-arc yaw, matching tara_core.interpolate_waypoint.
+            diff = (yaws[k] - yaws[k - 1]) % 360.0
+            if diff > 180.0:
+                diff -= 360.0
+            self.target_yaw_deg[i] = (yaws[k - 1] + ratio * diff) % 360.0
+            self.target_accel_ff[i] = 0.0
 
     def _apply_landing_and_rtl(self) -> None:
         cfg = self.config
@@ -294,7 +447,13 @@ class FleetState:
 
         flying = self.armed & ~self.landing & ~self.rtl_pending
         for i in np.nonzero(flying)[0]:
-            self.flight_mode[int(i)] = "OFFBOARD" if self.offboard_active[i] else "HOLD"
+            if self.mission_active[i]:
+                mode = "SHOW"
+            elif self.offboard_active[i]:
+                mode = "OFFBOARD"
+            else:
+                mode = "HOLD"
+            self.flight_mode[int(i)] = mode
 
     # ---------------------------------------------------------- telemetry
 

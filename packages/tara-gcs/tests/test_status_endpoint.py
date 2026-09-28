@@ -13,7 +13,7 @@ import asyncio
 import pytest
 
 from tara_gcs import main as gcs_main
-from tara_gcs.drone_manager import DroneManager
+from tara_gcs.drone_manager import DroneManager, _pad_offset
 
 
 @pytest.fixture
@@ -68,6 +68,12 @@ async def test_status_armed_count_tracks_the_launch_sequence(patched_manager):
         await asyncio.sleep(0.5)
         assert (await gcs_main.get_status())["armed"] == 0
 
+        # Arming is gated on every drone holding a verified mission (#47).
+        show = {}
+        for i in range(n):
+            x, y = _pad_offset(i)
+            show[i] = [{"time": 0.0, "x": x, "y": y, "z": 0.0}, {"time": 1.0, "x": x, "y": y, "z": -2.0}]
+        await manager.upload_show(show)
         await manager.launch_sequence()
         await asyncio.sleep(0.5)  # armed-state monitors are a stream, not instant
 
