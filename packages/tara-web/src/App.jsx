@@ -322,10 +322,17 @@ export default function App() {
     }
   };
 
-  // Trajectory File Upload
+  // Trajectory File Upload. The show file and its detached .sig.json
+  // signature manifest are picked together (issue #49); the GCS refuses a
+  // show without a valid signature unless it runs with --allow-unsigned.
   const handleFileUpload = async (event) => {
-    const file = event.target.files[0];
-    if (!file) return;
+    const picked = Array.from(event.target.files);
+    const signature = picked.find((f) => f.name.endsWith('.sig.json'));
+    const file = picked.find((f) => f !== signature);
+    if (!file) {
+      setErrorMsg('Select the show file together with its .sig.json signature.');
+      return;
+    }
 
     setFileDetails({
       name: file.name,
@@ -334,6 +341,7 @@ export default function App() {
 
     const formData = new FormData();
     formData.append('file', file);
+    if (signature) formData.append('signature', signature);
 
     try {
       const res = await fetch(`${API_BASE}/api/upload-trajectory`, {
@@ -343,6 +351,7 @@ export default function App() {
       const data = await res.json();
       
       if (res.ok && data.status === 'success') {
+        setFileDetails((prev) => ({ ...prev, signature: data.signature }));
         setTrajSummary(data.drones_summary);
         setTrajectoryData(data.trajectory_data);
         setIsPlaying(false);
@@ -863,13 +872,16 @@ export default function App() {
               <div className="uploader-text">
                 <strong>Click to ingest trajectory</strong>
                 <br />
-                Supports time-ordered .json / .csv
+                Supports time-ordered .json / .csv / .skyc
+                <br />
+                Select the show and its .sig.json together
               </div>
               <input 
                 type="file" 
                 ref={fileInputRef} 
                 onChange={handleFileUpload} 
                 accept=".json,.csv,.skyc" 
+                multiple
                 className="uploader-file-input"
               />
             </div>
@@ -891,6 +903,17 @@ export default function App() {
                   </span>
                   <span>{fileDetails.size}</span>
                 </div>
+                {fileDetails.signature && (
+                  <div style={{
+                    fontSize: '0.75rem',
+                    fontFamily: 'var(--font-mono)',
+                    color: fileDetails.signature.verified ? 'var(--success)' : 'var(--danger)'
+                  }}>
+                    {fileDetails.signature.verified
+                      ? `SIGNED BY ${fileDetails.signature.signer} (key ${fileDetails.signature.key_id})`
+                      : 'UNSIGNED: accepted only because the GCS runs with --allow-unsigned'}
+                  </div>
+                )}
                 {trajSummary ? (
                   <>
                     <div style={{ borderBottom: '1px solid rgba(255,255,255,0.05)', margin: '0.25rem 0' }}></div>
