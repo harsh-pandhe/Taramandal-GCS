@@ -7,6 +7,7 @@ optionally RViz) that this project used before Phase 1 of the finishing plan.
 from __future__ import annotations
 
 import sys
+from pathlib import Path
 
 import typer
 
@@ -32,6 +33,18 @@ def up(
     num_drones = n if n is not None else config.num_drones
     backend_name = backend if backend is not None else config.backend
     rviz_enabled = rviz if rviz is not None else config.rviz
+
+    # Fail here, before anything is spawned, rather than as one interleaved
+    # line in the fleet service's log while the backends start up regardless.
+    if backend_name == "px4" and not Path(config.px4_autopilot_dir).is_dir():
+        typer.secho(
+            f"[tara] PX4-Autopilot not found at {config.px4_autopilot_dir}.\n"
+            "[tara] Set PX4_AUTOPILOT_DIR to your checkout (or [px4].autopilot_dir in "
+            "tara.toml), or run with --backend sim.",
+            fg=typer.colors.RED,
+            err=True,
+        )
+        raise typer.Exit(1)
 
     try:
         services = build_services(

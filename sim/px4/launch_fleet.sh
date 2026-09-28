@@ -6,7 +6,7 @@ set -e
 # Default parameters
 NUM_DRONES=3
 HEADLESS=0
-PX4_AUTOPILOT_DIR=${PX4_AUTOPILOT_DIR:-"/home/harsh-pandhe/PX4-Autopilot"}
+PX4_AUTOPILOT_DIR=${PX4_AUTOPILOT_DIR:-"$HOME/PX4-Autopilot"}
 # Hard ceiling. Real PX4 SITL is heavy (~one process + physics load per drone),
 # so the practical single-machine limit is well below this — beyond ~10-15 drones
 # use the synthetic-telemetry load harness instead of real SITL. Override with
@@ -71,6 +71,7 @@ fi
 
 if [ ! -d "$PX4_AUTOPILOT_DIR" ]; then
   echo "Error: PX4 Autopilot directory not found at $PX4_AUTOPILOT_DIR"
+  echo "       Set PX4_AUTOPILOT_DIR to your PX4-Autopilot checkout, or pass -p <dir>."
   exit 1
 fi
 

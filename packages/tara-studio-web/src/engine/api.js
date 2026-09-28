@@ -4,8 +4,8 @@
 export const API_BASE = import.meta.env.VITE_API_BASE || 'http://127.0.0.1:8001';
 
 // The GCS fleet backend the "Transmit to GCS" button pushes trajectories to.
-// Override with VITE_GCS_BASE (defaults to the GCS backend's default port 8000).
-export const GCS_BASE = import.meta.env.VITE_GCS_BASE || 'http://localhost:8000';
+// Override with VITE_GCS_BASE (defaults to tara.toml's [ports].gcs_backend, 8090).
+export const GCS_BASE = import.meta.env.VITE_GCS_BASE || 'http://localhost:8090';
 
 // Mirrors tara_core.layout.MAX_FLEET_SIZE — kept in sync by hand, same as
 // geo.js/telemetry.js on the GCS side. Used only to bound the drone-count input.
