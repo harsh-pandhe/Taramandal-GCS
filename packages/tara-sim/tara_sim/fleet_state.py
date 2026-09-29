@@ -329,6 +329,19 @@ class FleetState:
         self.target_velocity_ff[drone_id] = 0.0
         self.target_accel_ff[drone_id] = 0.0
 
+    def command_kill(self, drone_id: int) -> None:
+        """Cut the motors: disarm immediately, wherever the drone is.
+
+        There is no free-fall model (a disarmed drone's velocity is simply
+        zeroed each tick), so a killed drone is put on the ground straight
+        away rather than left frozen in mid-air, reporting a stale altitude
+        while disarmed.
+        """
+        self.command_disarm(drone_id)
+        self.position[drone_id, 2] = 0.0
+        self.velocity[drone_id] = 0.0
+        self.flight_mode[drone_id] = "TERMINATED"
+
     def is_armable(self, drone_id: int) -> bool:
         return (self.time_s - self._connected_since[drone_id]) >= self.config.armable_delay_s
 

@@ -281,6 +281,7 @@ def test_kill_and_restart_gcs_process_recovers_state(tmp_path):
     # This test is about crash recovery, not show signing (issue #49), so it
     # uploads a plain unsigned file the way `tara up --allow-unsigned` permits.
     env["GCS_ALLOW_UNSIGNED"] = "1"
+    env["GCS_AUDIT_PATH"] = str(tmp_path / "fleet_audit.jsonl")
     env["PYTHONPATH"] = os.pathsep.join([
         os.path.join(repo_root, "packages", "tara-core"),
         os.path.join(repo_root, "packages", "tara-gcs"),
@@ -343,6 +344,14 @@ def test_kill_and_restart_gcs_process_recovers_state(tmp_path):
                 break
             time.sleep(0.5)
         assert mission["all_verified"], mission
+
+        # The fleet lifecycle (issue #52) refuses to start a show on the
+        # ground, so take off first, as an operator would.
+        _post(base_url, "/api/launch")
+        deadline = time.time() + GCS_STARTUP_TIMEOUT_S
+        while _get(base_url, "/api/fleet-state")["state"] != "FORMATION_HOLD":
+            assert time.time() < deadline, "fleet never reached FORMATION_HOLD after launch"
+            time.sleep(0.2)
 
         _post(base_url, "/api/start-trajectory", {"mode": "LOCAL", "trigger_epoch_ms": 0})
 

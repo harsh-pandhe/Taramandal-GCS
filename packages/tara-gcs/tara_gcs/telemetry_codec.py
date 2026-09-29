@@ -97,18 +97,26 @@ def encode_fast_frame(telemetry: dict[int, dict]) -> bytes:
     return struct.pack(f"<{len(values)}f", *values) if values else b""
 
 
-def encode_slow_frame(telemetry: dict[int, dict]) -> dict:
+def encode_slow_frame(telemetry: dict[int, dict], fleet_state: dict | None = None) -> dict:
     """Build the slow-channel JSON payload: everything not in the fast frame.
+
+    Args:
+        telemetry: ``DroneManager.telemetry``.
+        fleet_state: ``FleetStateMachine.snapshot()``, sent as the frame's
+            ``"fleet_state"`` key when given (issue #52).
 
     Returns:
         ``{"type": "slow", "drones": {drone_id_str: {field: value, ...}}}``.
         The ``"type"`` key lets the client tell this apart from any other JSON
         message on the same socket without inspecting shape.
     """
-    return {
+    frame = {
         "type": "slow",
         "drones": {
             str(drone_id): {field: telemetry[drone_id].get(field) for field in SLOW_FIELDS}
             for drone_id in sorted(telemetry.keys())
         },
     }
+    if fleet_state is not None:
+        frame["fleet_state"] = fleet_state
+    return frame

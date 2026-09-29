@@ -378,6 +378,7 @@ body {
   .nightsky-hud-alert { animation: none; }
 }
 .dot.orange { background-color: var(--warning); }
+.dot.grey { background-color: var(--text-muted); }
 
 /* Dashboard Layout */
 .dashboard-grid {

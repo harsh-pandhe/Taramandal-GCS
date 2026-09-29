@@ -14,6 +14,29 @@ const WS_URL = import.meta.env.VITE_WS_URL || `ws://${window.location.hostname |
 // Keep in sync with NightSkyView's MAX_DRONES instance capacity.
 const MAX_NIGHTSKY_DRONES = 1000;
 
+// Fleet lifecycle state (issue #52) -> status dot colour.
+const FLEET_STATE_DOT = {
+  STAGED: 'grey',
+  PREARM: 'orange',
+  ARMED: 'orange',
+  TAKEOFF: 'orange',
+  FORMATION_HOLD: 'green',
+  RUNNING: 'green',
+  SHOW_COMPLETE: 'green',
+  LANDING: 'red',
+  RTL: 'red',
+  ESTOP: 'red',
+  DISARMED: 'grey',
+};
+
+// FastAPI puts errors in `detail`; a lifecycle 409 makes that an object whose
+// `message` says why the command was refused and when it would be allowed.
+function apiErrorMessage(data, fallback) {
+  const detail = data?.detail;
+  if (detail && typeof detail === 'object') return detail.message || fallback;
+  return detail || data?.message || fallback;
+}
+
 export default function App() {
   const [telemetry, setTelemetry] = useState({});
   // A zero-copy mirror of the latest fast frame, for the night-sky viewport.
@@ -29,6 +52,9 @@ export default function App() {
     };
   }
   const [wsConnected, setWsConnected] = useState(false);
+  // Lifecycle state from the slow channel: { state, description, allowed_commands, ... }.
+  // null until the first slow frame arrives (or while the socket is down).
+  const [fleetState, setFleetState] = useState(null);
   const [bypassChecklist, setBypassChecklist] = useState(false);
   // Pre-arm gates are evaluated by the GCS (issue #48); the dashboard only
   // renders the verdict and opens the gated launch modal.
@@ -48,7 +74,7 @@ export default function App() {
   // field has been loaded; EarthView/GeofenceRing fall back to the static
   // 30m default in that case (old exports, or before any show is loaded).
   const [geofenceRadii, setGeofenceRadii] = useState(null);
-  const [isPlaying, setIsPlaying] = useState(false);
+  const [isPlayingLocal, setIsPlaying] = useState(false);
   const [flightMode, setFlightMode] = useState("LOCAL");
   const [triggerDelay, setTriggerDelay] = useState(3);
   const [verificationReport, setVerificationReport] = useState(null);
@@ -122,6 +148,7 @@ export default function App() {
         try {
           const data = JSON.parse(event.data);
           if (data.type === 'slow' && data.drones) {
+            if (data.fleet_state) setFleetState(data.fleet_state);
             setTelemetry((prev) => {
               const next = { ...prev };
               Object.entries(data.drones).forEach(([key, fields]) => {
@@ -137,6 +164,7 @@ export default function App() {
 
       ws.onclose = () => {
         setWsConnected(false);
+        setFleetState(null);
         console.log('Telemetry WebSocket closed. Reconnecting in 2s...');
         reconnectTimer = setTimeout(connect, 2000);
       };
@@ -219,6 +247,23 @@ export default function App() {
     return 'ready';
   }
   
+  const allConnected = droneIds.length > 0 && connectedCount === droneIds.length;
+  const allGpsLocked = droneIds.length > 0 && droneIds.every(id => 
+    !telemetry[id].connected || telemetry[id].gps_lock
+  );
+  
+  const allBatterySafe = droneIds.length > 0 && droneIds.every(id => 
+    !telemetry[id].connected || telemetry[id].battery_percent > 75
+  );
+
+  const checklistPassed = allConnected && allGpsLocked && allBatterySafe;
+
+  // The GCS is the authority on what's legal (it answers 409 otherwise); this
+  // only greys out buttons that would be refused. With no lifecycle state yet
+  // (socket down), nothing is disabled on its account.
+  const canCommand = (command) => !fleetState || fleetState.allowed_commands.includes(command);
+  const isPlaying = fleetState ? fleetState.state === 'RUNNING' : isPlayingLocal;
+  const launchEnabled = (checklistPassed || bypassChecklist) && canCommand('launch');
   // Poll simulation process status. Deliberately slower than telemetry: this
   // reads the host's process table and psutil counters, which is expensive
   // relative to how fast "is Gazebo up" actually changes. The telemetry
@@ -320,7 +365,7 @@ export default function App() {
       const res = await fetch(`${API_BASE}${endpoint}`, { method: 'POST' });
       const data = await res.json();
       if (data.status !== 'success') {
-        setErrorMsg(data.detail || data.message || 'Operation failed');
+        setErrorMsg(apiErrorMessage(data, 'Operation failed'));
       } else {
         setErrorMsg('');
       }
@@ -373,7 +418,7 @@ export default function App() {
           uploadMissionToFleet();
         }, 500);
       } else {
-        setErrorMsg(data.detail || data.message || 'Failed to process trajectory');
+        setErrorMsg(apiErrorMessage(data, 'Failed to process trajectory'));
         setTrajSummary(null);
       }
     } catch (err) {
@@ -435,11 +480,17 @@ export default function App() {
         setIsPlaying(true);
         setErrorMsg('');
       } else {
-        setErrorMsg(data.detail || data.message || 'Failed to start trajectory');
+        setErrorMsg(apiErrorMessage(data, 'Failed to start trajectory'));
       }
     } catch (err) {
       setErrorMsg(`Start error: ${err.message}`);
     }
+  };
+
+  const handleEstop = async () => {
+    // Flight termination: airborne drones fall. One extra click is the price.
+    if (!window.confirm('EMERGENCY STOP kills every motor. Airborne drones will fall. Continue?')) return;
+    await triggerAction('/api/estop');
   };
 
   const handleStopTrajectory = async () => {
@@ -584,6 +635,12 @@ export default function App() {
             <span className={`dot ${wsConnected ? 'green' : 'red'}`}></span>
             GCS LINK: {wsConnected ? 'CONNECTED' : 'OFFLINE'}
           </div>
+          {fleetState && (
+            <div className="status-badge" title={fleetState.description} data-testid="fleet-state">
+              <span className={`dot ${FLEET_STATE_DOT[fleetState.state] || 'grey'}`}></span>
+              FLEET: {fleetState.state}
+            </div>
+          )}
         </div>
       </header>
 
@@ -737,6 +794,13 @@ export default function App() {
                 onDisarm={() => setArmedEmergency(null)}
                 onConfirm={() => triggerAction('/api/rtl')}
               />
+
+              <button 
+                className="btn btn-rtl" 
+                onClick={handleEstop}
+              >
+                E-STOP (KILL)
+              </button>
             </div>
             
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginTop: '0.75rem' }}>
@@ -1102,6 +1166,7 @@ export default function App() {
                         onClick={handleStartTrajectory}
                         disabled={
                           isPlaying
+                          || !canCommand('start_trajectory')
                           || (execution === 'onboard' && !(missionStatus && missionStatus.all_verified))
                           || (!bypassChecklist && (!verificationReport || !verificationReport.all_passed))
                         }
@@ -1112,7 +1177,7 @@ export default function App() {
                       <button 
                         className="btn btn-stop" 
                         onClick={handleStopTrajectory}
-                        disabled={!isPlaying}
+                        disabled={!isPlaying || !canCommand('stop_trajectory')}
                         style={{ flex: 1, padding: '0.5rem', cursor: 'pointer' }}
                       >
                         ⏹ STOP SHOW
