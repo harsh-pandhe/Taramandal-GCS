@@ -7,6 +7,6 @@ exact seam.
 """
 
 from .fleet_state import FleetState, SimConfig
-from .system import SimFleet, SimSystem
+from .system import BulkTelemetry, SimFleet, SimSystem
 
-__all__ = ["FleetState", "SimConfig", "SimFleet", "SimSystem"]
+__all__ = ["BulkTelemetry", "FleetState", "SimConfig", "SimFleet", "SimSystem"]

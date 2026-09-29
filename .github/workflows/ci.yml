@@ -7,6 +7,13 @@
 # launches `tara up` through config.venv_python, which hardcodes
 # <repo>/.venv/bin/python — a path a setup-python runner doesn't have, so the
 # test errors rather than skipping. Tracked in #46.
+#
+# Each job's actual gate now runs through scripts/ci-gates/<job>.sh (#106) —
+# the same scripts `./scripts/ci` runs locally — rather than duplicating the
+# commands inline here. This file's job is only to set up each gate's
+# environment (checkout, interpreter/runtime versions, dependency install)
+# the way a GitHub-hosted runner needs to; the gate itself lives in one
+# place. See docs/local-ci.md.
 
 name: Taramandal Monorepo CI
 
@@ -43,25 +50,10 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt -r requirements-dev.txt
 
-      - name: Ruff
-        run: ruff check .
-
-      - name: Mypy (tara-core)
-        run: mypy packages/tara-core
-
-      # Warnings are reported but not fatal: tara-web carries 3 pre-existing
-      # react-hooks/exhaustive-deps warnings in EarthView.jsx.
-      - name: oxlint (tara-web)
-        working-directory: packages/tara-web
-        run: |
-          npm ci
-          npm run lint
-
-      - name: oxlint (tara-studio-web)
-        working-directory: packages/tara-studio-web
-        run: |
-          npm ci
-          npm run lint
+      # ruff, mypy, and oxlint (both frontends, each with its own npm ci) —
+      # see scripts/ci-gates/lint-and-typecheck.sh for the exact commands.
+      - name: Lint & Typecheck
+        run: ./scripts/ci-gates/lint-and-typecheck.sh
 
   python-tests:
     name: Python Tests
@@ -83,9 +75,9 @@ jobs:
 
       # The `slow` tests are covered elsewhere: the 100-drone show runs in the
       # scale-regression job below, and the lifecycle test is excluded (see the
-      # note at the top of this file).
+      # note at the top of this file). See scripts/ci-gates/python-tests.sh.
       - name: Pytest (all packages, fast path)
-        run: pytest -p asyncio -m "not slow"
+        run: ./scripts/ci-gates/python-tests.sh
 
   frontend-tests:
     name: Frontend Tests
@@ -99,31 +91,14 @@ jobs:
         with:
           node-version: "20"
 
-      - name: tara-studio-web — Vitest + build
-        working-directory: packages/tara-studio-web
-        run: |
-          npm ci
-          npm test
-          npm run build
-
-      - name: tara-web — build
-        working-directory: packages/tara-web
-        run: |
-          npm ci
-          npm run build
-
-      - name: tara-web — install Playwright Chromium
-        working-directory: packages/tara-web
-        run: npx playwright install --with-deps chromium
-
-      # The 2 "visual regression" snapshot tests are excluded here: they run in
-      # the dedicated test-e2e job below, against the pinned Docker image whose
-      # exact browser/GL build produced the committed -linux baselines. Running
-      # them again here, against this job's plain chromium install, would just
-      # diff against baselines rendered by a different browser build.
-      - name: tara-web — Playwright E2E
-        working-directory: packages/tara-web
-        run: npx playwright test --grep-invert "visual regression"
+      # tara-studio-web (Vitest + build), tara-web (build), Playwright
+      # Chromium install, and the E2E run minus visual regression (that
+      # subset runs in test-e2e below, against the pinned Docker image the
+      # committed -linux baselines were rendered by — a plain chromium
+      # install here would diff against the wrong browser build). See
+      # scripts/ci-gates/frontend-tests.sh for the exact commands.
+      - name: Frontend Tests
+        run: ./scripts/ci-gates/frontend-tests.sh
 
   scale-regression:
     name: Scale Regression (100 drones)
@@ -145,9 +120,10 @@ jobs:
 
       # Flies 100 drones through the real DroneManager sim backend and fails on
       # any proximity or geofence breach. tools/benchmark_fleet_scale.py is not
-      # used: it reports breaches but always exits 0.
+      # used: it reports breaches but always exits 0. See
+      # scripts/ci-gates/scale-regression.sh.
       - name: 100-drone show, zero safety breaches
-        run: pytest packages/tara-gcs/tests/test_sim_backend.py::test_100_drone_sim_show_completes_with_zero_safety_violations -v --durations=0
+        run: ./scripts/ci-gates/scale-regression.sh
 
   test-e2e:
     name: Playwright E2E (tara-web)
@@ -155,6 +131,15 @@ jobs:
     # The same image `npm run test:e2e:docker` uses, so the committed -linux
     # snapshot baselines were rendered by exactly this browser build and GL
     # stack. The tag must match @playwright/test in tara-web's package-lock.json.
+    #
+    # This job's steps are intentionally NOT routed through
+    # scripts/ci-gates/test-e2e.sh: that script's job is to get a host shell
+    # *into* this same pinned image via `docker run` (see
+    # packages/tara-web/e2e/run-in-docker.mjs) — this job is already
+    # natively inside it via the container: directive below, so the two
+    # `npm ci` / `npm run test:e2e` lines here are the same underlying
+    # commands the Docker script runs once inside the container, reached a
+    # different way rather than duplicated logic.
     container:
       image: mcr.microsoft.com/playwright:v1.62.1-jammy
       options: --ipc=host

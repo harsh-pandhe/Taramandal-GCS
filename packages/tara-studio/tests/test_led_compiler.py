@@ -6,10 +6,12 @@ those are the three TestCompiledTaraBinary classes below. The pattern tests
 cover the five lighting modes the same issue specifies.
 """
 
+import base64
 import struct
 import zlib
 
 import pytest
+from fastapi.testclient import TestClient
 
 from tara_studio.exporter import (
     TARA_HEADER_FMT,
@@ -28,12 +30,18 @@ from tara_studio.led_engine import (
     SPARKLE,
     STROBE,
     WAVE_PROPAGATION,
+    MAX_LED_SAMPLE_RATE_HZ,
     LedKeyframe,
     apply_track_to_choreo,
     color_at,
     evaluate,
     hex_to_rgbw,
+    led_sample_rate_hz,
+    upsample_choreo,
+    upsample_factor,
 )
+from tara_studio.server import app
+from tara_core import interpolate_waypoint
 
 
 @pytest.fixture
@@ -286,3 +294,120 @@ class TestTrackComposition:
         for src, got in zip(choreo["drones"], lit["drones"]):
             for a, b in zip(src["waypoints"], got["waypoints"]):
                 assert (b["x"], b["y"], b["z"], b["time"]) == (a["x"], a["y"], a["z"], a["time"])
+
+
+def _export_tara(choreo, led_track, rate_hz):
+    """Compiles through the real /api/export endpoint, as the Studio does."""
+    resp = TestClient(app).post(
+        "/api/export",
+        json={"choreo": choreo, "format": "tara", "led_track": led_track, "rate_hz": rate_hz},
+    )
+    assert resp.status_code == 200, resp.text
+    return parse_tara(base64.b64decode(resp.json()["content"]))
+
+
+def _flashes(waypoints, start, end):
+    """Number of dark-to-lit transitions between `start` and `end` seconds."""
+    lit = [wp["r"] > 0 for wp in waypoints if start <= wp["time"] < end]
+    return sum(1 for a, b in zip(lit, lit[1:]) if not a and b) + (1 if lit and lit[0] else 0)
+
+
+class TestStrobeSurvivesExport:
+    """Step-3 bug 3: a strobe exported as solid light.
+
+    Colours are baked onto waypoints, so the .tara only holds them at waypoint
+    times. The Studio exports at 4 Hz by default, and a 4 Hz strobe sampled at
+    4 Hz lands every sample on the same phase - all 40 samples in a 10 s cue
+    were ON, and the drones glowed solid.
+    """
+
+    RATE = 4.0
+
+    @pytest.fixture
+    def choreo(self):
+        return generate_circle(3, 30.0, self.RATE)
+
+    def _strobe(self, freq, duty=0.5, start=10.0, duration=10.0):
+        return [{"pattern": STROBE, "start_time": start, "duration": duration,
+                 "color": "#FFFFFF", "frequency_hz": freq, "duty_cycle": duty}]
+
+    def test_the_reported_case_no_longer_exports_solid(self, choreo):
+        show = _export_tara(choreo, self._strobe(4.0), self.RATE)
+        for drone in show["drones"]:
+            window = [wp["r"] > 0 for wp in drone["waypoints"] if 10.0 <= wp["time"] < 20.0]
+            assert not all(window), "strobe exported as solid light"
+            assert _flashes(drone["waypoints"], 10.0, 20.0) == 40
+
+    @pytest.mark.parametrize("freq", [2.0, 3.5, 4.0, 5.0, 6.5, 8.0])
+    @pytest.mark.parametrize("duty", [0.2, 0.5, 0.8])
+    def test_every_flash_survives_across_the_spec_range(self, choreo, freq, duty):
+        show = _export_tara(choreo, self._strobe(freq, duty), self.RATE)
+        for drone in show["drones"]:
+            assert _flashes(drone["waypoints"], 10.0, 20.0) == round(freq * 10.0)
+
+    def test_header_rate_is_the_resampled_rate_and_frames_stay_uniform(self, choreo):
+        show = _export_tara(choreo, self._strobe(8.0), self.RATE)
+        # 8 Hz at duty 0.5 has 62.5 ms phases; two samples each needs 32 Hz.
+        assert show["rate_hz"] == 32.0
+        times = [wp["time"] for wp in show["drones"][0]["waypoints"]]
+        gaps = {round(b - a, 3) for a, b in zip(times, times[1:])}
+        assert gaps <= {0.031, 0.032}  # 31.25 ms, rounded to whole ms on disk
+
+    def test_a_track_without_strobes_exports_at_the_show_rate(self, choreo):
+        track = [{"pattern": SOLID, "start_time": 0.0, "duration": 999.0, "color": "#FF0000"}]
+        show = _export_tara(choreo, track, self.RATE)
+        assert show["rate_hz"] == self.RATE
+        assert len(show["drones"][0]["waypoints"]) == len(choreo["drones"][0]["waypoints"])
+
+    def test_a_phase_too_short_for_the_rate_ceiling_is_refused(self, choreo):
+        # 8 Hz at duty 0.05 flashes for 6 ms: under one 20 ms frame at 50 Hz.
+        resp = TestClient(app).post(
+            "/api/export",
+            json={"choreo": choreo, "format": "tara",
+                  "led_track": self._strobe(8.0, 0.05), "rate_hz": self.RATE},
+        )
+        assert resp.status_code == 400
+        assert "too short to export" in resp.json()["detail"]
+
+
+class TestUpsampling:
+    def test_required_rate_gives_each_phase_two_samples(self):
+        kf = LedKeyframe(pattern=STROBE, duration=5, frequency_hz=4.0, duty_cycle=0.25)
+        # Shortest phase is the 62.5 ms flash.
+        assert led_sample_rate_hz([kf]) == pytest.approx(32.0)
+
+    def test_required_rate_is_capped_when_one_sample_per_phase_still_fits(self):
+        kf = LedKeyframe(pattern=STROBE, duration=5, frequency_hz=8.0, duty_cycle=0.2)
+        assert led_sample_rate_hz([kf]) == MAX_LED_SAMPLE_RATE_HZ
+
+    @pytest.mark.parametrize("duty", [0.0, 1.0])
+    def test_constant_duty_needs_no_particular_rate(self, duty):
+        kf = LedKeyframe(pattern=STROBE, duration=5, frequency_hz=8.0, duty_cycle=duty)
+        assert led_sample_rate_hz([kf]) == 0.0
+
+    def test_factor_is_one_when_the_show_is_already_fine_enough(self):
+        choreo = generate_circle(2, 10.0, 10.0)
+        assert upsample_factor(choreo, 8.0) == 1
+        assert upsample_factor(choreo, 0.0) == 1
+
+    def test_originals_are_kept_and_new_frames_lie_on_the_flown_path(self):
+        choreo = generate_circle(2, 10.0, 2.0)
+        dense = upsample_choreo(choreo, 4)
+        for src, got in zip(choreo["drones"], dense["drones"]):
+            wps = src["waypoints"]
+            assert len(got["waypoints"]) == (len(wps) - 1) * 4 + 1
+            assert got["waypoints"][::4] == wps
+            for wp in got["waypoints"]:
+                flown = interpolate_waypoint(wps, wp["time"])
+                assert (wp["x"], wp["y"], wp["z"]) == pytest.approx(
+                    (flown["x"], flown["y"], flown["z"])
+                )
+                # 360 and 0 are the same heading.
+                d = (wp["yaw"] - flown["yaw"]) % 360.0
+                assert min(d, 360.0 - d) == pytest.approx(0.0, abs=1e-9)
+
+    def test_upsampling_leaves_the_source_show_untouched(self):
+        choreo = generate_circle(2, 10.0, 2.0)
+        before = len(choreo["drones"][0]["waypoints"])
+        upsample_choreo(choreo, 3)
+        assert len(choreo["drones"][0]["waypoints"]) == before
