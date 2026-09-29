@@ -2,11 +2,92 @@
 
 Measured with `tools/benchmark_fleet_scale.py`. Reproduce with:
 
-```powershell
-.venv\Scripts\python tools\benchmark_fleet_scale.py -n 100,500,1000
+```bash
+.venv/bin/python tools/benchmark_fleet_scale.py -n 100,500,1000     # Linux/macOS
+.venv\Scripts\python tools\benchmark_fleet_scale.py -n 100,500,1000  # Windows
 ```
 
-## The short answer
+## Update: issue #51 — 1,000 drones now fly in real time
+
+After issue #51, a 1,000-drone sim fleet flies in real time on one core, with
+no late physics ticks. The per-drone asyncio layer described in the rest of
+this document is gone on `backend="sim"`.
+
+Measured on Ubuntu 24.04, Python 3.12.3, Intel Core i5-14450HX (16 logical
+cores), 15 GB RAM. The idle tick floor is 20.19 ms for a 20 ms sleep: Linux
+has no Windows-style timer floor. The same full run as below: connect,
+launch, then a 15 s show.
+
+**N=1000, before and after, on the same machine:**
+
+| | `main` before #51 | after #51 |
+|---|---:|---:|
+| live asyncio tasks | 8,003 | **9** |
+| mean tick gap (50 Hz target) | 23.63 ms | **20.00 ms** |
+| worst tick gap | 69.5 ms | **22.4 ms** |
+| late ticks | 5.0% | **0.0%** |
+| real-time factor | 0.85 | **1.00** |
+| CPU (mean) | 51.9% | **6.1%** |
+| drones armed / breaches | 1000/1000, 0 | 1000/1000, 0 |
+
+This host is faster than the original Windows one, so `main` degrades less
+here (5% late rather than 91%), but it still falls behind real time.
+
+**After #51, across sizes:**
+
+| N | live tasks | tick gap | worst gap | late | xRT | 10 Hz loop, worst lateness | CPU | peak RSS |
+|-----:|---:|------:|------:|----:|-----:|------:|-----:|------:|
+| 100 | 9 | 20.00 ms | 21.9 ms | 0.0% | 1.00 | 1.1 ms | 4.1% | 98.7 MB |
+| 500 | 9 | 20.00 ms | 21.9 ms | 0.0% | 1.00 | 2.1 ms | 4.3% | 106.2 MB |
+| 1000 | 9 | 20.00 ms | 22.4 ms | 0.0% | 1.00 | 2.6 ms | 6.1% | 107.8 MB |
+
+Issue #51's acceptance checks, as the benchmark reports them, pass at every
+size:
+- **Fewer than 50 live asyncio tasks.** Counted exactly through the loop's
+  task factory; sampling `asyncio.all_tasks()` misses tasks that are created
+  and finished within one loop iteration.
+- **10 Hz latency under 50 ms, with no missed ticks.** A probe task wakes on
+  a fixed 100 ms schedule and records how late each wake-up is; a wake-up 50
+  ms or more late counts as missed. The 50 Hz physics tick must also have no
+  late ticks.
+- **Real-time factor of at least 0.98.** Measured as simulated seconds per
+  wall-clock second over the whole show.
+
+What changed, in the order the measurements found them:
+
+1. **Bulk telemetry.** One task reads the whole fleet with
+   `SimFleet.get_bulk_telemetry()` and fills every drone's telemetry dict.
+   It replaces 8 streaming tasks per drone.
+2. **No per-drone fan-out on sim.** Connect, setpoints, RTL and land await
+   each drone's call in turn instead of `gather()`. Those calls never
+   suspend, so `gather()` only added ~1,000 tasks per 10 Hz tick, at twice
+   the cost. The px4 backend still gathers, because there each call is a real
+   network round trip.
+3. **Deadline-scheduled physics tick.** `FleetState` sleeps until the next
+   tick's deadline rather than a full `dt` after each tick. The old way added
+   each tick's own cost to every period, so the real-time factor stayed below
+   1.0 even on an idle machine. On Windows, where a 20 ms sleep rounds up to
+   ~31 ms, it was the whole reason for the 0.64 below.
+4. **Show-state snapshot.** It used `json.dump`, which runs json's
+   pure-Python encoder: 23 ms of event-loop time every 5 s at N=1000. It now
+   uses `json.dumps`, the C encoder: same file, ~5 ms.
+5. **`gc.freeze()` when a show starts.** With 1–4 in place, the remaining late
+   ticks lined up exactly with full garbage collections. Every ~1.4 s these
+   rescanned the whole long-lived heap (imported modules, the fleet, the
+   show), about 11 ms per pass. Freezing that heap at show start leaves only
+   objects created during the show to scan. Reference counting still frees
+   anything these objects stop using.
+
+The per-drone asyncio layer and the 8 tasks per drone are unchanged on
+`backend="px4"`. That backend streams from real MAVSDK connections, and
+bulk ingestion for real vehicles needs a batched transport, which does not
+exist yet.
+
+The rest of this document is the original issue #3 measurement, taken before
+#51. Its analysis of what saturated the event loop is what #51 fixed, and its
+numbers describe that older code.
+
+## The short answer (before #51)
 
 **The real ceiling is ~500 drones, not 1000.**
 
@@ -171,6 +252,11 @@ Correctness holds at every size tested. This is a performance ceiling, not a
 safety one.
 
 ## Follow-ups (not fixed here — measurement only, per the issue's scope)
+
+Items 1 and 2 are done by issue #51 (see the update at the top). Item 3's
+premise no longer holds on the sim backend: after #51, 1,000 drones run in
+real time there. Whether `MAX_FLEET_SIZE` needs documenting as a bound is
+now only a question for the px4 backend.
 
 1. **The real one:** `DroneManager` spawns 8 telemetry tasks per drone even on
    `backend="sim"`, where all 8 read from the same shared numpy arrays. For the

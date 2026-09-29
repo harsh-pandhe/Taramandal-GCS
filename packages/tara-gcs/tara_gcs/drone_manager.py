@@ -1,8 +1,10 @@
 import asyncio
 import csv
+import gc
 import math
 import logging
 import time
+import numpy as np
 from scipy.spatial import cKDTree
 from tara_core import DEFAULT_LIMITS, MAX_FLEET_SIZE, altitude_layers, interpolate_waypoint, launch_grid
 from tara_core.show import Show
@@ -46,6 +48,15 @@ HOME_LOCK_TIMEOUT_S = 45.0
 #: move a drone's pad every time the fleet grew, because the grid's width is
 #: ceil(sqrt(n)).
 _PAD_GRID = launch_grid(MAX_FLEET_SIZE)
+_PAD_ARRAY = np.asarray(_PAD_GRID)  # the same grid, for vectorized fleet-frame shifts
+
+
+#: Bulk telemetry cadence on backend="sim" (issue #51): the fast fields
+#: (connection, armed, position) every tick, the slow ones (battery, flight
+#: mode, GPS, home) every SIM_SLOW_TELEMETRY_EVERY ticks. 20Hz and 2Hz, the
+#: same rates the per-drone SimSystem streams this replaces were read at.
+SIM_TELEMETRY_INTERVAL_S = 0.05
+SIM_SLOW_TELEMETRY_EVERY = 10
 
 
 def _pad_offset(drone_id: int) -> tuple[float, float]:
@@ -75,9 +86,12 @@ class DroneManager:
                 the whole fleet rather than a mavsdk_server process and 8
                 asyncio tasks per drone, which is what makes fleets of 100+
                 practical on one machine. SimSystem duck-types the exact
-                mavsdk.System surface this class calls, so every monitor loop,
-                the launch sequence, RTL, land, and the trajectory playback
-                loop below run completely unchanged on either backend.
+                mavsdk.System surface this class calls, so the launch
+                sequence, RTL, land, and the trajectory playback loop below
+                run unchanged on either backend. Telemetry is the exception:
+                on "sim" one bulk-ingestion task reads the whole fleet's
+                arrays at once (issue #51) instead of 8 streaming tasks per
+                drone.
             state_path: where the active show (trajectory + playback position)
                 is persisted so a GCS restart can offer to resume it (issue #4).
                 Overridable so tests don't collide on/pollute the real file.
@@ -129,15 +143,40 @@ class DroneManager:
             connect_tasks.append(self._connect_drone(i, port))
 
         # Use return_exceptions=True so that one failing drone doesn't break GCS startup
-        results = await asyncio.gather(*connect_tasks, return_exceptions=True)
+        results = await self._for_each_drone(connect_tasks, return_exceptions=True)
         for i, res in enumerate(results):
             if isinstance(res, Exception):
                 logging.error(f"Failed to connect Drone {i} on port {self.ports[i]}: {res}")
+
+        if self.backend == "sim":
+            self._tasks.append(asyncio.create_task(self._bulk_telemetry_loop()))
 
         # Start proximity safety monitor loop
         self._tasks.append(asyncio.create_task(self._proximity_monitor_loop()))
         # Start geofence enforcement loop
         self._tasks.append(asyncio.create_task(self._geofence_monitor_loop()))
+
+    async def _for_each_drone(self, coros: list, return_exceptions: bool = False) -> list:
+        """Run one coroutine per drone: concurrently on px4, in turn on sim.
+
+        On px4 each call is a real gRPC round trip, so gather() overlaps them.
+        On sim each is an in-process array write that never suspends, so
+        gather() only buys a Task per drone: 1,000 of them at N=1000 every
+        time this runs (issue #51), at twice the cost of awaiting in turn.
+        """
+        if self.backend != "sim":
+            return await asyncio.gather(*coros, return_exceptions=return_exceptions)
+        results = []
+        for i, coro in enumerate(coros):
+            try:
+                results.append(await coro)
+            except Exception as e:
+                if not return_exceptions:
+                    for pending in coros[i + 1:]:
+                        pending.close()
+                    raise
+                results.append(e)
+        return results
 
     async def _connect_drone(self, drone_id: int, port: int):
         try:
@@ -180,6 +219,11 @@ class DroneManager:
                 "planned_z": 0.0,
                 "planned_valid": False,
             }
+
+            # On the sim backend one fleet-wide task fills this in instead
+            # (see _bulk_telemetry_loop, started by connect_all).
+            if self.backend == "sim":
+                return
 
             # Start telemetry loop for this drone
             self._tasks.append(asyncio.create_task(self._monitor_connection(drone_id)))
@@ -242,6 +286,89 @@ class DroneManager:
         self.drones.clear()
 
     # --- Telemetry loops ---
+
+    async def _bulk_telemetry_loop(self):
+        """Fill every sim drone's telemetry from one vectorized read (issue #51).
+
+        Replaces the 8 per-drone monitor tasks below on backend="sim", where
+        all 8 would only be reading rows of the same shared numpy arrays. At
+        1,000 drones those are 8,000 always-on tasks, enough to saturate the
+        event loop on their own. This is one task, whatever the fleet size.
+        """
+        try:
+            tick = 0
+            while True:
+                try:
+                    self._ingest_bulk_telemetry(
+                        self._sim_fleet.get_bulk_telemetry(),
+                        include_slow=tick % SIM_SLOW_TELEMETRY_EVERY == 0,
+                    )
+                except Exception as e:
+                    logging.error(f"Error in _bulk_telemetry_loop: {e}")
+                tick += 1
+                await asyncio.sleep(SIM_TELEMETRY_INTERVAL_S)
+        except asyncio.CancelledError:
+            pass
+
+    def _ingest_bulk_telemetry(self, snap, include_slow: bool) -> None:
+        """Write one BulkTelemetry snapshot into self.telemetry.
+
+        Produces exactly what the per-drone monitors would: the same fields,
+        the same rounding, the same fleet-frame shift, and the same geofence
+        reset on disarm. The rows come out of the arrays in one ``tolist()``
+        each, as plain Python floats and bools, so the dicts hold the same
+        types as on the px4 backend. Rounding stays Python's ``round``:
+        ``np.round`` rounds a decimal half differently (0.615 -> 0.62, where
+        ``round`` gives 0.61), and the two backends should not disagree by a
+        centimetre over which function was used.
+        """
+        ids = [d for d in self.telemetry if d < len(snap.armed)]
+        if not ids:
+            return
+        idx = np.asarray(ids)
+        positions = snap.position[idx].tolist()
+        pads = _PAD_ARRAY[idx].tolist()
+        connected = snap.connected[idx].tolist()
+        armed = snap.armed[idx].tolist()
+
+        for k, drone_id in enumerate(ids):
+            tel = self.telemetry[drone_id]
+            tel["connected"] = connected[k]
+            north, east, alt = positions[k]
+            local_x, local_y, local_z = round(north, 2), round(east, 2), round(alt, 2)
+            tel["local_x"], tel["local_y"], tel["local_z"] = local_x, local_y, local_z
+            tel["fleet_x"] = round(local_x + pads[k][0], 2)
+            tel["fleet_y"] = round(local_y + pads[k][1], 2)
+            tel["fleet_z"] = local_z
+            prev_armed = tel["armed"]
+            tel["armed"] = armed[k]
+            # Reset geofence breach tracking when drone disarms (as _monitor_armed_state does)
+            if prev_armed and not armed[k] and drone_id in self.geofence_breaches:
+                self.geofence_breaches[drone_id] = False
+                logging.info(f"Drone {drone_id} disarmed — geofence breach state reset.")
+
+        if not include_slow:
+            return
+        battery = snap.battery_pct[idx].tolist()
+        voltage = snap.battery_voltage[idx].tolist()
+        satellites = snap.satellites[idx].tolist()
+        home_lat = snap.home_lat[idx].tolist()
+        home_lon = snap.home_lon[idx].tolist()
+        home_alt = snap.home_alt[idx].tolist()
+        for k, drone_id in enumerate(ids):
+            tel = self.telemetry[drone_id]
+            tel["battery_percent"] = round(battery[k], 1)
+            tel["battery_voltage"] = round(voltage[k], 2)
+            tel["flight_mode"] = str(snap.flight_mode[drone_id])
+            tel["satellites"] = satellites[k]
+            tel["gps_lock"] = satellites[k] >= 6
+            tel["gps_fix_type"] = str(snap.gps_fix_type[drone_id])
+            tel["home_lat"] = home_lat[k]
+            tel["home_lon"] = home_lon[k]
+            tel["home_alt"] = home_alt[k]
+            # The sim is in-process: there is no link whose round trip to
+            # measure, which is also what the latency probe read here (~0ms).
+            tel["comm_latency_ms"] = 0.0
 
     async def _monitor_connection(self, drone_id):
         try:
@@ -499,7 +626,7 @@ class DroneManager:
                     
             rtl_tasks.append(stop_and_rtl(drone_id, drone))
             
-        await asyncio.gather(*rtl_tasks)
+        await self._for_each_drone(rtl_tasks)
 
     async def trigger_land(self):
         """Trigger Land for all connected drones."""
@@ -521,7 +648,7 @@ class DroneManager:
                     
             land_tasks.append(stop_and_land(drone_id, drone))
             
-        await asyncio.gather(*land_tasks)
+        await self._for_each_drone(land_tasks)
 
     # --- Trajectory Playback ---
 
@@ -569,6 +696,12 @@ class DroneManager:
         self.show_started_at = time.time()
         # Remap trajectory slots to currently healthy drones before playback
         remapped = self.remap_trajectory_to_healthy_drones(trajectory_data)
+        # Move everything alive now (imported modules, the fleet, this show)
+        # out of the cyclic GC's reach. Otherwise a full collection rescans
+        # that whole long-lived heap every ~1.4s of a show: ~11ms per pass at
+        # 1,000 drones, which alone makes 50Hz physics ticks late (issue #51).
+        # Reference counting still frees anything these objects stop using.
+        gc.freeze()
         self.is_running_trajectory = True
         self.start_telemetry_recording()
         self.start_state_snapshotting()
@@ -834,7 +967,7 @@ class DroneManager:
                             )
                         
                 if setpoint_tasks:
-                    await asyncio.gather(*setpoint_tasks)
+                    await self._for_each_drone(setpoint_tasks)
                     
                 await asyncio.sleep(0.1)  # 10Hz
                 
