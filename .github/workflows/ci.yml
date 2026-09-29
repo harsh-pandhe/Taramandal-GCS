@@ -161,3 +161,32 @@ jobs:
           name: playwright-test-results
           path: packages/tara-web/test-results/
           retention-days: 7
+
+  test-e2e-studio:
+    name: Playwright visual baseline (tara-studio-web)
+    runs-on: ubuntu-latest
+    # The same image `npm run test:e2e:docker` uses, so the committed -linux
+    # snapshot baselines were rendered by exactly this browser build and font
+    # stack. The tag must match @playwright/test in tara-studio-web's
+    # package-lock.json.
+    container:
+      image: mcr.microsoft.com/playwright:v1.62.1-jammy
+      options: --ipc=host
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        working-directory: packages/tara-studio-web
+        run: npm ci
+
+      - name: Run Playwright
+        working-directory: packages/tara-studio-web
+        run: npm run test:e2e
+
+      - name: Upload failure artifacts
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-studio-results
+          path: packages/tara-studio-web/test-results/
+          retention-days: 7

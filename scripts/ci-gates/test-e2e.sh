@@ -16,3 +16,6 @@ source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 
 ci_log "tara-web — Playwright E2E via Docker (packages/tara-web/e2e/run-in-docker.mjs)"
 (cd packages/tara-web && npm run test:e2e:docker)
+
+ci_log "tara-studio-web — Playwright visual baseline via Docker (packages/tara-studio-web/e2e/run-in-docker.mjs)"
+(cd packages/tara-studio-web && npm run test:e2e:docker)

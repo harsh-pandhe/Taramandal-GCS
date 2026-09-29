@@ -32,7 +32,7 @@ describe('audience camera side (mirroring fix)', () => {
   it('reads a two-character string left-to-right from the -X side', () => {
     // '1' should read before '2' - its points should sit to the left
     // (smaller screen-x) of '2's on average, when read from the correct side.
-    const pts = buildFormation('text', '12', 40);
+    const pts = buildFormation('text', '12', 20);
     const mid = Math.floor(pts.length / 2);
     const first = pts.slice(0, mid).map(toScene);
     const second = pts.slice(mid).map(toScene);
@@ -43,7 +43,7 @@ describe('audience camera side (mirroring fix)', () => {
 
   it('would read backwards if the camera stood on the +X side instead', () => {
     // The regression this guards: picking the wrong orbit side.
-    const pts = buildFormation('text', '12', 40);
+    const pts = buildFormation('text', '12', 20);
     const mid = Math.floor(pts.length / 2);
     const first = pts.slice(0, mid).map(toScene);
     const second = pts.slice(mid).map(toScene);

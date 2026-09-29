@@ -17,7 +17,7 @@ ci_log "tara-web — build"
 (cd packages/tara-web && npm ci --no-audit --no-fund && npm run build)
 
 ci_log "tara-web — install Playwright Chromium"
-(cd packages/tara-web && npx playwright install --with-deps chromium)
+(cd packages/tara-web && npx playwright install chromium)
 
 ci_log "tara-web — Playwright E2E (excluding visual regression)"
 (cd packages/tara-web && npx playwright test --grep-invert "visual regression")
