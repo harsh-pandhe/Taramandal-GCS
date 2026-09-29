@@ -8,7 +8,7 @@ from dataclasses import asdict
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ValidationError
 from typing import Optional
 
 from tara_studio.generator import (
@@ -431,7 +431,18 @@ def api_export(req: ExportRequest):
             raise HTTPException(status_code=400, detail=f"Bad LED track: {e}")
 
     if fmt == "json":
-        content = export_json(choreo)
+        try:
+            content = export_json(choreo)
+        except ValidationError as e:
+            # Field paths, not one flattened string, so a client can point at
+            # the exact waypoint. input/ctx are dropped: they can hold NaN or
+            # exception objects, which the JSON response can't encode.
+            raise HTTPException(status_code=400, detail={
+                "message": "Show does not match the show schema (show_v1).",
+                "errors": e.errors(include_url=False, include_input=False, include_context=False),
+            })
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=f"Cannot export JSON: {e}")
         filename = "choreography.json"
         mime_type = "application/json"
     elif fmt == "csv":

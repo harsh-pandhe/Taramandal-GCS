@@ -9,8 +9,26 @@ import math
 import struct
 import zlib
 
+from tara_core.show import SHOW_FORMAT_VERSION, ShowContainer
+
 def export_json(choreo_data: dict) -> str:
-    return json.dumps(choreo_data, indent=2)
+    """Serialises a choreography as a show file, refusing one that breaks the schema.
+
+    Stamps ``version`` when the choreography doesn't carry one, then checks the
+    result against ``schemas/show_v1.json`` (via ``ShowContainer``) before
+    anything is written: a malformed show should fail here, in the Studio,
+    rather than on upload to the GCS. The dict itself is what gets written, not
+    the model's dump, so unknown keys and number formatting survive unchanged.
+
+    Raises:
+        pydantic.ValidationError: (a ValueError) listing every offending field
+            path, e.g. ``drones.0.waypoints.12.yaw``.
+    """
+    data = {"version": SHOW_FORMAT_VERSION, **choreo_data}
+    ShowContainer.model_validate(data)
+    # allow_nan=False: the schema only vets the fields it knows, and a NaN in
+    # an unknown key would otherwise be written out as invalid JSON.
+    return json.dumps(data, indent=2, allow_nan=False)
 
 def export_csv(choreo_data: dict) -> str:
     output = io.StringIO()
