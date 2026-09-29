@@ -59,13 +59,17 @@ export default function App() {
   const numDrones = fleet.dronesList.length;
 
   // Predicted length of the *current* scene list; the built show may be older.
+  // Leg durations depend on which drone flies to which point, so predict with
+  // the built show's assignment — for an unchanged scene list that makes the
+  // prediction match the build exactly, and any edit shows up as stale.
+  const builtAssignment = choreoData?._targetIdx ?? null;
   const predictedDuration = useMemo(
-    () => computeShowDuration(scenes, numDrones, rate),
-    [scenes, numDrones, rate],
+    () => computeShowDuration(scenes, numDrones, rate, builtAssignment),
+    [scenes, numDrones, rate, builtAssignment],
   );
   const segments = useMemo(
-    () => buildTimelineSegments(scenes, numDrones, rate),
-    [scenes, numDrones, rate],
+    () => buildTimelineSegments(scenes, numDrones, rate, builtAssignment),
+    [scenes, numDrones, rate, builtAssignment],
   );
   const builtDuration = choreoData?._duration ?? 0;
   // Scrub against what's actually rendered, so the playhead can never point past

@@ -548,6 +548,10 @@ input[type="number"] { font-family: var(--mono); font-variant-numeric: tabular-n
 .metric-val.passed { color: var(--success); }
 .metric-val.warning { color: var(--warning); }
 .metric-val.danger { color: var(--danger); }
+.metric-limit {
+  font-size: 0.56rem; color: var(--text-faint); margin-top: 0.25rem;
+  font-family: var(--mono); font-variant-numeric: tabular-nums;
+}
 
 .violations-list {
   max-height: 150px; overflow-y: auto; display: flex; flex-direction: column;
