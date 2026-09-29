@@ -9,6 +9,8 @@ import math
 
 import numpy as np
 
+import numpy as np
+
 from tara_core import DEFAULT_LIMITS, MAX_FLEET_SIZE, altitude_layers, launch_grid
 from tara_core.assignment import optimal_assignment
 
@@ -628,7 +630,27 @@ def _helix_angles(n: int) -> tuple[tuple[float, ...], float]:
     for d_id, h in enumerate(layers):
         groups.setdefault(level[h], []).append(d_id)
 
-    angles = [0.0] * n
+    # A single dot-product ("does this pair's ring offset point the same way
+    # as its pad offset") only checks the shapes' *resting* positions. It
+    # cannot see the real failure mode: the ring keeps rotating throughout
+    # the blend (see _helix_angle), so what actually determines whether a
+    # pair's straight blend legs cross is the closest approach of two moving
+    # targets, not two fixed points -- confirmed by direct comparison: the
+    # dot product disagrees with a real simulation on 25 of this fleet
+    # size's 41 paired groups (checked at n=100), including the ones that
+    # cost drones 12/71 their separation (#72 x #73 interaction).
+    #
+    # So this now runs an actual simulation per pair, self-adapting to
+    # whatever the current entry-blend easing is rather than assuming any
+    # particular curve's shape (does not go stale the next time it changes,
+    # unlike the dot product it replaces). It needs this shape's blend/choreo
+    # timing to do that, which in turn needs *an* assignment of these pairs
+    # to compute (pacing is sized off the fleet's worst-case pad-to-target
+    # spread) -- so a first pass with the original dot-product heuristic
+    # bootstraps that timing (accurate enough: which of two symmetric ring
+    # points a pair aims for barely moves the fleet-wide worst case), and a
+    # second pass re-decides each pair against the real timing it produces.
+    bootstrap = [0.0] * n
     for k, members in groups.items():
         base = 2.0 * math.pi * k / len(distinct)
         if len(members) == 2:
@@ -637,6 +659,79 @@ def _helix_angles(n: int) -> tuple[tuple[float, ...], float]:
             pad = (pads[i][0] - pads[j][0], pads[i][1] - pads[j][1])
             if ring[0] * pad[0] + ring[1] * pad[1] < 0:
                 i, j = j, i
+            bootstrap[i], bootstrap[j] = base, base + math.pi
+        else:
+            for m, d_id in enumerate(members):
+                bootstrap[d_id] = base + 2.0 * math.pi * m / len(members)
+
+    start_positions, heights = _launch_state(n, None, None)
+    entry_targets = {
+        d_id: (5.0 * math.cos(bootstrap[d_id]), 5.0 * math.sin(bootstrap[d_id]), -heights[d_id])
+        for d_id in range(n)
+    }
+    hover_positions = {
+        d_id: {"x": p["x"], "y": p["y"], "z": -heights[d_id]} for d_id, p in start_positions.items()
+    }
+    spread_m = formation_spread(hover_positions, entry_targets)
+    pacing = plan_pacing(n, climb_m=max(heights.values()), spread_m=spread_m, revolutions=1.0)
+    blend_frac = pacing.blend_s / pacing.choreo_s if pacing.choreo_s > 0 else 0.0
+
+    def min_blend_separation(pad_a, angle_a, pad_b, angle_b, samples: int = 60) -> float:
+        """Closest approach during the entry blend (pad -> rotating ring
+        point). Sampled directly against blend_ratio -- see the docstring
+        above for why real elapsed/blend_s time is not needed."""
+        worst = math.inf
+        for step in range(samples + 1):
+            b = step / samples
+            eff = _ease(b) * blend_frac
+            ax, ay = 5.0 * math.cos(angle_a + 2.0 * math.pi * eff), 5.0 * math.sin(angle_a + 2.0 * math.pi * eff)
+            bx, by = 5.0 * math.cos(angle_b + 2.0 * math.pi * eff), 5.0 * math.sin(angle_b + 2.0 * math.pi * eff)
+            xa = pad_a[0] + b * (ax - pad_a[0])
+            ya = pad_a[1] + b * (ay - pad_a[1])
+            xb = pad_b[0] + b * (bx - pad_b[0])
+            yb = pad_b[1] + b * (by - pad_b[1])
+            worst = min(worst, math.hypot(xa - xb, ya - yb))
+        return worst
+
+    def min_return_separation(pad_a, angle_a, pad_b, angle_b, samples: int = 60) -> float:
+        """Closest approach during the landing return leg: a full turn
+        (turns=1.0) brings each drone's land_entry back to exactly the ring
+        point it entered on, then _land_waypoint interpolates ring point ->
+        pad on fixed endpoints. Both endpoints are fixed on each side, so
+        (unlike the blend leg) this is invariant to which easing curve is
+        used -- checked here as plain linear interpolation weight, not
+        because the real return leg is linear, but because the *minimum*
+        distance between two such interpolations does not depend on the
+        monotonic curve reparametrizing how that weight is reached over time.
+        """
+        worst = math.inf
+        for step in range(samples + 1):
+            w = step / samples
+            xa = 5.0 * math.cos(angle_a) + w * (pad_a[0] - 5.0 * math.cos(angle_a))
+            ya = 5.0 * math.sin(angle_a) + w * (pad_a[1] - 5.0 * math.sin(angle_a))
+            xb = 5.0 * math.cos(angle_b) + w * (pad_b[0] - 5.0 * math.cos(angle_b))
+            yb = 5.0 * math.sin(angle_b) + w * (pad_b[1] - 5.0 * math.sin(angle_b))
+            worst = min(worst, math.hypot(xa - xb, ya - yb))
+        return worst
+
+    angles = [0.0] * n
+    for k, members in groups.items():
+        base = 2.0 * math.pi * k / len(distinct)
+        if len(members) == 2:
+            i, j = members
+            # Whichever assignment gives the pair's *worse* leg (blend or
+            # landing) the larger margin -- optimizing blend alone can (and,
+            # checked at n=100, does for one pair) pick the orientation
+            # that's worse for the landing return, since the two legs are
+            # not mirror images of the same geometry once one moves and the
+            # other doesn't.
+            def worst_leg(first, second):
+                return min(
+                    min_blend_separation(pads[first], base, pads[second], base + math.pi),
+                    min_return_separation(pads[first], base, pads[second], base + math.pi),
+                )
+            if worst_leg(i, j) < worst_leg(j, i):
+                i, j = j, i
             angles[i], angles[j] = base, base + math.pi
         else:
             for m, d_id in enumerate(members):
@@ -644,9 +739,56 @@ def _helix_angles(n: int) -> tuple[tuple[float, ...], float]:
     return tuple(angles), 1.0
 
 
+@functools.lru_cache(maxsize=16)
+def _helix_pacing(n: int) -> ShowPacing:
+    """This shape's own blend/choreo timing, used by ``_helix_angle`` to keep
+    a paired drone's ring-target rotation synced to its own blend progress.
+
+    Safe against the recursion this looks like it should cause: computing
+    pacing calls ``_pacing_for``, which evaluates ``_helix_formation`` at
+    ``ratio=0.0`` to find each drone's entry point -- which calls
+    ``_helix_angle`` again. ``_helix_angle`` short-circuits ``ratio <= 0.0``
+    before it ever reaches this cache, so that inner call never re-enters
+    here; this cache is only populated once ``_run_show`` starts asking for
+    ``ratio > 0``, by which point the shape's pacing is a well-defined,
+    already-computable quantity.
+    """
+    start_positions, heights = _launch_state(n, None, None)
+    return _pacing_for(_SHAPES["helix"], n, start_positions, heights)
+
+
 def _helix_angle(d_id: int, n: int, ratio: float) -> float:
+    """Each drone's ring angle at a given point in the choreography.
+
+    Two same-layer drones are placed diametrically opposite (see
+    ``_helix_angles``) on the premise that their straight blend/landing legs
+    then run side by side rather than crossing -- true only if both drones'
+    *ring target* advances in step with their *own progress into the blend*.
+    Post-#60 (jerk-continuous quintic easing replacing smoothstep, PR #72)
+    it no longer does: the ring's rotation here was driven by raw elapsed
+    time while the pad->target blend weight (``_run_show``'s
+    ``blend_ratio``) was eased, so a change in the easing curve's *shape*
+    (not just its endpoints) shifts how far the ring has turned by the time
+    a given blend fraction is reached -- confirmed to bring a paired pair
+    (drones 12 & 71 at n=100) to 1.35m, under the 2.0m design separation,
+    during the blend window (measured at blend_ratio=0.48, not landing).
+    Re-derived rather than re-tuned: during blend, the ring's own progress
+    now tracks the *actual* current ``_ease`` curve (whatever shape that is)
+    scaled into the same [0, ratio-at-blend-end] range raw time would have
+    given it, rather than assuming any particular curve's peak/mean shape --
+    so this does not go stale again the next time the easing changes. Once
+    blend completes the ring reverts to its original, real-time rotation.
+    """
     starts, turns = _helix_angles(n)
-    return starts[d_id] + 2.0 * math.pi * ratio * turns
+    if ratio <= 0.0:
+        return starts[d_id]
+    pacing = _helix_pacing(n)
+    elapsed = ratio * pacing.choreo_s
+    if pacing.blend_s > 0.0 and elapsed < pacing.blend_s:
+        effective_ratio = _ease(elapsed / pacing.blend_s) * (pacing.blend_s / pacing.choreo_s)
+    else:
+        effective_ratio = ratio
+    return starts[d_id] + 2.0 * math.pi * effective_ratio * turns
 
 
 def _helix_formation(d_id: int, n: int, ratio: float, height: float):

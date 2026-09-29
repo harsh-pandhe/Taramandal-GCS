@@ -126,3 +126,45 @@ def test_shape_has_zero_violations_across_full_show(shape_name, n):
         f"{shape_name} @ N={n}: altitude violations "
         f"(ground to {DEFAULT_LIMITS.max_altitude_m}m): {altitude_hits[:5]}"
     )
+
+
+def test_helix_100_paired_layer_drones_keep_the_design_separation():
+    """Regression for the #72 x #73 interaction, not just the general sweep
+    above.
+
+    #73 pairs same-altitude-layer drones diametrically opposite on the helix
+    ring so their straight blend/landing legs run side by side. #72
+    separately replaced the phase-blend easing (smoothstep -> a minimum-jerk
+    quintic, for jerk continuity, issue #60). Neither change was wrong on
+    its own -- #73's own suite passed before #72 existed, and #72 touches an
+    unrelated function (_ease) -- but merged together they interacted: the
+    ring's rotation during blend was driven by raw elapsed time while the
+    pad->target blend weight was eased, so changing the easing curve's
+    *shape* (not just its endpoints) shifted how far the ring had turned by
+    a given blend fraction, bringing a paired pair (drones 12 & 71 at
+    n=100) to 1.35m -- under the 2.0m design separation -- during the
+    entry blend, not the landing leg. Fixed in generator.py by deriving the
+    ring's blend-phase rotation from the actual current easing curve
+    (self-adapting, not tied to smoothstep's specific shape) and by
+    replacing the pair-orientation heuristic (a static dot product, which
+    disagreed with a real simulation on 25 of this fleet size's 41 paired
+    groups) with a direct simulation against both the entry blend and the
+    landing return leg.
+
+    This is deliberately independent of the general N=50/100 sweep above:
+    that sweep would also have caught a full regression, but a partial one
+    -- a fix that solves the specific pair this bug was found with while
+    leaving a different pair marginal -- could still slip through a report
+    that only asserts "no violations" without pinning the actual number.
+    """
+    from tara_studio.generator import generate_helix
+
+    choreo = generate_helix(100, DURATION, RATE)
+    report = validate_choreography(choreo)
+    min_distance = report["metrics"]["min_distance_m"]
+    assert min_distance >= DEFAULT_LIMITS.design_separation_m, (
+        f"helix @ N=100: minimum pairwise separation regressed to "
+        f"{min_distance}m (design threshold "
+        f"{DEFAULT_LIMITS.design_separation_m}m) -- the #72 x #73 easing/"
+        f"pairing interaction this test pins is back."
+    )
