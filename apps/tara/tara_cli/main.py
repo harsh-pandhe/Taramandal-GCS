@@ -6,10 +6,21 @@ optionally RViz) that this project used before Phase 1 of the finishing plan.
 
 from __future__ import annotations
 
+import os
 import sys
 from pathlib import Path
 
 import typer
+from tara_core.signing import (
+    MANIFEST_SUFFIX,
+    SignatureError,
+    generate_private_key,
+    key_fingerprint,
+    private_key_from_pem,
+    private_key_to_pem,
+    public_key_to_b64,
+    sign_show,
+)
 
 from .config import load_config
 from .doctor import run_checks
@@ -27,6 +38,10 @@ def up(
     backend: str = typer.Option(None, "--backend", help='"px4" (real SITL, ~10 drones) or "sim" (Phase 2, not yet built).'),
     headless: bool = typer.Option(True, "--headless/--gui", help="Run PX4/Gazebo without the GUI window."),
     rviz: bool = typer.Option(None, "--rviz/--no-rviz", help="Also launch the ROS2 TF bridge + RViz."),
+    allow_unsigned: bool = typer.Option(
+        False, "--allow-unsigned",
+        help="Let the GCS accept trajectory files without a signature manifest (legacy shows, local dev).",
+    ),
 ) -> None:
     """Start the fleet, both backends, and both web apps as one supervised unit."""
     config = load_config()
@@ -48,7 +63,8 @@ def up(
 
     try:
         services = build_services(
-            config, num_drones=num_drones, backend=backend_name, headless=headless, rviz=rviz_enabled
+            config, num_drones=num_drones, backend=backend_name, headless=headless, rviz=rviz_enabled,
+            allow_unsigned=allow_unsigned,
         )
     except UnsupportedBackendError as exc:
         typer.secho(f"[tara] {exc}", fg=typer.colors.RED, err=True)
@@ -58,6 +74,12 @@ def up(
         f"[tara] starting {len(services)} services — backend={backend_name}, "
         f"drones={num_drones}, rviz={rviz_enabled}"
     )
+    if allow_unsigned:
+        typer.secho(
+            "[tara] --allow-unsigned: the GCS will accept trajectory files that carry no signature.",
+            fg=typer.colors.YELLOW,
+            err=True,
+        )
     typer.echo(
         f"[tara]   GCS dashboard    http://localhost:{config.gcs_web_port}\n"
         f"[tara]   Studio           http://localhost:{config.studio_web_port}\n"
@@ -84,6 +106,46 @@ def up(
     exit_code = supervisor.run_until_exit_or_signal()
     typer.echo("[tara] all services stopped.")
     raise typer.Exit(exit_code)
+
+
+@app.command()
+def keygen(
+    out: Path = typer.Argument(..., help="Where to write the new private key (PEM). Keep it off shared drives and out of git."),
+    signer: str = typer.Option(..., "--signer", help="Who this key belongs to, as the GCS will report it."),
+) -> None:
+    """Create an Ed25519 show-signing key and print the tara.toml line that trusts it."""
+    if out.exists():
+        typer.secho(f"[tara] {out} already exists — refusing to overwrite a key.", fg=typer.colors.RED, err=True)
+        raise typer.Exit(1)
+    key = generate_private_key()
+    out.parent.mkdir(parents=True, exist_ok=True)
+    # Create with owner-only permissions from the start, rather than chmod
+    # after writing, so the key is never briefly world-readable.
+    fd = os.open(out, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    with os.fdopen(fd, "wb") as f:
+        f.write(private_key_to_pem(key))
+
+    public_key = key.public_key()
+    typer.echo(f"[tara] wrote private key {out} (key id {key_fingerprint(public_key)})")
+    typer.echo("[tara] add this to [security].trusted_keys in tara.toml on every GCS that should accept it:")
+    typer.echo(f'    {{ signer = "{signer}", public_key = "{public_key_to_b64(public_key)}" }},')
+
+
+@app.command()
+def sign(
+    show: Path = typer.Argument(..., exists=True, dir_okay=False, help="The .json/.csv/.skyc show file to sign."),
+    key: Path = typer.Option(..., "--key", exists=True, dir_okay=False, help="Private key from `tara keygen`."),
+) -> None:
+    """Write SHOW.sig.json, the signature manifest the GCS needs to accept SHOW."""
+    try:
+        private_key = private_key_from_pem(key.read_bytes())
+    except SignatureError as exc:
+        typer.secho(f"[tara] {key}: {exc}", fg=typer.colors.RED, err=True)
+        raise typer.Exit(1)
+    manifest_path = show.with_name(show.name + MANIFEST_SUFFIX)
+    manifest_path.write_bytes(sign_show(show.read_bytes(), show.name, private_key))
+    typer.echo(f"[tara] signed {show} with key {key_fingerprint(private_key.public_key())} -> {manifest_path}")
+    typer.echo("[tara] upload both files together; changing either one invalidates the signature.")
 
 
 @app.command()

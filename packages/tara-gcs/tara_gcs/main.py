@@ -10,6 +10,8 @@ from tara_gcs.drone_manager import DroneManager
 from tara_gcs.trajectory_parser import parse_trajectory_bytes
 from tara_gcs.telemetry_codec import FAST_HZ, SLOW_HZ, encode_fast_frame, encode_slow_frame
 from tara_gcs.sim_manager import SimLaunchError, SimManager
+from tara_gcs.show_auth import load_trust_policy
+from tara_core.signing import MAX_MANIFEST_BYTES, SignatureError
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
@@ -50,6 +52,13 @@ drone_manager = DroneManager(ports=ports, backend=VEHICLE_BACKEND, **kwargs)
 # be started from.
 REPO_ROOT = Path(__file__).resolve().parents[3]
 sim_manager = SimManager(repo_root=REPO_ROOT)
+
+# Trusted show-signing keys come from tara.toml's [security] table (issue #49).
+# GCS_CONFIG_PATH points at a different tara.toml, e.g. a test's temp one.
+trust_policy = load_trust_policy(
+    Path(os.environ.get("GCS_CONFIG_PATH") or REPO_ROOT / "tara.toml"),
+    allow_unsigned=os.environ.get("GCS_ALLOW_UNSIGNED", "").lower() in ("1", "true", "yes"),
+)
 
 @app.on_event("startup")
 async def startup_event():
@@ -131,7 +140,11 @@ class StartTrajectoryRequest(BaseModel):
     trigger_epoch_ms: float = 0.0
 
 @app.post("/api/upload-trajectory")
-async def upload_trajectory(file: UploadFile = File(...)):
+async def upload_trajectory(file: UploadFile = File(...), signature: UploadFile | None = File(None)):
+    """Accept a trajectory only if its detached .sig.json manifest (the
+    optional ``signature`` part) verifies against a trusted key, or if the GCS
+    runs with --allow-unsigned and no manifest was sent. A failed check is a
+    403 and never touches the active trajectory."""
     logger.info(f"API: Uploading trajectory file: {file.filename}")
     
     # Check file size limit (5 MB max) to prevent OOM
@@ -150,6 +163,17 @@ async def upload_trajectory(file: UploadFile = File(...)):
         if len(content) > MAX_FILE_SIZE:
             raise HTTPException(status_code=400, detail="File too large. Maximum size is 5MB.")
             
+    manifest = None
+    if signature is not None:
+        manifest = await signature.read(MAX_MANIFEST_BYTES + 1)
+    try:
+        verified = trust_policy.check(bytes(content), file.filename or "", manifest)
+    except SignatureError as e:
+        logger.warning(f"Rejected trajectory {file.filename!r}: {e}")
+        raise HTTPException(status_code=403, detail=f"Show file rejected: {e}")
+    if verified:
+        logger.info(f"Trajectory {file.filename!r} signed by {verified.signer} (key {verified.key_id}).")
+
     try:
         parsed_trajectory = parse_trajectory_bytes(bytes(content), file.filename)
 
@@ -177,6 +201,10 @@ async def upload_trajectory(file: UploadFile = File(...)):
             "message": "Trajectory uploaded and saved to active slot.",
             "drones_summary": summary,
             "trajectory_data": parsed_trajectory,
+            "signature": (
+                {"verified": True, "signer": verified.signer, "key_id": verified.key_id, "signed_at": verified.signed_at}
+                if verified else {"verified": False}
+            ),
             "geofence": {
                 "soft_warning_radius_m": drone_manager.soft_geofence_radius,
                 "hard_geofence_radius_m": drone_manager.geofence_radius,

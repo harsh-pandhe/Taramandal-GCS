@@ -19,6 +19,7 @@ def build_services(
     backend: str,
     headless: bool,
     rviz: bool,
+    allow_unsigned: bool = False,
 ) -> list[Service]:
     """Return the ordered list of services for one `tara up` invocation.
 
@@ -28,6 +29,8 @@ def build_services(
         backend: "px4" (real SITL) or "sim" (vectorized simulator).
         headless: Run PX4/Gazebo without the GUI (ignored for the sim backend).
         rviz: Also launch the ROS2 TF bridge + RViz.
+        allow_unsigned: Let the GCS accept trajectory uploads that carry no
+            signature manifest (issue #49). Bad signatures are still rejected.
 
     Returns:
         Services in launch order. The caller is expected to add them to a
@@ -90,6 +93,7 @@ def build_services(
                 "GCS_PORT": str(config.gcs_backend_port),
                 "NUM_DRONES": str(num_drones),
                 "VEHICLE_BACKEND": backend,
+                "GCS_ALLOW_UNSIGNED": "1" if allow_unsigned else "0",
             },
         )
     )

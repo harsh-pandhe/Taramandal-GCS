@@ -26,6 +26,10 @@ matplotlib
 svgpathtools
 trimesh
 
+# Ed25519 show-file signatures: signed by `tara sign` (and later the Studio),
+# verified by the GCS before any trajectory upload is accepted (tara-core, issue #49)
+cryptography
+
 # Orchestrator CLI (apps/tara)
 typer
 
