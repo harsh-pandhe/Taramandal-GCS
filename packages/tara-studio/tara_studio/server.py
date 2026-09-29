@@ -25,7 +25,12 @@ from tara_studio.validator import (
     validate_dynamics,
 )
 from tara_studio.exporter import export_json, export_csv, export_kml, export_tara
-from tara_studio.led_engine import apply_track_to_choreo
+from tara_studio.led_engine import (
+    apply_track_to_choreo,
+    led_sample_rate_hz,
+    upsample_choreo,
+    upsample_factor,
+)
 from tara_studio.optimizer import (
     DEFAULT_MORPH_SAMPLES,
     DEFAULT_PENALTY_WEIGHT,
@@ -394,12 +399,19 @@ def api_validate_dynamics(req: DynamicsRequest):
 def api_export(req: ExportRequest):
     fmt = req.format.lower()
     choreo = req.choreo
+    rate_hz = req.rate_hz or 0.0
 
     # Bake the LED track server-side when one is supplied, so a .tara compiled
     # here matches what the Studio preview showed rather than depending on the
-    # client having already written r/g/b/w onto every waypoint.
+    # client having already written r/g/b/w onto every waypoint. Colours only
+    # exist at waypoint times, so first add frames until every strobe has
+    # samples in both its on- and off-phase - otherwise a strobe at or above
+    # half the show's rate aliases into solid light.
     if req.led_track:
         try:
+            factor = upsample_factor(choreo, led_sample_rate_hz(req.led_track))
+            choreo = upsample_choreo(choreo, factor)
+            rate_hz *= factor
             choreo = apply_track_to_choreo(choreo, req.led_track)
         except (ValueError, KeyError) as e:
             raise HTTPException(status_code=400, detail=f"Bad LED track: {e}")
@@ -421,7 +433,7 @@ def api_export(req: ExportRequest):
         # writing the file. Flagged with `encoding` so a caller can't mistake
         # the payload for text.
         try:
-            blob = export_tara(choreo, req.rate_hz or 0.0)
+            blob = export_tara(choreo, rate_hz)
         except ValueError as e:
             raise HTTPException(status_code=400, detail=f"Cannot compile .tara: {e}")
         return {
