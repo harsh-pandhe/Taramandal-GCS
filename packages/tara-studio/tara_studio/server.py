@@ -25,6 +25,16 @@ from tara_studio.validator import (
     validate_choreography,
     validate_dynamics,
 )
+from tara_studio.energy import (
+    CHEMISTRIES,
+    DEFAULT_AIRFRAME,
+    DEFAULT_BATTERY,
+    AirframeSpec,
+    BatterySpec,
+    EnduranceLimits,
+    Environment,
+    validate_energy,
+)
 from tara_studio.exporter import export_json, export_csv, export_kml, export_tara
 from tara_studio.led_engine import (
     apply_track_to_choreo,
@@ -422,6 +432,57 @@ def api_validate_dynamics(req: DynamicsRequest):
     )
     try:
         return validate_dynamics(req.choreo, limits=limits)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+class EnergyRequest(BaseModel):
+    choreo: dict = Field(..., description="Choreography dataset")
+    chemistry: str = Field(DEFAULT_BATTERY.chemistry, description=f"Cell chemistry: {', '.join(sorted(CHEMISTRIES))}")
+    cells_series: int = Field(DEFAULT_BATTERY.cells_series, ge=1, le=14, description="Cells in series (the S in 4S)")
+    capacity_mah: float = Field(DEFAULT_BATTERY.capacity_mah, gt=0, description="Rated pack capacity, mAh")
+    max_c_rate: Optional[float] = Field(None, gt=0, description="Continuous C-rating; omit for the chemistry default")
+    initial_soc_pct: float = Field(100.0, gt=0, le=100, description="Charge at show start, %")
+    ambient_temp_c: float = Field(25.0, ge=-40, le=60, description="Ambient temperature, C")
+    venue_altitude_m: float = Field(0.0, ge=-500, le=6000, description="Venue height above sea level, m")
+    max_depth_of_discharge_pct: float = Field(70.0, gt=0, le=100, description="Allowed depth of discharge, %")
+    mass_kg: float = Field(DEFAULT_AIRFRAME.mass_kg, gt=0, description="All-up drone mass, kg")
+    rotor_radius_m: float = Field(DEFAULT_AIRFRAME.rotor_radius_m, gt=0, description="Propeller radius, m")
+    avionics_power_w: float = Field(DEFAULT_AIRFRAME.avionics_power_w, ge=0, description="Avionics + LED draw, W")
+
+
+@app.post("/api/validate-energy")
+def api_validate_energy(req: EnergyRequest):
+    """
+    Estimate power draw and battery discharge over the show (issue #54).
+
+    Reports total and per-drone energy (Wh), peak current (A) and C-rate, and a
+    fleet battery timeline for the UI graph. The show FAILS (is UNSAFE) when a
+    drone exceeds the allowed depth of discharge (the report says how many
+    seconds to cut), the pack's C-rating, or the chemistry's minimum loaded
+    cell voltage.
+    """
+    try:
+        battery = BatterySpec(
+            chemistry=req.chemistry.lower(),
+            cells_series=req.cells_series,
+            capacity_mah=req.capacity_mah,
+            max_c_rate=req.max_c_rate,
+            initial_soc=req.initial_soc_pct / 100.0,
+        )
+        return validate_energy(
+            req.choreo,
+            airframe=AirframeSpec(
+                mass_kg=req.mass_kg,
+                rotor_radius_m=req.rotor_radius_m,
+                avionics_power_w=req.avionics_power_w,
+            ),
+            battery=battery,
+            environment=Environment(
+                ambient_temp_c=req.ambient_temp_c, venue_altitude_m=req.venue_altitude_m
+            ),
+            limits=EnduranceLimits(max_depth_of_discharge=req.max_depth_of_discharge_pct / 100.0),
+        )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 

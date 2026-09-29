@@ -29,6 +29,19 @@ export const validateShow = async (choreo) => {
   return res.json();
 };
 
+/**
+ * Estimates power draw and battery discharge over a built show (issue #54).
+ * `battery` is { chemistry, cells_series, capacity_mah, ambient_temp_c }.
+ */
+export const validateEnergy = async (choreo, battery) => {
+  const res = await postJson(`${API_BASE}/api/validate-energy`, { choreo, ...battery });
+  if (!res.ok) {
+    const details = await res.json().catch(() => ({}));
+    throw new Error(typeof details.detail === 'string' ? details.detail : `Endurance check failed (${res.status})`);
+  }
+  return res.json();
+};
+
 /** Generates a single-shape show through the backend's parametric generators. */
 export const generateShow = async (payload) => {
   const res = await postJson(`${API_BASE}/api/generate`, payload);
