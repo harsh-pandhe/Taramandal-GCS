@@ -386,6 +386,12 @@ async def run_one(n: int, duration: float, idle_floor_ms: float | None = None) -
 
             await asyncio.sleep(0.5)  # let telemetry + the armable settle-delay catch up
 
+            show = benchmark_show(n, duration)
+            # Arming is gated on every drone holding a verified mission (#47).
+            t0 = time.perf_counter()
+            await manager.upload_show(show)
+            phases["upload_s"] = time.perf_counter() - t0
+
             t0 = time.perf_counter()
             await manager.launch_sequence()
             phases["launch_s"] = time.perf_counter() - t0
@@ -410,7 +416,7 @@ async def run_one(n: int, duration: float, idle_floor_ms: float | None = None) -
 
             t0 = time.perf_counter()
             sim_t0 = fs.time_s
-            manager.start_trajectory(benchmark_show(n, duration), mode="LOCAL")
+            manager.start_trajectory(show, mode="LOCAL")
             await asyncio.sleep(duration + 1.5)
             phases["show_s"] = time.perf_counter() - t0
             # Simulated seconds per wall-clock second over the whole show: the

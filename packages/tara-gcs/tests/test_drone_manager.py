@@ -276,7 +276,7 @@ async def test_start_trajectory_applies_the_shows_own_envelope(tmp_path):
 
     try:
         trajectory = {0: [{"time": 0.0, "x": 0.0, "y": 0.0, "z": -2.0}, {"time": 5.0, "x": 20.0, "y": 0.0, "z": -2.0}]}
-        manager.start_trajectory(trajectory)
+        manager.start_trajectory(trajectory, execution="streamed")
 
         assert manager.soft_geofence_radius == pytest.approx(30.0)
         assert manager.geofence_radius == pytest.approx(35.0)

@@ -151,3 +151,128 @@ class TestRealismToggles:
         fs = FleetState(1, SimConfig(rng_seed=12, position_noise_std_m=0.0))
         fs.position[0] = [1.0, 2.0, 3.0]
         assert fs.noisy_position(0) == pytest.approx([1.0, 2.0, 3.0])
+
+
+class _Clock:
+    """A pinned UTC clock that advances with the physics, so the onboard
+    mission executor can be driven deterministically."""
+
+    def __init__(self, fs: FleetState, t0: float = 1_000.0):
+        self.fs, self.t0 = fs, t0
+
+    def __call__(self) -> float:
+        return self.t0 + self.fs.time_s
+
+
+def _mission_fleet(n: int = 1) -> tuple[FleetState, _Clock]:
+    fs = FleetState(n, SimConfig(rng_seed=13, wind_std_ms2=0.0, position_noise_std_m=0.0))
+    clock = _Clock(fs)
+    fs.utc_clock = clock
+    fs.armed[:] = True
+    return fs, clock
+
+
+# Drone-local NED: climb to 4m, then move 3m north.
+_MISSION = [
+    {"time": 0.0, "x": 0.0, "y": 0.0, "z": 0.0, "yaw": 0.0},
+    {"time": 2.0, "x": 0.0, "y": 0.0, "z": -4.0, "yaw": 0.0},
+    {"time": 4.0, "x": 3.0, "y": 0.0, "z": -4.0, "yaw": 90.0},
+]
+
+
+class TestOnboardMission:
+    def test_flies_the_stored_mission_and_holds_its_last_waypoint(self):
+        fs, clock = _mission_fleet()
+        fs.load_mission(0, b"s" * 16, _MISSION)
+        assert fs.start_mission(0, clock())
+        run_ticks(fs, int(3.0 * fs.config.tick_hz))
+        assert fs.flight_mode[0] == "SHOW"
+        run_ticks(fs, int(3.0 * fs.config.tick_hz))
+        assert fs.mission_complete[0] and not fs.mission_active[0]
+        assert fs.position[0] == pytest.approx([3.0, 0.0, 4.0], abs=0.15)
+        assert fs.flight_mode[0] == "HOLD"
+
+    def test_holds_until_the_start_instant(self):
+        fs, clock = _mission_fleet()
+        fs.load_mission(0, b"s" * 16, _MISSION)
+        fs.start_mission(0, clock() + 2.0)
+        run_ticks(fs, int(1.5 * fs.config.tick_hz))
+        assert fs.position[0] == pytest.approx([0.0, 0.0, 0.0], abs=0.01)
+        run_ticks(fs, int(2.5 * fs.config.tick_hz))
+        assert fs.position[0, 2] > 2.0
+
+    def test_needs_no_setpoints_from_the_gcs(self):
+        fs, clock = _mission_fleet()
+        fs.load_mission(0, b"s" * 16, _MISSION)
+        fs.start_mission(0, clock())
+        run_ticks(fs, int(5.0 * fs.config.tick_hz))
+        assert fs.setpoints_received[0] == 0
+        assert fs.mission_complete[0]
+
+    def test_refuses_to_start_disarmed_or_with_nothing_loaded(self):
+        fs, clock = _mission_fleet(2)
+        fs.armed[1] = False
+        fs.load_mission(1, b"s" * 16, _MISSION)
+        assert not fs.start_mission(0, clock())  # armed, nothing loaded
+        assert not fs.start_mission(1, clock())  # loaded, not armed
+
+    def test_cancel_holds_where_it_is(self):
+        fs, clock = _mission_fleet()
+        fs.load_mission(0, b"s" * 16, _MISSION)
+        fs.start_mission(0, clock())
+        run_ticks(fs, int(1.5 * fs.config.tick_hz))
+        fs.cancel_mission(0)
+        held = fs.position[0].copy()
+        run_ticks(fs, int(3.0 * fs.config.tick_hz))
+        assert not fs.mission_complete[0]
+        assert fs.position[0] == pytest.approx(held, abs=0.3)
+
+    @pytest.mark.parametrize("command", ["command_land", "command_rtl", "command_disarm"])
+    def test_land_rtl_and_disarm_override_the_mission(self, command):
+        fs, clock = _mission_fleet()
+        fs.load_mission(0, b"s" * 16, _MISSION)
+        fs.start_mission(0, clock())
+        run_ticks(fs, 10)
+        getattr(fs, command)(0)
+        assert not fs.mission_active[0]
+
+    def test_offboard_takes_over_from_the_mission(self):
+        fs, clock = _mission_fleet()
+        fs.load_mission(0, b"s" * 16, _MISSION)
+        fs.start_mission(0, clock())
+        fs.command_offboard_start(0)
+        assert not fs.mission_active[0]
+
+
+class TestOffboardLossFailsafe:
+    def _offboard_hover(self) -> FleetState:
+        fs = FleetState(1, SimConfig(rng_seed=14, wind_std_ms2=0.0))
+        fs.armed[:] = True
+        fs.command_offboard_start(0)
+        fs.command_setpoint(0, (0.0, 0.0, 3.0))
+        run_ticks(fs, 100)
+        return fs
+
+    def test_quiet_gcs_with_link_up_does_not_trip_it(self):
+        # MAVSDK re-sends the last setpoint while offboard is engaged.
+        fs = self._offboard_hover()
+        run_ticks(fs, int(5.0 * fs.config.tick_hz))
+        assert not fs.offboard_failsafe[0]
+        assert fs.flight_mode[0] == "OFFBOARD"
+
+    def test_link_loss_in_offboard_fails_safe_to_land(self):
+        fs = self._offboard_hover()
+        fs.connected[0] = False
+        run_ticks(fs, int(0.5 * fs.config.tick_hz))
+        assert not fs.offboard_failsafe[0]  # still inside COM_OF_LOSS_T
+        run_ticks(fs, int(1.0 * fs.config.tick_hz))
+        assert fs.offboard_failsafe[0]
+        assert fs.flight_mode[0] == "LAND"
+
+    def test_link_loss_outside_offboard_is_harmless(self):
+        fs = self._offboard_hover()
+        fs.offboard_active[0] = False
+        fs.connected[0] = False
+        run_ticks(fs, int(3.0 * fs.config.tick_hz))
+        assert not fs.offboard_failsafe[0]
+        assert fs.flight_mode[0] == "HOLD"

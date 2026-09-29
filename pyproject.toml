@@ -23,7 +23,7 @@ pythonpath = [
 # Each package has its own tests/ directory. Under the default import mode those
 # all resolve to a single `tests` package name and shadow each other, so use
 # importlib mode — it keys modules by file path and needs no __init__.py markers.
-addopts = "--import-mode=importlib"
+addopts = "--import-mode=importlib -p no:launch_testing"
 asyncio_mode = "auto"
 filterwarnings = ["ignore::DeprecationWarning"]
 markers = [

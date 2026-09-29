@@ -60,8 +60,10 @@ def _short_safe_show(n: int, duration: float = 6.0) -> dict:
 async def _fly_a_show(manager: DroneManager, n: int, duration: float) -> None:
     await manager.connect_all()
     await asyncio.sleep(0.5)  # let telemetry + the armable settle-delay catch up
+    show = _short_safe_show(n, duration)
+    await manager.upload_show(show)  # arming is gated on a verified upload (#47)
     await manager.launch_sequence()
-    manager.start_trajectory(_short_safe_show(n, duration), mode="LOCAL")
+    manager.start_trajectory(show, mode="LOCAL")
     await asyncio.sleep(duration + 1.5)
 
 

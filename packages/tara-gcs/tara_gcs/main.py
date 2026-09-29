@@ -6,7 +6,7 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect, UploadFile, File, H
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
-from tara_gcs.drone_manager import DroneManager
+from tara_gcs.drone_manager import DroneManager, LaunchGateError
 from tara_gcs.trajectory_parser import parse_trajectory_bytes
 from tara_gcs.telemetry_codec import FAST_HZ, SLOW_HZ, encode_fast_frame, encode_slow_frame
 from tara_gcs.sim_manager import SimLaunchError, SimManager
@@ -114,10 +114,18 @@ async def get_status():
 @app.post("/api/launch")
 async def launch_fleet():
     logger.info("API: Launching fleet...")
+    # Checked here as well as inside launch_sequence() so a refusal reaches the
+    # operator as a 409, rather than only as a log line from the background task.
+    gate = drone_manager.launch_gate()
+    if not gate["ok"]:
+        raise HTTPException(status_code=409, detail=gate["reason"])
+
     # Wrap launch sequence task with error handling
     async def run_launch():
         try:
             await drone_manager.launch_sequence()
+        except LaunchGateError as e:
+            logger.error(f"Launch refused: {e}")
         except Exception as e:
             logger.error(f"Error during launch sequence execution: {e}")
     asyncio.create_task(run_launch())
@@ -138,6 +146,9 @@ async def trigger_land():
 class StartTrajectoryRequest(BaseModel):
     mode: str = "LOCAL"
     trigger_epoch_ms: float = 0.0
+    # "onboard" (drones fly their uploaded missions; GCS broadcasts the start)
+    # or "streamed" (legacy 10Hz unicast setpoints, stock PX4 SITL only).
+    execution: str = "onboard"
 
 @app.post("/api/upload-trajectory")
 async def upload_trajectory(file: UploadFile = File(...), signature: UploadFile | None = File(None)):
@@ -214,6 +225,24 @@ async def upload_trajectory(file: UploadFile = File(...), signature: UploadFile 
         logger.error(f"Failed parsing trajectory file: {e}")
         raise HTTPException(status_code=400, detail=str(e))
 
+@app.post("/api/upload-mission")
+async def upload_mission():
+    """Compile the loaded trajectory into one mission per drone, upload each
+    over MAVLink FTP, and verify every copy's CRC-32 (issue #47). Arming is
+    refused until this has succeeded for the whole fleet."""
+    logger.info("API: Uploading show missions to the fleet...")
+    if not drone_manager.active_trajectory:
+        raise HTTPException(status_code=400, detail="No active trajectory loaded. Please upload a trajectory first.")
+    try:
+        return await drone_manager.upload_show(drone_manager.active_trajectory)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+@app.get("/api/mission-status")
+async def mission_status():
+    """Per-drone mission upload/verification state and whether arming is permitted."""
+    return drone_manager.mission_status()
+
 @app.post("/api/verify-launch-geometry")
 async def verify_launch_geometry(tolerance_m: float = 0.5):
     logger.info("API: Verifying launch geometry...")
@@ -225,7 +254,10 @@ async def verify_launch_geometry(tolerance_m: float = 0.5):
 
 @app.post("/api/start-trajectory")
 async def start_trajectory(req: StartTrajectoryRequest):
-    logger.info(f"API: Starting trajectory in {req.mode} mode, trigger_epoch_ms={req.trigger_epoch_ms}...")
+    logger.info(
+        f"API: Starting trajectory in {req.mode} mode, {req.execution} execution, "
+        f"trigger_epoch_ms={req.trigger_epoch_ms}..."
+    )
     if not drone_manager.active_trajectory:
          raise HTTPException(status_code=400, detail="No active trajectory loaded. Please upload a trajectory first.")
          
@@ -233,9 +265,10 @@ async def start_trajectory(req: StartTrajectoryRequest):
         drone_manager.start_trajectory(
             drone_manager.active_trajectory, 
             mode=req.mode, 
-            trigger_epoch_ms=req.trigger_epoch_ms
+            trigger_epoch_ms=req.trigger_epoch_ms,
+            execution=req.execution,
         )
-        return {"status": "success", "message": f"Trajectory started in {req.mode} mode."}
+        return {"status": "success", "message": f"Trajectory started in {req.mode} mode ({req.execution} execution)."}
     except Exception as e:
         logger.error(f"Failed starting trajectory: {e}")
         raise HTTPException(status_code=400, detail=str(e))
