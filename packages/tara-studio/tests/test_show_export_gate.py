@@ -71,10 +71,19 @@ class TestExportGate:
         assert exported["_duration"] == 10.0
 
     def test_geofence_block_is_accepted(self):
-        # The shape fix-53-dynamic-geofence's exporter adds, once merged.
-        geofence = {"envelope_radius_m": 4.0, "soft_warning_radius_m": 6.0, "hard_geofence_radius_m": 9.0}
-        exported = json.loads(export_json({**lit_circle(), "_geofence": geofence}))
-        assert exported["_geofence"] == geofence
+        # Issue #53: exporter derives _geofence from trajectory envelope.
+        exported = json.loads(export_json(lit_circle()))
+        assert "_geofence" in exported
+        assert set(exported["_geofence"].keys()) == {
+            "envelope_radius_m",
+            "soft_warning_radius_m",
+            "hard_geofence_radius_m",
+        }
+        assert (
+            exported["_geofence"]["envelope_radius_m"]
+            < exported["_geofence"]["soft_warning_radius_m"]
+            < exported["_geofence"]["hard_geofence_radius_m"]
+        )
 
     def test_nan_in_an_unknown_key_is_refused(self):
         # Not a field the schema knows, but it would still be invalid JSON.

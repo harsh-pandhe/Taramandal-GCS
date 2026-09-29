@@ -95,7 +95,7 @@ async def test_under_50_asyncio_tasks_at_1000_drones_through_a_show_and_rtl():
         with _TaskCounter(asyncio.get_running_loop()) as counter:
             await manager.connect_all()
             await asyncio.sleep(0.2)  # first telemetry read, so the slot remap sees healthy drones
-            manager.start_trajectory(_hover_show(1000), mode="LOCAL")
+            manager.start_trajectory(_hover_show(1000), mode="LOCAL", execution="streamed")
             await asyncio.sleep(1.0)  # ~10 trajectory ticks, 20 telemetry reads
             assert manager.is_running_trajectory
             await manager.trigger_rtl()  # fleet-wide commands must not fan out either
@@ -207,7 +207,7 @@ async def test_starting_a_show_freezes_the_pre_show_heap():
     try:
         await manager.connect_all()
         gc.unfreeze()
-        manager.start_trajectory(_hover_show(2), mode="LOCAL")
+        manager.start_trajectory(_hover_show(2), mode="LOCAL", execution="streamed")
         assert gc.get_freeze_count() > 0
     finally:
         await manager.shutdown()

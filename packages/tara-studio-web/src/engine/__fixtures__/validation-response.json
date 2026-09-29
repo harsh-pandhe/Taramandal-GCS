@@ -45,6 +45,8 @@
     "max_accel_ms2": 50.0,
     "max_yaw_rate_dps": 300.0,
     "geofence_radius_m": 30.0,
-    "max_altitude_m": 120.0
+    "max_altitude_m": 120.0,
+    "geofence_soft_warning_buffer_m": 10.0,
+    "geofence_hard_buffer_m": 15.0
   }
 }

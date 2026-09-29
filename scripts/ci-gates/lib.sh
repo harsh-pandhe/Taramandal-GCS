@@ -4,6 +4,9 @@
 
 set -euo pipefail
 
+# Isolate pytest from system/environment plugin auto-discovery (e.g. ROS launch_testing)
+export PYTEST_DISABLE_PLUGIN_AUTOLOAD=1
+
 # Repo root, regardless of the caller's cwd — every gate script cds here first
 # so `working-directory:`-scoped commands (npm ci in a package dir, etc.) match
 # what .github/workflows/ci.yml does relative to the checkout root. This file
