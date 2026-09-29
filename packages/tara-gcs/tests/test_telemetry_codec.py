@@ -99,7 +99,7 @@ class TestSlowFrame:
         assert set(drone) == {
             "flight_mode", "battery_percent", "battery_voltage", "gps_lock",
             "satellites", "gps_fix_type", "comm_latency_ms",
-            "home_lat", "home_lon", "home_alt", "port",
+            "home_lat", "home_lon", "home_alt", "port", "aborted",
         }
         assert "fleet_x" not in drone
         assert "armed" not in drone
