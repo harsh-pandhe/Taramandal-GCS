@@ -31,6 +31,7 @@ Two ways in, deliberately:
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Annotated, Any
@@ -38,6 +39,8 @@ from typing import Annotated, Any
 from pydantic import BaseModel, BeforeValidator, ConfigDict, Field, field_validator
 
 from .layout import MAX_FLEET_SIZE
+
+from .safety import DEFAULT_LIMITS, SafetyLimits
 
 #: Bumped when the on-disk waypoint schema changes incompatibly.
 SHOW_FORMAT_VERSION = 1
@@ -251,3 +254,42 @@ class Show:
         return any(
             "r" in wp for wps in self.drones.values() for wp in wps
         )
+
+    # ------------------------------------------------------------- geofence
+
+    def max_horizontal_radius_m(self) -> float:
+        """Max horizontal distance (``sqrt(x**2 + y**2)``) from the origin.
+
+        Scans every waypoint of every drone across the show's full duration —
+        entry-blend, the show body and the exit/return — not just the launch
+        pad positions at ``t=0``, since a formation can carry a drone further
+        from home mid-show than it started.
+        """
+        return max(
+            (math.hypot(wp["x"], wp["y"]) for wps in self.drones.values() for wp in wps),
+            default=0.0,
+        )
+
+    def geofence_envelope(self, limits: SafetyLimits = DEFAULT_LIMITS) -> dict:
+        """Derive this show's two-tier geofence radii from its trajectory envelope.
+
+        Single source of truth for issue #53: computed once here from
+        :meth:`max_horizontal_radius_m`, so every consumer (the GCS's runtime
+        monitor, the exported show JSON the web UI reads) works from the same
+        number instead of each re-deriving or hardcoding it.
+
+        Args:
+            limits: Safety limits supplying the soft/hard buffers. Defaults to
+                :data:`tara_core.safety.DEFAULT_LIMITS`.
+
+        Returns:
+            A dict with ``envelope_radius_m`` (the raw computed envelope),
+            ``soft_warning_radius_m`` and ``hard_geofence_radius_m``.
+        """
+        envelope = self.max_horizontal_radius_m()
+        soft, hard = limits.geofence_radii(envelope)
+        return {
+            "envelope_radius_m": envelope,
+            "soft_warning_radius_m": soft,
+            "hard_geofence_radius_m": hard,
+        }

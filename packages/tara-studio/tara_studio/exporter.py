@@ -9,22 +9,25 @@ import math
 import struct
 import zlib
 
-from tara_core.show import SHOW_FORMAT_VERSION, ShowContainer
+from tara_core.show import SHOW_FORMAT_VERSION, Show, ShowContainer
 
 def export_json(choreo_data: dict) -> str:
     """Serialises a choreography as a show file, refusing one that breaks the schema.
 
-    Stamps ``version`` when the choreography doesn't carry one, then checks the
-    result against ``schemas/show_v1.json`` (via ``ShowContainer``) before
-    anything is written: a malformed show should fail here, in the Studio,
-    rather than on upload to the GCS. The dict itself is what gets written, not
-    the model's dump, so unknown keys and number formatting survive unchanged.
+    Stamps ``version`` when the choreography doesn't carry one, computes the
+    per-show geofence envelope (issue #53), then checks the result against
+    ``schemas/show_v1.json`` (via ``ShowContainer``) before anything is written:
+    a malformed show should fail here, in the Studio, rather than on upload to
+    the GCS. The dict itself is what gets written, not the model's dump, so
+    unknown keys and number formatting survive unchanged.
 
     Raises:
         pydantic.ValidationError: (a ValueError) listing every offending field
             path, e.g. ``drones.0.waypoints.12.yaw``.
     """
     data = {"version": SHOW_FORMAT_VERSION, **choreo_data}
+    if isinstance(data.get("drones"), list):
+        data["_geofence"] = Show.from_any(data).geofence_envelope()
     ShowContainer.model_validate(data)
     # allow_nan=False: the schema only vets the fields it knows, and a NaN in
     # an unknown key would otherwise be written out as invalid JSON.

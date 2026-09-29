@@ -161,6 +161,128 @@ async def test_geofence_safety_safe():
     manager.trigger_rtl.assert_not_called()
     assert manager.geofence_breaches.get(0, False) is False
 
+
+# --- Issue #53: dynamic geofence envelope (soft warning + hard RTL) ---
+
+@pytest.mark.asyncio
+async def test_geofence_soft_warning_does_not_trigger_rtl():
+    """A drone past the soft threshold but inside the hard one warns, not RTLs."""
+    manager = DroneManager(ports=[])
+    manager.trigger_rtl = AsyncMock()
+    manager.soft_geofence_radius = 10.0
+    manager.geofence_radius = 15.0
+
+    # dist = 12.0m: past soft (10.0), inside hard (15.0)
+    manager.telemetry = {
+        0: {"connected": True, "armed": True, "local_x": 0.0, "local_y": 12.0, "local_z": 2.0}
+    }
+
+    task = asyncio.create_task(manager._geofence_monitor_loop())
+    await asyncio.sleep(0.15)
+
+    task.cancel()
+    try:
+        await task
+    except asyncio.CancelledError:
+        pass
+
+    manager.trigger_rtl.assert_not_called()
+    assert manager.geofence_warnings.get(0) is True
+    assert manager.geofence_breaches.get(0, False) is False
+
+@pytest.mark.asyncio
+async def test_geofence_hard_breach_still_triggers_rtl_alongside_soft_warning():
+    """Past the hard threshold, both the soft warning and the RTL fire."""
+    manager = DroneManager(ports=[])
+    manager.trigger_rtl = AsyncMock()
+    manager.soft_geofence_radius = 10.0
+    manager.geofence_radius = 15.0
+
+    # dist = 20.0m: past both thresholds
+    manager.telemetry = {
+        0: {"connected": True, "armed": True, "local_x": 0.0, "local_y": 20.0, "local_z": 2.0}
+    }
+
+    task = asyncio.create_task(manager._geofence_monitor_loop())
+    await asyncio.sleep(0.15)
+
+    task.cancel()
+    try:
+        await task
+    except asyncio.CancelledError:
+        pass
+
+    manager.trigger_rtl.assert_called_once()
+    assert manager.geofence_breaches.get(0) is True
+    assert manager.geofence_warnings.get(0) is True
+
+@pytest.mark.asyncio
+async def test_geofence_soft_warning_disabled_by_default():
+    """No show loaded yet: soft_geofence_radius is None, so nothing warns —
+    only the static default hard radius applies (backward compatible with
+    the pre-#53 behaviour these existing tests above pin down).
+    """
+    manager = DroneManager(ports=[])
+    assert manager.soft_geofence_radius is None
+    manager.trigger_rtl = AsyncMock()
+
+    # Comfortably past where a soft threshold would sit, but the default hard
+    # radius (30.0m) is untouched, so this must neither warn nor RTL.
+    manager.telemetry = {
+        0: {"connected": True, "armed": True, "local_x": 0.0, "local_y": 25.0, "local_z": 2.0}
+    }
+
+    task = asyncio.create_task(manager._geofence_monitor_loop())
+    await asyncio.sleep(0.15)
+
+    task.cancel()
+    try:
+        await task
+    except asyncio.CancelledError:
+        pass
+
+    manager.trigger_rtl.assert_not_called()
+    assert manager.geofence_warnings.get(0, False) is False
+
+
+def test_apply_geofence_envelope_derives_both_radii_from_trajectory():
+    manager = DroneManager(ports=[])
+    # GCS-shaped trajectory: one drone reaches 38m from home mid-show.
+    trajectory = {0: [{"time": 0.0, "x": 0.0, "y": 0.0, "z": -2.0}, {"time": 5.0, "x": 38.0, "y": 0.0, "z": -2.0}]}
+
+    manager._apply_geofence_envelope(trajectory)
+
+    assert manager.soft_geofence_radius == pytest.approx(48.0)
+    assert manager.geofence_radius == pytest.approx(53.0)
+
+
+def test_apply_geofence_envelope_falls_back_on_unparseable_trajectory():
+    manager = DroneManager(ports=[])
+    manager.soft_geofence_radius = 40.0  # simulate a previously-loaded show
+    manager.geofence_radius = 45.0
+
+    manager._apply_geofence_envelope({0: [{"time": 0.0, "x": 0.0}]})  # missing required keys
+
+    assert manager.soft_geofence_radius is None
+    from tara_core import DEFAULT_LIMITS
+    assert manager.geofence_radius == DEFAULT_LIMITS.geofence_radius_m
+
+
+@pytest.mark.asyncio
+async def test_start_trajectory_applies_the_shows_own_envelope(tmp_path):
+    manager = DroneManager(ports=[], state_path=str(tmp_path / "show_state.json"))
+    manager.remap_trajectory_to_healthy_drones = lambda data: data
+    manager._run_trajectory_loop = AsyncMock()
+
+    try:
+        trajectory = {0: [{"time": 0.0, "x": 0.0, "y": 0.0, "z": -2.0}, {"time": 5.0, "x": 20.0, "y": 0.0, "z": -2.0}]}
+        manager.start_trajectory(trajectory)
+
+        assert manager.soft_geofence_radius == pytest.approx(30.0)
+        assert manager.geofence_radius == pytest.approx(35.0)
+    finally:
+        manager.stop_trajectory()
+
 @pytest.mark.asyncio
 async def test_telemetry_fields_exist():
     manager = DroneManager(ports=[])

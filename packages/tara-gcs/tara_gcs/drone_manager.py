@@ -5,6 +5,7 @@ import logging
 import time
 from scipy.spatial import cKDTree
 from tara_core import DEFAULT_LIMITS, MAX_FLEET_SIZE, altitude_layers, interpolate_waypoint, launch_grid
+from tara_core.show import Show
 from mavsdk import System
 from mavsdk.offboard import PositionNedYaw, PositionGlobalYaw, OffboardError, VelocityNedYaw, AccelerationNed
 from tara_gcs.state_store import DEFAULT_STATE_PATH, discard_show_state, load_show_state, save_show_state
@@ -91,8 +92,10 @@ class DroneManager:
         self._tasks = []
         self.trajectory_task = None
         self.is_running_trajectory = False
-        self.geofence_radius = DEFAULT_LIMITS.geofence_radius_m  # horizontal distance from home (0,0)
-        self.geofence_breaches = {}  # drone_id -> bool, tracks active geofence breaches
+        self.geofence_radius = DEFAULT_LIMITS.geofence_radius_m  # hard RTL radius; recomputed per-show by _apply_geofence_envelope()
+        self.soft_geofence_radius = None  # soft-warning radius; None (disabled) until a show sets one
+        self.geofence_breaches = {}  # drone_id -> bool, tracks active hard geofence breaches (triggers RTL)
+        self.geofence_warnings = {}  # drone_id -> bool, tracks active soft-warning state (logs only, no RTL)
         self.proximity_breaches = {}  # tracks active proximity breaches per drone pair: (id1, id2) -> bool
         self.active_trajectory = None  # active trajectory stored for verification and start
 
@@ -522,10 +525,46 @@ class DroneManager:
 
     # --- Trajectory Playback ---
 
+    def _apply_geofence_envelope(self, trajectory_data: dict) -> None:
+        """Derives this show's soft/hard geofence radii from its full trajectory.
+
+        Recomputed here from the trajectory's own waypoints (issue #53) via
+        `tara_core.Show`, covering entry-blend + show + exit — not just launch
+        pads, since a formation can carry a drone further from home mid-show.
+        Deliberately recomputed rather than trusted from any client-supplied
+        `_geofence` metadata field (e.g. one baked into an exported show by
+        `tara_studio.exporter.export_json`): the runtime abort threshold must
+        always match the geometry this GCS is actually about to fly, not a
+        number that travelled alongside it and could be stale or wrong.
+
+        Falls back to `DEFAULT_LIMITS.geofence_radius_m` (static, soft warning
+        disabled) if the trajectory can't be parsed into a `Show` — e.g. an
+        empty trajectory — so the hard RTL boundary is never left unset.
+        """
+        try:
+            envelope = Show.from_any(trajectory_data).geofence_envelope()
+        except (ValueError, KeyError) as e:
+            logging.warning(
+                f"Could not compute geofence envelope from trajectory ({e}); "
+                f"falling back to default radius ({DEFAULT_LIMITS.geofence_radius_m}m)."
+            )
+            self.geofence_radius = DEFAULT_LIMITS.geofence_radius_m
+            self.soft_geofence_radius = None
+            return
+
+        self.soft_geofence_radius = envelope["soft_warning_radius_m"]
+        self.geofence_radius = envelope["hard_geofence_radius_m"]
+        logging.info(
+            f"Geofence envelope computed: trajectory max radius "
+            f"{envelope['envelope_radius_m']:.2f}m -> soft warning at "
+            f"{self.soft_geofence_radius:.2f}m, hard RTL at {self.geofence_radius:.2f}m."
+        )
+
     def start_trajectory(self, trajectory_data: dict, mode: str = "LOCAL", trigger_epoch_ms: float = 0.0):
         """Start playing back waypoints in a background asyncio task."""
         self.stop_trajectory()
         self.active_trajectory = trajectory_data
+        self._apply_geofence_envelope(trajectory_data)
         self.show_mode = mode
         self.show_started_at = time.time()
         # Remap trajectory slots to currently healthy drones before playback
@@ -934,11 +973,22 @@ class DroneManager:
 
     async def _geofence_monitor_loop(self):
         """
-        Monitors each armed drone's distance from home (0, 0) at 10Hz.
-        If horizontal distance exceeds geofence_radius, triggers RTL once per breach.
-        Breach tracking resets when the drone disarms.
+        Monitors each armed drone's distance from home (0, 0) at 10Hz against
+        two thresholds derived from the same trajectory envelope (issue #53,
+        set by `_apply_geofence_envelope`):
+
+          * `soft_geofence_radius` — logs a warning once per breach, does NOT
+            trigger RTL. Skipped entirely while None (no show loaded yet).
+          * `geofence_radius` — hard boundary; triggers RTL once per breach,
+            same as before.
+
+        Breach/warning tracking resets independently, per drone, when it
+        clears back inside each threshold (not tied to disarming).
         """
-        logging.info(f"Geofence monitor active (radius: {self.geofence_radius}m).")
+        logging.info(
+            f"Geofence monitor active (soft warning: {self.soft_geofence_radius}m, "
+            f"hard RTL: {self.geofence_radius}m)."
+        )
         try:
             while True:
                 for drone_id, tel in self.telemetry.items():
@@ -953,6 +1003,7 @@ class DroneManager:
                     dist3d = (x**2 + y**2 + z**2) ** 0.5  # total 3D distance from home
 
                     already_breached = self.geofence_breaches.get(drone_id, False)
+                    already_warned = self.geofence_warnings.get(drone_id, False)
 
                     if dist > self.geofence_radius:
                         if not already_breached:
@@ -963,10 +1014,20 @@ class DroneManager:
                             )
                             self.geofence_breaches[drone_id] = True
                             await self.trigger_rtl()
-                    else:
+                    elif already_breached:
                         # Within bounds — clear breach flag if previously set
-                        if already_breached:
-                            self.geofence_breaches[drone_id] = False
+                        self.geofence_breaches[drone_id] = False
+
+                    if self.soft_geofence_radius is not None and dist > self.soft_geofence_radius:
+                        if not already_warned:
+                            logging.warning(
+                                f"⚠️ GEOFENCE SOFT WARNING: Drone {drone_id} is {dist:.2f}m from home "
+                                f"(3D: {dist3d:.2f}m) — soft warning threshold is "
+                                f"{self.soft_geofence_radius}m."
+                            )
+                            self.geofence_warnings[drone_id] = True
+                    elif already_warned:
+                        self.geofence_warnings[drone_id] = False
 
                 await asyncio.sleep(0.1)  # 10Hz
         except asyncio.CancelledError:
