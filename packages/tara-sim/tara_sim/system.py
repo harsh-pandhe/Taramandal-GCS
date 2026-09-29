@@ -25,7 +25,9 @@ never needs the class itself.
 from __future__ import annotations
 
 import asyncio
+from dataclasses import dataclass
 
+import numpy as np
 from tara_core import geodetic_to_ned, ned_to_geodetic
 
 from .fleet_state import FleetState
@@ -41,6 +43,14 @@ DEFAULT_VENUE_LON = 77.5946
 #: flight-mode/home change slowly and are streamed more coarsely.
 _FAST_INTERVAL_S = 0.05
 _SLOW_INTERVAL_S = 0.5
+
+#: Every simulated home reports this absolute altitude (metres AMSL).
+HOME_ABSOLUTE_ALT_M = 920.0
+
+
+def _battery_voltage(pct):
+    """A 4S pack's voltage for a charge percentage (scalar or array)."""
+    return 14.0 + 0.028 * pct
 
 
 class _Obj:
@@ -65,7 +75,7 @@ class _Telemetry:
         fs, i = self._sys._fs, self._sys.drone_id
         async for _ in _stream(_SLOW_INTERVAL_S, lambda: None):
             pct = float(fs.battery_pct[i])
-            yield _Obj(remaining_percent=pct, voltage_v=14.0 + 0.028 * pct)
+            yield _Obj(remaining_percent=pct, voltage_v=_battery_voltage(pct))
 
     async def flight_mode(self):
         fs, i = self._sys._fs, self._sys.drone_id
@@ -119,7 +129,7 @@ class _Telemetry:
     async def home(self):
         sys_ = self._sys
         async for _ in _stream(_SLOW_INTERVAL_S, lambda: None):
-            yield _Obj(latitude_deg=sys_.home_lat, longitude_deg=sys_.home_lon, absolute_altitude_m=920.0)
+            yield _Obj(latitude_deg=sys_.home_lat, longitude_deg=sys_.home_lon, absolute_altitude_m=HOME_ABSOLUTE_ALT_M)
 
 
 class _Core:
@@ -222,6 +232,33 @@ class SimSystem:
         self._fs._connected_since[self.drone_id] = self._fs.time_s
 
 
+@dataclass(frozen=True)
+class BulkTelemetry:
+    """One snapshot of every drone's telemetry, as arrays indexed by drone id.
+
+    The fleet-wide equivalent of the eight per-drone streams on
+    :class:`SimSystem`, taken in one pass. Arrays are copies, so a consumer
+    can't write into the physics state by accident. Position is in each
+    drone's own local frame, as ``(north_m, east_m, altitude_m)`` with
+    altitude positive-up, and carries the same sensor noise as
+    ``position_velocity_ned()``.
+    """
+
+    time_s: float
+    position: np.ndarray  # (n, 3), noisy
+    velocity: np.ndarray  # (n, 3)
+    connected: np.ndarray  # (n,) bool
+    armed: np.ndarray  # (n,) bool
+    battery_pct: np.ndarray  # (n,)
+    battery_voltage: np.ndarray  # (n,)
+    satellites: np.ndarray  # (n,) int
+    flight_mode: list[str]
+    gps_fix_type: list[str]
+    home_lat: np.ndarray  # (n,)
+    home_lon: np.ndarray  # (n,)
+    home_alt: np.ndarray  # (n,)
+
+
 class SimFleet:
     """Owns one :class:`FleetState` and hands out :class:`SimSystem` views over it.
 
@@ -251,7 +288,34 @@ class SimFleet:
 
             pad_positions = launch_grid(n)
         self._homes = [ned_to_geodetic(x, y, venue_lat, venue_lon) for x, y in pad_positions]
+        self._home_lat = np.array([lat for lat, _ in self._homes])
+        self._home_lon = np.array([lon for _, lon in self._homes])
         self._systems: dict[int, SimSystem] = {}
+
+    def get_bulk_telemetry(self) -> BulkTelemetry:
+        """Every drone's telemetry in one vectorized read (issue #51).
+
+        This replaces subscribing to eight streams per drone. At 1,000 drones
+        those streams are 8,000 always-on asyncio tasks that saturate the
+        event loop, while the data they read already sits in a handful of
+        shared arrays.
+        """
+        fs = self.state
+        return BulkTelemetry(
+            time_s=fs.time_s,
+            position=fs.noisy_positions(),
+            velocity=fs.velocity.copy(),
+            connected=fs.connected.copy(),
+            armed=fs.armed.copy(),
+            battery_pct=fs.battery_pct.copy(),
+            battery_voltage=_battery_voltage(fs.battery_pct),
+            satellites=fs.satellites.copy(),
+            flight_mode=list(fs.flight_mode),
+            gps_fix_type=list(fs.gps_fix_type),
+            home_lat=self._home_lat.copy(),
+            home_lon=self._home_lon.copy(),
+            home_alt=np.full(fs.n, HOME_ABSOLUTE_ALT_M),
+        )
 
     def system(self, drone_id: int) -> SimSystem:
         if drone_id not in self._systems:

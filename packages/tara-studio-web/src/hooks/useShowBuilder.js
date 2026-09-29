@@ -1,5 +1,7 @@
 import { useState, useCallback } from 'react';
-import { buildSequencedShow, computeAssignmentChain } from '../engine/sequencer.js';
+import {
+  buildSequencedShow, computeAssignmentChain, computeAssignmentChainLocal,
+} from '../engine/sequencer.js';
 import { API_BASE, validateShow } from '../engine/api.js';
 
 /**
@@ -24,11 +26,15 @@ export default function useShowBuilder() {
     setLoading(true);
     setError(null);
 
-    let targetIdx = null;
+    // The morphs are only collision-free under an optimal assignment, so a
+    // backend that's down falls back to solving it in the browser rather than
+    // to the naive drone i → point i mapping.
+    let targetIdx;
     try {
       targetIdx = await computeAssignmentChain(scenes, numDrones, API_BASE);
     } catch (e) {
-      console.warn('Collision-free assignment unavailable, using naive mapping:', e.message);
+      console.warn('Backend assignment unavailable, solving locally:', e.message);
+      targetIdx = computeAssignmentChainLocal(scenes, numDrones);
     }
 
     let show;

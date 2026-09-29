@@ -29,3 +29,14 @@ studio_web = 5174
 # Whether `tara up` also launches the ROS2/RViz TF bridge. Requires a display
 # and a sourced ROS 2 install; off by default since most runs are headless.
 rviz = false
+
+[security]
+# Public keys the GCS accepts show-file signatures from (issue #49). An upload
+# to /api/upload-trajectory must carry a .sig.json manifest signed by one of
+# these, or it is rejected with 403. `tara keygen` prints the line to add here;
+# `tara sign` signs a show file. Remove a key to revoke it (restart the GCS).
+# Unsigned legacy files are refused unless the stack is started with
+# `tara up --allow-unsigned`.
+trusted_keys = [
+    # { signer = "Harsh (Studio laptop)", public_key = "base64 of the 32-byte Ed25519 public key" },
+]

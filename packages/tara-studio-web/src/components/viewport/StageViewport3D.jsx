@@ -11,6 +11,24 @@ import { droneColorAt } from '../../engine/lighting.js';
 // only its per-instance matrices and colours change per frame.
 
 const UP_AXIS_SCALE = 1; // NED z is negated when mapped to three's Y
+const AUDIENCE_EYE_HEIGHT_M = 1.7; // a spectator standing on the ground
+
+// The camera backs off to frame the whole formation (see orbit.radius below),
+// which at large fleet sizes spread over a wide formation can put it hundreds
+// of units away. A fixed-radius sphere shrinks with distance like anything
+// else in perspective — at N=100 on a wide glyph formation it measured out to
+// ~1.3px on screen, effectively invisible, while the path lines stayed
+// visible because line width doesn't attenuate with distance the way a mesh's
+// apparent size does. BASE_SPHERE_RADIUS is the original, artistically-tuned
+// size for close-up formations; MIN_SCALE keeps that unchanged there, and the
+// per-frame scale-up below only kicks in once the formation is far enough
+// that the fixed size would start disappearing. MAX_SCALE is capped so drones
+// stay individually legible rather than merging into a blob at the 2m design
+// separation between neighbours.
+const BASE_SPHERE_RADIUS = 0.28;
+const TARGET_SCREEN_PX = 5;
+const MIN_SCALE = 1;
+const MAX_SCALE = 3;
 
 /**
  * Three.js preview of a built show.
@@ -64,6 +82,19 @@ export default function StageViewport3D({
     const applyCamera = () => {
       if (viewModeRef.current === 'top-down') {
         camera.position.set(orbit.target.x, orbit.radius, orbit.target.z + 0.001);
+      } else if (viewModeRef.current === 'audience') {
+        // A spectator standing at ground level on the -X side, looking
+        // toward +X. Not an arbitrary side: a text formation (see
+        // engine/formations.js fmtText) puts fleet x = 0 (a wall in this
+        // scene's X=0 plane) with the glyph's own left-to-right reading
+        // axis mapped to fleet y -> this scene's Z axis. A camera looking
+        // down -X has its screen-right pointing along -Z, which reads that
+        // axis backwards (mirrored); one looking down +X (i.e. standing on
+        // the -X side, which is what this branch does) has screen-right
+        // along +Z, matching the glyph's own left-to-right order. See
+        // engine/audienceView.test.js for the coordinate derivation this
+        // is pinned against.
+        camera.position.set(orbit.target.x - orbit.radius, AUDIENCE_EYE_HEIGHT_M, orbit.target.z);
       } else {
         camera.position.set(
           orbit.target.x + orbit.radius * Math.sin(orbit.phi) * Math.sin(orbit.theta),
@@ -78,7 +109,7 @@ export default function StageViewport3D({
     let dragging = false, px = 0, py = 0;
     const onDown = (e) => { dragging = true; px = e.clientX; py = e.clientY; };
     const onMove = (e) => {
-      if (!dragging || viewModeRef.current === 'top-down') return;
+      if (!dragging || viewModeRef.current === 'top-down' || viewModeRef.current === 'audience') return;
       orbit.theta -= (e.clientX - px) * 0.005;
       orbit.phi -= (e.clientY - py) * 0.005;
       orbit.phi = Math.max(0.05, Math.min(Math.PI / 2.05, orbit.phi)); // stay above ground
@@ -119,6 +150,17 @@ export default function StageViewport3D({
 
       if (mesh && show) {
         const t = timeRef.current;
+        // Constant on-screen size regardless of how far the camera sits:
+        // world-size needed for TARGET_SCREEN_PX grows linearly with distance
+        // (basic perspective), clamped so nearby formations keep their
+        // original tuned size and far/spread ones don't balloon into overlap.
+        const canvasH = renderer.domElement.clientHeight || 1;
+        const worldPerPx = (2 * st.orbit.radius * Math.tan((camera.fov * Math.PI) / 360)) / canvasH;
+        const scale = Math.min(
+          Math.max((TARGET_SCREEN_PX * worldPerPx) / (2 * BASE_SPHERE_RADIUS), MIN_SCALE),
+          MAX_SCALE,
+        );
+        dummy.scale.setScalar(scale);
         for (let i = 0; i < show.drones.length; i++) {
           const wp = interpolateWaypoint(show.drones[i].waypoints, t);
           if (!wp) continue;

@@ -1,0 +1,91 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:taramandal:schema:show:v1",
+  "title": "Taramandal Show Container",
+  "description": "A multi-drone choreography as exported by Taramandal Studio (issue #55). Coordinates are local NED metres in the shared fleet frame: X north, Y east, Z down, so a drone 2 m in the air has z == -2.0. Mirrored by the Pydantic models in tara_core.show, which additionally reject duplicate drone ids (not expressible here). Unknown keys are allowed at every level so newer writers don't break this reader; only the fields listed here are validated when present.",
+  "type": "object",
+  "required": ["version", "drones"],
+  "additionalProperties": true,
+  "properties": {
+    "version": {
+      "description": "Show format version. Writers stamp tara_core.SHOW_FORMAT_VERSION (currently 1). Any version >= 1 is accepted here; deciding what a reader does with a version newer than it understands is left to the reader.",
+      "type": "integer",
+      "minimum": 1,
+      "default": 1
+    },
+    "drones": {
+      "description": "One entry per drone.",
+      "type": "array",
+      "items": { "$ref": "#/$defs/drone" }
+    },
+    "_geofence": {
+      "$ref": "#/$defs/geofence"
+    },
+    "signature_ref": {
+      "description": "Filename of the detached signature manifest shipped alongside this show file (see issue #49). The signature itself is never embedded, since it could not cover bytes that include it.",
+      "type": ["string", "null"],
+      "minLength": 1
+    }
+  },
+  "$defs": {
+    "drone": {
+      "type": "object",
+      "required": ["id", "waypoints"],
+      "additionalProperties": true,
+      "properties": {
+        "id": {
+          "description": "Drone id, 0 to tara_core.MAX_FLEET_SIZE - 1.",
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 999
+        },
+        "waypoints": {
+          "description": "The drone's waypoints.",
+          "type": "array",
+          "items": { "$ref": "#/$defs/waypoint" }
+        }
+      }
+    },
+    "waypoint": {
+      "type": "object",
+      "required": ["time", "x", "y", "z", "yaw"],
+      "additionalProperties": true,
+      "properties": {
+        "time": { "description": "Seconds since show start.", "type": "number", "minimum": 0 },
+        "x": { "description": "North, metres.", "type": "number" },
+        "y": { "description": "East, metres.", "type": "number" },
+        "z": { "description": "Down, metres (negative is above the ground).", "type": "number" },
+        "yaw": {
+          "description": "Heading, degrees, wrapped into [0, 360).",
+          "type": "number",
+          "minimum": 0,
+          "exclusiveMaximum": 360
+        },
+        "r": { "$ref": "#/$defs/led_channel" },
+        "g": { "$ref": "#/$defs/led_channel" },
+        "b": { "$ref": "#/$defs/led_channel" },
+        "w": { "$ref": "#/$defs/led_channel" },
+        "vx": { "description": "North velocity, m/s.", "type": "number" },
+        "vy": { "description": "East velocity, m/s.", "type": "number" },
+        "vz": { "description": "Down velocity, m/s.", "type": "number" }
+      }
+    },
+    "led_channel": {
+      "description": "LED channel intensity, 0-255.",
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 255
+    },
+    "geofence": {
+      "description": "Two-tier geofence radii derived from the show's trajectory envelope (issue #53).",
+      "type": "object",
+      "required": ["envelope_radius_m", "soft_warning_radius_m", "hard_geofence_radius_m"],
+      "additionalProperties": true,
+      "properties": {
+        "envelope_radius_m": { "type": "number", "minimum": 0 },
+        "soft_warning_radius_m": { "type": "number", "minimum": 0 },
+        "hard_geofence_radius_m": { "type": "number", "minimum": 0 }
+      }
+    }
+  }
+}

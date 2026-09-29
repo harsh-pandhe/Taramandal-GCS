@@ -1,4 +1,6 @@
-import { Compass, Globe, Activity, AlertTriangle } from 'lucide-react';
+import {
+  Compass, Globe, Users, Activity, AlertTriangle,
+} from 'lucide-react';
 import SequencerHeader from '../sequencer/SequencerHeader.jsx';
 import TimelineTrack from '../sequencer/TimelineTrack.jsx';
 import WaveformTrack from '../sequencer/WaveformTrack.jsx';
@@ -10,6 +12,7 @@ import { EmptyState } from '../common/index.jsx';
 const VIEWS = [
   { id: '3d', icon: Compass, label: '3D STAGE' },
   { id: 'top-down', icon: Globe, label: 'TOP-DOWN' },
+  { id: 'audience', icon: Users, label: 'AUDIENCE' },
   { id: 'matrix', icon: Activity, label: 'TELEMETRY' },
 ];
 

@@ -1,10 +1,12 @@
 import { CheckCircle, AlertTriangle } from 'lucide-react';
 import { EmptyState } from '../common/index.jsx';
+import { judgeMetrics } from '../../engine/safetyLimits.js';
 
-const Metric = ({ title, value, unit, ok }) => (
-  <div className="metric-card">
+const Metric = ({ title, value, unit, status, limitLabel }) => (
+  <div className="metric-card" data-metric-status={status}>
     <div className="metric-title">{title}</div>
-    <div className={`metric-val ${ok ? 'passed' : 'warning'}`}>{value}{unit}</div>
+    <div className={`metric-val ${status === 'unknown' ? '' : status}`}>{value}{unit}</div>
+    <div className="metric-limit">{limitLabel}</div>
   </div>
 );
 
@@ -34,10 +36,8 @@ export default function SafetyPanel({ validation }) {
 
       {m && (
         <div className="metric-grid">
-          <Metric title="Min Sep" value={m.min_distance_m} unit="m" ok={m.min_distance_m >= 0.8} />
-          <Metric title="Max Speed" value={m.max_velocity_m_s} unit="m/s" ok={m.max_velocity_m_s <= 4.0} />
-          <Metric title="Max Accel" value={m.max_acceleration_m_s2} unit="m/s²" ok={m.max_acceleration_m_s2 <= 2.0} />
-          <Metric title="Yaw Rate" value={Math.round(m.max_yaw_rate_deg_s)} unit="°/s" ok={m.max_yaw_rate_deg_s <= 180} />
+          {/* Thresholds are the backend's live SafetyLimits (validation.limits), never local constants. */}
+          {judgeMetrics(m, validation.limits).map(({ key, ...card }) => <Metric key={key} {...card} />)}
         </div>
       )}
 
