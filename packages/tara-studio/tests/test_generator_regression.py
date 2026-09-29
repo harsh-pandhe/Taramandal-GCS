@@ -61,52 +61,36 @@ def _geofence_violations(choreo: dict, radius: float, dt: float = 0.1) -> list[d
     return violations
 
 
-# Every (shape, n) combination below currently fails — not because the test
-# is wrong, but because the generators have a real, confirmed proximity/
-# geofence bug during entry-blend, choreography drift, or landing (filed as
-# #32; confirmed by Harsh on PR #30, not a broken test). Each failing case is
-# marked xfail(strict=True) rather than left red, so the suite documents the
-# known gap instead of blocking merge. strict=True is deliberate: once #32 is
-# fixed and a case starts passing, strict turns that into an XPASS failure
-# instead of silently staying green — a forcing function to come back and
-# delete that entry from _KNOWN_FAILING rather than the marker rotting in
-# place. Update this set (not the test body) as cases get fixed one at a time.
-#
-# cube and spline were fixed and removed here (both were purely proximity
-# bugs — cube's own z-grid ignored the altitude layering every other shape
-# relies on, spline's formation ignored d_id/n entirely — and neither shape's
-# formation reaches the geofence, so fixing proximity was enough for the case
-# to fully pass). circle, heart and helix stay: heart and helix each had a
-# real, separate proximity bug fixed alongside this change (heart's
-# equal-angle sampling crowded drones at the curve's cusp; helix's per-drone
-# height-oscillation phase cancelled the altitude-layer stagger it depended
-# on), but all three shapes still fail on the geofence sweep below —
-# `float(n - 1)` puts the formation centre 45-103 m from the fleet origin,
-# unrelated to entry-blend and out of this fix's scope (tracked separately,
-# `fix/launch-pad-geofence`). heart-50 and helix-50, like circle-50, remain
-# proximity-clean only because N=50 never hits the altitude layer's 60-drone
-# cycle — left as-is per the same reasoning as circle-50.
-_KNOWN_FAILING = {
-    ("circle", 50),
-    ("circle", 100),
-    ("helix", 50),
-    ("helix", 100),
-    ("heart", 50),
-    ("heart", 100),
-}
+def _altitude_violations(choreo: dict, ceiling: float, dt: float = 0.1) -> list[dict]:
+    """Every sample where a drone is above ``ceiling`` or below the ground.
 
-# Generation + validation at N=100 runs well under a second per shape (see
-# durations captured while writing this test), nowhere near the wall-clock
-# cost the repo's `slow` marker is for (e.g. the sim-backend milestone test's
-# real per-drone launch stagger), so N=100 here is not marked slow.
+    Swept at the same cadence as the geofence check, so it covers the
+    interpolated path between waypoints, not only the waypoints themselves.
+    """
+    show = Show.from_any(choreo)
+    violations = []
+    for t in sweep_times(show.duration, dt):
+        for drone_id, wps in show.drones.items():
+            wp = interpolate_waypoint(wps, t)
+            if wp is None:
+                continue
+            altitude = -wp["z"]  # NED: z is down
+            if altitude > ceiling or altitude < 0.0:
+                violations.append({"time": round(t, 2), "drone": drone_id, "altitude": round(altitude, 2)})
+    return violations
+
+
+# All ten cases used to include six strict xfails (#32): circle, helix and
+# heart were centred at (5, n-1), 45-200 m from the fleet origin, and at N=100
+# helix breached separation on its landing legs. Formations are now centred on
+# the origin and bounded inside the geofence (see generator.FORMATION_CENTER),
+# so every case is expected to pass outright.
+#
+# Generation + validation at N=100 runs in about a second per shape, nowhere
+# near the wall-clock cost the repo's `slow` marker is for, so N=100 here is
+# not marked slow.
 _CASES = [
-    pytest.param(
-        shape_name, n,
-        marks=pytest.mark.xfail(reason="#32", strict=True),
-        id=f"{shape_name}-{n}",
-    )
-    if (shape_name, n) in _KNOWN_FAILING
-    else pytest.param(shape_name, n, id=f"{shape_name}-{n}")
+    pytest.param(shape_name, n, id=f"{shape_name}-{n}")
     for shape_name in SHAPES
     for n in (50, 100)
 ]
@@ -114,8 +98,9 @@ _CASES = [
 
 @pytest.mark.parametrize("shape_name, n", _CASES)
 def test_shape_has_zero_violations_across_full_show(shape_name, n):
-    """Every generator must be proximity- and geofence-clean across the whole
-    show — takeoff, choreography, and landing — not just steady-state hover.
+    """Every generator must be proximity-, geofence- and altitude-clean across
+    the whole show — takeoff, choreography, and landing — not just
+    steady-state hover.
     """
     generate = SHAPES[shape_name]
     choreo = generate(n, DURATION, RATE)
@@ -134,4 +119,10 @@ def test_shape_has_zero_violations_across_full_show(shape_name, n):
         f"(radius={DEFAULT_LIMITS.geofence_radius_m}m): "
         f"{geofence_hits[:5]} ... worst="
         f"{max(geofence_hits, key=lambda v: v['distance'])}"
+    )
+
+    altitude_hits = _altitude_violations(choreo, DEFAULT_LIMITS.max_altitude_m)
+    assert not altitude_hits, (
+        f"{shape_name} @ N={n}: altitude violations "
+        f"(ground to {DEFAULT_LIMITS.max_altitude_m}m): {altitude_hits[:5]}"
     )
