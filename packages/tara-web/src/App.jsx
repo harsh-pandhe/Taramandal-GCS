@@ -4,6 +4,7 @@ import { OrbitControls, Line, Text, Grid } from '@react-three/drei';
 import { decodeFastFrame, decodeFastFrameInto, FLOATS_PER_DRONE } from './telemetry';
 import EarthView from './views/EarthView';
 import NightSkyView from './views/NightSkyView';
+import ConfirmButton from './ConfirmButton';
 
 const API_BASE = import.meta.env.VITE_API_BASE || `http://${window.location.hostname || 'localhost'}:8090`;
 const WS_URL = import.meta.env.VITE_WS_URL || `ws://${window.location.hostname || 'localhost'}:8090/ws/telemetry`;
@@ -28,6 +29,9 @@ export default function App() {
   const [wsConnected, setWsConnected] = useState(false);
   const [bypassChecklist, setBypassChecklist] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
+  // Which emergency action (if any) is waiting for its confirming click
+  // (issue #98). One at a time, so a confirm can't land on the wrong action.
+  const [armedEmergency, setArmedEmergency] = useState(null);
   
   // Trajectory states
   const [fileDetails, setFileDetails] = useState(null);
@@ -687,19 +691,25 @@ export default function App() {
                 START SEQUENTIAL TAKEOFF
               </button>
               
-              <button 
-                className="btn btn-land" 
-                onClick={() => triggerAction('/api/land')}
-              >
-                EMER LAND
-              </button>
-              
-              <button 
-                className="btn btn-rtl" 
-                onClick={() => triggerAction('/api/rtl')}
-              >
-                EMERGENCY RTL
-              </button>
+              <ConfirmButton
+                className="btn-land"
+                label="EMER LAND"
+                confirmLabel="CONFIRM LAND?"
+                armed={armedEmergency === 'land'}
+                onArm={() => setArmedEmergency('land')}
+                onDisarm={() => setArmedEmergency(null)}
+                onConfirm={() => triggerAction('/api/land')}
+              />
+
+              <ConfirmButton
+                className="btn-rtl"
+                label="EMERGENCY RTL"
+                confirmLabel="CONFIRM RTL?"
+                armed={armedEmergency === 'rtl'}
+                onArm={() => setArmedEmergency('rtl')}
+                onDisarm={() => setArmedEmergency(null)}
+                onConfirm={() => triggerAction('/api/rtl')}
+              />
             </div>
             
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginTop: '0.75rem' }}>

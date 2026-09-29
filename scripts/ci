@@ -1,0 +1,102 @@
+#!/usr/bin/env bash
+# Taramandal local CI (#106) — runs the same gates as
+# .github/workflows/ci.yml, using the same scripts/ci-gates/*.sh scripts the
+# workflow calls, so GitHub-hosted and local CI execute the same underlying
+# implementation rather than two independently maintained command sets.
+#
+# Usage:
+#   ./scripts/ci                       run all 5 gates
+#   ./scripts/ci --job <name>          run one gate
+#   ./scripts/ci --list                list gate names
+#   ./scripts/ci --report-status       run all 5, then post a
+#                                       taramandal/local-ci GitHub commit
+#                                       status for the current SHA (see
+#                                       scripts/ci-gates/report-status.sh)
+#
+# No gate here uses continue-on-error and no failure is swallowed: the
+# first failing gate's non-zero exit is captured explicitly (not masked by
+# a pipeline), and this script's own exit code is non-zero whenever any
+# gate failed.
+set -euo pipefail
+cd "$(dirname "${BASH_SOURCE[0]}")/.."
+
+# Order matches .github/workflows/ci.yml's job list. test-e2e is last
+# because it's the slowest (Docker pull/build + full browser suite) and the
+# one most likely to be unavailable locally when Docker isn't installed —
+# running the fast gates first means a lint mistake fails in seconds, not
+# after a multi-minute Docker suite.
+GATES=(lint-and-typecheck python-tests frontend-tests scale-regression test-e2e)
+
+usage() {
+  echo "Usage: $0 [--job <gate>] [--list] [--report-status]"
+  echo "Gates: ${GATES[*]}"
+}
+
+job=""
+report_status=false
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --job) job="${2:-}"; shift 2 ;;
+    --list) printf '%s\n' "${GATES[@]}"; exit 0 ;;
+    --report-status) report_status=true; shift ;;
+    -h|--help) usage; exit 0 ;;
+    *) echo "Unknown argument: $1" >&2; usage >&2; exit 2 ;;
+  esac
+done
+
+if [ -n "$job" ]; then
+  found=false
+  for g in "${GATES[@]}"; do [ "$g" = "$job" ] && found=true; done
+  if [ "$found" != true ]; then
+    echo "Unknown gate: $job" >&2
+    usage >&2
+    exit 2
+  fi
+  GATES=("$job")
+fi
+
+start_ts=$(date +%s)
+declare -a results=()
+overall=0
+
+for gate in "${GATES[@]}"; do
+  script="scripts/ci-gates/${gate}.sh"
+  log="/tmp/taramandal-ci-${gate}.log"
+  echo
+  echo "=== ${gate} ==="
+  gate_start=$(date +%s)
+  # Explicit if/then, not a pipeline: `cmd | tee log` masks cmd's exit code
+  # behind tee's, which is exactly the swallowed-failure pattern this script
+  # must not have.
+  set +e
+  bash "$script" > >(tee "$log") 2>&1
+  gate_rc=$?
+  set -e
+  if [ "$gate_rc" -eq 0 ]; then
+    gate_status="PASS"
+  else
+    gate_status="FAIL"
+    overall=1
+  fi
+  gate_elapsed=$(( $(date +%s) - gate_start ))
+  results+=("${gate_status}	${gate}	${gate_elapsed}s	${log}")
+done
+
+echo
+echo "================ SUMMARY ================"
+for r in "${results[@]}"; do
+  echo -e "$r"
+done
+total_elapsed=$(( $(date +%s) - start_ts ))
+echo "==========================================="
+if [ "$overall" -eq 0 ]; then
+  echo "PASS — all ${#results[@]} gate(s), ${total_elapsed}s total"
+else
+  echo "FAIL — see the FAIL row(s) above; full output in the log path shown for each gate"
+fi
+
+if [ "$report_status" = true ]; then
+  scripts/ci-gates/report-status.sh "$overall"
+fi
+
+exit "$overall"

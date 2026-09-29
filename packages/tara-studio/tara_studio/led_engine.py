@@ -21,6 +21,8 @@ import struct
 from dataclasses import dataclass, field
 from typing import Optional, Sequence
 
+from tara_core import interpolate_waypoint
+
 # Pattern identifiers. These strings are the wire format - they appear in
 # project JSON and in the .tara header's pattern table, so renaming one is a
 # breaking change to saved shows.
@@ -222,6 +224,113 @@ def color_at(
 def build_track(keyframes: Sequence[dict] | Sequence[LedKeyframe]) -> list[LedKeyframe]:
     """Normalises a mixed list of dicts/LedKeyframes into LedKeyframes."""
     return [kf if isinstance(kf, LedKeyframe) else LedKeyframe.from_dict(kf) for kf in keyframes]
+
+
+#: Ceiling on the rate a strobe asks for. The show is then resampled to the
+#: next whole multiple of its own rate (52 Hz from a 4 Hz show). At 50 Hz a
+#: 100-drone, 120 s show is ~9.6 MB of .tara records; anything finer would be
+#: paying for flashes shorter than the LEDs can meaningfully render.
+MAX_LED_SAMPLE_RATE_HZ = 50.0
+
+#: How many samples each strobe on-phase and off-phase should get. One is the
+#: bare minimum to see the flash at all, but a sample landing exactly on a
+#: phase edge can fall either side under float rounding; two leaves slack.
+STROBE_SAMPLES_PER_PHASE = 2
+
+#: The least slack accepted once the rate has hit MAX_LED_SAMPLE_RATE_HZ: the
+#: shortest phase must still span 1.25 sample periods, so it always contains
+#: one sample with room to spare rather than exactly on an edge.
+_MIN_PHASE_SAMPLES = 1.25
+
+
+def led_sample_rate_hz(keyframes: Sequence[dict] | Sequence[LedKeyframe]) -> float:
+    """Lowest uniform sample rate at which every strobe in `keyframes` survives.
+
+    Colours are baked onto waypoints, so they are only ever seen at waypoint
+    times. A strobe sampled at or below its own flash rate aliases: a 4 Hz
+    strobe on a 4 Hz show lands every sample at the same phase and exports as
+    solid light. Returns 0.0 when nothing in the track needs a particular rate.
+
+    Raises:
+        ValueError: a strobe's on- or off-phase is too short to be sampled even
+            at MAX_LED_SAMPLE_RATE_HZ, so it could not survive export.
+    """
+    rate = 0.0
+    for kf in build_track(keyframes):
+        if kf.pattern != STROBE or kf.duration <= 0:
+            continue
+        freq = max(0.01, kf.frequency_hz)
+        duty = max(0.0, min(1.0, kf.duty_cycle))
+        # Duty 0 or 1 is constant light, not a strobe.
+        shortest = min(duty, 1.0 - duty) / freq
+        if shortest <= 0:
+            continue
+        needed = STROBE_SAMPLES_PER_PHASE / shortest
+        if needed > MAX_LED_SAMPLE_RATE_HZ:
+            # The epsilon keeps 1 - 0.8 = 0.19999... from refusing a legal 25 ms phase.
+            if shortest * MAX_LED_SAMPLE_RATE_HZ < _MIN_PHASE_SAMPLES - 1e-9:
+                raise ValueError(
+                    f"strobe at {kf.start_time:g}s ({freq:g} Hz, duty {duty:g}) has a "
+                    f"{shortest * 1000:.0f} ms phase, too short to export at "
+                    f"{MAX_LED_SAMPLE_RATE_HZ:g} Hz; lower the rate or move the duty "
+                    f"towards 0.5"
+                )
+            needed = MAX_LED_SAMPLE_RATE_HZ
+        rate = max(rate, needed)
+    return rate
+
+
+def upsample_factor(choreo: dict, rate_hz: float) -> int:
+    """How many pieces each waypoint interval must be split into for `rate_hz`.
+
+    One factor for the whole show, sized by its longest interval, so a show
+    sampled at a fixed rate stays at a fixed rate (just a multiple of it) -
+    the .tara player seeks by multiplying, and needs uniform frames.
+    """
+    if rate_hz <= 0:
+        return 1
+    longest = 0.0
+    for drone in choreo.get("drones", []):
+        times = sorted(wp["time"] for wp in drone.get("waypoints", []))
+        for a, b in zip(times, times[1:]):
+            longest = max(longest, b - a)
+    # The epsilon stops 0.25 s * 16 Hz = 4.000000001 from rounding up to 5.
+    return max(1, math.ceil(longest * rate_hz - 1e-9))
+
+
+def upsample_choreo(choreo: dict, factor: int) -> dict:
+    """Returns a copy of `choreo` with every waypoint interval split `factor` ways.
+
+    New waypoints come from tara_core.interpolate_waypoint - the same linear
+    position / shorter-arc yaw interpolation the GCS flies between waypoints -
+    so they sit exactly on the path the drone was already going to take. The
+    original waypoints are kept unchanged; only extra frames are added.
+    """
+    if factor <= 1:
+        return choreo
+
+    out = []
+    for drone in choreo.get("drones", []):
+        wps = sorted(drone.get("waypoints", []), key=lambda w: w["time"])
+        dense = []
+        for w1, w2 in zip(wps, wps[1:]):
+            dense.append(w1)
+            for k in range(1, factor):
+                t = w1["time"] + (w2["time"] - w1["time"]) * k / factor
+                mid = interpolate_waypoint([w1, w2], t)
+                dense.append({
+                    **w1,
+                    "time": t,
+                    "x": mid["x"],
+                    "y": mid["y"],
+                    "z": mid["z"],
+                    "yaw": mid.get("yaw", 0.0),
+                })
+        if wps:
+            dense.append(wps[-1])
+        out.append({**drone, "waypoints": dense})
+
+    return {**choreo, "drones": out}
 
 
 def apply_track_to_choreo(
