@@ -51,6 +51,21 @@ SITL**, and watch the status pills — so running a show does not require a
 terminal. `tara up` remains the developer path; the control bar is the operator
 one. RViz can be launched the same way once a PX4 fleet is running.
 
+### Signed show files
+
+The GCS only accepts a trajectory upload that comes with an Ed25519 signature
+from a key listed in `tara.toml`'s `[security].trusted_keys`; anything else is
+refused with 403.
+
+```bash
+./tara keygen ~/.tara/studio.pem --signer "Your name"   # once; prints the tara.toml line to add
+./tara sign show.json --key ~/.tara/studio.pem           # writes show.json.sig.json
+```
+
+In the dashboard, select `show.json` and `show.json.sig.json` together. To
+accept unsigned legacy files, including Studio's **Send to GCS** until the
+Studio signs its own exports, start the stack with `./tara up --allow-unsigned`.
+
 Run the test suite:
 
 ```bash

@@ -4,10 +4,11 @@ Exposes API endpoints for generating, validating, and exporting drone shows.
 """
 
 import base64
+from dataclasses import asdict
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ValidationError
 from typing import Optional
 
 from tara_studio.generator import (
@@ -25,7 +26,12 @@ from tara_studio.validator import (
     validate_dynamics,
 )
 from tara_studio.exporter import export_json, export_csv, export_kml, export_tara
-from tara_studio.led_engine import apply_track_to_choreo
+from tara_studio.led_engine import (
+    apply_track_to_choreo,
+    led_sample_rate_hz,
+    upsample_choreo,
+    upsample_factor,
+)
 from tara_studio.optimizer import (
     DEFAULT_MORPH_SAMPLES,
     DEFAULT_PENALTY_WEIGHT,
@@ -38,7 +44,7 @@ from tara_studio.voxelizer import (
     GLYPH_FONT_SIZE,
     voxelize,
 )
-from tara_core import MAX_FLEET_SIZE
+from tara_core import DEFAULT_LIMITS, MAX_FLEET_SIZE
 from tara_core.assignment import optimal_assignment
 
 app = FastAPI(title="Taramandal Studio Choreography Engine", version="1.0.0")
@@ -73,6 +79,19 @@ class ExportRequest(BaseModel):
     )
     rate_hz: Optional[float] = Field(0.0, description="Sample rate recorded in the .tara header")
 
+def _with_limits(report: dict) -> dict:
+    """Attach the SafetyLimits the report was judged against (issue #97).
+
+    The Studio UI colours each metric pass/fail. It used to do that against its
+    own hardcoded thresholds, which drifted from tara_core (0.8m separation
+    against a 1.5m runtime abort). Sending the live limits with every report
+    means the UI has no copy of its own to drift. validate_choreography() with
+    no overrides validates against exactly DEFAULT_LIMITS, so that is what goes
+    out.
+    """
+    return {**report, "limits": asdict(DEFAULT_LIMITS)}
+
+
 @app.get("/status")
 def status():
     return {"status": "ONLINE", "engine": "Taramandal-Studio-v1"}
@@ -106,7 +125,7 @@ def api_generate(req: GenerateRequest):
         raise HTTPException(status_code=400, detail=str(e))
 
     # Perform safety validation check automatically
-    validation = validate_choreography(choreo)
+    validation = _with_limits(validate_choreography(choreo))
 
     # Report the pacing the generator chose. The show's length is no longer
     # whatever `duration` said — it is stretched to whatever the fleet size can
@@ -138,7 +157,7 @@ def api_generate(req: GenerateRequest):
 
 @app.post("/api/validate")
 def api_validate(choreo: dict):
-    return validate_choreography(choreo)
+    return _with_limits(validate_choreography(choreo))
 
 
 class VoxelizeRequest(BaseModel):
@@ -394,18 +413,36 @@ def api_validate_dynamics(req: DynamicsRequest):
 def api_export(req: ExportRequest):
     fmt = req.format.lower()
     choreo = req.choreo
+    rate_hz = req.rate_hz or 0.0
 
     # Bake the LED track server-side when one is supplied, so a .tara compiled
     # here matches what the Studio preview showed rather than depending on the
-    # client having already written r/g/b/w onto every waypoint.
+    # client having already written r/g/b/w onto every waypoint. Colours only
+    # exist at waypoint times, so first add frames until every strobe has
+    # samples in both its on- and off-phase - otherwise a strobe at or above
+    # half the show's rate aliases into solid light.
     if req.led_track:
         try:
+            factor = upsample_factor(choreo, led_sample_rate_hz(req.led_track))
+            choreo = upsample_choreo(choreo, factor)
+            rate_hz *= factor
             choreo = apply_track_to_choreo(choreo, req.led_track)
         except (ValueError, KeyError) as e:
             raise HTTPException(status_code=400, detail=f"Bad LED track: {e}")
 
     if fmt == "json":
-        content = export_json(choreo)
+        try:
+            content = export_json(choreo)
+        except ValidationError as e:
+            # Field paths, not one flattened string, so a client can point at
+            # the exact waypoint. input/ctx are dropped: they can hold NaN or
+            # exception objects, which the JSON response can't encode.
+            raise HTTPException(status_code=400, detail={
+                "message": "Show does not match the show schema (show_v1).",
+                "errors": e.errors(include_url=False, include_input=False, include_context=False),
+            })
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=f"Cannot export JSON: {e}")
         filename = "choreography.json"
         mime_type = "application/json"
     elif fmt == "csv":
@@ -421,7 +458,7 @@ def api_export(req: ExportRequest):
         # writing the file. Flagged with `encoding` so a caller can't mistake
         # the payload for text.
         try:
-            blob = export_tara(choreo, req.rate_hz or 0.0)
+            blob = export_tara(choreo, rate_hz)
         except ValueError as e:
             raise HTTPException(status_code=400, detail=f"Cannot compile .tara: {e}")
         return {

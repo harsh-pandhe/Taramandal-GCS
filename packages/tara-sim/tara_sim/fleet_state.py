@@ -38,6 +38,12 @@ RTL_ARRIVAL_RADIUS_M = 0.3
 #: Altitude, in metres, below which a descending drone is considered landed.
 LANDED_ALTITUDE_M = 0.05
 
+#: How far behind its schedule the tick loop may fall before it gives up on
+#: catching up and re-anchors to now. Up to this much backlog is worked off by
+#: ticking without sleeping; beyond it, back-to-back catch-up ticks would only
+#: starve every other task on the loop, so the backlog is dropped instead.
+MAX_TICK_BACKLOG_S = 0.1
+
 
 @dataclass
 class SimConfig:
@@ -150,11 +156,28 @@ class FleetState:
         return self._task
 
     async def _run(self) -> None:
+        """Tick every ``dt`` against fixed deadlines, not ``sleep(dt)`` after each tick.
+
+        ``tick(dt)`` always advances simulated time by exactly ``dt``, so the
+        loop's period has to average exactly ``dt`` in wall-clock time too, or
+        the fleet flies in slow motion. Sleeping a full ``dt`` after every tick
+        adds the tick's own cost and the scheduler's wake-up delay to every
+        period, which caps real-time factor below 1.0 even on an idle machine.
+        On Windows, where a 20ms sleep rounds up to ~31ms, it was 0.64. Sleeping
+        until the next deadline absorbs both.
+        """
         dt = self.config.dt
+        loop = asyncio.get_running_loop()
+        next_tick = loop.time()
         try:
             while self._running:
                 self.tick(dt)
-                await asyncio.sleep(dt)
+                next_tick += dt
+                delay = next_tick - loop.time()
+                if delay < -MAX_TICK_BACKLOG_S:
+                    next_tick = loop.time()
+                    delay = 0.0
+                await asyncio.sleep(max(0.0, delay))
         except asyncio.CancelledError:
             pass
 
@@ -297,6 +320,13 @@ class FleetState:
             self.flight_mode[int(i)] = "OFFBOARD" if self.offboard_active[i] else "HOLD"
 
     # ---------------------------------------------------------- telemetry
+
+    def noisy_positions(self) -> np.ndarray:
+        """Every drone's position with sensor-grade noise, as one ``(n, 3)`` array."""
+        std = self.config.position_noise_std_m
+        if std <= 0:
+            return self.position.copy()
+        return self.position + self._rng.normal(0.0, std, size=(self.n, 3))
 
     def noisy_position(self, drone_id: int) -> np.ndarray:
         """Position with sensor-grade noise applied, for telemetry readout only."""

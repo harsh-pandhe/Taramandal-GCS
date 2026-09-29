@@ -1,0 +1,103 @@
+import { expect, test } from '@playwright/test';
+
+// Issue #98: EMERGENCY RTL and EMER LAND trigger real fleet-wide actions, so a
+// single click must not fire them. The first click arms, a second click
+// confirms. These run the real dashboard (App.jsx) against a stubbed backend
+// and count the requests that actually reach it.
+
+const CONFIRM_WINDOW_MS = 5000;
+const CONFIRM_GUARD_MS = 350;
+
+async function openDashboard(page) {
+  const calls = { rtl: 0, land: 0 };
+  await page.route('**/api/rtl', (route) => {
+    calls.rtl += 1;
+    return route.fulfill({ json: { status: 'success', message: 'Emergency RTL commanded.' } });
+  });
+  await page.route('**/api/land', (route) => {
+    calls.land += 1;
+    return route.fulfill({ json: { status: 'success', message: 'Emergency landing commanded.' } });
+  });
+  // The sim status poll would otherwise hit a GCS that isn't running.
+  await page.route('**/api/sim/status', (route) => route.fulfill({ json: {} }));
+  await page.goto('/');
+  return calls;
+}
+
+const rtl = (page) => page.getByRole('button', { name: /EMERGENCY RTL|CONFIRM RTL/ });
+const land = (page) => page.getByRole('button', { name: /EMER LAND|CONFIRM LAND/ });
+
+// Long enough for any request a click would have sent to have been routed.
+const settle = (page) => page.waitForTimeout(400);
+
+for (const [name, button, path] of [['RTL', rtl, 'rtl'], ['Land', land, 'land']]) {
+  test(`a single click on ${name} does not fire it; a confirming click does`, async ({ page }) => {
+    const calls = await openDashboard(page);
+
+    await button(page).click();
+    await settle(page);
+    expect(calls[path]).toBe(0);
+    await expect(button(page)).toHaveAttribute('data-armed', 'true');
+    await expect(button(page)).toContainText('CONFIRM');
+
+    await button(page).click();
+    await expect.poll(() => calls[path]).toBe(1);
+    await expect(button(page)).toHaveAttribute('data-armed', 'false');
+  });
+}
+
+test('an armed button falls back to idle if the confirm never comes', async ({ page }) => {
+  const calls = await openDashboard(page);
+
+  await rtl(page).click();
+  await expect(rtl(page)).toHaveAttribute('data-armed', 'true');
+  await expect(rtl(page)).toHaveAttribute('data-armed', 'false', { timeout: CONFIRM_WINDOW_MS + 2000 });
+
+  // The next click arms again rather than firing a stale confirmation.
+  await rtl(page).click();
+  await settle(page);
+  expect(calls.rtl).toBe(0);
+});
+
+test('Escape cancels an armed action', async ({ page }) => {
+  const calls = await openDashboard(page);
+
+  await land(page).click();
+  await expect(land(page)).toHaveAttribute('data-armed', 'true');
+  await page.keyboard.press('Escape');
+  await expect(land(page)).toHaveAttribute('data-armed', 'false');
+
+  await land(page).click();
+  await settle(page);
+  expect(calls.land).toBe(0);
+});
+
+test('arming one emergency action disarms the other', async ({ page }) => {
+  const calls = await openDashboard(page);
+
+  await land(page).click();
+  await rtl(page).click();
+  await expect(land(page)).toHaveAttribute('data-armed', 'false');
+  await expect(rtl(page)).toHaveAttribute('data-armed', 'true');
+
+  // Clicking LAND now only re-arms LAND; RTL's pending confirm can't be
+  // redirected into a landing.
+  await land(page).click();
+  await settle(page);
+  expect(calls).toEqual({ rtl: 0, land: 0 });
+});
+
+test('a reflexive double-click does not count as a confirmation', async ({ page }) => {
+  const calls = await openDashboard(page);
+
+  await rtl(page).dblclick();
+  await settle(page);
+  expect(calls.rtl).toBe(0);
+  await expect(rtl(page)).toHaveAttribute('data-armed', 'true');
+
+  // Past the guard, the very next click confirms, so a genuine emergency pays
+  // one extra click and nothing more.
+  await page.waitForTimeout(CONFIRM_GUARD_MS);
+  await rtl(page).click();
+  await expect.poll(() => calls.rtl).toBe(1);
+});

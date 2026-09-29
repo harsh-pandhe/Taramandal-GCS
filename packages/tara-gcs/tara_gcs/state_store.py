@@ -50,7 +50,11 @@ def save_show_state(
     fd, tmp_path = tempfile.mkstemp(prefix=".show_state_", suffix=".tmp", dir=directory)
     try:
         with os.fdopen(fd, "w") as f:
-            json.dump(payload, f)
+            # dumps, not dump: dump streams through json's pure-Python encoder,
+            # dumps uses the C one. Same output, but at 1,000 drones it is
+            # ~5ms instead of ~23ms of event-loop time every snapshot, which
+            # was enough on its own to make physics ticks late (issue #51).
+            f.write(json.dumps(payload))
         os.replace(tmp_path, path)
     except BaseException:
         try:
