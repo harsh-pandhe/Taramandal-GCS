@@ -4,6 +4,7 @@ Exposes API endpoints for generating, validating, and exporting drone shows.
 """
 
 import base64
+from dataclasses import asdict
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -43,7 +44,7 @@ from tara_studio.voxelizer import (
     GLYPH_FONT_SIZE,
     voxelize,
 )
-from tara_core import MAX_FLEET_SIZE
+from tara_core import DEFAULT_LIMITS, MAX_FLEET_SIZE
 from tara_core.assignment import optimal_assignment
 
 app = FastAPI(title="Taramandal Studio Choreography Engine", version="1.0.0")
@@ -78,6 +79,19 @@ class ExportRequest(BaseModel):
     )
     rate_hz: Optional[float] = Field(0.0, description="Sample rate recorded in the .tara header")
 
+def _with_limits(report: dict) -> dict:
+    """Attach the SafetyLimits the report was judged against (issue #97).
+
+    The Studio UI colours each metric pass/fail. It used to do that against its
+    own hardcoded thresholds, which drifted from tara_core (0.8m separation
+    against a 1.5m runtime abort). Sending the live limits with every report
+    means the UI has no copy of its own to drift. validate_choreography() with
+    no overrides validates against exactly DEFAULT_LIMITS, so that is what goes
+    out.
+    """
+    return {**report, "limits": asdict(DEFAULT_LIMITS)}
+
+
 @app.get("/status")
 def status():
     return {"status": "ONLINE", "engine": "Taramandal-Studio-v1"}
@@ -111,7 +125,7 @@ def api_generate(req: GenerateRequest):
         raise HTTPException(status_code=400, detail=str(e))
 
     # Perform safety validation check automatically
-    validation = validate_choreography(choreo)
+    validation = _with_limits(validate_choreography(choreo))
 
     # Report the pacing the generator chose. The show's length is no longer
     # whatever `duration` said — it is stretched to whatever the fleet size can
@@ -143,7 +157,7 @@ def api_generate(req: GenerateRequest):
 
 @app.post("/api/validate")
 def api_validate(choreo: dict):
-    return validate_choreography(choreo)
+    return _with_limits(validate_choreography(choreo))
 
 
 class VoxelizeRequest(BaseModel):
