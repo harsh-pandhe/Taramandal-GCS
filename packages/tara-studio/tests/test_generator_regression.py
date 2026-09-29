@@ -61,52 +61,36 @@ def _geofence_violations(choreo: dict, radius: float, dt: float = 0.1) -> list[d
     return violations
 
 
-# Every (shape, n) combination below currently fails — not because the test
-# is wrong, but because the generators have a real, confirmed proximity/
-# geofence bug during entry-blend, choreography drift, or landing (filed as
-# #32; confirmed by Harsh on PR #30, not a broken test). Each failing case is
-# marked xfail(strict=True) rather than left red, so the suite documents the
-# known gap instead of blocking merge. strict=True is deliberate: once #32 is
-# fixed and a case starts passing, strict turns that into an XPASS failure
-# instead of silently staying green — a forcing function to come back and
-# delete that entry from _KNOWN_FAILING rather than the marker rotting in
-# place. Update this set (not the test body) as cases get fixed one at a time.
-#
-# cube and spline were fixed and removed here (both were purely proximity
-# bugs — cube's own z-grid ignored the altitude layering every other shape
-# relies on, spline's formation ignored d_id/n entirely — and neither shape's
-# formation reaches the geofence, so fixing proximity was enough for the case
-# to fully pass). circle, heart and helix stay: heart and helix each had a
-# real, separate proximity bug fixed alongside this change (heart's
-# equal-angle sampling crowded drones at the curve's cusp; helix's per-drone
-# height-oscillation phase cancelled the altitude-layer stagger it depended
-# on), but all three shapes still fail on the geofence sweep below —
-# `float(n - 1)` puts the formation centre 45-103 m from the fleet origin,
-# unrelated to entry-blend and out of this fix's scope (tracked separately,
-# `fix/launch-pad-geofence`). heart-50 and helix-50, like circle-50, remain
-# proximity-clean only because N=50 never hits the altitude layer's 60-drone
-# cycle — left as-is per the same reasoning as circle-50.
-_KNOWN_FAILING = {
-    ("circle", 50),
-    ("circle", 100),
-    ("helix", 50),
-    ("helix", 100),
-    ("heart", 50),
-    ("heart", 100),
-}
+def _altitude_violations(choreo: dict, ceiling: float, dt: float = 0.1) -> list[dict]:
+    """Every sample where a drone is above ``ceiling`` or below the ground.
 
-# Generation + validation at N=100 runs well under a second per shape (see
-# durations captured while writing this test), nowhere near the wall-clock
-# cost the repo's `slow` marker is for (e.g. the sim-backend milestone test's
-# real per-drone launch stagger), so N=100 here is not marked slow.
+    Swept at the same cadence as the geofence check, so it covers the
+    interpolated path between waypoints, not only the waypoints themselves.
+    """
+    show = Show.from_any(choreo)
+    violations = []
+    for t in sweep_times(show.duration, dt):
+        for drone_id, wps in show.drones.items():
+            wp = interpolate_waypoint(wps, t)
+            if wp is None:
+                continue
+            altitude = -wp["z"]  # NED: z is down
+            if altitude > ceiling or altitude < 0.0:
+                violations.append({"time": round(t, 2), "drone": drone_id, "altitude": round(altitude, 2)})
+    return violations
+
+
+# All ten cases used to include six strict xfails (#32): circle, helix and
+# heart were centred at (5, n-1), 45-200 m from the fleet origin, and at N=100
+# helix breached separation on its landing legs. Formations are now centred on
+# the origin and bounded inside the geofence (see generator.FORMATION_CENTER),
+# so every case is expected to pass outright.
+#
+# Generation + validation at N=100 runs in about a second per shape, nowhere
+# near the wall-clock cost the repo's `slow` marker is for, so N=100 here is
+# not marked slow.
 _CASES = [
-    pytest.param(
-        shape_name, n,
-        marks=pytest.mark.xfail(reason="#32", strict=True),
-        id=f"{shape_name}-{n}",
-    )
-    if (shape_name, n) in _KNOWN_FAILING
-    else pytest.param(shape_name, n, id=f"{shape_name}-{n}")
+    pytest.param(shape_name, n, id=f"{shape_name}-{n}")
     for shape_name in SHAPES
     for n in (50, 100)
 ]
@@ -114,8 +98,9 @@ _CASES = [
 
 @pytest.mark.parametrize("shape_name, n", _CASES)
 def test_shape_has_zero_violations_across_full_show(shape_name, n):
-    """Every generator must be proximity- and geofence-clean across the whole
-    show — takeoff, choreography, and landing — not just steady-state hover.
+    """Every generator must be proximity-, geofence- and altitude-clean across
+    the whole show — takeoff, choreography, and landing — not just
+    steady-state hover.
     """
     generate = SHAPES[shape_name]
     choreo = generate(n, DURATION, RATE)
@@ -134,4 +119,52 @@ def test_shape_has_zero_violations_across_full_show(shape_name, n):
         f"(radius={DEFAULT_LIMITS.geofence_radius_m}m): "
         f"{geofence_hits[:5]} ... worst="
         f"{max(geofence_hits, key=lambda v: v['distance'])}"
+    )
+
+    altitude_hits = _altitude_violations(choreo, DEFAULT_LIMITS.max_altitude_m)
+    assert not altitude_hits, (
+        f"{shape_name} @ N={n}: altitude violations "
+        f"(ground to {DEFAULT_LIMITS.max_altitude_m}m): {altitude_hits[:5]}"
+    )
+
+
+def test_helix_100_paired_layer_drones_keep_the_design_separation():
+    """Regression for the #72 x #73 interaction, not just the general sweep
+    above.
+
+    #73 pairs same-altitude-layer drones diametrically opposite on the helix
+    ring so their straight blend/landing legs run side by side. #72
+    separately replaced the phase-blend easing (smoothstep -> a minimum-jerk
+    quintic, for jerk continuity, issue #60). Neither change was wrong on
+    its own -- #73's own suite passed before #72 existed, and #72 touches an
+    unrelated function (_ease) -- but merged together they interacted: the
+    ring's rotation during blend was driven by raw elapsed time while the
+    pad->target blend weight was eased, so changing the easing curve's
+    *shape* (not just its endpoints) shifted how far the ring had turned by
+    a given blend fraction, bringing a paired pair (drones 12 & 71 at
+    n=100) to 1.35m -- under the 2.0m design separation -- during the
+    entry blend, not the landing leg. Fixed in generator.py by deriving the
+    ring's blend-phase rotation from the actual current easing curve
+    (self-adapting, not tied to smoothstep's specific shape) and by
+    replacing the pair-orientation heuristic (a static dot product, which
+    disagreed with a real simulation on 25 of this fleet size's 41 paired
+    groups) with a direct simulation against both the entry blend and the
+    landing return leg.
+
+    This is deliberately independent of the general N=50/100 sweep above:
+    that sweep would also have caught a full regression, but a partial one
+    -- a fix that solves the specific pair this bug was found with while
+    leaving a different pair marginal -- could still slip through a report
+    that only asserts "no violations" without pinning the actual number.
+    """
+    from tara_studio.generator import generate_helix
+
+    choreo = generate_helix(100, DURATION, RATE)
+    report = validate_choreography(choreo)
+    min_distance = report["metrics"]["min_distance_m"]
+    assert min_distance >= DEFAULT_LIMITS.design_separation_m, (
+        f"helix @ N=100: minimum pairwise separation regressed to "
+        f"{min_distance}m (design threshold "
+        f"{DEFAULT_LIMITS.design_separation_m}m) -- the #72 x #73 easing/"
+        f"pairing interaction this test pins is back."
     )

@@ -1,0 +1,8 @@
+/* Injected by studio.spec.js right before each baseline screenshot. The 3D
+   stage is WebGL, whose output depends on the GL
+   stack, and the UI migration changes the chrome around it, not the scene.
+   Hidden rather than masked: a mask paints over the canvas's whole box, and
+   the console drawer and shape-library modal are drawn on top of the stage. */
+.canvas-container canvas {
+  visibility: hidden !important;
+}

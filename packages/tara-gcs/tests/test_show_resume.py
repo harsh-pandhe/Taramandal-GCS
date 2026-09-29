@@ -278,6 +278,9 @@ def test_kill_and_restart_gcs_process_recovers_state(tmp_path):
     env["NUM_DRONES"] = "1"
     env["GCS_PORT"] = str(port)
     env["GCS_STATE_PATH"] = state_path
+    # This test is about crash recovery, not show signing (issue #49), so it
+    # uploads a plain unsigned file the way `tara up --allow-unsigned` permits.
+    env["GCS_ALLOW_UNSIGNED"] = "1"
     env["PYTHONPATH"] = os.pathsep.join([
         os.path.join(repo_root, "packages", "tara-core"),
         os.path.join(repo_root, "packages", "tara-gcs"),

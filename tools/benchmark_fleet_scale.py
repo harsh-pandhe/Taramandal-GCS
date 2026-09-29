@@ -37,11 +37,23 @@ What it measures, per fleet size:
   background thread — not the asyncio loop, which is the thing under test and
   would report its own starvation as low CPU.
 
-Both metrics are collected against the real `DroneManager` on `backend="sim"` —
-the same connect / launch / trajectory-playback code path production uses, with
-its 8 per-drone monitor tasks intact. Benchmarking `FleetState` alone would
-measure the one component already known to be cheap and miss where the cost
-actually lands.
+- **Live asyncio tasks**, counted exactly through the loop's task factory
+  (every task +1 at creation, -1 when it finishes) rather than by sampling
+  `asyncio.all_tasks()`, which misses a gather() fan-out whose tasks all finish
+  within one loop iteration.
+- **10Hz control-loop latency**: a probe task that wakes on a fixed 100ms
+  schedule and records how late each wake-up was. The GCS's safety and
+  trajectory loops all run at 10Hz on the same event loop, so this is how late
+  they get serviced. A wake-up 50ms or more behind schedule counts as missed.
+
+Issue #51's acceptance criteria are checked at the end of each run: fewer than
+50 live tasks, 10Hz latency under 50ms with no missed ticks, and a real-time
+factor of at least 0.98.
+
+Every metric is collected against the real `DroneManager` on `backend="sim"` —
+the same connect / launch / trajectory-playback code path production uses.
+Benchmarking `FleetState` alone would measure the one component already known
+to be cheap and miss where the cost actually lands.
 
 Usage, from the repo root:
 
@@ -81,6 +93,12 @@ DEFAULT_SHOW_DURATION_S = 15.0
 
 #: Sampling period for the CPU/RSS poller thread.
 _RESOURCE_SAMPLE_S = 0.25
+
+#: Issue #51's acceptance criteria.
+TASK_BUDGET = 50
+CONTROL_LOOP_HZ = 10.0
+CONTROL_LATENCY_BUDGET_MS = 50.0
+MIN_REALTIME_FACTOR = 0.98
 
 #: A tick-to-tick gap above dt * this factor is counted as a "late" tick. 1.5x
 #: (30ms at the default 50Hz) is loose enough not to fire on ordinary OS
@@ -154,6 +172,93 @@ async def measure_idle_floor(dt: float, samples: int = 120) -> float:
             gaps.append((now - last) * 1000.0)
         last = now
     return statistics.fmean(gaps)
+
+
+class TaskCounter:
+    """Exact count of live asyncio tasks, via the loop's task factory.
+
+    Sampling ``asyncio.all_tasks()`` would under-report: a gather() over
+    coroutines that never suspend creates and finishes all its tasks inside
+    one loop iteration, so a sampler almost never sees them.
+    """
+
+    def __init__(self, loop: asyncio.AbstractEventLoop):
+        self._loop = loop
+        self._previous = loop.get_task_factory()
+        self.live = len(asyncio.all_tasks(loop))
+        self.peak = self.live
+        self.created = 0
+
+    def install(self) -> None:
+        def factory(loop, coro, **kwargs):
+            task = asyncio.Task(coro, loop=loop, **kwargs)
+            self.created += 1
+            self.live += 1
+            self.peak = max(self.peak, self.live)
+            task.add_done_callback(self._done)
+            return task
+
+        self._loop.set_task_factory(factory)
+
+    def _done(self, _task) -> None:
+        self.live -= 1
+
+    def remove(self) -> None:
+        self._loop.set_task_factory(self._previous)
+
+    def reset(self) -> None:
+        """Restart peak/created counting from the tasks alive right now."""
+        self.peak = self.live
+        self.created = 0
+
+
+class ControlLoopProbe:
+    """A 10Hz task that records how late each of its wake-ups is.
+
+    It sleeps to fixed deadlines, like a well-behaved control loop, so its
+    lateness is pure event-loop delay: the time the loop was busy with other
+    work when the deadline came due.
+    """
+
+    def __init__(self, hz: float = CONTROL_LOOP_HZ):
+        self.period = 1.0 / hz
+        self.lateness_ms: list[float] = []
+        self._task: asyncio.Task | None = None
+
+    def start(self) -> None:
+        self._task = asyncio.create_task(self._run())
+
+    async def _run(self) -> None:
+        loop = asyncio.get_running_loop()
+        deadline = loop.time()
+        try:
+            while True:
+                deadline += self.period
+                await asyncio.sleep(max(0.0, deadline - loop.time()))
+                late = (loop.time() - deadline) * 1000.0
+                self.lateness_ms.append(late)
+                if late > self.period * 1000.0:
+                    deadline = loop.time()  # re-anchor rather than burst to catch up
+        except asyncio.CancelledError:
+            pass
+
+    async def stop(self) -> None:
+        if self._task is not None:
+            self._task.cancel()
+            await asyncio.gather(self._task, return_exceptions=True)
+
+    def summary(self) -> dict:
+        if not self.lateness_ms:
+            return {"ticks": 0}
+        late = sorted(self.lateness_ms)
+        missed = sum(1 for x in late if x >= CONTROL_LATENCY_BUDGET_MS)
+        return {
+            "ticks": len(late),
+            "lateness_ms_mean": round(statistics.fmean(late), 2),
+            "lateness_ms_p95": round(late[int(len(late) * 0.95)], 2),
+            "lateness_ms_max": round(late[-1], 2),
+            "missed_pct": round(100.0 * missed / len(late), 1),
+        }
 
 
 class TickLatencyRecorder:
@@ -261,6 +366,9 @@ async def run_one(n: int, duration: float, idle_floor_ms: float | None = None) -
     print(f"\n=== N={n} ===", flush=True)
     manager = DroneManager(ports=list(range(n)), backend="sim")
     recorder: TickLatencyRecorder | None = None
+    tasks = TaskCounter(asyncio.get_running_loop())
+    tasks.install()
+    probe = ControlLoopProbe()
     phases: dict[str, float] = {}
     result: dict = {"n": n, "show_duration_s": duration}
 
@@ -303,13 +411,23 @@ async def run_one(n: int, duration: float, idle_floor_ms: float | None = None) -
             # dominated by its deliberate 1s stagger — mostly idle waiting,
             # which would dilute the latency numbers toward optimistic.
             recorder.reset()
+            probe.start()
+            tasks.reset()
 
             t0 = time.perf_counter()
+            sim_t0 = fs.time_s
             manager.start_trajectory(show, mode="LOCAL")
             await asyncio.sleep(duration + 1.5)
             phases["show_s"] = time.perf_counter() - t0
+            # Simulated seconds per wall-clock second over the whole show: the
+            # direct measure of whether the fleet flew in real time.
+            sim_xrt = (fs.time_s - sim_t0) / phases["show_s"]
+            await probe.stop()
 
             result["tick"] = recorder.summary()
+            result["tick"]["sim_realtime_ratio"] = round(sim_xrt, 3)
+            result["control_loop"] = probe.summary()
+            result["asyncio_tasks"] = {"peak_live": tasks.peak, "created_during_show": tasks.created}
             result["armed_after_launch"] = armed_after_launch
             result["armed_in_physics"] = armed_in_physics
             result["armed_pct"] = round(100.0 * armed_after_launch / n, 1)
@@ -323,9 +441,11 @@ async def run_one(n: int, duration: float, idle_floor_ms: float | None = None) -
         finally:
             if recorder is not None:
                 recorder.remove()
+            await probe.stop()
             t0 = time.perf_counter()
             await manager.shutdown()
             phases["shutdown_s"] = time.perf_counter() - t0
+            tasks.remove()
 
     result["phases_s"] = {k: round(v, 2) for k, v in phases.items()}
     result["wall_clock_s"] = round(sum(phases.values()), 2)
@@ -333,6 +453,14 @@ async def run_one(n: int, duration: float, idle_floor_ms: float | None = None) -
 
     t = result["tick"]
     r = result["resources"]
+    c = result["control_loop"]
+    at = result["asyncio_tasks"]
+    result["acceptance_51"] = {
+        "tasks_under_50": at["peak_live"] < TASK_BUDGET,
+        "control_latency_under_50ms": c.get("lateness_ms_max", float("inf")) < CONTROL_LATENCY_BUDGET_MS,
+        "no_missed_ticks": c.get("missed_pct", 100.0) == 0.0 and t["late_tick_pct"] == 0.0,
+        "realtime_factor_at_least_0_98": t["sim_realtime_ratio"] >= MIN_REALTIME_FACTOR,
+    }
     print(
         f"  wall {result['wall_clock_s']}s "
         f"(connect {phases['connect_s']:.1f} / launch {phases['launch_s']:.1f} / show {phases['show_s']:.1f})",
@@ -355,6 +483,19 @@ async def run_one(n: int, duration: float, idle_floor_ms: float | None = None) -
         flush=True,
     )
     print(
+        f"  10Hz control loop: {c['lateness_ms_mean']}ms mean / {c['lateness_ms_p95']}ms p95 / "
+        f"{c['lateness_ms_max']}ms max late, {c['missed_pct']}% missed; "
+        f"asyncio tasks peak {at['peak_live']} ({at['created_during_show']} created during show); "
+        f"sim xRT {t['sim_realtime_ratio']}",
+        flush=True,
+    )
+    print(
+        "  issue #51: " + ", ".join(
+            f"{name} {'PASS' if ok else 'FAIL'}" for name, ok in result["acceptance_51"].items()
+        ),
+        flush=True,
+    )
+    print(
         f"  armed {result['armed_after_launch']}/{n} ({result['armed_pct']}%) "
         f"[physics {result['armed_in_physics']}/{n}, "
         f"{result['telemetry_lag_drones']} lagging readout], "
@@ -371,7 +512,7 @@ def print_table(results: list[dict]) -> None:
     header = (
         f"{'N':>6} {'wall_s':>8} {'launch_s':>9} {'show_s':>8} "
         f"{'tick_ms':>8} {'over_ms':>8} {'max':>8} {'late%':>7} {'xRT':>6} "
-        f"{'cpu%':>7} {'rss_mb':>8} {'armed%':>7}"
+        f"{'10Hz_max':>9} {'tasks':>6} {'cpu%':>7} {'rss_mb':>8} {'armed%':>7}"
     )
     print(header)
     print("-" * 100)
@@ -380,7 +521,8 @@ def print_table(results: list[dict]) -> None:
         print(
             f"{r['n']:>6} {r['wall_clock_s']:>8.1f} {p['launch_s']:>9.1f} {p['show_s']:>8.1f} "
             f"{t['gap_ms_mean']:>8.2f} {t['overshoot_ms_mean']:>8.2f} {t['gap_ms_max']:>8.1f} "
-            f"{t['late_tick_pct']:>7.1f} {t['realtime_ratio']:>6.2f} "
+            f"{t['late_tick_pct']:>7.1f} {t['sim_realtime_ratio']:>6.2f} "
+            f"{r['control_loop']['lateness_ms_max']:>9.1f} {r['asyncio_tasks']['peak_live']:>6} "
             f"{res['cpu_percent_mean']:>7.1f} {res['rss_mb_peak']:>8.1f} {r['armed_pct']:>7.1f}"
         )
     print("-" * 100)
@@ -390,6 +532,8 @@ def print_table(results: list[dict]) -> None:
     print("over_ms = mean gap past that floor: the part attributable to fleet size.")
     print("late%   = ticks arriving more than 1.5x the floor after the previous one.")
     print("xRT     = simulated seconds per wall-clock second; below 1.0 the fleet flies in slow motion.")
+    print("10Hz_max = worst lateness of a 10Hz loop on the same event loop (issue #51 budget: 50ms).")
+    print("tasks   = peak live asyncio tasks during the show (issue #51 budget: 50).")
     print("launch_s is deliberate launch stagger (ceil(n/5)*4 s), not load.")
 
 
