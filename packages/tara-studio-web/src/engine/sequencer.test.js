@@ -3,6 +3,7 @@ import {
   buildSequencedShow,
   computeShowDuration,
   buildTimelineSegments,
+  computeAssignmentChainLocal,
   interpolateWaypoint,
   makeScene,
   TAKEOFF_SECONDS,
@@ -178,25 +179,77 @@ describe('trajectory shape', () => {
     expect(wp.x).toBeCloseTo(pts[3].x, 1);
   });
 
-  it('separates drones vertically during a morph', () => {
-    // Transit layering is what keeps crossing paths apart; without it drones
-    // converge to near-zero separation mid-morph.
-    const two = [
-      scene({ holdDurationSeconds: 2, transitionDurationSeconds: 0 }),
-      scene({ shapePayload: 'circle', holdDurationSeconds: 2, transitionDurationSeconds: 4 }),
-    ];
-    const n = 5;
-    const segs = buildTimelineSegments(two, n, 4);
-    const morphs = segs.filter((s) => s.kind === 'morph');
-    const mid = morphs.map((m) => (m.start + m.end) / 2);
-    const show = buildSequencedShow(two, n, 4);
-    for (const t of mid) {
-      const pos = show.drones.map((d) => interpolateWaypoint(d.waypoints, t));
-      const alts = pos.map((p) => p.z);
-      // At the middle of a morph the lift is at full profile, so no two drones
-      // share an altitude.
-      expect(new Set(alts.map((z) => z.toFixed(2))).size).toBe(n);
+});
+
+// Smallest distance between any two drones at any sample of the show.
+const minSeparation = (show) => {
+  let m = Infinity;
+  const w = show.drones.map((d) => d.waypoints);
+  for (let k = 0; k < w[0].length; k++) {
+    for (let i = 0; i < w.length; i++) {
+      for (let j = i + 1; j < w.length; j++) {
+        const a = w[i][k], b = w[j][k];
+        m = Math.min(m, Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z));
+      }
     }
+  }
+  return m;
+};
+
+describe('collision avoidance at fleet scale', () => {
+  // tara_core DEFAULT_LIMITS.design_separation_m — the threshold the backend
+  // validator certifies a show against.
+  const DESIGN_SEPARATION = 2.0;
+
+  it('keeps every pair at least the design separation apart for a whole show', () => {
+    const lists = [
+      acceptanceScenes(),
+      [scene({ shapePayload: 'circle' }), scene({ shapePayload: 'heart' }), scene({ shapePayload: 'grid' })],
+    ];
+    for (const scenes of lists) {
+      for (const n of [5, 16, 40, 100]) {
+        const show = buildSequencedShow(scenes, n, 4, computeAssignmentChainLocal(scenes, n));
+        expect(minSeparation(show), `${scenes.map((s) => s.shapePayload)} n=${n}`)
+          .toBeGreaterThanOrEqual(DESIGN_SEPARATION);
+      }
+    }
+  });
+
+  it('does not stack a large fleet into a tall altitude column', () => {
+    // Giving every drone its own transit band put 100 drones up to ~107 m and
+    // slowed each morph to ~275 s to climb there.
+    const scenes = acceptanceScenes();
+    const show = buildSequencedShow(scenes, 100, 4, computeAssignmentChainLocal(scenes, 100));
+    let peak = 0;
+    for (const d of show.drones) for (const w of d.waypoints) peak = Math.max(peak, -w.z);
+    expect(peak).toBeLessThan(50);
+    expect(show._duration).toBeLessThan(150);
+  });
+
+  it('predicts the built duration exactly for a real assignment', () => {
+    const scenes = acceptanceScenes();
+    for (const n of [16, 100]) {
+      const idx = computeAssignmentChainLocal(scenes, n);
+      const show = buildSequencedShow(scenes, n, 4, idx);
+      expect(show._duration).toBeCloseTo(computeShowDuration(scenes, n, 4, show._targetIdx), 6);
+      const segs = buildTimelineSegments(scenes, n, 4, show._targetIdx);
+      expect(segs[segs.length - 1].end).toBeCloseTo(show._duration, 6);
+    }
+  });
+
+  it('lands every drone back on the pad the GCS thinks it owns', () => {
+    // tara_core.layout.launch_grid(MAX_FLEET_SIZE): 15 columns, 2 m apart. The
+    // GCS resolves drone i's home from that grid, so past the first row the
+    // Studio has to use it too.
+    const scenes = acceptanceScenes();
+    const n = 40;
+    const show = buildSequencedShow(scenes, n, 4, computeAssignmentChainLocal(scenes, n));
+    show.drones.forEach((d, i) => {
+      const first = d.waypoints[0], last = d.waypoints[d.waypoints.length - 1];
+      const pad = { x: Math.floor(i / 15) * 2, y: (i % 15) * 2 };
+      expect([first.x, first.y, first.z], `drone ${i} start`).toEqual([pad.x, pad.y, 0]);
+      expect([last.x, last.y, last.z], `drone ${i} end`).toEqual([pad.x, pad.y, 0]);
+    });
   });
 });
 

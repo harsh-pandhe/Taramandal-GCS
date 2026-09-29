@@ -1,5 +1,8 @@
 import { describe, it, expect } from 'vitest';
-import { buildFormation, SHAPE_LIBRARY, FORMATION_LABELS, SHOW_ALT } from './formations.js';
+import {
+  buildFormation, SHAPE_LIBRARY, FORMATION_LABELS, SHOW_ALT, FORMATION_SPACING,
+} from './formations.js';
+import { fleetCenter } from './layout.js';
 
 const SHAPES = Object.keys(FORMATION_LABELS);
 
@@ -61,11 +64,22 @@ describe('buildFormation', () => {
   it('renders text as an upright wall, not flat on the ground', () => {
     // A text formation lying flat is unreadable from the ground, which defeats
     // the point — the glyph must occupy a range of altitudes.
-    const pts = buildFormation('text', '5', 30);
+    const pts = buildFormation('text', '5', 12);
     const zs = pts.map((p) => p.z);
     expect(Math.max(...zs) - Math.min(...zs)).toBeGreaterThan(1.0);
     // ...and stand in a single vertical plane.
     expect(new Set(pts.map((p) => p.x.toFixed(3))).size).toBe(1);
+  });
+
+  it('gives a large fleet depth layers rather than an ever-taller glyph', () => {
+    // 100 drones on one seven-segment "5" at safe spacing would stand ~180 m
+    // tall; the fleet is split into parallel copies of the wall instead.
+    const pts = buildFormation('text', '5', 100);
+    const alts = pts.map((p) => -p.z);
+    expect(Math.max(...alts) - Math.min(...alts)).toBeLessThanOrEqual(40 + 1e-6);
+    const planes = [...new Set(pts.map((p) => p.x.toFixed(3)))].map(Number).sort((a, b) => a - b);
+    expect(planes.length).toBeGreaterThan(1);
+    for (let i = 1; i < planes.length; i++) expect(planes[i] - planes[i - 1]).toBeCloseTo(FORMATION_SPACING, 6);
   });
 
   it('distinguishes different digits', () => {
@@ -97,6 +111,56 @@ describe('buildFormation', () => {
   it('keeps formations at show altitude by default', () => {
     for (const p of buildFormation('parametric', 'circle', 10)) {
       expect(p.z).toBeCloseTo(-SHOW_ALT, 6);
+    }
+  });
+});
+
+describe('formation placement', () => {
+  const minPair = (pts) => {
+    let m = Infinity;
+    for (let i = 0; i < pts.length; i++) {
+      for (let j = i + 1; j < pts.length; j++) {
+        m = Math.min(m, Math.hypot(pts[i].x - pts[j].x, pts[i].y - pts[j].y, pts[i].z - pts[j].z));
+      }
+    }
+    return m;
+  };
+  const all = [
+    ...SHAPES.map((shape) => ['parametric', shape]),
+    ['text', '5'], ['text', '4'], ['text', '8'], ['text', 'TARA'],
+  ];
+
+  it('spaces every formation at least FORMATION_SPACING apart', () => {
+    // The sequencer's collision-free morphs depend on this floor.
+    for (const [type, payload] of all) {
+      for (const n of [2, 10, 50, 100]) {
+        expect(minPair(buildFormation(type, payload, n)), `${payload}/${n}`)
+          .toBeGreaterThanOrEqual(FORMATION_SPACING - 1e-9);
+      }
+    }
+  });
+
+  it('centres every formation over the fleet\'s pad grid and above the ground', () => {
+    for (const [type, payload] of all) {
+      for (const n of [10, 100]) {
+        const pts = buildFormation(type, payload, n);
+        const xs = pts.map((p) => p.x), ys = pts.map((p) => p.y);
+        const c = fleetCenter(n);
+        expect((Math.min(...xs) + Math.max(...xs)) / 2, `${payload}/${n}`).toBeCloseTo(c.x, 6);
+        expect((Math.min(...ys) + Math.max(...ys)) / 2, `${payload}/${n}`).toBeCloseTo(c.y, 6);
+        for (const p of pts) expect(p.z, `${payload}/${n}`).toBeLessThan(0);
+      }
+    }
+  });
+
+  it('stacks a crowded flat shape instead of growing it without bound', () => {
+    // Equal-angle sampling used to put two heart drones 0.15 m apart at 50
+    // drones; scaling that up to the floor made the heart ~900 m across.
+    for (const shape of ['heart', 'grid', 'line', 'vee']) {
+      const pts = buildFormation('parametric', shape, 100);
+      const c = fleetCenter(100);
+      const reach = Math.max(...pts.map((p) => Math.hypot(p.x - c.x, p.y - c.y)));
+      expect(reach, shape).toBeLessThanOrEqual(14 + 1e-6);
     }
   });
 });
