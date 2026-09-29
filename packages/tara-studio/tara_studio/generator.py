@@ -169,7 +169,18 @@ def _blend_yaw(start_deg: float, target_deg: float, ratio: float) -> float:
     ``_run_show``, which blends the unwrapped yaw and wraps once at the end.
     """
     delta = (target_deg - start_deg + 180.0) % 360.0 - 180.0
-    return round((start_deg + delta * ratio) % 360.0, 1)
+    return _wrap_heading(start_deg + delta * ratio)
+
+
+def _wrap_heading(deg: float) -> float:
+    """Wrap a heading into [0, 360) at 0.1 deg resolution.
+
+    Rounding has to happen before the final wrap: 359.96 wraps to itself and
+    then rounds up to 360.0, which is outside the show schema's [0, 360) yaw
+    range (issue #55). The second ``% 360`` only ever changes that one value;
+    anything that rounded below 360 passes through it unchanged.
+    """
+    return round(deg % 360.0, 1) % 360.0
 
 
 def _launch_state(num_drones: int, spawn_offsets, target_heights) -> tuple[dict, dict]:
@@ -330,9 +341,7 @@ def _run_show(spec, num_drones: int, duration: float, rate: float, spawn_offsets
                 # wrapped exactly once here. Wrapping first and then blending
                 # towards the wrapped value makes the heading reverse whenever
                 # the shortest path flips sign at 180 deg.
-                yaw_val = round(
-                    (blend_ratio * spec.yaw(d_id, num_drones, ratio)) % 360.0, 1
-                )
+                yaw_val = _wrap_heading(blend_ratio * spec.yaw(d_id, num_drones, ratio))
 
                 pad = start_positions[d_id]
                 x_val = pad["x"] + blend_ratio * (target_x - pad["x"])
