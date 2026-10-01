@@ -210,7 +210,7 @@ async def launch_fleet():
 
     # Checked here as well as inside launch_sequence() so a refusal reaches the
     # operator as a 409, rather than only as a log line from the background task.
-    if drone_manager.staged_show is not None:
+    if drone_manager.active_trajectory is not None or drone_manager.staged_show is not None:
         gate = drone_manager.launch_gate()
         if not gate["ok"]:
             raise HTTPException(status_code=409, detail=gate["reason"])

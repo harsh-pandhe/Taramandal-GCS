@@ -400,7 +400,16 @@ class DroneManager:
 
         for k, drone_id in enumerate(ids):
             tel = self.telemetry[drone_id]
-            tel["connected"] = connected[k]
+            is_conn = bool(connected[k])
+            if is_conn and tel["link_stable_since"] is None:
+                tel["link_stable_since"] = time.monotonic()
+            elif not is_conn:
+                tel["link_stable_since"] = None
+            tel["connected"] = is_conn
+            if hasattr(self, "_sim_fleet") and self._sim_fleet is not None:
+                armable = bool(self._sim_fleet.state.is_armable(drone_id))
+                tel["health_armable"] = armable
+                tel["health_home_ok"] = armable
             north, east, alt = positions[k]
             local_x, local_y, local_z = round(north, 2), round(east, 2), round(alt, 2)
             tel["local_x"], tel["local_y"], tel["local_z"] = local_x, local_y, local_z
