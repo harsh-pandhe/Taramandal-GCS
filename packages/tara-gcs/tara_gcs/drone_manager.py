@@ -25,6 +25,15 @@ from tara_core.show import Show
 from mavsdk import System
 from mavsdk.offboard import PositionNedYaw, PositionGlobalYaw, OffboardError, VelocityNedYaw, AccelerationNed
 from tara_gcs.broadcast_manager import BROADCAST_SYSID
+from tara_gcs.fleet_fsm import (
+    AIRBORNE_STATES,
+    DEFAULT_AUDIT_PATH,
+    EMERGENCY_STATES,
+    SYSTEM_OPERATOR,
+    Command,
+    FleetStateMachine,
+    LifecycleState,
+)
 from tara_gcs.state_store import DEFAULT_STATE_PATH, discard_show_state, load_show_state, save_show_state
 
 # Fleet-wide safety limits and launch geometry come from tara_core so that this
@@ -91,6 +100,11 @@ SIM_TELEMETRY_INTERVAL_S = 0.05
 SIM_SLOW_TELEMETRY_EVERY = 10
 
 
+def _hover_altitude(drone_id: int) -> float:
+    """Altitude, metres above the pad, launch_sequence climbs this drone to."""
+    return DEFAULT_ALTITUDES[drone_id] if drone_id < len(DEFAULT_ALTITUDES) else 3.0
+
+
 def _pad_offset(drone_id: int) -> tuple[float, float]:
     """Returns (x, y) offset of a drone's own launch pad within the shared fleet frame."""
     if not 0 <= drone_id < MAX_FLEET_SIZE:
@@ -106,6 +120,7 @@ class DroneManager:
         backend: str = "px4",
         state_path: str = DEFAULT_STATE_PATH,
         broadcast_transmit=None,
+        audit_path: str | None = DEFAULT_AUDIT_PATH,
     ):
         """
         Args:
@@ -135,6 +150,8 @@ class DroneManager:
                 backend="px4" there is no default: stock PX4 has no onboard
                 show executor to act on the trigger (see #47), so onboard
                 execution is refused until a radio and firmware are wired in.
+            audit_path: JSONL file the fleet lifecycle state machine appends
+                every transition to (issue #52). ``None`` keeps it in memory.
         """
         if backend not in ("px4", "sim"):
             raise ValueError(f"backend must be 'px4' or 'sim', got {backend!r}")
@@ -178,6 +195,11 @@ class DroneManager:
         self._onboard_show_id = None  # show_id of an onboard show currently triggered, for CANCEL
         self.trigger_frames_sent = 0
 
+        # Fleet lifecycle (issue #52). The API validates operator commands
+        # against it; _lifecycle_monitor_loop advances it from telemetry.
+        self.fleet_fsm = FleetStateMachine(audit_path=audit_path)
+        self.launch_task = None
+
     async def connect_all(self) -> None:
         """Connects to all drones concurrently."""
         logging.info(f"Connecting to {len(self.ports)} drones (backend={self.backend}) on ports: {self.ports}")
@@ -207,6 +229,8 @@ class DroneManager:
         self._tasks.append(asyncio.create_task(self._proximity_monitor_loop()))
         # Start geofence enforcement loop
         self._tasks.append(asyncio.create_task(self._geofence_monitor_loop()))
+        # Advance the fleet lifecycle from telemetry (issue #52)
+        self._tasks.append(asyncio.create_task(self._lifecycle_monitor_loop()))
 
     async def _for_each_drone(self, coros: list, return_exceptions: bool = False) -> list:
         """Run one coroutine per drone: concurrently on px4, in turn on sim.
@@ -772,6 +796,40 @@ class DroneManager:
     # load bounded as fleet size grows, instead of one drone at a time.
     LAUNCH_BATCH_SIZE = 5
 
+    def start_launch_sequence(self, drone_ids: list[int] | None = None, require_ekf_health: bool = True) -> asyncio.Task:
+        """Run launch_sequence() in the background and keep its task.
+
+        The lifecycle monitor needs to know whether a launch is still in
+        flight (PREARM with nobody armed is "still waiting" during a launch
+        and "launch failed" after it), and it must know from the moment the
+        API accepts the command, not from whenever the task first runs.
+        """
+        async def _run():
+            try:
+                await self.launch_sequence(drone_ids=drone_ids, require_ekf_health=require_ekf_health)
+            except Exception as e:
+                logging.error(f"Error during launch sequence execution: {e}")
+
+        self.launch_task = asyncio.create_task(_run())
+        return self.launch_task
+
+    def _launch_in_progress(self) -> bool:
+        return self.launch_task is not None and not self.launch_task.done()
+
+    def _launch_preempted(self, drone_id: int) -> bool:
+        """True once LAND/RTL/ESTOP has superseded the launch in progress.
+
+        Checked before every step that would put a drone further into the air,
+        so an emergency during a launch doesn't get followed by the rest of the
+        fleet arming and climbing.
+        """
+        if self.fleet_fsm.state in EMERGENCY_STATES:
+            logging.warning(
+                f"Drone {drone_id}: launch aborted — fleet is in {self.fleet_fsm.state.value}."
+            )
+            return True
+        return False
+
     async def launch_sequence(self, drone_ids: list[int] | None = None, require_ekf_health: bool = True):
         """
         Arm, switch to offboard, and take off in bounded-concurrency batches,
@@ -858,6 +916,8 @@ class DroneManager:
             logging.info(f"Drone {drone_id} waiting to become armable with home lock...")
             async def _wait_armable():
                 async for health in drone.telemetry.health():
+                    if self.fleet_fsm.state in EMERGENCY_STATES:
+                        break
                     if health.is_armable and health.is_home_position_ok:
                         logging.info(f"Drone {drone_id} is now armable with home position locked.")
                         break
@@ -872,6 +932,9 @@ class DroneManager:
                         f"{HOME_LOCK_TIMEOUT_S}s — skipping (retry later via /api/launch)."
                     )
                     return
+
+            if self._launch_preempted(drone_id):
+                return
 
             # Arm
             try:
@@ -888,6 +951,9 @@ class DroneManager:
                 logging.error(f"Setting initial position NED failed for Drone {drone_id}: {e}")
                 return
 
+            if self._launch_preempted(drone_id):
+                return
+
             # Start offboard mode
             try:
                 await drone.offboard.start()
@@ -901,8 +967,11 @@ class DroneManager:
                 await drone.action.disarm()
                 return
 
+            if self._launch_preempted(drone_id):
+                return
+
             # Ascend to target altitude (spatial separation)
-            alt = DEFAULT_ALTITUDES[drone_id] if drone_id < len(DEFAULT_ALTITUDES) else 3.0
+            alt = _hover_altitude(drone_id)
             logging.info(f"Drone {drone_id} climbing to target hover altitude: {alt}m...")
             try:
                 await drone.offboard.set_position_ned(PositionNedYaw(0.0, 0.0, -alt, 0.0))
@@ -913,8 +982,13 @@ class DroneManager:
         except Exception as e:
             logging.error(f"Unexpected error launching Drone {drone_id}: {e}")
 
-    async def trigger_rtl(self):
-        """Trigger RTL for all connected drones."""
+    async def trigger_rtl(self, operator: str = SYSTEM_OPERATOR, trigger: str = "rtl"):
+        """Trigger RTL for all connected drones.
+
+        Legal from every lifecycle state, so the transition can't fail; it's
+        recorded first so the audit shows the RTL even if a vehicle rejects it.
+        """
+        self.fleet_fsm.apply(Command.RTL, operator=operator, trigger=trigger)
         print("FAILSAFE: Triggering Return to Launch (RTL) for all drones...")
         self.stop_trajectory()
         
@@ -935,8 +1009,9 @@ class DroneManager:
             
         await self._for_each_drone(rtl_tasks)
 
-    async def trigger_land(self):
-        """Trigger Land for all connected drones."""
+    async def trigger_land(self, operator: str = SYSTEM_OPERATOR, trigger: str = "land"):
+        """Trigger Land for all connected drones. Legal from every lifecycle state."""
+        self.fleet_fsm.apply(Command.LAND, operator=operator, trigger=trigger)
         print("Commanding all drones to Land...")
         self.stop_trajectory()
         
@@ -956,6 +1031,26 @@ class DroneManager:
             land_tasks.append(stop_and_land(drone_id, drone))
             
         await self._for_each_drone(land_tasks)
+
+    async def trigger_estop(self, operator: str = SYSTEM_OPERATOR, trigger: str = "estop"):
+        """Kill every drone's motors immediately. Legal from every lifecycle state.
+
+        This is flight termination: airborne drones fall. It exists for the
+        case where a drone flying on is worse than a drone dropping (flyaway,
+        toward the crowd), and it's LAND/RTL, not this, for anything else.
+        """
+        self.fleet_fsm.apply(Command.ESTOP, operator=operator, trigger=trigger)
+        logging.critical("EMERGENCY STOP: killing motors on all drones.")
+        self.stop_trajectory()
+
+        async def kill(d_id, d_obj):
+            try:
+                await d_obj.action.kill()
+                logging.critical(f"Drone {d_id} motors killed.")
+            except Exception as e:
+                logging.error(f"Failed to kill Drone {d_id}: {e}")
+
+        await asyncio.gather(*(kill(d_id, d_obj) for d_id, d_obj in self.drones.items()))
 
     # --- Trajectory Playback ---
 
@@ -1307,6 +1402,7 @@ class DroneManager:
         # except/else branches entirely, and an unbound name here would mask
         # the real exception with an UnboundLocalError.
         cancelled = False
+        completed = False
 
         try:
             # 10Hz loop rate
@@ -1317,6 +1413,7 @@ class DroneManager:
                 if elapsed > max_time + 1.0:
                     print("Trajectory complete. Hovering at last waypoints...")
                     self.is_running_trajectory = False
+                    completed = True
                     break
                     
                 # Calculate and send setpoints for each drone
@@ -1428,6 +1525,17 @@ class DroneManager:
             if not cancelled:
                 self.stop_state_snapshotting()
                 discard_show_state(self.state_path)
+                # Cancellation means stop_trajectory() or an emergency, which
+                # set the lifecycle themselves. Only an end the loop reached on
+                # its own is the loop's to report.
+                if completed:
+                    self.fleet_fsm.advance(
+                        LifecycleState.RUNNING, LifecycleState.SHOW_COMPLETE, trigger="trajectory_complete"
+                    )
+                else:
+                    self.fleet_fsm.advance(
+                        LifecycleState.RUNNING, LifecycleState.FORMATION_HOLD, trigger="trajectory_error"
+                    )
 
     def verify_launch_geometry(self, trajectory_data: dict, tolerance_m: float = 0.5) -> dict:
         """
@@ -1533,7 +1641,7 @@ class DroneManager:
                     # Trigger RTL once per tick (not inline per-pair), after the full scan completes.
                     if new_breach_found:
                         logging.warning("🚨 TRIGGERING EMERGENCY RTL FOR ALL VEHICLES.")
-                        await self.trigger_rtl()
+                        await self.trigger_rtl(trigger="failsafe:proximity")
                                 
                 await asyncio.sleep(0.1)  # 10Hz
         except asyncio.CancelledError:
@@ -1581,7 +1689,7 @@ class DroneManager:
                                 f"Triggering RTL."
                             )
                             self.geofence_breaches[drone_id] = True
-                            await self.trigger_rtl()
+                            await self.trigger_rtl(trigger="failsafe:geofence")
                     elif already_breached:
                         # Within bounds — clear breach flag if previously set
                         self.geofence_breaches[drone_id] = False
@@ -1600,6 +1708,68 @@ class DroneManager:
                 await asyncio.sleep(0.1)  # 10Hz
         except asyncio.CancelledError:
             logging.info("Geofence monitor stopped.")
+
+    #: Lifecycle monitor rate. Transitions are operator-facing (HUD, gating),
+    #: so 5Hz is ample; the 10Hz safety loops above don't depend on it.
+    LIFECYCLE_POLL_S = 0.2
+    #: Fleet altitude, metres, above which an armed drone counts as airborne.
+    TAKEOFF_DETECT_ALT_M = 0.5
+    #: How far below its hover altitude a drone may be and still count as in formation.
+    FORMATION_ALT_TOLERANCE_M = 0.5
+
+    async def _lifecycle_monitor_loop(self):
+        """Advances the fleet lifecycle from telemetry at LIFECYCLE_POLL_S."""
+        logging.info("Fleet lifecycle monitor active.")
+        try:
+            while True:
+                try:
+                    self.evaluate_lifecycle()
+                except Exception as e:
+                    # A bad telemetry entry must not kill the monitor for the
+                    # rest of the process's life.
+                    logging.error(f"Fleet lifecycle monitor error: {e}")
+                await asyncio.sleep(self.LIFECYCLE_POLL_S)
+        except asyncio.CancelledError:
+            logging.info("Fleet lifecycle monitor stopped.")
+
+    def evaluate_lifecycle(self) -> None:
+        """Make at most one observed transition, based on current telemetry.
+
+        Fleet-level phases are defined by the leading drone going up (the first
+        to arm moves PREARM -> ARMED, the first to climb moves ARMED -> TAKEOFF)
+        and by the whole armed fleet for "done" (formation altitude reached,
+        everyone disarmed). A drone that never armed isn't part of the flight,
+        so it doesn't hold the fleet in TAKEOFF.
+        """
+        fsm = self.fleet_fsm
+        state = fsm.state
+        launching = self._launch_in_progress()
+        # Last-known armed flag, connected or not: a link loss must not read as
+        # "the fleet has disarmed".
+        armed_ids = [d_id for d_id, tel in self.telemetry.items() if tel.get("armed")]
+
+        if state in AIRBORNE_STATES and not armed_ids and not launching:
+            if state is LifecycleState.RUNNING:
+                self.stop_trajectory()
+            fsm.transition(LifecycleState.DISARMED, operator=SYSTEM_OPERATOR, trigger="telemetry:all_disarmed")
+            return
+
+        if state is LifecycleState.PREARM:
+            if armed_ids:
+                fsm.advance(state, LifecycleState.ARMED, trigger="telemetry:first_drone_armed")
+            elif not launching:
+                fsm.advance(state, LifecycleState.STAGED, trigger="launch_failed:no_drone_armed")
+        elif state is LifecycleState.ARMED:
+            if any(self.telemetry[d_id].get("fleet_z", 0.0) >= self.TAKEOFF_DETECT_ALT_M for d_id in armed_ids):
+                fsm.advance(state, LifecycleState.TAKEOFF, trigger="telemetry:climbing")
+        elif state is LifecycleState.TAKEOFF:
+            at_altitude = all(
+                self.telemetry[d_id].get("fleet_z", 0.0)
+                >= _hover_altitude(d_id) - self.FORMATION_ALT_TOLERANCE_M
+                for d_id in armed_ids
+            )
+            if at_altitude and not launching:
+                fsm.advance(state, LifecycleState.FORMATION_HOLD, trigger="telemetry:formation_altitude_reached")
 
     def remap_trajectory_to_healthy_drones(self, trajectory_data: dict) -> dict:
         """

@@ -2,11 +2,13 @@ import asyncio
 import logging
 import os
 from pathlib import Path
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, UploadFile, File, HTTPException
+from typing import Annotated
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, UploadFile, File, Header, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
-from tara_gcs.drone_manager import DroneManager, LaunchGateError
+from tara_gcs.drone_manager import DroneManager
+from tara_gcs.fleet_fsm import Command, IllegalTransitionError
 from tara_gcs.trajectory_parser import parse_trajectory_bytes
 from tara_gcs.telemetry_codec import FAST_HZ, SLOW_HZ, encode_fast_frame, encode_slow_frame
 from tara_gcs.sim_manager import SimLaunchError, SimManager
@@ -44,6 +46,8 @@ VEHICLE_BACKEND = os.environ.get("VEHICLE_BACKEND", "px4")
 kwargs = {}
 if os.environ.get("GCS_STATE_PATH"):
     kwargs["state_path"] = os.environ["GCS_STATE_PATH"]
+if os.environ.get("GCS_AUDIT_PATH"):
+    kwargs["audit_path"] = os.environ["GCS_AUDIT_PATH"]
 drone_manager = DroneManager(ports=ports, backend=VEHICLE_BACKEND, **kwargs)
 
 # Owns the Gazebo/PX4/RViz processes the dashboard's Simulation Control Bar
@@ -73,6 +77,35 @@ preflight_engine = PreArmChecklistEngine(
     audit_log=AuditLog(**audit_kwargs),
 )
 logger.info(f"Pre-arm safety profile: {safety_config.profile.value}")
+
+# --- Fleet lifecycle gating (issue #52) -----------------------------------
+#
+# Every command that changes what the fleet is doing is checked against the
+# lifecycle state machine first; an illegal one is a 409 carrying the machine's
+# own explanation, and nothing is sent to a vehicle.
+
+#: Who issued a command, for the lifecycle audit log. There is no operator
+#: authentication yet, so this is self-reported by the client.
+OperatorHeader = Annotated[str | None, Header(alias="X-Operator-ID")]
+ANONYMOUS_OPERATOR = "anonymous"
+
+
+def _operator(x_operator_id: str | None) -> str:
+    return (x_operator_id or "").strip() or ANONYMOUS_OPERATOR
+
+
+def _check_command(command: Command, operator: str, trigger: str) -> None:
+    try:
+        drone_manager.fleet_fsm.check(command, operator=operator, trigger=trigger)
+    except IllegalTransitionError as e:
+        raise HTTPException(status_code=409, detail=e.detail())
+
+
+def _apply_command(command: Command, operator: str, trigger: str) -> None:
+    try:
+        drone_manager.fleet_fsm.apply(command, operator=operator, trigger=trigger)
+    except IllegalTransitionError as e:
+        raise HTTPException(status_code=409, detail=e.detail())
 
 @app.on_event("startup")
 async def startup_event():
@@ -123,6 +156,7 @@ async def get_status():
         "connected": sum(1 for t in telemetry.values() if t.get("connected")),
         "armed": sum(1 for t in telemetry.values() if t.get("armed")),
         "trajectory_running": drone_manager.is_running_trajectory,
+        "fleet_state": drone_manager.fleet_fsm.state.value,
     }
 
 @app.get("/api/preflight-check")
@@ -192,9 +226,17 @@ async def preflight_override_confirm(req: ConfirmationCommit):
         raise HTTPException(status_code=409, detail=str(e))
 
 
+@app.get("/api/fleet-state")
+async def get_fleet_state():
+    """The fleet's lifecycle state, which commands are legal in it, and the
+    most recent transitions (the audit log on disk has the full record)."""
+    fsm = drone_manager.fleet_fsm
+    return {**fsm.snapshot(), "history": list(fsm.history)}
+
 @app.post("/api/launch")
-async def launch_fleet():
+async def launch_fleet(x_operator_id: OperatorHeader = None):
     logger.info("API: Launching fleet...")
+    _check_command(Command.LAUNCH, _operator(x_operator_id), "POST /api/launch")
     decision = preflight_engine.authorize_launch(drone_manager)
     if not decision.permitted:
         # 412: the request is well-formed, but a precondition the server
@@ -215,18 +257,11 @@ async def launch_fleet():
         if not gate["ok"]:
             raise HTTPException(status_code=409, detail=gate["reason"])
 
-    # Wrap launch sequence task with error handling
-    async def run_launch():
-        try:
-            await drone_manager.launch_sequence(
-                drone_ids=decision.drone_ids,
-                require_ekf_health="ekf_health" not in decision.overridden_rules,
-            )
-        except LaunchGateError as e:
-            logger.error(f"Launch refused: {e}")
-        except Exception as e:
-            logger.error(f"Error during launch sequence execution: {e}")
-    asyncio.create_task(run_launch())
+    _apply_command(Command.LAUNCH, _operator(x_operator_id), "POST /api/launch")
+    drone_manager.start_launch_sequence(
+        drone_ids=decision.drone_ids,
+        require_ekf_health="ekf_health" not in decision.overridden_rules,
+    )
     return {
         "status": "success",
         "message": "Launch sequence initiated.",
@@ -237,16 +272,23 @@ async def launch_fleet():
     }
 
 @app.post("/api/rtl")
-async def trigger_rtl():
+async def trigger_rtl(x_operator_id: OperatorHeader = None):
     logger.info("API: Failsafe RTL triggered...")
-    await drone_manager.trigger_rtl()
+    await drone_manager.trigger_rtl(operator=_operator(x_operator_id), trigger="POST /api/rtl")
     return {"status": "success", "message": "Emergency RTL commanded."}
 
 @app.post("/api/land")
-async def trigger_land():
+async def trigger_land(x_operator_id: OperatorHeader = None):
     logger.info("API: Land triggered...")
-    await drone_manager.trigger_land()
+    await drone_manager.trigger_land(operator=_operator(x_operator_id), trigger="POST /api/land")
     return {"status": "success", "message": "Emergency landing commanded."}
+
+@app.post("/api/estop")
+async def trigger_estop(x_operator_id: OperatorHeader = None):
+    """Kill every drone's motors. Airborne drones fall — see DroneManager.trigger_estop."""
+    logger.critical("API: EMERGENCY STOP triggered...")
+    await drone_manager.trigger_estop(operator=_operator(x_operator_id), trigger="POST /api/estop")
+    return {"status": "success", "message": "Emergency stop commanded: motors killed."}
 
 class StartTrajectoryRequest(BaseModel):
     mode: str = "LOCAL"
@@ -256,12 +298,17 @@ class StartTrajectoryRequest(BaseModel):
     execution: str = "onboard"
 
 @app.post("/api/upload-trajectory")
-async def upload_trajectory(file: UploadFile = File(...), signature: UploadFile | None = File(None)):
+async def upload_trajectory(
+    file: UploadFile = File(...),
+    signature: UploadFile | None = File(None),
+    x_operator_id: OperatorHeader = None,
+):
     """Accept a trajectory only if its detached .sig.json manifest (the
     optional ``signature`` part) verifies against a trusted key, or if the GCS
     runs with --allow-unsigned and no manifest was sent. A failed check is a
     403 and never touches the active trajectory."""
     logger.info(f"API: Uploading trajectory file: {file.filename}")
+    _check_command(Command.UPLOAD_TRAJECTORY, _operator(x_operator_id), "POST /api/upload-trajectory")
     
     # Check file size limit (5 MB max) to prevent OOM
     MAX_FILE_SIZE = 5 * 1024 * 1024  # 5 MB
@@ -331,11 +378,12 @@ async def upload_trajectory(file: UploadFile = File(...), signature: UploadFile 
         raise HTTPException(status_code=400, detail=str(e))
 
 @app.post("/api/upload-mission")
-async def upload_mission():
+async def upload_mission(x_operator_id: OperatorHeader = None):
     """Compile the loaded trajectory into one mission per drone, upload each
     over MAVLink FTP, and verify every copy's CRC-32 (issue #47). Arming is
     refused until this has succeeded for the whole fleet."""
     logger.info("API: Uploading show missions to the fleet...")
+    _check_command(Command.UPLOAD_MISSION, _operator(x_operator_id), "POST /api/upload-mission")
     if not drone_manager.active_trajectory:
         raise HTTPException(status_code=400, detail="No active trajectory loaded. Please upload a trajectory first.")
     try:
@@ -358,11 +406,17 @@ async def verify_launch_geometry(tolerance_m: float = 0.5):
     return report
 
 @app.post("/api/start-trajectory")
-async def start_trajectory(req: StartTrajectoryRequest):
+async def start_trajectory(req: StartTrajectoryRequest, x_operator_id: OperatorHeader = None):
     logger.info(
         f"API: Starting trajectory in {req.mode} mode, {req.execution} execution, "
         f"trigger_epoch_ms={req.trigger_epoch_ms}..."
     )
+    operator = _operator(x_operator_id)
+    trigger = "POST /api/start-trajectory"
+    # Checked, then acted on, then committed: a start that fails with a 400
+    # must leave the fleet in FORMATION_HOLD, not in a RUNNING with nothing
+    # running. Nothing below awaits, so no other command can land in between.
+    _check_command(Command.START_TRAJECTORY, operator, trigger)
     if not drone_manager.active_trajectory:
          raise HTTPException(status_code=400, detail="No active trajectory loaded. Please upload a trajectory first.")
          
@@ -373,15 +427,19 @@ async def start_trajectory(req: StartTrajectoryRequest):
             trigger_epoch_ms=req.trigger_epoch_ms,
             execution=req.execution,
         )
-        return {"status": "success", "message": f"Trajectory started in {req.mode} mode ({req.execution} execution)."}
     except Exception as e:
         logger.error(f"Failed starting trajectory: {e}")
         raise HTTPException(status_code=400, detail=str(e))
+    _apply_command(Command.START_TRAJECTORY, operator, trigger)
+    return {"status": "success", "message": f"Trajectory started in {req.mode} mode ({req.execution} execution)."}
 
 @app.post("/api/stop-trajectory")
-async def stop_trajectory():
+async def stop_trajectory(x_operator_id: OperatorHeader = None):
     logger.info("API: Stopping trajectory playback...")
+    operator = _operator(x_operator_id)
+    _check_command(Command.STOP_TRAJECTORY, operator, "POST /api/stop-trajectory")
     drone_manager.stop_trajectory()
+    _apply_command(Command.STOP_TRAJECTORY, operator, "POST /api/stop-trajectory")
     return {"status": "success", "message": "Trajectory playback stopped."}
 
 @app.get("/api/saved-show-state")
@@ -408,7 +466,7 @@ async def get_saved_show_state():
     }
 
 @app.post("/api/resume-show")
-async def resume_show():
+async def resume_show(x_operator_id: OperatorHeader = None):
     """
     Reloads a saved show's trajectory and playback position so the operator
     can continue it. Deliberately does NOT re-arm or re-launch drones — the
@@ -416,6 +474,7 @@ async def resume_show():
     themselves once they're ready.
     """
     logger.info("API: Resuming saved show state...")
+    _check_command(Command.RESUME_SHOW, _operator(x_operator_id), "POST /api/resume-show")
     try:
         elapsed = drone_manager.resume_pending_show()
     except ValueError as e:
@@ -430,9 +489,10 @@ async def resume_show():
     }
 
 @app.post("/api/discard-show")
-async def discard_show():
+async def discard_show(x_operator_id: OperatorHeader = None):
     """Discards a saved show from a previous run without resuming it."""
     logger.info("API: Discarding saved show state...")
+    _check_command(Command.DISCARD_SHOW, _operator(x_operator_id), "POST /api/discard-show")
     drone_manager.discard_pending_show()
     return {"status": "success", "message": "Saved show state discarded."}
 
@@ -565,6 +625,11 @@ async def websocket_telemetry_endpoint(websocket: WebSocket):
     connected — what a live view needs to animate. JSON text frames at
     SLOW_HZ carry battery/GPS/flight-mode/latency/home. The client tells them
     apart by `event.data`'s type; no wrapper protocol needed.
+
+    The slow frame also carries the fleet lifecycle state (issue #52). A
+    transition sends one immediately rather than waiting out the 1Hz cadence,
+    so the HUD's state and enabled buttons are never a second behind a
+    command the operator just issued.
     """
     await websocket.accept()
     logger.info("WebSocket telemetry client connected.")
@@ -572,11 +637,14 @@ async def websocket_telemetry_endpoint(websocket: WebSocket):
     slow_interval = 1.0 / SLOW_HZ
     next_slow_send = 0.0
     elapsed = 0.0
+    sent_fsm_seq = None
     try:
         while True:
             await websocket.send_bytes(encode_fast_frame(drone_manager.telemetry))
-            if elapsed >= next_slow_send:
-                await websocket.send_json(encode_slow_frame(drone_manager.telemetry))
+            fsm = drone_manager.fleet_fsm
+            if elapsed >= next_slow_send or fsm.seq != sent_fsm_seq:
+                sent_fsm_seq = fsm.seq
+                await websocket.send_json(encode_slow_frame(drone_manager.telemetry, fsm.snapshot()))
                 next_slow_send = elapsed + slow_interval
             await asyncio.sleep(fast_interval)
             elapsed += fast_interval

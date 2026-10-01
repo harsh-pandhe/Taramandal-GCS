@@ -1,11 +1,11 @@
 """A `System`-shaped object backed by :class:`~tara_sim.fleet_state.FleetState`.
 
-`tara_gcs.drone_manager.DroneManager` calls exactly 22 methods across 5 MAVSDK
+`tara_gcs.drone_manager.DroneManager` calls exactly 23 methods across 5 MAVSDK
 submodules on whatever object it stores at ``self.drones[drone_id]``:
 ``.core.connection_state()``; ``.telemetry.battery()``, ``.flight_mode()``,
 ``.gps_info()``, ``.position_velocity_ned()``, ``.armed()``, ``.health()``,
 ``.home()``; ``.action.arm()``, ``.disarm()``, ``.land()``,
-``.return_to_launch()``, ``.get_takeoff_altitude()``; ``.offboard.start()``,
+``.return_to_launch()``, ``.kill()``, ``.get_takeoff_altitude()``; ``.offboard.start()``,
 ``.stop()``, ``.set_position_ned()``, ``.set_position_global()``,
 ``.set_position_velocity_acceleration_ned()``; ``.param.set_param_int()``,
 ``.set_param_float()``; ``.ftp.create_directory()``, ``.upload()``,
@@ -172,6 +172,9 @@ class _Action:
 
     async def return_to_launch(self):
         self._sys._fs.command_rtl(self._sys.drone_id)
+
+    async def kill(self):
+        self._sys._fs.command_kill(self._sys.drone_id)
 
     async def get_takeoff_altitude(self):
         # Used only as a round-trip latency probe (drone_manager._measure_latency_loop);

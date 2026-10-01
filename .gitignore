@@ -66,3 +66,6 @@ packages/tara-gcs/tara_gcs/show_state.json
 # Pre-arm checklist audit trail (tara_gcs.preflight.DEFAULT_AUDIT_PATH) —
 # per-installation operator record, not source.
 packages/tara-gcs/tara_gcs/audit/
+
+# Fleet lifecycle audit log (issue #52) — runtime data, not source.
+packages/tara-gcs/tara_gcs/fleet_audit.jsonl

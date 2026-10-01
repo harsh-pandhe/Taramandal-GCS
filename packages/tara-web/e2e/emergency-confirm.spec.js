@@ -9,7 +9,7 @@ const CONFIRM_WINDOW_MS = 5000;
 const CONFIRM_GUARD_MS = 350;
 
 async function openDashboard(page) {
-  const calls = { rtl: 0, land: 0 };
+  const calls = { rtl: 0, land: 0, estop: 0 };
   await page.route('**/api/rtl', (route) => {
     calls.rtl += 1;
     return route.fulfill({ json: { status: 'success', message: 'Emergency RTL commanded.' } });
@@ -17,6 +17,10 @@ async function openDashboard(page) {
   await page.route('**/api/land', (route) => {
     calls.land += 1;
     return route.fulfill({ json: { status: 'success', message: 'Emergency landing commanded.' } });
+  });
+  await page.route('**/api/estop', (route) => {
+    calls.estop += 1;
+    return route.fulfill({ json: { status: 'success', message: 'Motors killed.' } });
   });
   // The sim status poll would otherwise hit a GCS that isn't running.
   await page.route('**/api/sim/status', (route) => route.fulfill({ json: {} }));
@@ -26,11 +30,12 @@ async function openDashboard(page) {
 
 const rtl = (page) => page.getByRole('button', { name: /EMERGENCY RTL|CONFIRM RTL/ });
 const land = (page) => page.getByRole('button', { name: /EMER LAND|CONFIRM LAND/ });
+const estop = (page) => page.getByRole('button', { name: /E-STOP \(KILL\)|CONFIRM KILL/ });
 
 // Long enough for any request a click would have sent to have been routed.
 const settle = (page) => page.waitForTimeout(400);
 
-for (const [name, button, path] of [['RTL', rtl, 'rtl'], ['Land', land, 'land']]) {
+for (const [name, button, path] of [['RTL', rtl, 'rtl'], ['Land', land, 'land'], ['E-STOP', estop, 'estop']]) {
   test(`a single click on ${name} does not fire it; a confirming click does`, async ({ page }) => {
     const calls = await openDashboard(page);
 
@@ -84,7 +89,13 @@ test('arming one emergency action disarms the other', async ({ page }) => {
   // redirected into a landing.
   await land(page).click();
   await settle(page);
-  expect(calls).toEqual({ rtl: 0, land: 0 });
+
+  // Arming E-STOP takes over from LAND too: only ever one armed emergency.
+  await estop(page).click();
+  await expect(land(page)).toHaveAttribute('data-armed', 'false');
+  await expect(estop(page)).toHaveAttribute('data-armed', 'true');
+  await settle(page);
+  expect(calls).toEqual({ rtl: 0, land: 0, estop: 0 });
 });
 
 test('a reflexive double-click does not count as a confirmation', async ({ page }) => {
