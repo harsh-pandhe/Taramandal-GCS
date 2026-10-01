@@ -18,6 +18,7 @@ simulator as drives real MAVSDK.
 from __future__ import annotations
 
 import asyncio
+import math
 import time
 from dataclasses import dataclass
 
@@ -79,6 +80,16 @@ class SimConfig:
             up, modelling MAVSDK's offboard plugin re-sending the last
             setpoint for as long as offboard is engaged — so this only fires
             on a genuine link loss, never on a GCS that is merely quiet.
+        rotor_tau_s: First-order time constant, seconds, modelling how fast a
+            real rotor's thrust (hence acceleration) can actually change —
+            50-150 ms is typical, so 0.08 is a representative default (issue
+            #60). The PD tracker's ``accel`` output above is a *commanded*
+            acceleration; a real airframe cannot instantly deliver it, so the
+            acceleration actually applied to ``velocity`` lags the command by
+            this time constant. ``0.0`` (the default) disables the filter
+            entirely — commanded acceleration is applied immediately, exactly
+            the pre-#60 behaviour — so every existing test and caller that
+            doesn't opt in is unaffected.
         rng_seed: Seed for the noise/wind/dropout generator. ``None`` for
             nondeterministic (real) runs.
     """
@@ -96,6 +107,7 @@ class SimConfig:
     armable_delay_s: float = DEFAULT_ARMABLE_DELAY_S
     descent_rate_ms: float = DEFAULT_DESCENT_RATE_MS
     offboard_loss_timeout_s: float = DEFAULT_OFFBOARD_LOSS_TIMEOUT_S
+    rotor_tau_s: float = 0.0
     rng_seed: int | None = None
 
     @property
@@ -125,6 +137,11 @@ class FleetState:
         self.position = np.zeros((n, 3))
         self.velocity = np.zeros((n, 3))
         self.yaw_deg = np.zeros(n)
+
+        # Acceleration actually applied last tick, after the rotor-lag filter
+        # (see SimConfig.rotor_tau_s) — the filter's own state, since a
+        # first-order lag needs to remember what it was converging from.
+        self._applied_accel = np.zeros((n, 3))
 
         # What the controller is actually tracking right now.
         self.target_position = np.zeros((n, 3))
@@ -340,6 +357,17 @@ class FleetState:
         if cfg.wind_std_ms2 > 0:
             accel = accel + self._rng.normal(0.0, cfg.wind_std_ms2, size=(self.n, 3))
         accel = _clamp_norm(accel, cfg.max_accel_ms2)
+
+        if cfg.rotor_tau_s > 0:
+            # Exact discrete update of a continuous first-order lag
+            # (d(applied)/dt = (commanded - applied) / tau): applied converges
+            # on commanded with time constant tau regardless of dt, rather
+            # than the dt/tau approximation drifting at low tick rates.
+            alpha = 1.0 - math.exp(-dt / cfg.rotor_tau_s)
+            self._applied_accel += (accel - self._applied_accel) * alpha
+            accel = self._applied_accel
+        else:
+            self._applied_accel = accel
 
         active = self.armed
         self.velocity[active] += accel[active] * dt

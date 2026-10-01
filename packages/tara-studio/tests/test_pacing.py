@@ -106,16 +106,32 @@ class TestSmallShowsAreNotRegressed:
         # stretched *materially*, and nothing is ever shortened.
         pacing = plan_show_pacing(1, shape)
 
+        # Issue #60 replaced generator._ease's smoothstep ramp (peak = 1.5x
+        # mean) with tara_core.geometry.quintic_profile's minimum-jerk ramp
+        # (peak = 1.875x mean, needed so acceleration is also continuous at
+        # phase boundaries, not just velocity). To keep the same peak-speed
+        # margin under the ceiling at scale, pacing.CRUISE_FRACTION was cut by
+        # the matching 1.5/1.875 factor (0.5 -> 0.4), which stretches any
+        # cruise-bound (non-floored) phase by the inverse, 1.25x. Helix's land
+        # phase was already the closest to its floor of any shape (see the
+        # docstring above on its 11 m return leg), so it's the one case that
+        # 1.25x factor pushes past the old tolerance bands; both bounds below
+        # are widened by that same, derived factor rather than loosened
+        # arbitrarily.
         assert pacing.takeoff_s == pytest.approx(BASE_TAKEOFF_S)
         assert BASE_CHOREO_S <= pacing.choreo_s <= BASE_CHOREO_S * 1.15
-        assert BASE_LAND_S <= pacing.land_s <= BASE_LAND_S * 1.25
-        assert pacing.multiplier < 1.15
+        assert BASE_LAND_S <= pacing.land_s <= BASE_LAND_S * 1.25 * 1.25
+        assert pacing.multiplier < 1.15 * 1.25
 
     @pytest.mark.parametrize("shape", ALL_SHAPES)
     def test_three_drone_show_is_not_meaningfully_slowed(self, shape):
         # The N=3 show was already safe on the fixed timeline, so pacing has
         # nothing to buy there and must not spend show time on it anyway.
-        assert plan_show_pacing(3, shape).multiplier == pytest.approx(1.0, abs=0.15)
+        # Upper bound widened by the same 1.25x factor as the N=1 test above,
+        # for the same reason (issue #60's quintic recalibration); the lower
+        # bound is unaffected, per test_pacing_never_returns_a_multiplier_below_one.
+        multiplier = plan_show_pacing(3, shape).multiplier
+        assert 1.0 <= multiplier <= 1.0 + 0.15 * 1.25
 
     def test_ten_drone_case_is_not_regressed_into_a_crawl(self):
         # The issue calls out N=10 specifically. It does need *some* stretching

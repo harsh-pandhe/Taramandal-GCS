@@ -11,6 +11,7 @@ import numpy as np
 
 from tara_core import DEFAULT_LIMITS, MAX_FLEET_SIZE, altitude_layers, launch_grid
 from tara_core.assignment import optimal_assignment
+from tara_core.geometry import quintic_profile
 
 from .pacing import ShowPacing, formation_spread, plan_pacing
 from .voxelizer import _contour_length, _sample_contours
@@ -181,17 +182,25 @@ def _pad_xy(pad) -> tuple[float, float]:
 
 
 def _ease(ratio: float) -> float:
-    """Smoothstep: a 0->1 ramp that starts and ends at zero rate of change.
+    """Minimum-jerk quintic: a 0->1 ramp with zero velocity AND acceleration
+    at both ends.
 
     Phase transitions used to be linear ramps, which meant the drone's velocity
     stepped discontinuously at every phase boundary — from a standstill to full
     blend speed between two samples. Velocity/dt is acceleration, so those steps
     read as acceleration spikes no matter how long the phases are, which is
-    exactly the kind of violation extra show time cannot fix. Easing the ramp
-    makes velocity go to zero at both ends of each phase instead.
+    exactly the kind of violation extra show time cannot fix. Smoothstep
+    (``r^2 * (3 - 2r)``, the original fix here) zeros velocity at both ends,
+    which was enough to pass the acceleration check, but its own second
+    derivative is nonzero at ``r=0``/``r=1`` — acceleration still jumps the
+    instant a phase starts or ends, i.e. an infinite/discontinuous jerk spike
+    at every phase boundary (issue #60). ``tara_core.geometry.quintic_profile``
+    is the minimum-jerk polynomial that also zeros acceleration at both ends,
+    so acceleration — not just velocity — is now continuous across every
+    takeoff/blend/land phase boundary.
     """
-    r = min(1.0, max(0.0, ratio))
-    return r * r * (3.0 - 2.0 * r)
+    position, _velocity, _acceleration, _jerk = quintic_profile(ratio)
+    return position
 
 
 def _blend_yaw(start_deg: float, target_deg: float, ratio: float) -> float:

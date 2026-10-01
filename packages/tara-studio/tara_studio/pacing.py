@@ -60,18 +60,27 @@ BASE_LAND_S = 5.0
 #: Fraction of ``max_velocity_ms`` the pacing aims for.
 #:
 #: The phases are eased rather than linear (see ``generator._ease``), so a phase
-#: that covers ``d`` metres in ``t`` seconds peaks at 1.5x its mean speed, not
-#: at it. Budgeting at half the ceiling therefore lands the *peak* right around
-#: it, and the rest of the margin absorbs what the straight-line distance budget
-#: does not model: the per-axis oscillations the shapes add on top of the blend
-#: (the helix's +/-1.2 m height wobble, the cube's +/-1 m sway), and the fact
-#: that the validator measures speed by finite difference over a 0.1 s window,
-#: which reads slightly high wherever a trajectory curves.
+#: that covers ``d`` metres in ``t`` seconds peaks above its mean speed, not
+#: at it. ``_ease`` was a smoothstep ramp (peak = 1.5x mean) until issue #60
+#: replaced it with ``tara_core.geometry.quintic_profile``'s minimum-jerk ramp,
+#: which also zeros *acceleration* at both ends (smoothstep only zeroed
+#: velocity, which left acceleration jumping at every phase boundary — a jerk
+#: discontinuity). That extra flatness at the ends comes out of the middle:
+#: the quintic ramp's peak velocity is 1.875x its mean (``30*0.5^4-60*0.5^3
+#: +30*0.5^2 = 1.875`` vs. smoothstep's ``6*0.5*(1-0.5) = 1.5``), 25% higher
+#: for the same phase duration. Budgeting at half the ceiling therefore now
+#: overshoots it; CRUISE_FRACTION is scaled down by the same 1.5/1.875 ratio
+#: (0.5 -> 0.4) so the peak still lands right around the ceiling, preserving
+#: the margin the rest of this comment always relied on: the per-axis
+#: oscillations the shapes add on top of the blend (the helix's +/-1.2 m
+#: height wobble, the cube's +/-1 m sway), and the fact that the validator
+#: measures speed by finite difference over a 0.1 s window, which reads
+#: slightly high wherever a trajectory curves.
 #:
-#: 0.5 is also, conveniently, the value at which a 3-drone show comes out on
-#: exactly the historical 5 s / 2 s / 20 s / 5 s timeline — the small-N shows
-#: were already flying at about half the ceiling, so nothing about them moves.
-CRUISE_FRACTION = 0.5
+#: 0.4 keeps a 3-drone show on exactly the historical 5 s / 2 s / 20 s / 5 s
+#: timeline, same as 0.5 did before the ramp changed — small-N shows fly
+#: comfortably under either ceiling, so nothing about them moves.
+CRUISE_FRACTION = 0.4
 
 #: Fraction of ``max_yaw_rate_dps`` the choreography's rotation aims for. The
 #: shapes drive yaw from the orbital angle, so the choreography window has to

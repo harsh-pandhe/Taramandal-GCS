@@ -16,7 +16,7 @@ import math
 from dataclasses import dataclass
 
 from tara_core import DEFAULT_LIMITS, SafetyLimits
-from tara_core.geometry import interpolate_waypoint, sweep_times  # re-exported
+from tara_core.geometry import interpolate_waypoint, jerk_from_positions, sweep_times  # re-exported
 from tara_core.proximity import min_separation
 from tara_core.show import Show
 from tara_core.validate import validate_show
@@ -24,6 +24,7 @@ from tara_core.validate import validate_show
 __all__ = [
     "DEFAULT_DYNAMIC_LIMITS",
     "DynamicLimits",
+    "certify_feasibility",
     "interpolate_waypoint",
     "validate_choreography",
     "validate_dynamics",
@@ -90,14 +91,25 @@ class DynamicLimits:
     cornering while accelerating hard in a straight line and be well inside the
     total-acceleration limit yet outside this one.
 
+    ``max_jerk_ms3`` (issue #60) belongs here for the same reason: it is a
+    choreography-quality bound, not an airframe-survival one. A real rotor
+    takes 50-150 ms to spool up or down (first-order lag, time constant
+    tau ~= 0.08 s per the issue), so a trajectory with unbounded jerk demands
+    an instantaneous thrust change no motor can deliver — the tracker lags the
+    setpoint, and that lag is exactly the tracking error this bound keeps
+    small, the same way ``max_centripetal_ms2`` keeps cornering error small.
+    20 m/s^3 is the issue's target ceiling.
+
     Attributes:
         max_velocity_ms: Linear speed ceiling, ``|p_dot| <= 4.0 m/s``.
         max_centripetal_ms2: Cornering ceiling, ``kappa * v^2 <= 2.5 m/s^2``.
+        max_jerk_ms3: Jerk ceiling, ``|p_dddot| <= 20.0 m/s^3``.
         min_separation_m: Minimum spatial distance between any two drones.
     """
 
     max_velocity_ms: float = 4.0
     max_centripetal_ms2: float = 2.5
+    max_jerk_ms3: float = 20.0
     min_separation_m: float = 1.5
 
 
@@ -161,10 +173,11 @@ def validate_dynamics(
 ) -> dict:
     """Verify a show is dynamically feasible for the fleet to actually fly.
 
-    Sweeps the timeline and asserts three bounds at every sample:
+    Sweeps the timeline and asserts four bounds at every sample:
 
       * linear velocity ``|p_dot(t)| <= limits.max_velocity_ms``
       * centripetal acceleration ``kappa(t) * v(t)^2 <= limits.max_centripetal_ms2``
+      * jerk ``|p_dddot(t)| <= limits.max_jerk_ms3``
       * pairwise separation ``min |p_i - p_j| >= limits.min_separation_m``
 
     This complements :func:`validate_choreography` rather than replacing it: that
@@ -188,6 +201,7 @@ def validate_dynamics(
     violations: dict[str, list] = {
         "velocity": [],
         "centripetal": [],
+        "jerk": [],
         "separation": [],
     }
 
@@ -198,9 +212,11 @@ def validate_dynamics(
             "metrics": {
                 "max_velocity_m_s": 0.0,
                 "max_centripetal_m_s2": 0.0,
+                "max_jerk_m_s3": 0.0,
                 "min_distance_m": 0.0,
             },
             "violations": violations,
+            "feasibility_certified": False,
         }
 
     times = sweep_times(show.duration, dt)
@@ -218,6 +234,7 @@ def validate_dynamics(
 
     max_vel = 0.0
     max_centripetal = 0.0
+    max_jerk = 0.0
     min_dist = float("inf")
 
     for idx, t in enumerate(times):
@@ -270,6 +287,28 @@ def validate_dynamics(
                         "limit": limits.max_centripetal_ms2,
                     })
 
+            # Jerk needs two samples on each side (a third-derivative central
+            # stencil), same reasoning as curvature needing one on each side
+            # for a second-derivative one.
+            if (
+                1 < idx < len(times) - 2
+                and track[idx - 2] is not None
+                and track[idx - 1] is not None
+                and track[idx + 1] is not None
+                and track[idx + 2] is not None
+            ):
+                j = jerk_from_positions(
+                    track[idx - 2], track[idx - 1], track[idx + 1], track[idx + 2], dt
+                )
+                max_jerk = max(max_jerk, j)
+                if j > limits.max_jerk_ms3:
+                    violations["jerk"].append({
+                        "time": round(t, 2),
+                        "drone": d_id,
+                        "jerk": round(j, 2),
+                        "limit": limits.max_jerk_ms3,
+                    })
+
     for key in violations:
         violations[key] = sorted(violations[key], key=lambda v: v["time"])[:_MAX_REPORTED]
 
@@ -284,7 +323,47 @@ def validate_dynamics(
         "metrics": {
             "max_velocity_m_s": round(max_vel, 2),
             "max_centripetal_m_s2": round(max_centripetal, 2),
+            "max_jerk_m_s3": round(max_jerk, 2),
             "min_distance_m": round(min_dist, 2) if min_dist != float("inf") else 0.0,
         },
         "violations": violations,
+        "feasibility_certified": not failed,
     }
+
+
+def certify_feasibility(
+    choreo_data,
+    safety_limits: SafetyLimits = DEFAULT_LIMITS,
+    dynamic_limits: DynamicLimits = DEFAULT_DYNAMIC_LIMITS,
+) -> bool:
+    """True iff a choreography clears the shared envelope and has bounded jerk.
+
+    :func:`validate_choreography` enforces the shared airframe/abort envelope
+    (proximity, velocity, acceleration, yaw rate) — the pre-#60 checks a
+    certified show has always had to pass. This adds exactly one more gate on
+    top of that: bounded jerk (:attr:`DynamicLimits.max_jerk_ms3`), which
+    stands in for rotor spool-up lag (issue #60).
+
+    Deliberately *not* required: the rest of :func:`validate_dynamics`'s own
+    ``status`` (its ``velocity``/``centripetal`` bounds). Those are a
+    separate, stricter choreography-quality check documented on
+    :class:`DynamicLimits` as intentionally tighter than the airframe
+    envelope — real generated shows routinely exceed them today (e.g. a
+    plain 3-drone circle already reads ~4.4 m/s against its 4.0 m/s bound)
+    without being unsafe or having a jerk problem. Folding that in here would
+    make this gate block nearly every existing show, which is a different,
+    much larger change than issue #60 asks for.
+
+    Args:
+        choreo_data: A :class:`~tara_core.show.Show` or either supported dict
+            shape.
+        safety_limits: Limits for the airframe/abort layer.
+        dynamic_limits: Limits supplying ``max_jerk_ms3``.
+
+    Returns:
+        ``True`` if the safety layer passes and no jerk violations were found,
+        ``False`` otherwise.
+    """
+    safety = validate_show(choreo_data, limits=safety_limits)
+    dynamics = validate_dynamics(choreo_data, limits=dynamic_limits)
+    return safety["status"] == "PASSED" and not dynamics["violations"]["jerk"]

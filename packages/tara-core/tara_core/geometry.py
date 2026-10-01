@@ -71,6 +71,115 @@ def interpolate_waypoint(waypoints: list[dict], t: float) -> dict | None:
     return waypoints[-1]
 
 
+def quintic_profile(ratio: float) -> tuple[float, float, float, float]:
+    """Minimum-jerk scalar ramp from 0 to 1, and its first three derivatives.
+
+    ``6r^5 - 15r^4 + 10r^3`` is the unique quintic with zero velocity *and*
+    zero acceleration at both ``r=0`` and ``r=1`` — smoothstep
+    (``3r^2 - 2r^3``, what ``tara_studio.generator._ease`` used) only zeros
+    velocity there, so acceleration still jumps discontinuously the instant a
+    phase starts or ends (a delta-function jerk spike). This is the standard
+    minimum-jerk polynomial (Flash & Hogan 1985) and is what makes every
+    transition segment's acceleration continuous with the hold phase on
+    either side of it.
+
+    Args:
+        ratio: Progress through the ramp. Clamped to ``[0, 1]``.
+
+    Returns:
+        ``(position, velocity, acceleration, jerk)`` — the derivatives are
+        with respect to ``ratio``, i.e. normalized to a ramp of duration 1.
+        Callers driving a ramp of duration ``T`` seconds must scale
+        ``velocity`` by ``1/T``, ``acceleration`` by ``1/T**2`` and ``jerk``
+        by ``1/T**3`` (see :func:`quintic_segment`).
+    """
+    r = min(1.0, max(0.0, ratio))
+    position = 6 * r**5 - 15 * r**4 + 10 * r**3
+    velocity = 30 * r**4 - 60 * r**3 + 30 * r**2
+    acceleration = 120 * r**3 - 180 * r**2 + 60 * r
+    jerk = 360 * r**2 - 360 * r + 60
+    return position, velocity, acceleration, jerk
+
+
+def quintic_segment(
+    p0: tuple[float, float, float],
+    p1: tuple[float, float, float],
+    duration: float,
+    t: float,
+) -> dict:
+    """State of a minimum-jerk 3D transition from ``p0`` to ``p1``.
+
+    Both endpoints are at rest (zero velocity, zero acceleration) — matching
+    how a generator phase currently starts and ends — so this is a drop-in
+    replacement for a linearly- or smoothstep-interpolated transition segment
+    wherever continuous acceleration matters more than a shaped intermediate
+    path.
+
+    Args:
+        p0: Position at ``t=0``.
+        p1: Position at ``t=duration``.
+        duration: Segment length, seconds. ``t`` is clamped into
+            ``[0, duration]``, and ``duration <= 0`` collapses to ``p1`` at
+            rest (an instantaneous jump has no well-defined rate).
+        t: Time into the segment, seconds.
+
+    Returns:
+        A dict with ``position``, ``velocity``, ``acceleration`` and
+        ``jerk``, each an ``(x, y, z)`` tuple (velocity in m/s, etc).
+    """
+    if duration <= 0:
+        return {
+            "position": p1,
+            "velocity": (0.0, 0.0, 0.0),
+            "acceleration": (0.0, 0.0, 0.0),
+            "jerk": (0.0, 0.0, 0.0),
+        }
+
+    ratio = t / duration
+    s, s_dot, s_ddot, s_dddot = quintic_profile(ratio)
+    delta = tuple(b - a for a, b in zip(p0, p1))
+
+    return {
+        "position": tuple(a + d * s for a, d in zip(p0, delta)),
+        "velocity": tuple(d * s_dot / duration for d in delta),
+        "acceleration": tuple(d * s_ddot / duration**2 for d in delta),
+        "jerk": tuple(d * s_dddot / duration**3 for d in delta),
+    }
+
+
+def jerk_from_positions(
+    p_m2: tuple[float, float, float],
+    p_m1: tuple[float, float, float],
+    p_p1: tuple[float, float, float],
+    p_p2: tuple[float, float, float],
+    dt: float,
+) -> float:
+    """Jerk magnitude at the midpoint of five evenly-spaced samples.
+
+    Uses the standard symmetric central-difference stencil for a third
+    derivative, ``f''' = (-f(-2h) + 2f(-h) - 2f(h) + f(2h)) / (2h^3)`` —
+    the same finite-difference family ``tara_studio.validator._curvature``
+    uses for centripetal acceleration (a central second difference), one
+    order further along the derivative chain. The midpoint sample itself
+    isn't needed, matching that a 3rd-derivative central stencil is odd
+    (antisymmetric) rather than centred on ``f(0)``.
+
+    Args:
+        p_m2: Position two samples before the midpoint.
+        p_m1: Position one sample before the midpoint.
+        p_p1: Position one sample after the midpoint.
+        p_p2: Position two samples after the midpoint.
+        dt: Sample interval, seconds. Must be positive.
+
+    Returns:
+        The 3D jerk magnitude, m/s^3.
+    """
+    jx = (-p_m2[0] + 2 * p_m1[0] - 2 * p_p1[0] + p_p2[0]) / (2 * dt**3)
+    jy = (-p_m2[1] + 2 * p_m1[1] - 2 * p_p1[1] + p_p2[1]) / (2 * dt**3)
+    jz = (-p_m2[2] + 2 * p_m1[2] - 2 * p_p1[2] + p_p2[2]) / (2 * dt**3)
+    return (jx * jx + jy * jy + jz * jz) ** 0.5
+
+
 def sweep_times(duration: float, dt: float = 0.1) -> list[float]:
     """Return sample times covering ``[0, duration]`` inclusive.
 

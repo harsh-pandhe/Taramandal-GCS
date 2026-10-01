@@ -21,8 +21,9 @@ export default function SafetyPanel({ validation }) {
   }
 
   const m = validation.metrics;
-  const v = validation.violations || { proximity: [], velocity: [], acceleration: [] };
-  const total = v.proximity.length + v.velocity.length + v.acceleration.length;
+  const v = validation.violations || { proximity: [], velocity: [], acceleration: [], jerk: [] };
+  const jerkViolations = v.jerk || [];
+  const total = v.proximity.length + v.velocity.length + v.acceleration.length + jerkViolations.length;
   const passed = validation.status === 'PASSED';
 
   return (
@@ -38,6 +39,16 @@ export default function SafetyPanel({ validation }) {
         <div className="metric-grid">
           {/* Thresholds are the backend's live SafetyLimits (validation.limits), never local constants. */}
           {judgeMetrics(m, validation.limits).map(({ key, ...card }) => <Metric key={key} {...card} />)}
+          {m.max_jerk_m_s3 !== undefined && (
+            <Metric
+              key="jerk"
+              title="Max Jerk"
+              value={m.max_jerk_m_s3}
+              unit="m/s³"
+              status={m.max_jerk_m_s3 <= (validation.limits?.max_jerk_ms3 ?? 20) ? 'passed' : 'danger'}
+              limitLabel={`≤ ${validation.limits?.max_jerk_ms3 ?? 20} m/s³`}
+            />
+          )}
         </div>
       )}
 
@@ -59,6 +70,12 @@ export default function SafetyPanel({ validation }) {
           <div key={`a-${i}`} className="violation-item">
             <span>Accel · Drone {x.drone}</span>
             <span className="v-warn">{x.acceleration}m/s² @ {x.time}s</span>
+          </div>
+        ))}
+        {jerkViolations.map((x, i) => (
+          <div key={`j-${i}`} className="violation-item">
+            <span>Jerk · Drone {x.drone}</span>
+            <span className="v-warn">{x.jerk}m/s³ @ {x.time}s</span>
           </div>
         ))}
         {total === 0 && <div className="violations-none">Zero failsafe exceptions raised.</div>}
