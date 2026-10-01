@@ -3,8 +3,9 @@
 // shot is taken from a fixed, fully-loaded state:
 //
 //  - The backend is stubbed. The Studio calls /api/assign-chain and
-//    /api/validate while building its demo show; fixtures keep the Safety tab
-//    identical on every run without a live server.
+//    /api/validate while building its demo show, and the Safety tab's battery
+//    endurance section calls /api/validate-energy; fixtures keep the Safety
+//    tab identical on every run without a live server.
 //  - The 3D stage canvas is hidden. It's WebGL, and the UI migration changes
 //    the chrome around it, not the scene inside it.
 //  - Fonts are awaited, so a slow font load never shows up as a diff.
@@ -34,6 +35,27 @@ const FAILED_REPORT = {
   },
 };
 
+// The shape tara_studio.energy.validate_energy returns, with a short fixed
+// timeline so the battery chart draws the same curve every run.
+const ENERGY_REPORT = {
+  status: 'PASSED',
+  summary: 'Battery endurance OK: worst drone ends with 95% remaining.',
+  metrics: {
+    total_energy_wh: 22.48, max_drone_energy_wh: 3.9, peak_current_a: 23.61, peak_current_drone: 5,
+    peak_current_time_s: 5.1, peak_c_rate: 4.72, max_depth_of_discharge_pct: 4.6, min_remaining_pct: 95.4,
+    worst_drone: 5, min_cell_voltage_v: 4.09, hover_power_w: 207.7, usable_capacity_mah: 5000,
+    duration_s: 64.0, required_duration_reduction_s: 0, max_safe_duration_s: 64.0,
+  },
+  limits: { max_depth_of_discharge_pct: 70.0, max_c_rate: 25.0, min_cell_voltage_v: 3.5 },
+  violations: { depth_of_discharge: [], c_rate: [], voltage: [] },
+  timeline: {
+    time_s: [0, 16, 32, 48, 64],
+    min_remaining_pct: [100, 98.7, 97.5, 96.4, 95.4],
+    mean_remaining_pct: [100, 98.9, 97.8, 96.8, 95.9],
+    max_current_a: [23.61, 14.2, 14.1, 14.0, 8.3],
+  },
+};
+
 async function stubBackend(page, report = PASSED_REPORT) {
   // Registered first because Playwright tries routes newest-first: the
   // specific stubs below must win over this catch-all.
@@ -46,7 +68,12 @@ async function stubBackend(page, report = PASSED_REPORT) {
     await route.fulfill({ json: { target_idx: forms.map(() => Array.from({ length: n }, (_, i) => i)) } });
   });
   await page.route('**/api/validate', (route) => route.fulfill({ json: report }));
+  await page.route('**/api/validate-energy', (route) => route.fulfill({ json: ENERGY_REPORT }));
 }
+
+// The endurance section fetches on its own after a short debounce; shoot the
+// Safety tab only once its verdict is on screen.
+const enduranceSettled = (page) => expect(page.getByText(ENERGY_REPORT.summary)).toBeVisible();
 
 async function openStudio(page, report) {
   await stubBackend(page, report);
@@ -125,6 +152,7 @@ test.describe('sequencer', () => {
   test('safety tab, passed', async ({ page }) => {
     await consoleTab(page, 'SAFETY');
     await expect(page.getByText(PASSED_REPORT.summary)).toBeVisible();
+    await enduranceSettled(page);
     await shot(page, 'sequencer-safety-passed');
   });
 
@@ -149,6 +177,7 @@ test('safety tab, failed', async ({ page }) => {
   await openStudio(page, FAILED_REPORT);
   await consoleTab(page, 'SAFETY');
   await expect(page.getByText(FAILED_REPORT.summary)).toBeVisible();
+  await enduranceSettled(page);
   await shot(page, 'sequencer-safety-failed');
 });
 

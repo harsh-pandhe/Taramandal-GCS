@@ -1,6 +1,7 @@
 import { CheckCircle, AlertTriangle } from 'lucide-react';
 import { EmptyState } from '../common/index.jsx';
 import { judgeMetrics } from '../../engine/safetyLimits.js';
+import EnduranceSection from './EnduranceSection.jsx';
 
 const Metric = ({ title, value, unit, status, limitLabel }) => (
   <div className="metric-card" data-metric-status={status}>
@@ -10,9 +11,16 @@ const Metric = ({ title, value, unit, status, limitLabel }) => (
   </div>
 );
 
-/** Results of the backend's 4D pre-flight safety validation. */
-export default function SafetyPanel({ validation }) {
+/** Results of the backend's 4D pre-flight safety validation, plus battery endurance. */
+export default function SafetyPanel({ validation, choreoData }) {
   if (!validation) {
+    if (choreoData) {
+      return (
+        <div className="glass-panel-inner">
+          <EnduranceSection choreoData={choreoData} />
+        </div>
+      );
+    }
     return (
       <EmptyState icon={CheckCircle} title="No validation yet">
         Generate a sequence to run pre-flight safety diagnostics.
@@ -80,6 +88,8 @@ export default function SafetyPanel({ validation }) {
         ))}
         {total === 0 && <div className="violations-none">Zero failsafe exceptions raised.</div>}
       </div>
+
+      {choreoData && <EnduranceSection choreoData={choreoData} />}
     </div>
   );
 }

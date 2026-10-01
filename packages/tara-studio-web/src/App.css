@@ -563,6 +563,65 @@ input[type="number"] { font-family: var(--mono); font-variant-numeric: tabular-n
   display: flex; justify-content: space-between; font-family: var(--mono);
 }
 
+/* ---------------------------------------------------------- Endurance ----- */
+/* Battery endurance (issue #54). Series colours are dataviz reference-palette
+   dark slots 1-2, validated against --bg-sunken (CVD dE 26.8, >=3:1). */
+.endurance-section { margin-top: 1.4rem; display: flex; flex-direction: column; gap: 0.8rem; }
+.endurance-section .validation-summary,
+.endurance-section .metric-grid { margin-bottom: 0; }
+.endurance-section .panel-hint svg { vertical-align: -1px; }
+
+.battery-chart {
+  --series-worst: #3987e5;
+  --series-mean: #d95926;
+  background: var(--bg-sunken); border: 1px solid var(--border);
+  border-radius: var(--r-sm); padding: 0.6rem 0.6rem 0.4rem;
+}
+.battery-chart-legend {
+  display: flex; flex-wrap: wrap; gap: 0.35rem 0.9rem; margin-bottom: 0.35rem;
+  font-size: 0.64rem; font-family: var(--mono); color: var(--text-dim);
+}
+.battery-chart-legend span { display: inline-flex; align-items: center; gap: 0.35rem; }
+.battery-chart .key { display: inline-block; width: 12px; height: 0; border-top: 2px solid; border-radius: 1px; }
+.battery-chart .key-worst { border-color: var(--series-worst); }
+.battery-chart .key-mean { border-color: var(--series-mean); }
+.battery-chart .key-reserve { border-top: 1px dashed var(--text-faint); }
+
+.battery-chart-plot { position: relative; }
+.battery-chart svg { display: block; width: 100%; height: auto; overflow: visible; outline: none; touch-action: pan-y; }
+.battery-chart svg:focus-visible { box-shadow: 0 0 0 1px var(--accent-line); border-radius: var(--r-sm); }
+.battery-chart .grid { stroke: var(--border); stroke-width: 1; }
+.battery-chart .tick { fill: var(--text-faint); font-size: 8px; font-family: var(--mono); }
+.battery-chart .reserve { stroke: var(--text-faint); stroke-width: 1; stroke-dasharray: 3 3; }
+.battery-chart .series { fill: none; stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+.battery-chart .series-worst { stroke: var(--series-worst); }
+.battery-chart .series-mean { stroke: var(--series-mean); }
+.battery-chart .end-label { fill: var(--text); font-size: 8.5px; font-family: var(--mono); font-weight: 600; }
+.battery-chart .end-label-muted { fill: var(--text-dim); font-weight: 400; }
+.battery-chart .crosshair line { stroke: var(--text-faint); stroke-width: 1; }
+.battery-chart .dot { stroke: var(--bg-sunken); stroke-width: 2; }
+.battery-chart .dot-worst { fill: var(--series-worst); }
+.battery-chart .dot-mean { fill: var(--series-mean); }
+
+.battery-tooltip {
+  /* Lower half: remaining-charge lines start at 100% and live near the top. */
+  position: absolute; top: 42%; pointer-events: none; z-index: 2;
+  background: var(--bg-surface); border: 1px solid var(--border-strong);
+  border-radius: var(--r-sm); padding: 0.4rem 0.55rem; box-shadow: var(--shadow-2);
+  font-size: 0.66rem; font-family: var(--mono); color: var(--text-dim); white-space: nowrap;
+}
+.battery-tooltip .tt-time { color: var(--text-faint); margin-bottom: 0.2rem; }
+.battery-tooltip .tt-row { display: flex; align-items: center; gap: 0.4rem; }
+.battery-tooltip strong { color: var(--text); font-weight: 600; }
+.battery-tooltip .tt-muted { padding-left: calc(12px + 0.4rem); }
+
+.battery-table { margin-top: 0.35rem; font-size: 0.64rem; font-family: var(--mono); color: var(--text-dim); }
+.battery-table summary { cursor: pointer; color: var(--text-faint); }
+.battery-table table { width: 100%; border-collapse: collapse; margin-top: 0.3rem; font-variant-numeric: tabular-nums; }
+.battery-table th { text-align: right; font-weight: 400; color: var(--text-faint); padding: 0.15rem 0.3rem; border-bottom: 1px solid var(--border); }
+.battery-table td { text-align: right; padding: 0.15rem 0.3rem; }
+.battery-table th:first-child, .battery-table td:first-child { text-align: left; }
+
 /* ---------------------------------------------------------- Legend -------- */
 .legend-overlay {
   position: absolute; top: 4.5rem; right: 0.85rem;

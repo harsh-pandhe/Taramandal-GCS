@@ -55,7 +55,7 @@ export default function ConsoleDrawer({
             duration={audio.duration} currentTime={currentTime} onScrub={audio.onScrub}
           />
         )}
-        {tab === 'safety' && <SafetyPanel validation={validation} />}
+        {tab === 'safety' && <SafetyPanel validation={validation} choreoData={choreoData} />}
         {tab === 'transmit' && (
           <TransmitPanel
             homeLat={venue.homeLat} homeLon={venue.homeLon}
