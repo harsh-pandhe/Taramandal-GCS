@@ -378,11 +378,12 @@ async def upload_trajectory(
         raise HTTPException(status_code=400, detail=str(e))
 
 @app.post("/api/upload-mission")
-async def upload_mission():
+async def upload_mission(x_operator_id: OperatorHeader = None):
     """Compile the loaded trajectory into one mission per drone, upload each
     over MAVLink FTP, and verify every copy's CRC-32 (issue #47). Arming is
     refused until this has succeeded for the whole fleet."""
     logger.info("API: Uploading show missions to the fleet...")
+    _check_command(Command.UPLOAD_MISSION, _operator(x_operator_id), "POST /api/upload-mission")
     if not drone_manager.active_trajectory:
         raise HTTPException(status_code=400, detail="No active trajectory loaded. Please upload a trajectory first.")
     try:

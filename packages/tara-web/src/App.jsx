@@ -783,12 +783,17 @@ export default function App() {
                 onConfirm={() => triggerAction('/api/rtl')}
               />
 
-              <button 
-                className="btn btn-rtl" 
-                onClick={handleEstop}
-              >
-                E-STOP (KILL)
-              </button>
+              {/* Motor kill: same one-click confirmation as RTL/LAND (#98), and
+                  arming it disarms them, so a confirm can't land on the wrong action. */}
+              <ConfirmButton
+                className="btn-rtl"
+                label="E-STOP (KILL)"
+                confirmLabel="CONFIRM KILL?"
+                armed={armedEmergency === 'estop'}
+                onArm={() => setArmedEmergency('estop')}
+                onDisarm={() => setArmedEmergency(null)}
+                onConfirm={() => triggerAction('/api/estop')}
+              />
             </div>
             
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginTop: '0.75rem' }}>

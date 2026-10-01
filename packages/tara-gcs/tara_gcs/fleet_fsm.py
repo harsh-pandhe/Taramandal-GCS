@@ -127,6 +127,7 @@ class Command(str, Enum):
     RTL = "rtl"
     ESTOP = "estop"
     UPLOAD_TRAJECTORY = "upload_trajectory"
+    UPLOAD_MISSION = "upload_mission"
     RESUME_SHOW = "resume_show"
     DISCARD_SHOW = "discard_show"
 
@@ -159,6 +160,9 @@ COMMAND_RULES: dict[Command, CommandRule] = {
     Command.RTL: CommandRule(_ALL_STATES, S.RTL, "return the fleet to launch"),
     Command.ESTOP: CommandRule(_ALL_STATES, S.ESTOP, "emergency-stop the fleet"),
     Command.UPLOAD_TRAJECTORY: CommandRule(_NOT_RUNNING, None, "upload a trajectory"),
+    # Onboard show missions (issue #47): re-uploading mid-show would replace the
+    # missions the drones are flying.
+    Command.UPLOAD_MISSION: CommandRule(_NOT_RUNNING, None, "upload show missions"),
     Command.RESUME_SHOW: CommandRule(_NOT_RUNNING, None, "resume a saved show"),
     Command.DISCARD_SHOW: CommandRule(_NOT_RUNNING, None, "discard a saved show"),
 }
