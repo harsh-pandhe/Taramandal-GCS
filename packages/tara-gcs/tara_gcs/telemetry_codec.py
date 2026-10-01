@@ -57,6 +57,11 @@ SLOW_FIELDS = (
     "home_lon",
     "home_alt",
     "port",
+    # None, or {"type": "rtl"|"land"|"estop", "at": epoch seconds} for a drone
+    # aborted out of the show on its own (issue #59). Slow channel, not fast:
+    # it changes once per abort, and the fast frame's binary layout is
+    # hand-synced with the dashboard's decoder.
+    "aborted",
 )
 
 FAST_HZ = 20.0

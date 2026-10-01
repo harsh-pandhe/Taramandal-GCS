@@ -157,6 +157,9 @@ async def get_status():
         "armed": sum(1 for t in telemetry.values() if t.get("armed")),
         "trajectory_running": drone_manager.is_running_trajectory,
         "fleet_state": drone_manager.fleet_fsm.state.value,
+        # Drones aborted out of the show on their own (issue #59); per-drone
+        # detail is each drone's "aborted" telemetry field.
+        "aborted": sorted(d_id for d_id, t in telemetry.items() if t.get("aborted")),
     }
 
 @app.get("/api/preflight-check")
@@ -289,6 +292,41 @@ async def trigger_estop(x_operator_id: OperatorHeader = None):
     logger.critical("API: EMERGENCY STOP triggered...")
     await drone_manager.trigger_estop(operator=_operator(x_operator_id), trigger="POST /api/estop")
     return {"status": "success", "message": "Emergency stop commanded: motors killed."}
+
+# --- Single-drone abort (issue #59) ---------------------------------------
+#
+# Take one drone out of the show while the rest keep flying. Each response
+# carries the clearance check of the drone's modelled descent path against the
+# other drones' planned positions; a conflict is a warning in the body, never a
+# refusal. A vehicle that rejects the command is a 502, not a success.
+
+async def _abort_drone(drone_id: int, mode: str, label: str) -> dict:
+    try:
+        result = await drone_manager.abort_drone(drone_id, mode)
+    except KeyError:
+        raise HTTPException(status_code=404, detail=f"Drone {drone_id} is not connected to this GCS.")
+    if not result["commanded"]:
+        raise HTTPException(
+            status_code=502,
+            detail={"message": f"Drone {drone_id} rejected {label}: {result['error']}", **result},
+        )
+    return {"status": "success", "message": f"Drone {drone_id} {label} commanded.", **result}
+
+@app.post("/api/drone/{drone_id}/rtl")
+async def abort_drone_rtl(drone_id: int):
+    logger.info(f"API: Single-drone RTL triggered for Drone {drone_id}...")
+    return await _abort_drone(drone_id, "rtl", "RTL")
+
+@app.post("/api/drone/{drone_id}/land")
+async def abort_drone_land(drone_id: int):
+    logger.info(f"API: Single-drone land triggered for Drone {drone_id}...")
+    return await _abort_drone(drone_id, "land", "landing")
+
+@app.post("/api/drone/{drone_id}/estop")
+async def abort_drone_estop(drone_id: int):
+    """Kill one drone's motors; it falls. See DroneManager._estop_one."""
+    logger.critical(f"API: Single-drone EMERGENCY STOP triggered for Drone {drone_id}...")
+    return await _abort_drone(drone_id, "estop", "emergency stop")
 
 class StartTrajectoryRequest(BaseModel):
     mode: str = "LOCAL"

@@ -1,5 +1,6 @@
 import asyncio
 import csv
+import functools
 import gc
 import math
 import logging
@@ -20,6 +21,7 @@ from tara_core import (
     interpolate_waypoint,
     launch_grid,
     mission_crc32,
+    sweep_times,
 )
 from tara_core.show import Show
 from mavsdk import System
@@ -113,6 +115,210 @@ def _pad_offset(drone_id: int) -> tuple[float, float]:
         )
     return _PAD_GRID[drone_id]
 
+# --- Single-drone abort (issue #59) ---
+#
+# Aborting one drone (RTL, LAND or ESTOP) takes it out of the show while the
+# rest of the fleet keeps flying. Before the drone descends through a live
+# formation, the GCS checks the path it is *expected* to take against every
+# other drone's planned positions. "Expected" is the honest word: after the
+# command the flight controller owns the trajectory, so the check runs against
+# a deliberately conservative model and can only ever warn, never block.
+#
+# The model, per mode (fleet frame, altitude positive up):
+#   * RTL   — horizontal leg from the current position to the drone's own pad
+#             at its current altitude, then straight down. This is what the sim
+#             does, and what PX4 does only if RTL_RETURN_ALT / RTL_CONE_ANG are
+#             configured not to climb first; PX4's default RTL climbs to 60m,
+#             which this model does not predict.
+#   * LAND  — straight down from the current position.
+#   * ESTOP — straight down, falling between half and full gravity. Ballistic
+#             drift from the drone's velocity at the moment of the kill is not
+#             modelled.
+# Timing is uncertain, so each mode has a slowest and fastest speed. At any
+# instant the drone is somewhere on the stretch of path between the two, and a
+# neighbour is checked against that whole stretch, not a single point.
+
+ABORT_MODES = ("rtl", "land", "estop")
+
+#: RTL horizontal leg speed range, m/s. PX4 flies it at MPC_XY_CRUISE (5 m/s by
+#: default); the sim's tracker can reach its 8 m/s velocity cap.
+ABORT_RTL_SPEED_RANGE_MS = (1.0, 8.0)
+#: LAND / RTL descent rate range, m/s. PX4's MPC_LAND_SPEED defaults to 0.7 and
+#: its faster high-altitude descent to 1.0-1.5; the sim descends at 1.0.
+ABORT_DESCENT_RATE_RANGE_MS = (0.5, 1.5)
+#: ESTOP fall acceleration range, m/s^2: drag-limited to free fall.
+ABORT_FALL_ACCEL_RANGE_MS2 = (0.5 * 9.81, 9.81)
+#: Sample interval for the clearance sweep, seconds.
+ABORT_CLEARANCE_DT_S = 0.1
+
+_ABORT_MODEL_DESCRIPTIONS = {
+    "rtl": (
+        "horizontal leg to own pad at current altitude "
+        f"({ABORT_RTL_SPEED_RANGE_MS[0]}-{ABORT_RTL_SPEED_RANGE_MS[1]} m/s), then vertical descent "
+        f"({ABORT_DESCENT_RATE_RANGE_MS[0]}-{ABORT_DESCENT_RATE_RANGE_MS[1]} m/s); "
+        "does not model PX4's default RTL climb"
+    ),
+    "land": (
+        "vertical descent from current position "
+        f"({ABORT_DESCENT_RATE_RANGE_MS[0]}-{ABORT_DESCENT_RATE_RANGE_MS[1]} m/s)"
+    ),
+    "estop": "vertical fall from current position (0.5g-1g); ballistic drift not modelled",
+}
+
+
+def _abort_horizon(mode: str, horizontal_m: float, vertical_m: float) -> float:
+    """Seconds until even the slowest modelled timing has reached the ground."""
+    if mode == "estop":
+        return math.sqrt(2.0 * vertical_m / ABORT_FALL_ACCEL_RANGE_MS2[0])
+    return horizontal_m / ABORT_RTL_SPEED_RANGE_MS[0] + vertical_m / ABORT_DESCENT_RATE_RANGE_MS[0]
+
+
+def _abort_progress(mode: str, horizontal_m: float, vertical_m: float, tau: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """Distance travelled along the abort path at each time ``tau``, slowest and fastest.
+
+    The path is two legs, horizontal then vertical (``horizontal_m`` is zero
+    for LAND/ESTOP), measured as one arc length from the start.
+    """
+    total = horizontal_m + vertical_m
+    if mode == "estop":
+        a_slow, a_fast = ABORT_FALL_ACCEL_RANGE_MS2
+        return np.minimum(0.5 * a_slow * tau**2, total), np.minimum(0.5 * a_fast * tau**2, total)
+
+    def along(h_speed: float, v_rate: float) -> np.ndarray:
+        leg1_t = horizontal_m / h_speed
+        return np.minimum(
+            np.where(tau <= leg1_t, h_speed * tau, horizontal_m + v_rate * (tau - leg1_t)),
+            total,
+        )
+
+    (h_slow, h_fast), (v_slow, v_fast) = ABORT_RTL_SPEED_RANGE_MS, ABORT_DESCENT_RATE_RANGE_MS
+    return along(h_slow, v_slow), along(h_fast, v_fast)
+
+
+def _distance_to_leg(q: np.ndarray, origin: np.ndarray, unit: np.ndarray, lo: np.ndarray, hi: np.ndarray) -> np.ndarray:
+    """Distance from points ``q`` (S, 3) to the stretch ``[lo, hi]`` of a line, per sample."""
+    t = np.clip((q - origin) @ unit, lo, hi)
+    return np.linalg.norm(q - (origin + t[:, None] * unit), axis=1)
+
+
+def abort_clearance(
+    mode: str,
+    start: tuple[float, float, float],
+    pad: tuple[float, float],
+    others: dict[int, dict],
+    show_elapsed_s: float | None,
+    threshold_m: float = DEFAULT_LIMITS.design_separation_m,
+    dt: float = ABORT_CLEARANCE_DT_S,
+) -> dict:
+    """Check an aborting drone's modelled descent against every other drone.
+
+    Pure function over a snapshot, so it can run off the event loop and be
+    tested without a fleet.
+
+    Args:
+        mode: One of :data:`ABORT_MODES`.
+        start: Aborting drone's current fleet-frame ``(x, y, altitude)``.
+        pad: Its own launch pad's fleet-frame ``(x, y)`` (RTL's destination).
+        others: Drone id -> either ``{"waypoints": [...]}`` (its remapped show
+            trajectory, NED z) or ``{"position": (x, y, altitude)}`` (holding
+            still, e.g. no show playing).
+        show_elapsed_s: Current show time the waypoints are sampled from, or
+            ``None`` if no show is playing (waypoint-only entries then hold
+            their first waypoint).
+        threshold_m: Separation below which a pass is reported.
+        dt: Sample interval, seconds.
+
+    Returns:
+        ``{"clear", "threshold_m", "mode", "model", "horizon_s", "conflicts"}``,
+        conflicts being ``{"drone_id", "min_distance_m", "in_s"}`` sorted
+        closest first. A pass is reported when a sampled distance is below
+        ``threshold_m`` plus half of what the pair can close in one interval,
+        so a closest approach falling between two samples isn't missed.
+    """
+    if mode not in ABORT_MODES:
+        raise ValueError(f"mode must be one of {ABORT_MODES}, got {mode!r}")
+
+    p0 = np.array(start, dtype=float)
+    p0[2] = max(p0[2], 0.0)
+    # Where the horizontal leg ends and the vertical one begins. LAND/ESTOP
+    # have no horizontal leg, so it's the start point itself.
+    corner = np.array([pad[0], pad[1], p0[2]]) if mode == "rtl" else p0.copy()
+    horizontal = float(np.linalg.norm(corner - p0))
+    vertical = float(p0[2])
+
+    horizon = _abort_horizon(mode, horizontal, vertical)
+    tau = np.array(sweep_times(horizon, dt))
+    s_slow, s_fast = _abort_progress(mode, horizontal, vertical, tau)
+
+    # Fastest the aborting drone can be moving during each interval, for the
+    # between-samples pad.
+    if mode == "estop":
+        abort_speed = ABORT_FALL_ACCEL_RANGE_MS2[1] * (tau + dt)
+    elif mode == "rtl":
+        abort_speed = np.full_like(tau, max(ABORT_RTL_SPEED_RANGE_MS[1], ABORT_DESCENT_RATE_RANGE_MS[1]))
+    else:
+        abort_speed = np.full_like(tau, ABORT_DESCENT_RATE_RANGE_MS[1])
+
+    leg1_unit = (corner - p0) / horizontal if horizontal > 0 else np.zeros(3)
+    leg2_unit = np.array([0.0, 0.0, -1.0])
+    # Which leg(s) the occupied stretch [s_slow, s_fast] touches at each sample.
+    leg1_lo, leg1_hi = np.minimum(s_slow, horizontal), np.minimum(s_fast, horizontal)
+    leg2_lo, leg2_hi = np.maximum(s_slow, horizontal) - horizontal, np.maximum(s_fast, horizontal) - horizontal
+    on_leg1 = s_slow <= horizontal
+    on_leg2 = s_fast >= horizontal
+
+    conflicts = []
+    for drone_id, other in others.items():
+        if "waypoints" in other and other["waypoints"]:
+            wps = other["waypoints"]
+            times = np.array([w["time"] for w in wps], dtype=float)
+            t = show_elapsed_s + tau if show_elapsed_s is not None else np.zeros_like(tau)
+            # np.interp is interpolate_waypoint's position rule (linear inside
+            # the span, clamped to the end waypoints outside it), vectorised
+            # over every sample at once: a per-sample Python call is ~1000x
+            # slower, and this must not stall the playback loop at fleet scale.
+            q = np.column_stack([
+                np.interp(t, times, [w["x"] for w in wps]),
+                np.interp(t, times, [w["y"] for w in wps]),
+                -np.interp(t, times, [w["z"] for w in wps]),  # NED down -> altitude
+            ])
+            if len(wps) > 1:
+                seg = np.diff(np.array([[w["x"], w["y"], w["z"]] for w in wps], dtype=float), axis=0)
+                span = np.diff(times)
+                speeds = np.linalg.norm(seg, axis=1) / np.where(span > 0, span, np.inf)
+                other_speed = float(speeds.max())
+            else:
+                other_speed = 0.0
+        elif "position" in other:
+            q = np.tile(np.array(other["position"], dtype=float), (len(tau), 1))
+            other_speed = 0.0
+        else:
+            continue
+
+        d1 = np.where(on_leg1, _distance_to_leg(q, p0, leg1_unit, leg1_lo, leg1_hi), np.inf)
+        d2 = np.where(on_leg2, _distance_to_leg(q, corner, leg2_unit, leg2_lo, leg2_hi), np.inf)
+        dist = np.minimum(d1, d2)
+        limit = threshold_m + (other_speed + abort_speed) * dt / 2.0
+        hits = dist < limit
+        if np.any(hits):
+            i = int(np.argmin(np.where(hits, dist, np.inf)))
+            conflicts.append({
+                "drone_id": drone_id,
+                "min_distance_m": round(float(dist[i]), 2),
+                "in_s": round(float(tau[i]), 1),
+            })
+
+    conflicts.sort(key=lambda c: c["min_distance_m"])
+    return {
+        "clear": not conflicts,
+        "threshold_m": threshold_m,
+        "mode": mode,
+        "model": _ABORT_MODEL_DESCRIPTIONS[mode],
+        "horizon_s": round(horizon, 1),
+        "conflicts": conflicts,
+    }
+
+
 class DroneManager:
     def __init__(
         self,
@@ -169,6 +375,16 @@ class DroneManager:
         self.geofence_warnings = {}  # drone_id -> bool, tracks active soft-warning state (logs only, no RTL)
         self.proximity_breaches = {}  # tracks active proximity breaches per drone pair: (id1, id2) -> bool
         self.active_trajectory = None  # active trajectory stored for verification and start
+        # The trajectory actually being flown: active_trajectory after
+        # remap_trajectory_to_healthy_drones, so keyed by physical drone id
+        # rather than slot. The abort clearance check reads neighbours' future
+        # positions from this — reading active_trajectory by drone id would
+        # check against the wrong drone whenever a remap moved a slot.
+        self.playing_trajectory: dict | None = None
+        # Event-loop time playback started (after any trigger_epoch wait); None
+        # while no show is being played. show_started_at is wall-clock and
+        # includes that wait, so it can't give the show time itself.
+        self._playback_start_time: float | None = None
 
         # Low-rate telemetry recording for post-flight CSV export (issue #8).
         # Independent of the 10Hz control/safety loops above.
@@ -304,6 +520,10 @@ class DroneManager:
                 # by whatever uploaded it. None under streamed execution, where
                 # the GCS sends setpoints and nothing is stored onboard.
                 "mission_hash": None,
+                # None, or {"type": "rtl"|"land"|"estop", "at": epoch seconds}
+                # once this drone alone has been aborted out of the show (issue
+                # #59). Cleared when the drone is explicitly re-launched.
+                "aborted": None,
             }
 
             # On the sim backend one fleet-wide task fills this in instead
@@ -856,6 +1076,15 @@ class DroneManager:
             if not gate["ok"]:
                 raise LaunchGateError(gate["reason"])
             drone_ids = gate["armable"]
+            # A fleet-wide launch skips aborted drones (issue #59): a
+            # straggler-pickup relaunch mid-show must not re-arm an aborted
+            # drone. The way to bring it back is an explicit per-drone launch:
+            # naming an aborted drone in drone_ids is the explicit re-launch
+            # that clears its aborted flag.
+            aborted = [d_id for d_id in drone_ids if self._is_aborted(d_id)]
+            if aborted:
+                logging.warning(f"Launch: skipping aborted drones {aborted} — relaunch them explicitly by id.")
+                drone_ids = [d_id for d_id in drone_ids if d_id not in aborted]
         else:
             drone_ids = [d for d in drone_ids if d in self.drones]
             if self.staged_show is not None:
@@ -881,6 +1110,14 @@ class DroneManager:
         if not self.telemetry[drone_id]["connected"]:
             logging.warning(f"Skipping Drone {drone_id}: Disconnected")
             return
+
+        # Clear the aborted flag if this drone is being explicitly relaunched
+        # after a previous per-drone abort (issue #59). launch_sequence's
+        # default drone list already skips aborted drones; arriving here means
+        # the operator passed this id explicitly.
+        if self._is_aborted(drone_id):
+            self.telemetry[drone_id]["aborted"] = None
+            logging.info(f"Drone {drone_id} re-launched — aborted flag cleared.")
 
         # Preserve the original per-drone launch stagger within a batch.
         await asyncio.sleep(stagger_index * 1.0)
@@ -991,46 +1228,14 @@ class DroneManager:
         self.fleet_fsm.apply(Command.RTL, operator=operator, trigger=trigger)
         print("FAILSAFE: Triggering Return to Launch (RTL) for all drones...")
         self.stop_trajectory()
-        
-        rtl_tasks = []
-        for drone_id, drone in self.drones.items():
-            async def stop_and_rtl(d_id, d_obj):
-                try:
-                    await d_obj.offboard.stop()
-                except Exception:
-                    pass  # Ignore if not in offboard
-                try:
-                    await d_obj.action.return_to_launch()
-                    print(f"Drone {d_id} commanded to RTL.")
-                except Exception as e:
-                    print(f"Failed to command RTL on Drone {d_id}: {e}")
-                    
-            rtl_tasks.append(stop_and_rtl(drone_id, drone))
-            
-        await self._for_each_drone(rtl_tasks)
+        await self._for_each_drone([self._rtl_one(drone_id) for drone_id in list(self.drones)])
 
     async def trigger_land(self, operator: str = SYSTEM_OPERATOR, trigger: str = "land"):
         """Trigger Land for all connected drones. Legal from every lifecycle state."""
         self.fleet_fsm.apply(Command.LAND, operator=operator, trigger=trigger)
         print("Commanding all drones to Land...")
         self.stop_trajectory()
-        
-        land_tasks = []
-        for drone_id, drone in self.drones.items():
-            async def stop_and_land(d_id, d_obj):
-                try:
-                    await d_obj.offboard.stop()
-                except Exception:
-                    pass
-                try:
-                    await d_obj.action.land()
-                    print(f"Drone {d_id} commanded to Land.")
-                except Exception as e:
-                    print(f"Failed to command Landing on Drone {d_id}: {e}")
-                    
-            land_tasks.append(stop_and_land(drone_id, drone))
-            
-        await self._for_each_drone(land_tasks)
+        await self._for_each_drone([self._land_one(drone_id) for drone_id in list(self.drones)])
 
     async def trigger_estop(self, operator: str = SYSTEM_OPERATOR, trigger: str = "estop"):
         """Kill every drone's motors immediately. Legal from every lifecycle state.
@@ -1042,15 +1247,166 @@ class DroneManager:
         self.fleet_fsm.apply(Command.ESTOP, operator=operator, trigger=trigger)
         logging.critical("EMERGENCY STOP: killing motors on all drones.")
         self.stop_trajectory()
+        await self._for_each_drone([self._estop_one(drone_id) for drone_id in list(self.drones)])
 
-        async def kill(d_id, d_obj):
-            try:
-                await d_obj.action.kill()
-                logging.critical(f"Drone {d_id} motors killed.")
-            except Exception as e:
-                logging.error(f"Failed to kill Drone {d_id}: {e}")
+    # Per-drone command primitives, shared by the fleet-wide triggers above and
+    # the single-drone abort below. Each returns None on success or the
+    # vehicle's error message, and never raises: a fleet-wide RTL must still
+    # reach every other drone when one of them rejects it.
 
-        await asyncio.gather(*(kill(d_id, d_obj) for d_id, d_obj in self.drones.items()))
+    async def _rtl_one(self, drone_id: int) -> str | None:
+        drone = self.drones[drone_id]
+        try:
+            await drone.offboard.stop()
+        except Exception:
+            pass  # Ignore if not in offboard
+        try:
+            await drone.action.return_to_launch()
+            print(f"Drone {drone_id} commanded to RTL.")
+            return None
+        except Exception as e:
+            print(f"Failed to command RTL on Drone {drone_id}: {e}")
+            return str(e)
+
+    async def _land_one(self, drone_id: int) -> str | None:
+        drone = self.drones[drone_id]
+        try:
+            await drone.offboard.stop()
+        except Exception:
+            pass
+        try:
+            await drone.action.land()
+            print(f"Drone {drone_id} commanded to Land.")
+            return None
+        except Exception as e:
+            print(f"Failed to command Landing on Drone {drone_id}: {e}")
+            return str(e)
+
+    async def _estop_one(self, drone_id: int) -> str | None:
+        """Kill one drone's motors. It falls: only for when flying on is worse.
+
+        No offboard.stop() first, unlike RTL/LAND: kill works from any mode,
+        and a round trip to leave offboard is delay an emergency stop can't
+        afford.
+        """
+        try:
+            await self.drones[drone_id].action.kill()
+            logging.critical(f"Drone {drone_id} motors killed.")
+            return None
+        except Exception as e:
+            logging.error(f"Failed to kill Drone {drone_id}: {e}")
+            return str(e)
+
+    # --- Single-drone abort (issue #59) ---
+
+    def _is_aborted(self, drone_id: int) -> bool:
+        return bool(self.telemetry.get(drone_id, {}).get("aborted"))
+
+    def _show_elapsed(self) -> float | None:
+        """Current show time, seconds, or None if no show is playing."""
+        if not self.is_running_trajectory or self._playback_start_time is None:
+            return None
+        return asyncio.get_event_loop().time() - self._playback_start_time
+
+    def _abort_clearance_inputs(self, drone_id: int) -> dict:
+        """Snapshot everything abort_clearance needs, before the drone moves.
+
+        Neighbours are the other connected, armed, non-aborted drones. While a
+        show plays, a neighbour with a trajectory is checked against its
+        planned future positions; otherwise (no show, or it has no slot) it's
+        assumed to hold where telemetry last put it.
+        """
+        tel = self.telemetry[drone_id]
+        elapsed = self._show_elapsed()
+        others = {}
+        for d_id, t in self.telemetry.items():
+            if d_id == drone_id or not t.get("connected") or not t.get("armed") or self._is_aborted(d_id):
+                continue
+            if elapsed is not None and self.playing_trajectory and self.playing_trajectory.get(d_id):
+                others[d_id] = {"waypoints": self.playing_trajectory[d_id]}
+            else:
+                others[d_id] = {"position": (t.get("fleet_x", 0.0), t.get("fleet_y", 0.0), t.get("fleet_z", 0.0))}
+        return {
+            "start": (tel.get("fleet_x", 0.0), tel.get("fleet_y", 0.0), tel.get("fleet_z", 0.0)),
+            "pad": _pad_offset(drone_id),
+            "others": others,
+            "show_elapsed_s": elapsed,
+        }
+
+    async def abort_drone(self, drone_id: int, mode: str) -> dict:
+        """Take one drone out of the show (RTL, LAND or ESTOP); the rest fly on.
+
+        Unlike trigger_rtl/trigger_land this does not call stop_trajectory():
+        playback, telemetry recording and the saved show all carry on for the
+        other drones. The drone is flagged aborted first, so the playback loop
+        stops commanding it before the abort command goes out, and stays
+        aborted until it's explicitly relaunched (see launch_sequence).
+
+        The clearance check runs after the command has been sent, from a
+        snapshot taken before it: it is a warning, and must never delay the
+        abort. It runs in a worker thread so a large fleet's sweep doesn't
+        stall everyone else's setpoints.
+
+        Aborting an already-aborted drone re-commands it, so an RTL can be
+        escalated to an ESTOP.
+
+        Returns:
+            ``{"drone_id", "mode", "commanded", "error", "clearance", "warning"}``.
+            ``commanded`` is False if the vehicle rejected the command;
+            ``warning`` is a one-line summary of any clearance conflict.
+
+        Raises:
+            KeyError: ``drone_id`` isn't a connected drone.
+            ValueError: ``mode`` isn't one of ABORT_MODES.
+        """
+        if mode not in ABORT_MODES:
+            raise ValueError(f"mode must be one of {ABORT_MODES}, got {mode!r}")
+        if drone_id not in self.drones:
+            raise KeyError(drone_id)
+
+        inputs = self._abort_clearance_inputs(drone_id)
+
+        tel = self.telemetry[drone_id]
+        tel["aborted"] = {"type": mode, "at": time.time()}
+        tel["planned_valid"] = False
+        logging.warning(f"ABORT: Drone {drone_id} aborting out of the show ({mode.upper()}); the rest of the fleet continues.")
+
+        command = {"rtl": self._rtl_one, "land": self._land_one, "estop": self._estop_one}[mode]
+        error = await command(drone_id)
+
+        try:
+            clearance = await asyncio.to_thread(abort_clearance, mode, **inputs)
+        except Exception as e:
+            # The abort has already gone out; a broken check must not turn it
+            # into an error response.
+            logging.error(f"ABORT: clearance check failed for Drone {drone_id}: {e}")
+            clearance = None
+
+        warning = None
+        if clearance is None:
+            warning = "Clearance check could not be run; descent path unverified."
+        elif not clearance["conflicts"]:
+            logging.info(f"ABORT: Drone {drone_id} {mode.upper()} path clear of all other drones (model: {clearance['model']}).")
+        else:
+            nearest = ", ".join(
+                f"Drone {c['drone_id']} ({c['min_distance_m']:.2f}m in {c['in_s']:.1f}s)"
+                for c in clearance["conflicts"][:5]
+            )
+            warning = (
+                f"Modelled {mode.upper()} path of Drone {drone_id} passes within "
+                f"{clearance['threshold_m']}m of {len(clearance['conflicts'])} drone(s): {nearest}."
+            )
+        if warning:
+            logging.warning(f"ABORT: {warning}")
+
+        return {
+            "drone_id": drone_id,
+            "mode": mode,
+            "commanded": error is None,
+            "error": error,
+            "clearance": clearance,
+            "warning": warning,
+        }
 
     # --- Trajectory Playback ---
 
@@ -1132,6 +1488,7 @@ class DroneManager:
         if execution == "streamed":
             # Remap trajectory slots to currently healthy drones before playback
             plan = self.remap_trajectory_to_healthy_drones(trajectory_data)
+        self.playing_trajectory = plan
         # Move everything alive now (imported modules, the fleet, this show)
         # out of the cyclic GC's reach. Otherwise a full collection rescans
         # that whole long-lived heap every ~1.4s of a show: ~11ms per pass at
@@ -1219,6 +1576,8 @@ class DroneManager:
                 logging.error(f"Failed to broadcast show CANCEL: {e}")
             self._onboard_show_id = None
         self.is_running_trajectory = False
+        self.playing_trajectory = None
+        self._playback_start_time = None
         self.stop_telemetry_recording()
         self.stop_state_snapshotting()
         # A deliberate stop ends the show; there is nothing left to offer resuming.
@@ -1358,6 +1717,19 @@ class DroneManager:
         self.pending_resume_state = None
         discard_show_state(self.state_path)
 
+    async def _send_setpoint(self, drone_id: int, send) -> None:
+        """Send one playback setpoint unless the drone was aborted since the tick began.
+
+        The loop's own skip happens when a tick is built, but the sends then
+        run as separate tasks, and an abort can land in between. On the sim
+        backend a setpoint cancels an in-progress LAND/RTL outright, so the
+        abort would silently undo itself; checking again here, with nothing
+        awaited between the check and the send, closes that window.
+        """
+        if self._is_aborted(drone_id):
+            return
+        await send()
+
     async def _run_trajectory_loop(
         self,
         trajectory_data: dict,
@@ -1387,6 +1759,7 @@ class DroneManager:
 
             start_time = asyncio.get_event_loop().time()
         
+        self._playback_start_time = start_time
         # Calculate overall duration
         max_time = 0.0
         for drone_id, wps in trajectory_data.items():
@@ -1420,6 +1793,10 @@ class DroneManager:
                 setpoint_tasks = []
                 for drone_id, drone in self.drones.items():
                     if drone_id not in trajectory_data or not self.telemetry[drone_id]["connected"]:
+                        continue
+                    # Skip drones aborted out of the show (issue #59): their
+                    # flight controller is commanding its own descent.
+                    if self._is_aborted(drone_id):
                         continue
                         
                     wps = trajectory_data[drone_id]
@@ -1468,14 +1845,18 @@ class DroneManager:
                             alt_m = -target["z"] # convert NED Z down to altitude above home
 
                             setpoint_tasks.append(
-                                drone.offboard.set_position_global(
-                                    PositionGlobalYaw(
-                                        lat_deg,
-                                        lon_deg,
-                                        alt_m,
-                                        target["yaw"],
-                                        PositionGlobalYaw.AltitudeType.REL_HOME
-                                    )
+                                self._send_setpoint(
+                                    drone_id,
+                                    functools.partial(
+                                        drone.offboard.set_position_global,
+                                        PositionGlobalYaw(
+                                            lat_deg,
+                                            lon_deg,
+                                            alt_m,
+                                            target["yaw"],
+                                            PositionGlobalYaw.AltitudeType.REL_HOME,
+                                        ),
+                                    ),
                                 )
                             )
                         else:
@@ -1491,7 +1872,10 @@ class DroneManager:
                             vel = VelocityNedYaw(target.get("vx", 0.0), target.get("vy", 0.0), target.get("vz", 0.0), target["yaw"])
                             acc = AccelerationNed(target.get("ax", 0.0), target.get("ay", 0.0), target.get("az", 0.0))
                             setpoint_tasks.append(
-                                drone.offboard.set_position_velocity_acceleration_ned(pos, vel, acc)
+                                self._send_setpoint(
+                                    drone_id,
+                                    functools.partial(drone.offboard.set_position_velocity_acceleration_ned, pos, vel, acc),
+                                )
                             )
                         
                 if setpoint_tasks:
@@ -1523,6 +1907,9 @@ class DroneManager:
             # recording here too (stop_trajectory() already covers the manual-stop path).
             self.stop_telemetry_recording()
             if not cancelled:
+                # Not on cancel: stop_trajectory() already cleared it, and a
+                # start_trajectory() right after may have set it for a new show.
+                self._playback_start_time = None
                 self.stop_state_snapshotting()
                 discard_show_state(self.state_path)
                 # Cancellation means stop_trajectory() or an emergency, which
@@ -1790,10 +2177,12 @@ class DroneManager:
         # Determine healthy drones sorted by physical index
         healthy_ids = sorted(
             [
-                d_id for d_id, tel in self.telemetry.items()
+                d_id
+                for d_id, tel in self.telemetry.items()
                 if tel["connected"]
                 and tel["battery_percent"] > 20.0
                 and tel["satellites"] >= 6
+                and not tel.get("aborted")
             ]
         )
 
