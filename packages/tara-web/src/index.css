@@ -506,61 +506,184 @@ body {
 .btn-stop:hover { background: var(--bg-surface); border-color: var(--accent-line); }
 
 /* Preflight Checklist Card Grid */
-.checklist-grid {
+/* Pre-arm interlock cards (issue #48). State comes from the GCS's
+   /api/preflight-check; only BLOCKED (fail) refuses a launch. */
+.interlock-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-  gap: 0.9rem;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 0.6rem;
 }
 
-.checklist-card {
+.interlock-card {
   background: var(--bg-sunken);
   border: 1px solid var(--border);
+  border-left-width: 3px;
   border-radius: var(--r);
-  padding: 1.1rem;
+  padding: 0.7rem 0.8rem;
   display: flex;
   flex-direction: column;
-  gap: 0.7rem;
+  gap: 0.3rem;
+  min-width: 0;
 }
 
-.checklist-card.valid {
-  border-color: rgba(52, 211, 153, 0.35);
-}
+.interlock-pass { border-left-color: var(--success); }
+.interlock-fail { border-left-color: var(--danger); background: var(--danger-tint); }
+.interlock-warn,
+.interlock-overridden { border-left-color: var(--warning); }
+.interlock-ignored { opacity: 0.55; }
 
-.checklist-title {
-  font-size: 0.92rem;
-  font-weight: 700;
-  color: var(--text);
+.interlock-title {
   display: flex;
   justify-content: space-between;
   align-items: center;
-}
-
-.checklist-item {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
+  gap: 0.5rem;
   font-size: 0.82rem;
-  color: var(--text-dim);
-  font-family: var(--font-mono);
-}
-
-.checklist-item span.val {
-  color: var(--text);
-  font-weight: 600;
-}
-
-.check-indicator {
-  display: flex;
-  align-items: center;
-  gap: 0.25rem;
   font-weight: 700;
-  font-size: 0.72rem;
+  color: var(--text);
+}
+
+.interlock-state {
+  flex-shrink: 0;
   font-family: var(--font-mono);
+  font-size: 0.68rem;
   letter-spacing: 0.4px;
 }
 
-.check-indicator.pass { color: var(--success); }
-.check-indicator.fail { color: var(--danger); }
+.interlock-pass .interlock-state { color: var(--success); }
+.interlock-fail .interlock-state { color: var(--danger); }
+.interlock-warn .interlock-state,
+.interlock-overridden .interlock-state { color: var(--warning); }
+.interlock-ignored .interlock-state { color: var(--text-faint); }
+
+.interlock-detail,
+.interlock-failure {
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  color: var(--text-dim);
+  overflow-wrap: anywhere;
+}
+
+.interlock-failure { color: var(--danger); }
+.interlock-warn .interlock-failure,
+.interlock-overridden .interlock-failure { color: var(--warning); }
+
+.interlock-empty {
+  padding: 1rem;
+  border: 1px dashed var(--danger);
+  border-radius: var(--r);
+  color: var(--danger);
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
+}
+
+.profile-badge {
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.6px;
+  padding: 0.15rem 0.5rem;
+  border: 1px solid var(--accent-line);
+  border-radius: var(--r-sm);
+  color: var(--primary);
+  background: var(--accent-tint);
+}
+
+.preflight-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+  background: rgba(0, 0, 0, 0.65);
+}
+
+.preflight-modal {
+  width: min(960px, 100%);
+  max-height: calc(100vh - 2rem);
+  overflow-y: auto;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r-lg);
+  padding: 1.2rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.9rem;
+}
+
+.preflight-header {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.preflight-header h2 {
+  margin: 0;
+  font-size: 1rem;
+  letter-spacing: 0.8px;
+}
+
+.preflight-close {
+  margin-left: auto;
+  background: none;
+  border: none;
+  color: var(--text-dim);
+  font-size: 1.1rem;
+  cursor: pointer;
+}
+
+.preflight-reasons {
+  margin: 0;
+  padding: 0.6rem 0.6rem 0.6rem 1.6rem;
+  border: 1px solid var(--danger);
+  border-radius: var(--r);
+  background: var(--danger-tint);
+  color: var(--danger);
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+}
+
+.preflight-note,
+.preflight-message {
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
+  color: var(--warning);
+}
+
+.preflight-message { color: var(--text); }
+
+.preflight-override {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.7rem;
+  border: 1px solid var(--warning);
+  border-radius: var(--r);
+  background: var(--warning-tint);
+  font-size: 0.78rem;
+}
+
+.preflight-override label { flex-basis: 100%; color: var(--warning); }
+
+.preflight-override input {
+  flex: 1;
+  min-width: 200px;
+  background: var(--bg-input);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r-sm);
+  color: var(--text);
+  padding: 0.4rem 0.5rem;
+  font-family: var(--font-mono);
+}
+
+.preflight-actions {
+  display: flex;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+}
 
 /* Fleet-wide aggregate strip — always visible above the card grid/matrix,
    the at-a-glance numbers an operator needs regardless of fleet size. */

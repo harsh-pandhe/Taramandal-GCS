@@ -40,3 +40,17 @@ rviz = false
 trusted_keys = [
     # { signer = "Harsh (Studio laptop)", public_key = "base64 of the 32-byte Ed25519 public key" },
 ]
+
+[safety]
+# Pre-arm checklist profile the GCS enforces on /api/launch (issue #48):
+#   "SIMULATION"  — sim/SITL fleets: 3D GPS fix and >= 50% charge; the rest is advisory.
+#   "ENGINEERING" — bench testing: no RTK/GNSS or battery checks, single-drone
+#                   launch allowed, EKF health bypassable by two-step override.
+#   "FIELD_TEST"  — real hardware: RTK Float or Fixed, >= 80% charge, full fleet.
+#   "PRODUCTION"  — commercial display: every gate blocking across 100% of the
+#                   fleet, operator confirmation latch required, no overrides.
+# TARA_OPERATIONAL_PROFILE overrides this. With no [safety] table at all the
+# GCS falls back to PRODUCTION rather than guessing a looser profile.
+operational_profile = "SIMULATION"
+# Series cell count of the flight packs, used to derive per-cell voltage.
+battery_cells = 4
