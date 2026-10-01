@@ -247,23 +247,11 @@ export default function App() {
     return 'ready';
   }
   
-  const allConnected = droneIds.length > 0 && connectedCount === droneIds.length;
-  const allGpsLocked = droneIds.length > 0 && droneIds.every(id => 
-    !telemetry[id].connected || telemetry[id].gps_lock
-  );
-  
-  const allBatterySafe = droneIds.length > 0 && droneIds.every(id => 
-    !telemetry[id].connected || telemetry[id].battery_percent > 75
-  );
-
-  const checklistPassed = allConnected && allGpsLocked && allBatterySafe;
-
   // The GCS is the authority on what's legal (it answers 409 otherwise); this
   // only greys out buttons that would be refused. With no lifecycle state yet
   // (socket down), nothing is disabled on its account.
   const canCommand = (command) => !fleetState || fleetState.allowed_commands.includes(command);
   const isPlaying = fleetState ? fleetState.state === 'RUNNING' : isPlayingLocal;
-  const launchEnabled = (checklistPassed || bypassChecklist) && canCommand('launch');
   // Poll simulation process status. Deliberately slower than telemetry: this
   // reads the host's process table and psutil counters, which is expensive
   // relative to how fast "is Gazebo up" actually changes. The telemetry
