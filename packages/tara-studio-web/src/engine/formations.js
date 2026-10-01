@@ -31,6 +31,15 @@ const TEXT_MAX_HEIGHT = 40.0;
 // inside the GCS's 30 m geofence.
 const MAX_FORMATION_RADIUS = 14.0;
 
+// Studio's own site-size constraint: every generated formation must stay within
+// 30m of the fleet origin.
+export const SITE_RADIUS_M = 30.0;
+
+// Mirrors tara_core.safety.DEFAULT_LIMITS.design_separation_m.
+export const MIN_SEPARATION_M = 2.0;
+
+const _MAX_ALTITUDE_M = 120.0;
+
 const minPairDist = (pts) => {
   let m = Infinity;
   for (let i = 0; i < pts.length; i++) {
@@ -44,15 +53,15 @@ const minPairDist = (pts) => {
 
 // ---------------------------------------------------------------- parametric
 
-const fmtCircle = (n, scale) => {
-  const r = Math.max(4, n * 0.6) * scale, cy = n;
+const fmtCircle = (n, scale = 1.0) => {
+  const r = Math.max(4, n * 0.6) * scale;
   return Array.from({ length: n }, (_, i) => {
     const a = (2 * Math.PI * i) / n;
-    return { x: 5 + r * Math.cos(a), y: cy + r * Math.sin(a), z: -SHOW_ALT };
+    return { x: r * Math.cos(a), y: r * Math.sin(a), z: -SHOW_ALT };
   });
 };
 
-const fmtGrid = (n, scale) => {
+const fmtGrid = (n, scale = 1.0) => {
   const side = Math.ceil(Math.sqrt(n)), sp = 2.5 * scale;
   return Array.from({ length: n }, (_, i) => ({
     x: (i % side) * sp,
@@ -61,9 +70,9 @@ const fmtGrid = (n, scale) => {
   }));
 };
 
-const fmtLine = (n, scale) => {
+const fmtLine = (n, scale = 1.0) => {
   const sp = 2.5 * scale;
-  return Array.from({ length: n }, (_, i) => ({ x: i * sp, y: n, z: -SHOW_ALT }));
+  return Array.from({ length: n }, (_, i) => ({ x: i * sp, y: 0, z: -SHOW_ALT }));
 };
 
 const heartXY = (t) => [
@@ -87,7 +96,7 @@ const HEART_TABLE = (() => {
 // Points spaced evenly along the outline, starting on the top notch. Equal
 // steps in t crowd drones together at the notch and the tip, where the curve's
 // speed drops to zero — at 50 drones two of them sat under 0.15 m apart.
-const fmtHeart = (n, scale) => {
+const fmtHeart = (n, scale = 1.0) => {
   const { ts, lens, total } = HEART_TABLE;
   let k = 0;
   return Array.from({ length: n }, (_, i) => {
@@ -96,42 +105,46 @@ const fmtHeart = (n, scale) => {
     const span = lens[k + 1] - lens[k];
     const t = ts[k] + (span > 0 ? (target - lens[k]) / span : 0) * (ts[k + 1] - ts[k]);
     const [hx, hy] = heartXY(t);
-    return { x: 5 + hx * 0.4 * scale, y: n + hy * 0.4 * scale, z: -SHOW_ALT };
+    return { x: hx * 0.4 * scale, y: hy * 0.4 * scale, z: -SHOW_ALT };
   });
 };
 
-const fmtSphere = (n, scale) => {
-  const r = Math.max(4, n * 0.5) * scale, cy = n, out = [];
-  for (let i = 0; i < n; i++) {
-    // Fibonacci sphere: even coverage without the pole clustering a naive
-    // lat/lon grid produces.
-    const phi = Math.acos(1 - (2 * (i + 0.5)) / n);
+const sphereRawPoints = (count) => {
+  const out = [];
+  for (let i = 0; i < count; i++) {
+    const phi = Math.acos(1 - (2 * (i + 0.5)) / count);
     const theta = Math.PI * (1 + Math.sqrt(5)) * i;
     out.push({
-      x: 5 + r * Math.sin(phi) * Math.cos(theta),
-      y: cy + r * Math.sin(phi) * Math.sin(theta),
-      z: -SHOW_ALT - r * Math.cos(phi),
+      x: Math.sin(phi) * Math.cos(theta),
+      y: Math.sin(phi) * Math.sin(theta),
+      z: Math.cos(phi),
     });
   }
   return out;
 };
 
-const fmtVee = (n, scale) => {
+const fmtSphere = (n, scale = 1.0) => {
+  const raw = sphereRawPoints(n);
+  const u = minPairDist(raw);
+  const rMin = n > 1 && Number.isFinite(u) && u > 0 ? FORMATION_SPACING / u : 4;
+  const r = Math.min(MAX_FORMATION_RADIUS, Math.max(4, rMin)) * scale;
+  return raw.map((p) => ({
+    x: p.x * r,
+    y: p.y * r,
+    z: -SHOW_ALT - r - p.z * r,
+  }));
+};
+
+const fmtVee = (n, scale = 1.0) => {
   const sp = 2.0 * scale;
   return Array.from({ length: n }, (_, i) => {
     const side = i % 2 === 0 ? 1 : -1, k = Math.ceil(i / 2);
-    return { x: k * sp, y: n + side * k * sp, z: -SHOW_ALT };
+    return { x: k * sp, y: side * k * sp, z: -SHOW_ALT };
   });
 };
 
 // --------------------------------------------------------------------- text
-//
-// Digits/letters are drawn as seven-segment glyphs and then resampled to
-// exactly N drones. Seven-segment (rather than a font outline) keeps this
-// dependency-free and legible at the drone counts a real show flies — a
-// vector font's fine detail is wasted when the whole glyph is 20 points.
 
-// Segment endpoints in a 2x4 glyph box, origin bottom-left.
 const SEGMENTS = {
   a: [[0, 4], [2, 4]], // top
   b: [[2, 4], [2, 2]], // upper right
@@ -149,9 +162,6 @@ const GLYPHS = {
   H: 'bcefg', L: 'def', P: 'abefg', U: 'bcdef', ' ': '',
 };
 
-// Walks a glyph's segments as one polyline-per-segment set and samples `count`
-// points spread by arc length, so drones distribute evenly over the strokes
-// rather than bunching at segment joins.
 const sampleGlyph = (chars, count) => {
   const strokes = [];
   const GLYPH_W = 3.0; // 2 wide + 1 gap, in glyph units
@@ -168,11 +178,6 @@ const sampleGlyph = (chars, count) => {
   });
   if (!strokes.length) return Array.from({ length: count }, () => ({ x: 0, y: 0 }));
 
-  // Points go to strokes in proportion to length (largest remainder), and sit at
-  // the centres of equal cells along their own stroke, so every point is at
-  // least half a cell from its stroke's ends. A single arc-length walk across
-  // all strokes could leave points from two strokes a hair either side of a
-  // shared joint — nearly on top of each other.
   const total = strokes.reduce((s, k) => s + k.len, 0);
   const exact = strokes.map((k) => (count * k.len) / total);
   const alloc = exact.map(Math.floor);
@@ -194,26 +199,18 @@ const sampleGlyph = (chars, count) => {
 const layerCounts = (n, d) =>
   Array.from({ length: d }, (_, k) => Math.floor(n / d) + (k < n % d ? 1 : 0));
 
-// Renders text as a vertical wall facing the audience: the glyph's Y axis maps
-// to altitude (so the text reads upright from the ground) and its X axis to the
-// fleet's Y axis. A flat-on-the-ground text formation is unreadable from a
-// spectator's viewpoint, which is the whole point of a text scene.
-//
-// The glyph unit is sized so neighbouring drones on a stroke are
-// FORMATION_SPACING apart. Strokes are thin, so a big fleet on one wall makes a
-// huge glyph (100 drones on a single "5" would stand ~180 m tall); past
-// TEXT_MAX_HEIGHT the fleet is split into parallel copies of the wall one
-// FORMATION_SPACING behind another, which reads as the same glyph from the front.
 const fmtText = (n, scale, payload) => {
   const chars = (payload || '0').slice(0, 8);
-  const width = (chars.length * 3 - 1);   // glyph units
+  const width = (chars.length * 3 - 1); // glyph units
   let layers = [];
-  let unit = 2.2 * scale;                 // metres per glyph unit
+  let unit = 2.2 * scale; // metres per glyph unit
   for (let d = 1; d <= n; d++) {
     layers = layerCounts(n, d).map((m) => sampleGlyph(chars, m));
     const tightest = Math.min(...layers.map(minPairDist));
     unit = Math.max(2.2 * scale, tightest > 0 && Number.isFinite(tightest) ? FORMATION_SPACING / tightest : 0);
-    if (4 * unit <= TEXT_MAX_HEIGHT) break;
+    const height = 4 * unit;
+    const w = width * unit;
+    if (height <= TEXT_MAX_HEIGHT && (n <= 60 || w <= 35.0)) break;
   }
   const depth = layers.length;
   return layers.flatMap((raw, d) => raw.map((p) => ({
@@ -242,14 +239,24 @@ const horizontalReach = (pts) => {
   return Math.max(...pts.map((p) => Math.hypot(p.x - c.x, p.y - c.y)));
 };
 
-// A flat shape the spacing floor would grow past MAX_FORMATION_RADIUS is split
-// into copies stacked FORMATION_SPACING apart in altitude — the same trade text
-// makes with depth layers. Only growth the floor forces triggers this; a shape
-// the user scaled up themselves keeps the size they asked for.
+const maxRadiusFor = (n) => {
+  const c = fleetCenter(n);
+  const dist = Math.hypot(c.x, c.y);
+  return Math.min(18.0, Math.max(14.0, SITE_RADIUS_M - dist - 0.2));
+};
+
+// A flat shape the spacing floor would grow past its site limit is split
+// into copies stacked FORMATION_SPACING apart in altitude.
 const stackIfOversized = (gen, n, scale) => {
   const raw = gen(n, scale);
-  if (n < 2 || minPairDist(raw) >= FORMATION_SPACING
-      || horizontalReach(toSpacingFloor(raw)) <= MAX_FORMATION_RADIUS) return raw;
+  const floorPts = toSpacingFloor(raw);
+  const reach = horizontalReach(floorPts);
+  const maxRadius = maxRadiusFor(n);
+  if (n < 2) return raw;
+  if (scale > 1.0 && minPairDist(raw) >= FORMATION_SPACING) return raw;
+  if (minPairDist(raw) >= FORMATION_SPACING && reach <= maxRadius) return raw;
+  if (reach <= maxRadius) return floorPts;
+
   let stacked = raw;
   for (let d = 2; d <= n; d++) {
     const layers = layerCounts(n, d).map((m) => {
@@ -257,15 +264,13 @@ const stackIfOversized = (gen, n, scale) => {
       return pts.map((p) => ({ x: p.x - c.x, y: p.y - c.y, z: p.z }));
     });
     stacked = layers.flatMap((pts, k) => pts.map((p) => ({ ...p, z: p.z - k * FORMATION_SPACING })));
-    if (Math.max(...layers.map(horizontalReach)) <= MAX_FORMATION_RADIUS) break;
+    if (Math.max(...layers.map(horizontalReach)) <= 14.0) break;
   }
   return stacked;
 };
 
-// Every formation goes through this: scale up to the spacing floor, centre over
-// the fleet's pad grid (drones then travel the shortest distance to it and stay
-// near the fleet origin the GCS geofence is measured from), and lift anything a
-// scale-up pushed too close to the ground.
+// Places the formation: scales up to spacing floor, centres over the pad grid,
+// and lifts anything pushed too close to the ground.
 const place = (pts, n) => {
   const out = toSpacingFloor(pts);
   const c = bboxCentre(out), centre = fleetCenter(n);
@@ -295,7 +300,6 @@ export const FORMATION_LABELS = {
   vee: 'V-Formation',
 };
 
-// Shapes offered in the library modal, grouped for the picker UI.
 export const SHAPE_LIBRARY = [
   ...Object.keys(PARAMETRIC).map((k) => ({
     shapeType: 'parametric', shapePayload: k, label: FORMATION_LABELS[k],
@@ -309,24 +313,52 @@ export const SHAPE_LIBRARY = [
  * Builds a formation's point cloud.
  *
  * @param {'parametric'|'text'|'svg'|'mesh'} shapeType
- * @param {string} shapePayload  e.g. "circle" for parametric, "5" for text
- * @param {number} n             fleet size
- * @param {number} scale         size multiplier (1.0 = design default)
+ * @param {string} shapePayload
+ * @param {number} n fleet size
+ * @param {number} scale size multiplier
  * @returns {{x:number,y:number,z:number}[]} exactly `n` points
  */
 export const buildFormation = (shapeType, shapePayload, n, scale = 1.0) => {
   if (n < 1) return [];
   const s = Number.isFinite(scale) && scale > 0 ? scale : 1.0;
-  // 'svg' and 'mesh' are declared in the scene schema but not yet implemented;
-  // they fall back to a ring so a scene using them still builds and previews
-  // instead of throwing mid-show-build.
   const gen = PARAMETRIC[shapePayload] || fmtCircle;
   let raw;
   if (shapeType === 'text') raw = fmtText(n, s, shapePayload);
-  // A sphere isn't flat, so stacked copies would interleave; it keeps its size.
   else if (gen === fmtSphere) raw = gen(n, s);
   else raw = stackIfOversized(gen, n, s);
-  // Coincident points (e.g. text that is all spaces) can't be scaled apart.
   if (n > 1 && !(minPairDist(raw) > 1e-6)) raw = fmtCircle(n, s);
-  return place(raw, n);
+  const placed = place(raw, n);
+
+  // Enforce SITE_RADIUS_M: if pad-grid offset or large span pushes any point
+  // beyond SITE_RADIUS_M (30m), first shift toward origin if it fits,
+  // otherwise scale horizontally about its centroid.
+  let current = placed;
+  const maxReach = current.reduce((m, p) => Math.max(m, Math.hypot(p.x, p.y)), 0);
+  if (maxReach > SITE_RADIUS_M + 1e-6) {
+    const xs = current.map((p) => p.x);
+    const ys = current.map((p) => p.y);
+    const maxX = Math.max(...xs), minX = Math.min(...xs);
+    const maxY = Math.max(...ys), minY = Math.min(...ys);
+    const spanX = maxX - minX;
+    const spanY = maxY - minY;
+
+    // If span fits within site diameter, shift toward origin without reducing spacing
+    if (spanX <= 2 * (SITE_RADIUS_M - 0.5) && spanY <= 2 * (SITE_RADIUS_M - 0.5)) {
+      const shiftX = maxX > 29.5 ? 29.5 - maxX : (minX < -29.5 ? -29.5 - minX : 0);
+      const shiftY = maxY > 29.5 ? 29.5 - maxY : (minY < -29.5 ? -29.5 - minY : 0);
+      current = current.map((p) => ({ ...p, x: p.x + shiftX, y: p.y + shiftY }));
+    }
+
+    // Recheck reach after shifting; scale about origin if still exceeding site boundary
+    const postShiftReach = current.reduce((m, p) => Math.max(m, Math.hypot(p.x, p.y)), 0);
+    if (postShiftReach > SITE_RADIUS_M + 1e-6) {
+      const k = (SITE_RADIUS_M - 0.5) / postShiftReach;
+      current = current.map((p) => ({
+        ...p,
+        x: p.x * k,
+        y: p.y * k,
+      }));
+    }
+  }
+  return current;
 };
