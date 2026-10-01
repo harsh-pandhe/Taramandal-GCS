@@ -211,8 +211,8 @@ async def _connect(manager: DroneManager, timeout: float = 5.0) -> None:
     """
     await manager.connect_all()
     deadline = time.monotonic() + timeout
-    while not all(tel["connected"] for tel in manager.telemetry.values()):
-        assert time.monotonic() < deadline, "sim fleet never reported connected"
+    while not all(tel["connected"] and tel.get("health_armable") for tel in manager.telemetry.values()):
+        assert time.monotonic() < deadline, "sim fleet never reported connected and armable"
         await asyncio.sleep(0.02)
 
 
@@ -253,7 +253,7 @@ async def test_a_whole_show_walks_the_lifecycle_and_illegal_commands_are_409(fle
         assert exc.value.detail["state"] == "FORMATION_HOLD"
 
         manager.active_trajectory = _short_show()
-        await gcs_main.start_trajectory(gcs_main.StartTrajectoryRequest(), x_operator_id="alice")
+        await gcs_main.start_trajectory(gcs_main.StartTrajectoryRequest(execution="streamed"), x_operator_id="alice")
         await _wait_for_state(manager, S.SHOW_COMPLETE)
 
         with pytest.raises(HTTPException) as exc:
@@ -364,7 +364,7 @@ async def test_a_playback_error_returns_the_fleet_to_formation_hold(fleet):
 async def test_a_fleet_that_disarms_mid_show_ends_the_show_but_a_link_loss_does_not(fleet):
     manager = fleet(1)
     _drive_to(manager.fleet_fsm, S.RUNNING)
-    manager.start_trajectory(_short_show(duration=30.0))
+    manager.start_trajectory(_short_show(duration=30.0), execution="streamed")
     try:
         # Link lost: last-known armed is still True, so nothing changes.
         manager.telemetry = {0: {"connected": False, "armed": True, "fleet_z": 5.0}}
@@ -385,11 +385,11 @@ async def test_a_launch_that_arms_nobody_returns_to_staged(fleet):
     manager = fleet(1)
     try:
         await _connect(manager)
-        # Drop the link at the source so the connection monitor reports it too;
-        # _launch_one skips disconnected drones.
-        manager._sim_fleet.state.connected[0] = False
-        await asyncio.sleep(0.2)
-        assert manager.telemetry[0]["connected"] is False
+
+        async def _failing_arm():
+            raise RuntimeError("simulated arming failure")
+
+        manager.drones[0].action.arm = _failing_arm
 
         await gcs_main.launch_fleet()
         await manager.launch_task

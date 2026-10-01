@@ -345,6 +345,14 @@ def test_kill_and_restart_gcs_process_recovers_state(tmp_path):
             time.sleep(0.5)
         assert mission["all_verified"], mission
 
+        deadline = time.time() + GCS_STARTUP_TIMEOUT_S
+        while True:
+            chk = _get(base_url, "/api/preflight-check")
+            if chk.get("launch_permitted") or time.time() > deadline:
+                break
+            time.sleep(0.2)
+        assert chk.get("launch_permitted"), chk
+
         # The fleet lifecycle (issue #52) refuses to start a show on the
         # ground, so take off first, as an operator would.
         _post(base_url, "/api/launch")
