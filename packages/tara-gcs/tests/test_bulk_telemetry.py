@@ -46,8 +46,8 @@ async def test_sim_backend_spawns_no_per_drone_tasks():
     try:
         await small.connect_all()
         await large.connect_all()
-        # fleet tick, bulk telemetry, proximity, geofence: whatever the size.
-        assert len(small._tasks) == len(large._tasks) == 4
+        # fleet tick, bulk telemetry, proximity, geofence, lifecycle: whatever the size.
+        assert len(small._tasks) == len(large._tasks) == 5
     finally:
         await small.shutdown()
         await large.shutdown()
