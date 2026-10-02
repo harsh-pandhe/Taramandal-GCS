@@ -1,8 +1,14 @@
-import { Plus, Trash, CheckCircle, AlertTriangle } from 'lucide-react';
+import { Plus, Trash, CheckCircle, AlertTriangle, History } from 'lucide-react';
+import { versionsOf } from '../../engine/projectVersions.js';
+
+const fmtSavedAt = (iso) => {
+  const d = new Date(iso);
+  return Number.isNaN(d.getTime()) ? iso : d.toLocaleString();
+};
 
 /** Saved projects, persisted to localStorage. */
 export default function VaultPage({
-  projectsList, activeProjectId, onLoad, onCreate, onDelete,
+  projectsList, activeProjectId, onLoad, onCreate, onDelete, onRestore,
 }) {
   return (
     <main className="studio-viewport-page">
@@ -37,6 +43,30 @@ export default function VaultPage({
                 <span className="status-badge empty"><AlertTriangle size={12} /> Not built</span>
               )}
             </div>
+
+            {versionsOf(proj).length > 0 && (
+              // Clicks inside stay inside: the card itself is a "load" target.
+              <details className="vault-versions" onClick={(e) => e.stopPropagation()}>
+                <summary><History size={12} /> Save history ({versionsOf(proj).length})</summary>
+                <ol>
+                  {versionsOf(proj).map((v) => (
+                    <li key={v.id}>
+                      <span className="vault-version-when">{fmtSavedAt(v.savedAt)}</span>
+                      <span className="vault-version-meta">
+                        {v.label} · {v.scenes?.length ?? 0} scenes · {v.dronesList?.length ?? 0} vehicles
+                      </span>
+                      <button
+                        type="button" className="btn-secondary btn-sm"
+                        onClick={() => onRestore(proj.id, v.id)}
+                        aria-label={`Restore ${proj.name} to ${fmtSavedAt(v.savedAt)}`}
+                      >
+                        Restore
+                      </button>
+                    </li>
+                  ))}
+                </ol>
+              </details>
+            )}
 
             <div className="vault-card-actions">
               <button type="button" className="btn-primary btn-sm" onClick={(e) => { e.stopPropagation(); onLoad(proj.id); }}>

@@ -226,6 +226,7 @@ export default function App() {
             onLoad={projects.load}
             onCreate={projects.create}
             onDelete={projects.remove}
+            onRestore={(id, versionId) => { projects.restore(id, versionId); setActivePage('choreo'); }}
           />
         )}
 

@@ -309,3 +309,54 @@ test.describe('undo/redo', () => {
     await expect(redo(page)).toBeDisabled();
   });
 });
+
+// Issue #100: a save no longer overwrites the previous one.
+test('project save history can be browsed and restored', async ({ page }) => {
+  await openStudio(page);
+  const cards = page.locator('.scene-card');
+  const save = page.getByRole('button', { name: 'Save Project' });
+
+  await save.click();                                            // version 1: 2 scenes
+  await page.getByRole('button', { name: 'Add Scene' }).click();
+  await page.getByRole('button', { name: 'Add Scene' }).click();
+  await expect(cards).toHaveCount(4);
+  await save.click();                                            // version 2: 4 scenes
+  await save.click();                                            // unchanged: no new version
+
+  await page.getByRole('button', { name: 'Project Vault' }).click();
+  const history = page.locator('.vault-versions');
+  await expect(history.locator('summary')).toHaveText(/Save history \(2\)/);
+  await history.locator('summary').click();
+  const rows = history.locator('li');
+  await expect(rows.nth(0)).toContainText('4 scenes');
+  await expect(rows.nth(1)).toContainText('2 scenes');
+
+  // Restore the older save: the editor reopens on it.
+  await rows.nth(1).getByRole('button', { name: /^Restore / }).click();
+  await expect(cards).toHaveCount(2);
+  await expect(page.getByLabel('Scene 1 name')).toHaveValue('5');
+
+  // Nothing was lost: the newer save is still listed and can be restored.
+  await page.getByRole('button', { name: 'Project Vault' }).click();
+  await history.locator('summary').click();
+  await expect(rows.filter({ hasText: '4 scenes' })).toHaveCount(1);
+  await rows.filter({ hasText: '4 scenes' }).getByRole('button', { name: /^Restore / }).click();
+  await expect(cards).toHaveCount(4);
+
+  // Unsaved edits are not lost by a restore: they are kept as a version first.
+  await page.getByRole('button', { name: 'Delete scene' }).first().click();
+  await expect(cards).toHaveCount(3);
+  await page.getByRole('button', { name: 'Project Vault' }).click();
+  await history.locator('summary').click();
+  await rows.filter({ hasText: '2 scenes' }).getByRole('button', { name: /^Restore / }).click();
+  await expect(cards).toHaveCount(2);
+  await page.getByRole('button', { name: 'Project Vault' }).click();
+  await history.locator('summary').click();
+  await expect(rows.filter({ hasText: 'Before restore · 3 scenes' })).toHaveCount(1);
+
+  // And the history survives a reload, since it is persisted with the project.
+  await page.reload();
+  await expect(page.getByText(/^Built · /)).toBeVisible();
+  await page.getByRole('button', { name: 'Project Vault' }).click();
+  await expect(page.locator('.vault-versions summary')).toHaveText(/Save history \(3\)/);
+});

@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { defaultFleet } from './useFleet.js';
 import { makeScene } from '../engine/sequencer.js';
+import { addVersion, findVersion, hasVersionOf, restoreVersion } from '../engine/projectVersions.js';
 
 const STORAGE_KEY = 'taramandal_projects';
 
@@ -62,11 +63,39 @@ export default function useProjects(bindings) {
     validation: bindings.validation,
   }), [projectName, bindings]);
 
+  // Saving keeps the previous saves too: each one that changed the show is
+  // added to the project's version list (issue #100) instead of being lost.
   const saveCurrent = useCallback(() => {
+    const state = snapshot();
+    const now = Date.now();
     setProjectsList((prev) => prev.map((p) => (
-      p.id === activeProjectId ? { ...p, ...snapshot() } : p
+      p.id === activeProjectId ? addVersion({ ...p, ...state }, state, now) : p
     )));
   }, [activeProjectId, snapshot]);
+
+  // Puts a project back to one of its saved versions and opens it. If the
+  // state being replaced is not already in the list (unsaved edits), it is
+  // saved as a version first, so a restore never loses work.
+  const restore = useCallback((id, versionId) => {
+    const proj = projectsList.find((p) => p.id === id);
+    const version = findVersion(proj, versionId);
+    if (!version) return;
+    const current = id === activeProjectId ? snapshot() : proj;
+    const kept = hasVersionOf(proj, current)
+      ? proj
+      : addVersion(proj, current, Date.now(), 'Before restore');
+    const restored = restoreVersion(kept, version);
+    setProjectsList((prev) => prev.map((p) => (p.id === id ? restored : p)));
+    setActiveProjectId(id);
+    setProjectName(restored.name);
+    bindings.setScenes(restored.scenes?.length ? restored.scenes : [makeScene({ name: 'Scene 1' })]);
+    bindings.setRate(restored.rate ?? 4);
+    bindings.setDronesList(restored.dronesList?.length ? restored.dronesList : defaultFleet(6));
+    bindings.setHomeLat(restored.homeLat ?? 12.9716);
+    bindings.setHomeLon(restored.homeLon ?? 77.5946);
+    bindings.setChoreoData(null);
+    bindings.setValidation(null);
+  }, [projectsList, activeProjectId, snapshot, bindings]);
 
   const load = useCallback((id) => {
     const proj = projectsList.find((p) => p.id === id);
@@ -116,6 +145,6 @@ export default function useProjects(bindings) {
 
   return {
     projectsList, activeProjectId, projectName, setProjectName,
-    saveCurrent, load, create, remove,
+    saveCurrent, load, create, remove, restore,
   };
 }
