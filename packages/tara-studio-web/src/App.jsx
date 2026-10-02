@@ -8,6 +8,7 @@ import ShapeLibraryModal from './components/modals/ShapeLibraryModal.jsx';
 import FleetPage from './components/panels/FleetPage.jsx';
 import VaultPage from './components/panels/VaultPage.jsx';
 
+import useStudioHistory from './hooks/useStudioHistory.js';
 import useSceneList from './hooks/useSceneList.js';
 import usePlayback from './hooks/usePlayback.js';
 import useFleet, { defaultFleet } from './hooks/useFleet.js';
@@ -24,10 +25,10 @@ import './App.css';
 const AUTH_DISABLED = import.meta.env.VITE_DISABLE_AUTH === 'true';
 
 // The demo show from issue #15: "5" then "4", six seconds each.
-const INITIAL_SCENES = [
+const INITIAL_DOC = { scenes: [
   makeScene({ name: '5', shapeType: 'text', shapePayload: '5', holdDurationSeconds: 6, transitionDurationSeconds: 0 }),
   makeScene({ name: '4', shapeType: 'text', shapePayload: '4', holdDurationSeconds: 6, transitionDurationSeconds: 4 }),
-];
+] };
 
 export default function App() {
   const [unlocked, setUnlocked] = useState(
@@ -50,7 +51,8 @@ export default function App() {
   const [zoom, setZoom] = useState(1);
 
   const audio = useAudioTrack();
-  const list = useSceneList(INITIAL_SCENES);
+  const history = useStudioHistory(INITIAL_DOC);
+  const list = useSceneList(history);
   const fleet = useFleet(defaultFleet(6));
   const builder = useShowBuilder();
 
@@ -164,6 +166,7 @@ export default function App() {
               tab={drawerTab}
               onTab={setDrawerTab}
               list={list}
+              history={history}
               loading={loading}
               onBuild={handleBuild}
               onOpenLibrary={setLibrarySceneId}

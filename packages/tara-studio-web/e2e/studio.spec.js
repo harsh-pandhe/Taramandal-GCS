@@ -192,3 +192,120 @@ test('swarm fleet', async ({ page }) => {
   await page.getByRole('button', { name: 'Swarm Fleet' }).click();
   await shot(page, 'swarm-fleet');
 });
+
+// Issue #100. Behaviour, not appearance: these drive the real history hook and
+// keyboard listener, which the unit tests (no DOM) cannot reach.
+test.describe('undo/redo', () => {
+  test.beforeEach(async ({ page }) => openStudio(page));
+
+  const cards = (page) => page.locator('.scene-card');
+  const undo = (page) => page.getByRole('button', { name: 'Undo', exact: true });
+  const redo = (page) => page.getByRole('button', { name: 'Redo', exact: true });
+  // Focus something that is not a text field, where Ctrl+Z belongs to the app.
+  const leaveTextField = (page) => page.locator('.section-subtitle').first().click();
+
+  test('buttons undo and redo a scene edit', async ({ page }) => {
+    await expect(cards(page)).toHaveCount(2);
+    await expect(undo(page)).toBeDisabled();
+    await expect(redo(page)).toBeDisabled();
+
+    await page.getByRole('button', { name: 'Add Scene' }).click();
+    await expect(cards(page)).toHaveCount(3);
+    await expect(redo(page)).toBeDisabled();
+
+    await undo(page).click();
+    await expect(cards(page)).toHaveCount(2);
+    await expect(undo(page)).toBeDisabled();
+
+    await redo(page).click();
+    await expect(cards(page)).toHaveCount(3);
+    await expect(page.getByLabel('Scene 3 name')).toHaveValue('Scene 3');
+  });
+
+  test('keyboard shortcuts undo and redo', async ({ page }) => {
+    await page.getByRole('button', { name: 'Add Scene' }).click();
+    await page.getByRole('button', { name: 'Delete scene' }).first().click();
+    await expect(cards(page)).toHaveCount(2);
+    await expect(page.getByLabel('Scene 1 name')).toHaveValue('4');
+
+    await leaveTextField(page);
+    await page.keyboard.press('Control+z');
+    await expect(cards(page)).toHaveCount(3);
+    await expect(page.getByLabel('Scene 1 name')).toHaveValue('5');
+    await page.keyboard.press('Control+z');
+    await expect(cards(page)).toHaveCount(2);
+
+    await page.keyboard.press('Control+Shift+z');
+    await expect(cards(page)).toHaveCount(3);
+    await page.keyboard.press('Control+y');
+    await expect(cards(page)).toHaveCount(2);
+    await expect(page.getByLabel('Scene 1 name')).toHaveValue('4');
+  });
+
+  test('typing a name is one undo step, and Ctrl+Z in the field is left to the browser', async ({ page }) => {
+    const name = page.getByLabel('Scene 1 name');
+    await name.click();
+    await name.press('End');
+    await name.pressSequentially('-intro');
+    await expect(name).toHaveValue('5-intro');
+
+    await page.locator('.history-list summary').click();
+    await expect(page.locator('.history-list li')).toHaveText(['Opened', 'Edit scene name']);
+
+    // The whole burst of keystrokes is a single step.
+    await undo(page).click();
+    await expect(name).toHaveValue('5');
+    await redo(page).click();
+    await expect(name).toHaveValue('5-intro');
+    await expect(redo(page)).toBeDisabled();
+
+    // With focus in the text field, Ctrl+Z is the browser's own text undo. Had
+    // the app taken it, the edit would now be undone and Redo would light up.
+    await name.focus();
+    await page.keyboard.press('Control+z');
+    await expect(redo(page)).toBeDisabled();
+  });
+
+  test('the history list jumps to any point', async ({ page }) => {
+    await page.getByRole('button', { name: 'Add Scene' }).click();
+    await page.getByRole('button', { name: 'Add Scene' }).click();
+    await page.getByRole('button', { name: 'Duplicate scene' }).first().click();
+    await expect(cards(page)).toHaveCount(5);
+
+    await page.locator('.history-list summary').click();
+    const entries = page.locator('.history-list li button');
+    await expect(entries).toHaveText(['Opened', 'Add scene', 'Add scene', 'Duplicate scene "5"']);
+
+    await entries.nth(1).click();
+    await expect(cards(page)).toHaveCount(3);
+    await expect(entries.nth(1)).toHaveClass(/current/);
+    await expect(entries.nth(3)).toHaveClass(/undone/);
+
+    await entries.nth(0).click();
+    await expect(cards(page)).toHaveCount(2);
+
+    await entries.nth(3).click();
+    await expect(cards(page)).toHaveCount(5);
+  });
+
+  test('a new edit after undo discards the redo branch', async ({ page }) => {
+    await page.getByRole('button', { name: 'Add Scene' }).click();
+    await undo(page).click();
+    await expect(redo(page)).toBeEnabled();
+
+    await page.getByRole('button', { name: 'Duplicate scene' }).first().click();
+    await expect(redo(page)).toBeDisabled();
+    await expect(cards(page)).toHaveCount(3);
+  });
+
+  test('loading a project starts a fresh history', async ({ page }) => {
+    await page.getByRole('button', { name: 'Add Scene' }).click();
+    await expect(undo(page)).toBeEnabled();
+
+    await page.getByRole('button', { name: 'Project Vault' }).click();
+    await page.getByRole('button', { name: 'Load', exact: true }).first().click();
+    await page.getByRole('button', { name: 'Sequencer', exact: true }).click();
+    await expect(undo(page)).toBeDisabled();
+    await expect(redo(page)).toBeDisabled();
+  });
+});
