@@ -10,10 +10,12 @@
 // assistant, #89) without that tooling getting any other handle on Studio
 // state - so everything it applies is undoable by construction.
 //
-// The document is { scenes } today. Other editable state (fleet, LED track)
+// The document is { scenes, dronesList }. Other editable state (the LED track)
 // joins it by adding a field and its command types here.
 
 import { makeScene } from './sequencer.js';
+import { MAX_FLEET_SIZE } from './api.js';
+import { applyFleetCommand } from './fleetCommands.js';
 
 const quote = (name) => `"${name}"`;
 
@@ -148,6 +150,10 @@ export const applyCommand = (doc, command) => {
   if (command.type.startsWith('scene/')) {
     const scenes = applySceneCommand(doc.scenes, command);
     return scenes === doc.scenes ? doc : { ...doc, scenes };
+  }
+  if (command.type.startsWith('fleet/') && Array.isArray(doc.dronesList)) {
+    const dronesList = applyFleetCommand(doc.dronesList, command, MAX_FLEET_SIZE);
+    return dronesList === doc.dronesList ? doc : { ...doc, dronesList };
   }
   return doc;
 };

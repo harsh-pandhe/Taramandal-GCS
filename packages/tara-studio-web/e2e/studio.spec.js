@@ -360,3 +360,77 @@ test('project save history can be browsed and restored', async ({ page }) => {
   await page.getByRole('button', { name: 'Project Vault' }).click();
   await expect(page.locator('.vault-versions summary')).toHaveText(/Save history \(3\)/);
 });
+
+// Issue #102: fleet editing at 100 drones. Behaviour against the real page.
+test.describe('bulk fleet editing', () => {
+  const rows = (page) => page.locator('[data-testid="fleet-rows"] [role="row"]');
+  const hoverOf = (page, n) => page.getByLabel(`Hover altitude of VEHICLE ${String(n).padStart(2, '0')}`);
+
+  test.beforeEach(async ({ page }) => {
+    await openStudio(page);
+    await page.getByRole('button', { name: 'Swarm Fleet' }).click();
+    await page.getByLabel(/Fleet size/).fill('100');
+    await expect(page.getByTestId('fleet-count')).toContainText('100 vehicles');
+  });
+
+  test('100 drones keep the DOM bounded and the whole list reachable', async ({ page }) => {
+    const mounted = await rows(page).count();
+    expect(mounted).toBeGreaterThan(5);
+    expect(mounted).toBeLessThanOrEqual(25);
+    expect(await page.locator('input[type="color"]').count()).toBeLessThanOrEqual(26);
+
+    // Scroll the whole list and record any main-thread stall while doing it.
+    const longTasks = await page.evaluate(async () => {
+      const stalls = [];
+      const observer = new PerformanceObserver((list) => {
+        for (const e of list.getEntries()) stalls.push(e.duration);
+      });
+      observer.observe({ type: 'longtask', buffered: false });
+      const el = document.querySelector('[data-testid="fleet-rows"]');
+      for (let y = 0; y <= el.scrollHeight; y += 200) {
+        el.scrollTop = y;
+        await new Promise(requestAnimationFrame);
+      }
+      observer.disconnect();
+      return stalls;
+    });
+    expect(longTasks.filter((ms) => ms > 200)).toEqual([]);
+    await expect(page.getByText('VEHICLE 99', { exact: true })).toBeVisible();
+    expect(await rows(page).count()).toBeLessThanOrEqual(25);
+  });
+
+  test('search, select all shown, and set hover altitude in one action', async ({ page }) => {
+    await page.getByLabel('Search vehicles').fill('drone 1');
+    await expect(page.getByTestId('fleet-count')).toContainText('10 of 100 shown');
+    await page.getByLabel('Select all shown').check();
+    await expect(page.getByTestId('fleet-count')).toContainText('10 selected');
+
+    await page.getByLabel('Bulk hover altitude').fill('15');
+    await page.getByRole('group', { name: 'Edit selected vehicles' }).getByRole('button', { name: 'Apply' }).first().click();
+
+    // All ten are in view while filtered; rows outside the window aren't mounted.
+    for (const n of [10, 14, 19]) await expect(hoverOf(page, n)).toHaveValue('15');
+    await page.getByLabel('Search vehicles').fill('');
+    await expect(hoverOf(page, 10)).toHaveValue('15');
+    await expect(hoverOf(page, 2)).toHaveValue('3.4');
+
+    // One bulk edit is one undo step.
+    await page.getByRole('button', { name: 'Undo', exact: true }).click();
+    await expect(hoverOf(page, 10)).toHaveValue('9');
+    await page.getByRole('button', { name: 'Redo', exact: true }).click();
+    await expect(hoverOf(page, 10)).toHaveValue('15');
+  });
+
+  test('shift-click selects a range for a bulk colour change', async ({ page }) => {
+    await page.getByLabel('Select VEHICLE 02').click();
+    await page.getByLabel('Select VEHICLE 06').click({ modifiers: ['Shift'] });
+    await expect(page.getByTestId('fleet-count')).toContainText('5 selected');
+
+    await page.getByLabel('Bulk LED colour').fill('#ff0000');
+    await page.getByRole('group', { name: 'Edit selected vehicles' }).getByRole('button', { name: 'Apply' }).nth(2).click();
+    for (const n of [2, 3, 4, 5, 6]) {
+      await expect(page.getByLabel(`LED colour of VEHICLE 0${n}`)).toHaveValue('#ff0000');
+    }
+    await expect(page.getByLabel('LED colour of VEHICLE 07')).not.toHaveValue('#ff0000');
+  });
+});
