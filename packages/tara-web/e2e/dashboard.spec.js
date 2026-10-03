@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import { signIn } from './session.js';
 
 // Behavioural smoke test for the operator dashboard (App.jsx and the
 // components it is built from). The other specs here drive the night-sky
@@ -128,6 +129,7 @@ async function openDashboard(page, drones, { launch = { status: 'success', messa
     } });
   });
 
+  await signIn(page);
   await page.goto('/');
   // Generous: in dev mode React runs effects twice, so the first socket is
   // closed and the reconnect is scheduled 2s later, while the page may still be

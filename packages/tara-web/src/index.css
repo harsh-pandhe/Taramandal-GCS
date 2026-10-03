@@ -1001,3 +1001,36 @@ body {
     justify-content: center;
   }
 }
+
+/* ---------------------------------------------- Operator sign-in (#64) --- */
+.login-screen {
+  min-height: 100vh; display: flex; align-items: center; justify-content: center;
+  background: var(--bg-base); padding: 16px;
+}
+.login-card {
+  width: 100%; max-width: 380px; display: flex; flex-direction: column; gap: 14px;
+  background: var(--bg-surface); border: 1px solid var(--border, #1e2636);
+  border-radius: 10px; padding: 28px;
+}
+.login-card h1 { margin: 0; font-size: 1.2rem; letter-spacing: 2px; color: var(--primary); }
+.login-card label { display: flex; flex-direction: column; gap: 6px; font-size: 0.8rem; color: var(--text-dim); }
+.login-card input {
+  background: var(--bg-input); color: var(--text); border: 1px solid var(--border, #1e2636);
+  border-radius: 6px; padding: 10px 12px; font-size: 0.95rem;
+}
+.login-card button {
+  background: var(--primary); color: #04131c; border: 0; border-radius: 6px;
+  padding: 11px; font-weight: 700; letter-spacing: 1px; cursor: pointer;
+}
+.login-card button:disabled { opacity: 0.5; cursor: not-allowed; }
+.login-hint { margin: 0; font-size: 0.75rem; color: var(--text-faint); line-height: 1.5; }
+.login-hint code { color: var(--text-dim); word-break: break-all; }
+.login-error {
+  color: var(--danger); background: var(--danger-tint); border-radius: 6px;
+  padding: 8px 10px; font-size: 0.82rem;
+}
+.operator-badge { display: inline-flex; align-items: center; gap: 8px; }
+.operator-badge button {
+  background: transparent; color: var(--text-dim); border: 1px solid var(--border, #1e2636);
+  border-radius: 4px; padding: 2px 8px; font-size: 0.72rem; cursor: pointer;
+}

@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { API_BASE } from '../config';
+import { gcsFetch } from '../session';
 
 /**
  * Simulation Control Bar state (issue #2): polls the GCS for simulator
@@ -22,7 +23,7 @@ export default function useSimControl(setErrorMsg) {
 
     const poll = async () => {
       try {
-        const res = await fetch(`${API_BASE}/api/sim/status`);
+        const res = await gcsFetch(`${API_BASE}/api/sim/status`);
         if (!res.ok) return;
         const data = await res.json();
         if (!cancelled) setSimStatus(data);
@@ -49,7 +50,7 @@ export default function useSimControl(setErrorMsg) {
       // operator picks a fleet size, not a backend — the choice of which
       // simulator can serve it is ours to make.
       const backend = simDroneCount > 50 ? 'sim' : 'px4';
-      const res = await fetch(`${API_BASE}/api/sim/launch`, {
+      const res = await gcsFetch(`${API_BASE}/api/sim/launch`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ num_drones: simDroneCount, backend, headless: true })
@@ -71,7 +72,7 @@ export default function useSimControl(setErrorMsg) {
   const handleRvizLaunch = async () => {
     setSimBusy(true);
     try {
-      const res = await fetch(`${API_BASE}/api/rviz/launch`, {
+      const res = await gcsFetch(`${API_BASE}/api/rviz/launch`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ world: 'drone_show_field' })
@@ -93,7 +94,7 @@ export default function useSimControl(setErrorMsg) {
   const handleSimStop = async () => {
     setSimBusy(true);
     try {
-      const res = await fetch(`${API_BASE}/api/sim/stop`, { method: 'POST' });
+      const res = await gcsFetch(`${API_BASE}/api/sim/stop`, { method: 'POST' });
       const data = await res.json();
       if (res.ok && data.status === 'success') {
         setSimStatus(data.sim);

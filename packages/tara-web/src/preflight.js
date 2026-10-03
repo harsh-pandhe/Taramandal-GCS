@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { gcsFetch } from './session';
 
 // Data side of the pre-arm checklist HUD (issue #48): polling the GCS verdict
 // and rolling per-drone gates up into one card per rule. Components live in
@@ -24,7 +25,7 @@ export function usePreflight(apiBase, pollMs = POLL_MS) {
     let cancelled = false;
     const poll = async () => {
       try {
-        const res = await fetch(`${apiBase}/api/preflight-check`);
+        const res = await gcsFetch(`${apiBase}/api/preflight-check`);
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const data = await res.json();
         if (!cancelled) {

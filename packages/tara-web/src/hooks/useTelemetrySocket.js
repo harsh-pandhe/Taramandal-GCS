@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { decodeFastFrame, decodeFastFrameInto, FLOATS_PER_DRONE } from '../telemetry';
 import { MAX_NIGHTSKY_DRONES, WS_URL } from '../config';
+import { WS_AUTH_PROTOCOL, clearSession, getSession } from '../session';
 
 /**
  * The GCS telemetry WebSocket: connection state, the per-drone telemetry map
@@ -35,7 +36,10 @@ export default function useTelemetrySocket(setErrorMsg) {
     let reconnectTimer;
 
     function connect() {
-      ws = new WebSocket(WS_URL);
+      // The bearer token rides as a subprotocol: browsers cannot set headers
+      // on a WebSocket, and a token in the URL would land in access logs.
+      const session = getSession();
+      ws = new WebSocket(WS_URL, session ? [WS_AUTH_PROTOCOL, session.token] : []);
       // Binary frames arrive as ArrayBuffer instead of the default Blob, so
       // decodeFastFrame can read them directly without an async Blob->buffer
       // conversion first.
@@ -89,9 +93,15 @@ export default function useTelemetrySocket(setErrorMsg) {
         }
       };
 
-      ws.onclose = () => {
+      ws.onclose = (event) => {
         setWsConnected(false);
         setFleetState(null);
+        // 1008: the GCS refused the session (expired, revoked, GCS restarted).
+        // Back to the login screen rather than retrying a dead token forever.
+        if (event.code === 1008) {
+          clearSession();
+          return;
+        }
         console.log('Telemetry WebSocket closed. Reconnecting in 2s...');
         reconnectTimer = setTimeout(connect, 2000);
       };

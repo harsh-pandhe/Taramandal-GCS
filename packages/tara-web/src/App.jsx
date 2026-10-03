@@ -16,6 +16,8 @@ import useTelemetrySocket from './hooks/useTelemetrySocket';
 import useSimControl from './hooks/useSimControl';
 import useMission from './hooks/useMission';
 import { computeFleetStats } from './fleetStats';
+import LoginScreen from './components/auth/LoginScreen';
+import { logout, useSession } from './session';
 
 /**
  * Root layout of the GCS operator dashboard. Owns only the state shared
@@ -29,7 +31,13 @@ import { computeFleetStats } from './fleetStats';
  *   readiness              PreflightChecklistPanel
  *   mission                TrajectoryPlannerPanel   (useMission)
  */
+/** Sign-in gate (issue #64): nothing below talks to the GCS until an operator is logged in. */
 export default function App() {
+  const session = useSession();
+  return session ? <Dashboard session={session} /> : <LoginScreen />;
+}
+
+function Dashboard({ session }) {
   const [errorMsg, setErrorMsg] = useState('');
   const [bypassChecklist, setBypassChecklist] = useState(false);
   const [viewMode, setViewMode] = useState('operations');
@@ -44,7 +52,7 @@ export default function App() {
 
   return (
     <div className="app-container">
-      <HeaderBar wsConnected={wsConnected} fleetState={fleetState} />
+      <HeaderBar wsConnected={wsConnected} fleetState={fleetState} session={session} onLogout={logout} />
 
       <ErrorBanner message={errorMsg} />
 
