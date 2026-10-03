@@ -27,6 +27,7 @@ from fastapi.testclient import TestClient
 
 from tara_core.signing import TrustedKey, generate_private_key, public_key_to_b64, sign_show
 from tara_gcs import main as gcs_main
+from tara_gcs.auth import OperatorStore, Role
 from tara_gcs.drone_manager import DroneManager
 from tara_gcs.show_auth import ShowTrustPolicy, load_trust_policy
 
@@ -200,6 +201,9 @@ def _spawn_gcs(port, config_path, allow_unsigned):
         "GCS_CONFIG_PATH": str(config_path),
         "GCS_STATE_PATH": str(config_path.parent / f"state-{port}.json"),
         "GCS_ALLOW_UNSIGNED": "1" if allow_unsigned else "0",
+        # Issue #64: a throwaway operators file and audit log, not the developer's.
+        "GCS_OPERATORS_PATH": str(config_path.parent / "operators.json"),
+        "GCS_COMMAND_AUDIT_PATH": str(config_path.parent / f"command-audit-{port}.jsonl"),
         "PYTHONPATH": os.pathsep.join(
             os.path.join(REPO_ROOT, "packages", p) for p in ("tara-core", "tara-gcs", "tara-sim")
         ),
@@ -225,7 +229,17 @@ def _wait_for(base_url):
     raise RuntimeError(f"GCS at {base_url} did not come up")
 
 
-def _http_upload(base_url, content, manifest=None):
+def _http_login(base_url, operator, passphrase):
+    req = urllib.request.Request(
+        f"{base_url}/api/auth/login", method="POST",
+        data=json.dumps({"operator": operator, "passphrase": passphrase}).encode(),
+        headers={"Content-Type": "application/json"},
+    )
+    with urllib.request.urlopen(req, timeout=5.0) as resp:
+        return json.loads(resp.read())["token"]
+
+
+def _http_upload(base_url, content, manifest=None, token=None):
     boundary = "----tara49"
     parts = [("file", "show.json", content)]
     if manifest is not None:
@@ -240,7 +254,10 @@ def _http_upload(base_url, content, manifest=None):
     body += f"--{boundary}--\r\n".encode()
     req = urllib.request.Request(
         f"{base_url}/api/upload-trajectory", data=body, method="POST",
-        headers={"Content-Type": f"multipart/form-data; boundary={boundary}"},
+        headers={
+            "Content-Type": f"multipart/form-data; boundary={boundary}",
+            **({"Authorization": f"Bearer {token}"} if token else {}),
+        },
     )
     try:
         with urllib.request.urlopen(req, timeout=5.0) as resp:
@@ -256,17 +273,25 @@ def test_gcs_process_enforces_signatures_per_launch_flag(tmp_path, key, allow_un
     port = _free_port()
     base_url = f"http://127.0.0.1:{port}"
 
+    OperatorStore(tmp_path / "operators.json").add("uploader", Role.CHOREOGRAPHER, "uploader passphrase")
     proc = _spawn_gcs(port, config, allow_unsigned)
     try:
         _wait_for(base_url)
 
-        status, body = _http_upload(base_url, SHOW, sign_show(SHOW, "show.json", key))
+        # Issue #64: the real server refuses an upload from nobody.
+        status, _ = _http_upload(base_url, SHOW, sign_show(SHOW, "show.json", key))
+        assert status == 401
+        token = _http_login(base_url, "uploader", "uploader passphrase")
+
+        status, body = _http_upload(base_url, SHOW, sign_show(SHOW, "show.json", key), token=token)
         assert status == 200 and body["signature"]["signer"] == "Harsh"
 
-        status, _ = _http_upload(base_url, SHOW.replace(b"-3.0", b"-4.0"), sign_show(SHOW, "show.json", key))
+        status, _ = _http_upload(
+            base_url, SHOW.replace(b"-3.0", b"-4.0"), sign_show(SHOW, "show.json", key), token=token,
+        )
         assert status == 403
 
-        status, body = _http_upload(base_url, SHOW)
+        status, body = _http_upload(base_url, SHOW, token=token)
         if allow_unsigned:
             assert status == 200 and body["signature"] == {"verified": False}
         else:

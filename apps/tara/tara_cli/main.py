@@ -137,6 +137,16 @@ def sign(
     key: Path = typer.Option(..., "--key", exists=True, dir_okay=False, help="Private key from `tara keygen`."),
 ) -> None:
     """Write SHOW.sig.json, the signature manifest the GCS needs to accept SHOW."""
+    # Like ssh with a private key: refuse one other users can read (issue #64).
+    # `tara keygen` creates keys 0600; this catches one copied or chmod-ed since.
+    mode = key.stat().st_mode & 0o777
+    if os.name == "posix" and mode & 0o077:
+        typer.secho(
+            f"[tara] {key} has permissions {mode:o}, so other users can read this signing key. "
+            f"Run `chmod 600 {key}` and try again.",
+            fg=typer.colors.RED, err=True,
+        )
+        raise typer.Exit(1)
     try:
         private_key = private_key_from_pem(key.read_bytes())
     except SignatureError as exc:

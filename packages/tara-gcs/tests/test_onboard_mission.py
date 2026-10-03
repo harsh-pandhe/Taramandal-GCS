@@ -31,7 +31,13 @@ from fastapi import HTTPException
 
 from tara_core import altitude_layers, compute_show_id, decode_mission
 from tara_gcs import main as gcs_main
+from tara_gcs.auth import Operator, Role
 from tara_gcs.drone_manager import MISSION_FILE_NAME, MISSION_REMOTE_DIR, DroneManager, LaunchGateError, _pad_offset
+
+
+# Issue #64: route handlers called directly take the operator that the auth
+# dependency would otherwise inject.
+COMMANDER = Operator("test-commander", Role.FLIGHT_COMMANDER)
 
 REMOTE_PATH = f"{MISSION_REMOTE_DIR}/{MISSION_FILE_NAME}"
 
@@ -335,15 +341,15 @@ async def test_api_launch_is_409_until_the_mission_is_uploaded(tmp_path, patched
         manager.active_trajectory = _show(n)
 
         with pytest.raises(HTTPException) as refused:
-            await gcs_main.launch_fleet()
+            await gcs_main.launch_fleet(operator=COMMANDER)
         assert refused.value.status_code == 409
 
-        assert (await gcs_main.mission_status())["staged"] is False
-        uploaded = await gcs_main.upload_mission()
+        assert (await gcs_main.mission_status(operator=COMMANDER))["staged"] is False
+        uploaded = await gcs_main.upload_mission(operator=COMMANDER)
         assert uploaded["all_verified"]
-        assert (await gcs_main.mission_status())["launch_gate"]["ok"]
+        assert (await gcs_main.mission_status(operator=COMMANDER))["launch_gate"]["ok"]
 
-        assert (await gcs_main.launch_fleet())["status"] == "success"
+        assert (await gcs_main.launch_fleet(operator=COMMANDER))["status"] == "success"
     finally:
         await manager.shutdown()
 
@@ -352,5 +358,5 @@ async def test_api_launch_is_409_until_the_mission_is_uploaded(tmp_path, patched
 async def test_api_upload_mission_needs_a_trajectory(tmp_path, patched_manager):
     patched_manager(_manager(tmp_path, 1))
     with pytest.raises(HTTPException) as refused:
-        await gcs_main.upload_mission()
+        await gcs_main.upload_mission(operator=COMMANDER)
     assert refused.value.status_code == 400

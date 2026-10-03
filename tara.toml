@@ -54,3 +54,15 @@ trusted_keys = [
 operational_profile = "SIMULATION"
 # Series cell count of the flight packs, used to derive per-cell voltage.
 battery_cells = 4
+
+[auth]
+# Operator accounts and roles for the GCS API and dashboard (issue #64).
+# Roles: "viewer" (telemetry), "choreographer" (upload/validate shows),
+# "flight_commander" (arm, launch, abort). Manage accounts with
+#   python -m tara_gcs.auth add <name> --role flight_commander
+#   python -m tara_gcs.auth list | remove <name>
+# The file holds scrypt hashes and must be owner-only (chmod 600); the GCS
+# refuses to start with one others can read. GCS_OPERATORS_PATH overrides this.
+# operators_file = "~/.config/taramandal/operators.json"
+# Login sessions last this long and all end when the GCS restarts.
+session_ttl_hours = 12

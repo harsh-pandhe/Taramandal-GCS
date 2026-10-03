@@ -15,8 +15,14 @@ import pytest
 from fastapi import HTTPException
 
 from tara_gcs import main as gcs_main
+from tara_gcs.auth import Operator, Role
 from tara_gcs.drone_manager import DroneManager
 from tara_gcs.sim_manager import SimManager
+
+
+# Issue #64: route handlers called directly take the operator that the auth
+# dependency would otherwise inject.
+COMMANDER = Operator("test-commander", Role.FLIGHT_COMMANDER)
 
 
 @pytest.fixture
@@ -35,7 +41,7 @@ def sim(monkeypatch, tmp_path):
 async def test_launch_sim_backend_reports_running(sim):
     """A sim-backend launch succeeds without spawning anything."""
     res = await gcs_main.sim_launch(
-        gcs_main.SimLaunchRequest(num_drones=100, backend="sim")
+        gcs_main.SimLaunchRequest(num_drones=100, backend="sim"), operator=COMMANDER
     )
 
     assert res["status"] == "success"
@@ -48,7 +54,7 @@ async def test_launch_rejects_oversized_px4_fleet_as_400(sim):
     """500 real SITL instances is a bad request, not a server error."""
     with pytest.raises(HTTPException) as exc:
         await gcs_main.sim_launch(
-            gcs_main.SimLaunchRequest(num_drones=500, backend="px4")
+            gcs_main.SimLaunchRequest(num_drones=500, backend="px4"), operator=COMMANDER
         )
 
     assert exc.value.status_code == 400
@@ -59,10 +65,10 @@ async def test_launch_rejects_oversized_px4_fleet_as_400(sim):
 async def test_double_launch_is_a_409_not_a_400(sim):
     """Clicking Launch twice is a conflict — distinguishable in the UI from a
     malformed request, which is why the manager's error is mapped by content."""
-    await gcs_main.sim_launch(gcs_main.SimLaunchRequest(num_drones=5, backend="sim"))
+    await gcs_main.sim_launch(gcs_main.SimLaunchRequest(num_drones=5, backend="sim"), operator=COMMANDER)
 
     with pytest.raises(HTTPException) as exc:
-        await gcs_main.sim_launch(gcs_main.SimLaunchRequest(num_drones=5, backend="sim"))
+        await gcs_main.sim_launch(gcs_main.SimLaunchRequest(num_drones=5, backend="sim"), operator=COMMANDER)
 
     assert exc.value.status_code == 409
 
@@ -77,7 +83,7 @@ async def test_status_merges_process_view_with_fleet_heartbeat(sim, monkeypatch)
         1: {"connected": True, "armed": False, "home_lat": 0.0, "home_lon": 0.0},
     }
 
-    status = await gcs_main.sim_status()
+    status = await gcs_main.sim_status(operator=COMMANDER)
 
     assert status["heartbeat"]["alive"] is True
     assert status["heartbeat"]["connected"] == 2
@@ -94,7 +100,7 @@ async def test_status_with_no_fleet_reports_not_alive(sim, monkeypatch):
     operator needs to see that before pressing Launch."""
     monkeypatch.setattr(gcs_main, "drone_manager", DroneManager(ports=[], backend="sim"))
 
-    status = await gcs_main.sim_status()
+    status = await gcs_main.sim_status(operator=COMMANDER)
 
     assert status["heartbeat"]["alive"] is False
     assert status["heartbeat"]["connected"] == 0
@@ -103,7 +109,7 @@ async def test_status_with_no_fleet_reports_not_alive(sim, monkeypatch):
 @pytest.mark.asyncio
 async def test_stop_is_idempotent_from_the_api(sim):
     """Terminate is always clickable; stopping nothing must still be a success."""
-    res = await gcs_main.sim_stop()
+    res = await gcs_main.sim_stop(operator=COMMANDER)
 
     assert res["status"] == "success"
     assert res["stopped"] == []
@@ -113,7 +119,7 @@ async def test_stop_is_idempotent_from_the_api(sim):
 @pytest.mark.asyncio
 async def test_rviz_without_a_fleet_is_a_400(sim):
     with pytest.raises(HTTPException) as exc:
-        await gcs_main.rviz_launch(gcs_main.RvizLaunchRequest())
+        await gcs_main.rviz_launch(gcs_main.RvizLaunchRequest(), operator=COMMANDER)
 
     assert exc.value.status_code == 400
     assert "no PX4 fleet is running" in exc.value.detail

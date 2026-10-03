@@ -3,9 +3,13 @@ import logging
 import os
 from pathlib import Path
 from typing import Annotated
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, UploadFile, File, Header, HTTPException
+from fastapi import (
+    Depends, FastAPI, File, HTTPException, Request, UploadFile, WebSocket, WebSocketDisconnect,
+    WebSocketException, status,
+)
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel
 from tara_gcs.drone_manager import DroneManager
 from tara_gcs.fleet_fsm import Command, IllegalTransitionError
@@ -13,8 +17,13 @@ from tara_gcs.trajectory_parser import parse_trajectory_bytes
 from tara_gcs.telemetry_codec import FAST_HZ, SLOW_HZ, encode_fast_frame, encode_slow_frame
 from tara_gcs.sim_manager import SimLaunchError, SimManager
 from tara_gcs.show_auth import load_trust_policy
+from tara_gcs.auth import (
+    AuthError, AuthService, LoginThrottled, Operator, OperatorStore, Role, SessionStore, load_auth_config,
+)
 from tara_core.signing import MAX_MANIFEST_BYTES, SignatureError
-from tara_gcs.preflight import AuditLog, ConfirmationError, PreArmChecklistEngine, load_safety_config
+from tara_gcs.preflight import (
+    DEFAULT_AUDIT_PATH, AuditLog, ConfirmationError, PreArmChecklistEngine, load_safety_config,
+)
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
@@ -84,14 +93,154 @@ logger.info(f"Pre-arm safety profile: {safety_config.profile.value}")
 # lifecycle state machine first; an illegal one is a 409 carrying the machine's
 # own explanation, and nothing is sent to a vehicle.
 
-#: Who issued a command, for the lifecycle audit log. There is no operator
-#: authentication yet, so this is self-reported by the client.
-OperatorHeader = Annotated[str | None, Header(alias="X-Operator-ID")]
-ANONYMOUS_OPERATOR = "anonymous"
+# --- Operator authentication and roles (issue #64) ------------------------
+#
+# Every route except login and the bare health check needs a logged-in
+# operator with at least the role its dependency names (see tara_gcs.auth).
+# The operator recorded in the lifecycle and pre-arm audit logs is the one the
+# session belongs to, not anything the client claims.
+
+#: Who did what, from where (issue #64): logins, and every state-changing API
+#: call with its outcome. Kept apart from the pre-arm trail so the checklist
+#: HUD's recent entries are not crowded out by routine commands.
+command_audit = AuditLog(
+    path=os.environ.get("GCS_COMMAND_AUDIT_PATH")
+    or os.path.join(os.path.dirname(DEFAULT_AUDIT_PATH), "command_audit.jsonl")
+)
+
+auth_config = load_auth_config(_tara_toml_path)
+auth_service = AuthService(
+    OperatorStore(auth_config.operators_path),
+    SessionStore(ttl_s=auth_config.session_ttl_s),
+)
+if not auth_service.store.all():
+    logger.warning(
+        f"No GCS operators in {auth_config.operators_path}: nobody can log in until one is added with "
+        "`python -m tara_gcs.auth add <name> --role flight_commander`."
+    )
+
+_bearer = HTTPBearer(auto_error=False)
+
+#: Browsers cannot set headers on a WebSocket, so the dashboard offers its
+#: token as a subprotocol (`new WebSocket(url, [WS_AUTH_PROTOCOL, token])`)
+#: rather than in the URL, where it would end up in access logs.
+WS_AUTH_PROTOCOL = "tara.bearer"
 
 
-def _operator(x_operator_id: str | None) -> str:
-    return (x_operator_id or "").strip() or ANONYMOUS_OPERATOR
+def _origin(request: Request | WebSocket) -> str:
+    return request.client.host if request.client else "unknown"
+
+
+def current_operator(
+    request: Request,
+    creds: Annotated[HTTPAuthorizationCredentials | None, Depends(_bearer)],
+) -> Operator:
+    """The logged-in operator, or 401."""
+    try:
+        operator = auth_service.authenticate(creds.credentials if creds else None)
+    except AuthError as e:
+        raise HTTPException(status_code=401, detail=str(e), headers={"WWW-Authenticate": "Bearer"})
+    request.state.operator = operator
+    return operator
+
+
+def require(role: Role):
+    """Dependency: the logged-in operator if they hold at least `role`, else 403."""
+    def dependency(operator: Annotated[Operator, Depends(current_operator)]) -> Operator:
+        if operator.role < role:
+            raise HTTPException(
+                status_code=403,
+                detail=f"{operator.id} is a {operator.role.name}; this needs {role.name} or higher.",
+            )
+        return operator
+    dependency.required_role = role  # read by the route-coverage test
+    return dependency
+
+
+Viewer = Annotated[Operator, Depends(require(Role.VIEWER))]
+Choreographer = Annotated[Operator, Depends(require(Role.CHOREOGRAPHER))]
+Commander = Annotated[Operator, Depends(require(Role.FLIGHT_COMMANDER))]
+
+
+async def ws_operator(websocket: WebSocket) -> Operator:
+    """WebSocket counterpart of require(Role.VIEWER); refuses with close code 1008."""
+    offered = [p.strip() for p in websocket.headers.get("sec-websocket-protocol", "").split(",")]
+    token = offered[offered.index(WS_AUTH_PROTOCOL) + 1] if WS_AUTH_PROTOCOL in offered[:-1] else None
+    try:
+        return auth_service.authenticate(token)
+    except AuthError as e:
+        raise WebSocketException(code=status.WS_1008_POLICY_VIOLATION, reason=str(e))
+
+
+#: POSTs not written to the command audit trail by the middleware below:
+#: login records its own outcome (without the passphrase).
+_UNAUDITED_POSTS = {"/api/auth/login"}
+
+
+@app.middleware("http")
+async def audit_commands(request: Request, call_next):
+    """Record every state-changing API call: who, from where, and the outcome.
+
+    Refused calls (401/403/409/412) are recorded too: an attempt to launch
+    without the right role is exactly what an audit trail is for.
+    """
+    response = await call_next(request)
+    if request.method == "POST" and request.url.path.startswith("/api/") and request.url.path not in _UNAUDITED_POSTS:
+        operator = getattr(request.state, "operator", None)
+        command_audit.record(
+            "command",
+            method=request.method,
+            path=request.url.path,
+            status=response.status_code,
+            operator=operator.id if operator else None,
+            role=operator.role.name if operator else None,
+            origin_ip=_origin(request),
+        )
+    return response
+
+
+class LoginRequest(BaseModel):
+    operator: str
+    passphrase: str
+
+
+@app.post("/api/auth/login")
+def auth_login(req: LoginRequest, request: Request):
+    """Exchange an operator's passphrase for a bearer session token.
+
+    A plain `def`: scrypt verification takes tens of milliseconds of CPU, so
+    FastAPI runs this in its threadpool rather than stalling the event loop the
+    telemetry and safety loops share.
+    """
+    origin = _origin(request)
+    try:
+        token, session, operator = auth_service.login(req.operator, req.passphrase, origin)
+    except LoginThrottled as e:
+        command_audit.record("login_throttled", operator=req.operator, origin_ip=origin)
+        raise HTTPException(status_code=429, detail=str(e), headers={"Retry-After": str(e.retry_after_s)})
+    except AuthError as e:
+        command_audit.record("login_failed", operator=req.operator, origin_ip=origin)
+        raise HTTPException(status_code=401, detail=str(e), headers={"WWW-Authenticate": "Bearer"})
+    command_audit.record("login", operator=operator.id, role=operator.role.name, origin_ip=origin)
+    return {"token": token, "expires_at": session.expires_at, **operator.public()}
+
+
+@app.get("/api/audit/commands")
+async def command_audit_trail(limit: int = 100, *, operator: Viewer):
+    """Most recent command-audit entries: logins and state-changing API calls."""
+    return {"entries": list(command_audit.recent)[-max(0, limit):]}
+
+
+@app.get("/api/auth/me")
+async def auth_me(operator: Viewer):
+    """Who the presented token belongs to, and their current role."""
+    return operator.public()
+
+
+@app.post("/api/auth/logout")
+async def auth_logout(operator: Viewer, creds: Annotated[HTTPAuthorizationCredentials | None, Depends(_bearer)]):
+    auth_service.sessions.revoke(creds.credentials)
+    return {"status": "success", "message": f"{operator.id} logged out."}
 
 
 def _check_command(command: Command, operator: str, trigger: str) -> None:
@@ -163,7 +312,7 @@ async def get_status():
     }
 
 @app.get("/api/preflight-check")
-async def preflight_check():
+async def preflight_check(operator: Viewer):
     """Per-drone, per-rule pre-arm gate status under the active safety profile.
 
     Reads the telemetry dict the monitor loops maintain, like /api/status, so
@@ -173,7 +322,7 @@ async def preflight_check():
 
 
 @app.get("/api/preflight/audit")
-async def preflight_audit(limit: int = 50):
+async def preflight_audit(limit: int = 50, *, operator: Viewer):
     """Most recent audit-trail entries (latch/override steps, launch decisions)."""
     entries = list(preflight_engine.audit.recent)[-max(0, limit):]
     return {"entries": entries}
@@ -195,52 +344,52 @@ class ConfirmationCommit(BaseModel):
 
 
 @app.post("/api/preflight/latch/request")
-async def preflight_latch_request(req: ConfirmationRequest = ConfirmationRequest()):
+async def preflight_latch_request(req: ConfirmationRequest = ConfirmationRequest(), *, operator: Commander):
     """Step 1 of the two-step launch confirmation latch. Returns the token step 2 needs."""
-    return preflight_engine.request_latch(operator=req.operator)
+    return preflight_engine.request_latch(operator=operator.id)
 
 
 @app.post("/api/preflight/latch/confirm")
-async def preflight_latch_confirm(req: ConfirmationCommit):
+async def preflight_latch_confirm(req: ConfirmationCommit, operator: Commander):
     """Step 2: confirms the latch. Consumed by the next accepted launch."""
     gates = preflight_engine.evaluate_manager(drone_manager)
     summary = {"launch_permitted": gates["launch_permitted"], "blocking_reasons": gates["blocking_reasons"]}
     try:
-        return preflight_engine.confirm_latch(req.token, operator=req.operator, gates=summary)
+        return preflight_engine.confirm_latch(req.token, operator=operator.id, gates=summary)
     except ConfirmationError as e:
         raise HTTPException(status_code=409, detail=str(e))
 
 
 @app.post("/api/preflight/override/request")
-async def preflight_override_request(req: OverrideRequest):
+async def preflight_override_request(req: OverrideRequest, operator: Commander):
     """Step 1 of overriding BLOCKING rules the active profile marks overridable."""
     try:
-        return preflight_engine.request_override(req.rules, req.reason, operator=req.operator)
+        return preflight_engine.request_override(req.rules, req.reason, operator=operator.id)
     except ConfirmationError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
 
 @app.post("/api/preflight/override/confirm")
-async def preflight_override_confirm(req: ConfirmationCommit):
+async def preflight_override_confirm(req: ConfirmationCommit, operator: Commander):
     """Step 2: activates the override. Consumed by the next accepted launch."""
     try:
-        return preflight_engine.confirm_override(req.token, operator=req.operator)
+        return preflight_engine.confirm_override(req.token, operator=operator.id)
     except ConfirmationError as e:
         raise HTTPException(status_code=409, detail=str(e))
 
 
 @app.get("/api/fleet-state")
-async def get_fleet_state():
+async def get_fleet_state(operator: Viewer):
     """The fleet's lifecycle state, which commands are legal in it, and the
     most recent transitions (the audit log on disk has the full record)."""
     fsm = drone_manager.fleet_fsm
     return {**fsm.snapshot(), "history": list(fsm.history)}
 
 @app.post("/api/launch")
-async def launch_fleet(x_operator_id: OperatorHeader = None):
+async def launch_fleet(operator: Commander):
     logger.info("API: Launching fleet...")
-    _check_command(Command.LAUNCH, _operator(x_operator_id), "POST /api/launch")
-    decision = preflight_engine.authorize_launch(drone_manager)
+    _check_command(Command.LAUNCH, operator.id, "POST /api/launch")
+    decision = preflight_engine.authorize_launch(drone_manager, operator=operator.id)
     if not decision.permitted:
         # 412: the request is well-formed, but a precondition the server
         # enforces (a red pre-arm gate) does not hold.
@@ -260,7 +409,7 @@ async def launch_fleet(x_operator_id: OperatorHeader = None):
         if not gate["ok"]:
             raise HTTPException(status_code=409, detail=gate["reason"])
 
-    _apply_command(Command.LAUNCH, _operator(x_operator_id), "POST /api/launch")
+    _apply_command(Command.LAUNCH, operator.id, "POST /api/launch")
     drone_manager.start_launch_sequence(
         drone_ids=decision.drone_ids,
         require_ekf_health="ekf_health" not in decision.overridden_rules,
@@ -275,22 +424,22 @@ async def launch_fleet(x_operator_id: OperatorHeader = None):
     }
 
 @app.post("/api/rtl")
-async def trigger_rtl(x_operator_id: OperatorHeader = None):
+async def trigger_rtl(operator: Commander):
     logger.info("API: Failsafe RTL triggered...")
-    await drone_manager.trigger_rtl(operator=_operator(x_operator_id), trigger="POST /api/rtl")
+    await drone_manager.trigger_rtl(operator=operator.id, trigger="POST /api/rtl")
     return {"status": "success", "message": "Emergency RTL commanded."}
 
 @app.post("/api/land")
-async def trigger_land(x_operator_id: OperatorHeader = None):
+async def trigger_land(operator: Commander):
     logger.info("API: Land triggered...")
-    await drone_manager.trigger_land(operator=_operator(x_operator_id), trigger="POST /api/land")
+    await drone_manager.trigger_land(operator=operator.id, trigger="POST /api/land")
     return {"status": "success", "message": "Emergency landing commanded."}
 
 @app.post("/api/estop")
-async def trigger_estop(x_operator_id: OperatorHeader = None):
+async def trigger_estop(operator: Commander):
     """Kill every drone's motors. Airborne drones fall — see DroneManager.trigger_estop."""
     logger.critical("API: EMERGENCY STOP triggered...")
-    await drone_manager.trigger_estop(operator=_operator(x_operator_id), trigger="POST /api/estop")
+    await drone_manager.trigger_estop(operator=operator.id, trigger="POST /api/estop")
     return {"status": "success", "message": "Emergency stop commanded: motors killed."}
 
 # --- Single-drone abort (issue #59) ---------------------------------------
@@ -313,17 +462,17 @@ async def _abort_drone(drone_id: int, mode: str, label: str) -> dict:
     return {"status": "success", "message": f"Drone {drone_id} {label} commanded.", **result}
 
 @app.post("/api/drone/{drone_id}/rtl")
-async def abort_drone_rtl(drone_id: int):
+async def abort_drone_rtl(drone_id: int, operator: Commander):
     logger.info(f"API: Single-drone RTL triggered for Drone {drone_id}...")
     return await _abort_drone(drone_id, "rtl", "RTL")
 
 @app.post("/api/drone/{drone_id}/land")
-async def abort_drone_land(drone_id: int):
+async def abort_drone_land(drone_id: int, operator: Commander):
     logger.info(f"API: Single-drone land triggered for Drone {drone_id}...")
     return await _abort_drone(drone_id, "land", "landing")
 
 @app.post("/api/drone/{drone_id}/estop")
-async def abort_drone_estop(drone_id: int):
+async def abort_drone_estop(drone_id: int, operator: Commander):
     """Kill one drone's motors; it falls. See DroneManager._estop_one."""
     logger.critical(f"API: Single-drone EMERGENCY STOP triggered for Drone {drone_id}...")
     return await _abort_drone(drone_id, "estop", "emergency stop")
@@ -339,14 +488,15 @@ class StartTrajectoryRequest(BaseModel):
 async def upload_trajectory(
     file: UploadFile = File(...),
     signature: UploadFile | None = File(None),
-    x_operator_id: OperatorHeader = None,
+    *,
+    operator: Choreographer,
 ):
     """Accept a trajectory only if its detached .sig.json manifest (the
     optional ``signature`` part) verifies against a trusted key, or if the GCS
     runs with --allow-unsigned and no manifest was sent. A failed check is a
     403 and never touches the active trajectory."""
     logger.info(f"API: Uploading trajectory file: {file.filename}")
-    _check_command(Command.UPLOAD_TRAJECTORY, _operator(x_operator_id), "POST /api/upload-trajectory")
+    _check_command(Command.UPLOAD_TRAJECTORY, operator.id, "POST /api/upload-trajectory")
     
     # Check file size limit (5 MB max) to prevent OOM
     MAX_FILE_SIZE = 5 * 1024 * 1024  # 5 MB
@@ -416,12 +566,12 @@ async def upload_trajectory(
         raise HTTPException(status_code=400, detail=str(e))
 
 @app.post("/api/upload-mission")
-async def upload_mission(x_operator_id: OperatorHeader = None):
+async def upload_mission(operator: Commander):
     """Compile the loaded trajectory into one mission per drone, upload each
     over MAVLink FTP, and verify every copy's CRC-32 (issue #47). Arming is
     refused until this has succeeded for the whole fleet."""
     logger.info("API: Uploading show missions to the fleet...")
-    _check_command(Command.UPLOAD_MISSION, _operator(x_operator_id), "POST /api/upload-mission")
+    _check_command(Command.UPLOAD_MISSION, operator.id, "POST /api/upload-mission")
     if not drone_manager.active_trajectory:
         raise HTTPException(status_code=400, detail="No active trajectory loaded. Please upload a trajectory first.")
     try:
@@ -430,12 +580,12 @@ async def upload_mission(x_operator_id: OperatorHeader = None):
         raise HTTPException(status_code=400, detail=str(e))
 
 @app.get("/api/mission-status")
-async def mission_status():
+async def mission_status(operator: Viewer):
     """Per-drone mission upload/verification state and whether arming is permitted."""
     return drone_manager.mission_status()
 
 @app.post("/api/verify-launch-geometry")
-async def verify_launch_geometry(tolerance_m: float = 0.5):
+async def verify_launch_geometry(tolerance_m: float = 0.5, *, operator: Choreographer):
     logger.info("API: Verifying launch geometry...")
     if not drone_manager.active_trajectory:
          raise HTTPException(status_code=400, detail="No active trajectory loaded. Please upload a trajectory first.")
@@ -444,17 +594,16 @@ async def verify_launch_geometry(tolerance_m: float = 0.5):
     return report
 
 @app.post("/api/start-trajectory")
-async def start_trajectory(req: StartTrajectoryRequest, x_operator_id: OperatorHeader = None):
+async def start_trajectory(req: StartTrajectoryRequest, operator: Commander):
     logger.info(
         f"API: Starting trajectory in {req.mode} mode, {req.execution} execution, "
         f"trigger_epoch_ms={req.trigger_epoch_ms}..."
     )
-    operator = _operator(x_operator_id)
     trigger = "POST /api/start-trajectory"
     # Checked, then acted on, then committed: a start that fails with a 400
     # must leave the fleet in FORMATION_HOLD, not in a RUNNING with nothing
     # running. Nothing below awaits, so no other command can land in between.
-    _check_command(Command.START_TRAJECTORY, operator, trigger)
+    _check_command(Command.START_TRAJECTORY, operator.id, trigger)
     if not drone_manager.active_trajectory:
          raise HTTPException(status_code=400, detail="No active trajectory loaded. Please upload a trajectory first.")
          
@@ -468,20 +617,19 @@ async def start_trajectory(req: StartTrajectoryRequest, x_operator_id: OperatorH
     except Exception as e:
         logger.error(f"Failed starting trajectory: {e}")
         raise HTTPException(status_code=400, detail=str(e))
-    _apply_command(Command.START_TRAJECTORY, operator, trigger)
+    _apply_command(Command.START_TRAJECTORY, operator.id, trigger)
     return {"status": "success", "message": f"Trajectory started in {req.mode} mode ({req.execution} execution)."}
 
 @app.post("/api/stop-trajectory")
-async def stop_trajectory(x_operator_id: OperatorHeader = None):
+async def stop_trajectory(operator: Commander):
     logger.info("API: Stopping trajectory playback...")
-    operator = _operator(x_operator_id)
-    _check_command(Command.STOP_TRAJECTORY, operator, "POST /api/stop-trajectory")
+    _check_command(Command.STOP_TRAJECTORY, operator.id, "POST /api/stop-trajectory")
     drone_manager.stop_trajectory()
-    _apply_command(Command.STOP_TRAJECTORY, operator, "POST /api/stop-trajectory")
+    _apply_command(Command.STOP_TRAJECTORY, operator.id, "POST /api/stop-trajectory")
     return {"status": "success", "message": "Trajectory playback stopped."}
 
 @app.get("/api/saved-show-state")
-async def get_saved_show_state():
+async def get_saved_show_state(operator: Viewer):
     """
     Reports whether a saved show from a previous run (crash or restart
     mid-show, issue #4) is pending resume/discard, and a summary of it for
@@ -504,7 +652,7 @@ async def get_saved_show_state():
     }
 
 @app.post("/api/resume-show")
-async def resume_show(x_operator_id: OperatorHeader = None):
+async def resume_show(operator: Commander):
     """
     Reloads a saved show's trajectory and playback position so the operator
     can continue it. Deliberately does NOT re-arm or re-launch drones — the
@@ -512,7 +660,7 @@ async def resume_show(x_operator_id: OperatorHeader = None):
     themselves once they're ready.
     """
     logger.info("API: Resuming saved show state...")
-    _check_command(Command.RESUME_SHOW, _operator(x_operator_id), "POST /api/resume-show")
+    _check_command(Command.RESUME_SHOW, operator.id, "POST /api/resume-show")
     try:
         elapsed = drone_manager.resume_pending_show()
     except ValueError as e:
@@ -527,15 +675,15 @@ async def resume_show(x_operator_id: OperatorHeader = None):
     }
 
 @app.post("/api/discard-show")
-async def discard_show(x_operator_id: OperatorHeader = None):
+async def discard_show(operator: Commander):
     """Discards a saved show from a previous run without resuming it."""
     logger.info("API: Discarding saved show state...")
-    _check_command(Command.DISCARD_SHOW, _operator(x_operator_id), "POST /api/discard-show")
+    _check_command(Command.DISCARD_SHOW, operator.id, "POST /api/discard-show")
     drone_manager.discard_pending_show()
     return {"status": "success", "message": "Saved show state discarded."}
 
 @app.get("/api/export-telemetry")
-async def export_telemetry(filename: str = "telemetry_export.csv"):
+async def export_telemetry(filename: str = "telemetry_export.csv", *, operator: Viewer):
     """Exports per-drone telemetry recorded during the last show as a downloadable CSV."""
     logger.info(f"API: Exporting recorded telemetry as {filename}...")
     if not drone_manager.telemetry_log:
@@ -575,7 +723,7 @@ class RvizLaunchRequest(BaseModel):
 
 
 @app.post("/api/sim/launch")
-async def sim_launch(req: SimLaunchRequest):
+async def sim_launch(req: SimLaunchRequest, operator: Commander):
     """Spawn the Gazebo/PX4 SITL fleet (or register the in-process sim fleet)."""
     logger.info(
         f"API: Launching simulation — backend={req.backend}, drones={req.num_drones}, "
@@ -598,7 +746,7 @@ async def sim_launch(req: SimLaunchRequest):
 
 
 @app.post("/api/sim/stop")
-async def sim_stop():
+async def sim_stop(operator: Commander):
     """Terminate every simulation process, escalating SIGINT -> SIGTERM -> SIGKILL."""
     logger.info("API: Stopping simulation...")
     result = await sim_manager.stop()
@@ -611,7 +759,7 @@ async def sim_stop():
 
 
 @app.get("/api/sim/status")
-async def sim_status():
+async def sim_status(operator: Viewer):
     """Report simulation PIDs, CPU/RAM, MAVLink ports, and fleet heartbeat.
 
     Merges the process view (from SimManager) with the fleet view (from the
@@ -639,7 +787,7 @@ async def sim_status():
 
 
 @app.post("/api/rviz/launch")
-async def rviz_launch(req: RvizLaunchRequest = RvizLaunchRequest()):
+async def rviz_launch(req: RvizLaunchRequest = RvizLaunchRequest(), *, operator: Commander):
     """Launch RViz2 with the pre-configured drone-swarm display."""
     logger.info(f"API: Launching RViz on world '{req.world}'...")
     try:
@@ -654,7 +802,7 @@ async def rviz_launch(req: RvizLaunchRequest = RvizLaunchRequest()):
 
 
 @app.websocket("/ws/telemetry")
-async def websocket_telemetry_endpoint(websocket: WebSocket):
+async def websocket_telemetry_endpoint(websocket: WebSocket, operator: Annotated[Operator, Depends(ws_operator)]):
     """Streams two channels on one socket instead of the full telemetry dict as
     JSON every tick (which serializes several hundred KB/s at 100 drones and
     stops being viable at 1000). See tara_gcs.telemetry_codec for the format.
@@ -669,8 +817,8 @@ async def websocket_telemetry_endpoint(websocket: WebSocket):
     so the HUD's state and enabled buttons are never a second behind a
     command the operator just issued.
     """
-    await websocket.accept()
-    logger.info("WebSocket telemetry client connected.")
+    await websocket.accept(subprotocol=WS_AUTH_PROTOCOL)
+    logger.info(f"WebSocket telemetry client connected ({operator.id}).")
     fast_interval = 1.0 / FAST_HZ
     slow_interval = 1.0 / SLOW_HZ
     next_slow_send = 0.0
