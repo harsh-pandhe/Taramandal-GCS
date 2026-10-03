@@ -41,6 +41,15 @@ trusted_keys = [
     # { signer = "Harsh (Studio laptop)", public_key = "base64 of the 32-byte Ed25519 public key" },
 ]
 
+[studio]
+# Private key the Studio backend signs its JSON/CSV exports and "Transmit to
+# GCS" uploads with (issue #49), so the GCS's [security].trusted_keys accepts
+# them. Create it with `tara keygen <path> --signer "<who>"`, which writes it
+# owner-only; the Studio refuses a key other users can read. The key never
+# leaves the Studio backend: the browser only sees its id. STUDIO_SIGNING_KEY
+# overrides this. Unset: exports are unsigned.
+# signing_key = "~/.config/taramandal/studio-signing.pem"
+
 [safety]
 # Pre-arm checklist profile the GCS enforces on /api/launch (issue #48):
 #   "SIMULATION"  — sim/SITL fleets: 3D GPS fix and >= 50% charge; the rest is advisory.

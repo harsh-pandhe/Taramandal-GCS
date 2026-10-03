@@ -57,24 +57,107 @@ export const exportShow = async ({ choreo, format, homeLat, homeLon, ledTrack, r
     ...(ledTrack ? { led_track: ledTrack } : {}),
     ...(rateHz ? { rate_hz: Number(rateHz) } : {}),
   });
-  if (!res.ok) throw new Error('File export failed.');
+  if (!res.ok) {
+    // e.g. a 409 explaining that the signing key is missing or unreadable.
+    const details = await res.json().catch(() => ({}));
+    throw new Error(details.detail || 'File export failed.');
+  }
   return res.json();
 };
 
-/** Exports as JSON and uploads the result to the GCS fleet backend. */
+/**
+ * Whether exports get signed, and with which key (issue #49). The backend
+ * holds the private key; this only ever carries its id and public half.
+ */
+export const getSigningStatus = async () => {
+  const res = await fetch(`${API_BASE}/api/signing`);
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return res.json();
+};
+
+// --- GCS operator session (issue #64) ---------------------------------------
+//
+// The GCS only accepts uploads from a signed-in CHOREOGRAPHER or
+// FLIGHT_COMMANDER. The token is kept per tab in sessionStorage, like the GCS
+// dashboard's, and dropped on a 401 so the Transmit panel asks again.
+
+const GCS_SESSION_KEY = 'tara_studio_gcs_session';
+const GCS_SESSION_EVENT = 'tara:studio-gcs-session';
+
+export const getGcsSession = () => {
+  try {
+    const s = JSON.parse(sessionStorage.getItem(GCS_SESSION_KEY) || 'null');
+    return s && s.token ? s : null;
+  } catch {
+    return null;
+  }
+};
+
+const storeGcsSession = (session) => {
+  try {
+    if (session) sessionStorage.setItem(GCS_SESSION_KEY, JSON.stringify(session));
+    else sessionStorage.removeItem(GCS_SESSION_KEY);
+  } catch {
+    // storage blocked: the session lasts until the next 401
+  }
+  window.dispatchEvent(new Event(GCS_SESSION_EVENT));
+};
+
+export const onGcsSessionChange = (callback) => {
+  window.addEventListener(GCS_SESSION_EVENT, callback);
+  return () => window.removeEventListener(GCS_SESSION_EVENT, callback);
+};
+
+export const gcsLogin = async (operator, passphrase) => {
+  const res = await postJson(`${GCS_BASE}/api/auth/login`, { operator, passphrase });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(body.detail || `GCS sign-in failed (HTTP ${res.status}).`);
+  storeGcsSession({ token: body.token, operator: body.operator, role: body.role });
+  return body;
+};
+
+export const gcsLogout = async () => {
+  const session = getGcsSession();
+  if (session) {
+    await fetch(`${GCS_BASE}/api/auth/logout`, {
+      method: 'POST', headers: { Authorization: `Bearer ${session.token}` },
+    }).catch(() => {});
+  }
+  storeGcsSession(null);
+};
+
+/**
+ * Exports as JSON, signed when a signing key is configured (issue #49), and
+ * uploads the show with its .sig.json manifest to the GCS. The GCS verifies
+ * the signature before it stages anything; the bytes uploaded are exactly the
+ * bytes the Studio backend signed.
+ */
 export const sendShowToGCS = async ({ choreo, homeLat, homeLon }) => {
   const data = await exportShow({ choreo, format: 'json', homeLat, homeLon });
 
-  const blob = new Blob([data.content], { type: 'application/json' });
   const formData = new FormData();
-  formData.append('file', blob, data.filename);
+  formData.append('file', new Blob([data.content], { type: 'application/json' }), data.filename);
+  if (data.signature) {
+    formData.append(
+      'signature',
+      new Blob([data.signature.content], { type: 'application/json' }),
+      data.signature.filename,
+    );
+  }
 
+  const session = getGcsSession();
   const gcsRes = await fetch(`${GCS_BASE}/api/upload-trajectory`, {
     method: 'POST', body: formData,
+    headers: session ? { Authorization: `Bearer ${session.token}` } : {},
   });
   if (!gcsRes.ok) {
     const details = await gcsRes.json().catch(() => ({}));
-    throw new Error(details.detail || 'GCS rejected show file.');
+    const detail = typeof details.detail === 'string' ? details.detail : details.detail?.message;
+    if (gcsRes.status === 401) {
+      storeGcsSession(null);
+      throw new Error('The GCS needs an operator sign-in: use "Sign in to GCS" in this tab, then transmit again.');
+    }
+    throw new Error(detail || 'GCS rejected show file.');
   }
   return gcsRes.json().catch(() => ({}));
 };
@@ -95,4 +178,12 @@ export const downloadExport = (data) => {
   el.click();
   document.body.removeChild(el);
   URL.revokeObjectURL(el.href);
+  // The signature travels as its own file beside the show (show.json +
+  // show.json.sig.json); `tara sign` and the GCS upload use the same pair.
+  if (data.signature) {
+    downloadExport({
+      filename: data.signature.filename, content: data.signature.content,
+      mime_type: 'application/json', encoding: 'utf-8',
+    });
+  }
 };
