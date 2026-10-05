@@ -69,7 +69,11 @@ async function stubBackend(page, report = PASSED_REPORT) {
   });
   await page.route('**/api/validate', (route) => route.fulfill({ json: report }));
   await page.route('**/api/validate-energy', (route) => route.fulfill({ json: ENERGY_REPORT }));
+  // Issue #49: a configured signing key, so the Transmit tab reads the same every run.
+  await page.route('**/api/signing', (route) => route.fulfill({ json: SIGNING_READY }));
 }
+
+const SIGNING_READY = { configured: true, ready: true, key_id: 'ab12cd34ef567890', public_key: 'cHVibGljLWtleQ==' };
 
 // The endurance section fetches on its own after a short debounce; shoot the
 // Safety tab only once its verdict is on screen.
@@ -146,6 +150,7 @@ test.describe('sequencer', () => {
 
   test('transmit tab', async ({ page }) => {
     await consoleTab(page, 'TRANSMIT');
+    await expect(page.getByTestId('signing-status')).toBeVisible();
     await shot(page, 'sequencer-transmit');
   });
 
@@ -432,5 +437,77 @@ test.describe('bulk fleet editing', () => {
       await expect(page.getByLabel(`LED colour of VEHICLE 0${n}`)).toHaveValue('#ff0000');
     }
     await expect(page.getByLabel('LED colour of VEHICLE 07')).not.toHaveValue('#ff0000');
+  });
+});
+
+// Issue #49: signed export and transmit, against stubbed Studio and GCS backends.
+test.describe('signed export and transmit', () => {
+  const EXPORT = {
+    filename: 'choreography.json', content: '{"drones": []}\n', mime_type: 'application/json', encoding: 'utf-8',
+    signature: { filename: 'choreography.json.sig.json', content: '{"schema": "tara-show-signature/1"}\n', key_id: 'ab12cd34ef567890' },
+  };
+
+  test.beforeEach(async ({ page }) => {
+    await openStudio(page);
+    await page.route('**/api/export', (route) => route.fulfill({ json: EXPORT }));
+  });
+
+  test('the Transmit tab says which key signs exports', async ({ page }) => {
+    await consoleTab(page, 'TRANSMIT');
+    await expect(page.getByTestId('signing-status')).toContainText('signed with key ab12cd34ef567890');
+  });
+
+  test('without a usable key it warns that the GCS will refuse the show', async ({ page }) => {
+    await page.route('**/api/signing', (route) => route.fulfill({
+      json: { configured: false, ready: false, error: 'No signing key configured. Create one with `tara keygen`.' },
+    }));
+    // The panel asks for the status when the tab opens.
+    await consoleTab(page, 'TRANSMIT');
+    await expect(page.getByTestId('signing-status')).toContainText('not signed');
+    await expect(page.getByTestId('signing-status')).toContainText('tara keygen');
+  });
+
+  test('a signed JSON export downloads the show and its manifest', async ({ page }) => {
+    const downloads = [];
+    page.on('download', (d) => downloads.push(d.suggestedFilename()));
+    await consoleTab(page, 'TRANSMIT');
+    await page.getByRole('button', { name: 'JSON' }).click();
+    await expect.poll(() => downloads).toEqual(['choreography.json', 'choreography.json.sig.json']);
+  });
+
+  test('transmit sends the show, its signature and the GCS session token', async ({ page }) => {
+    const uploads = [];
+    await page.route('**/api/upload-trajectory', (route) => {
+      const req = route.request();
+      const auth = req.headers().authorization || null;
+      uploads.push({ auth, body: req.postDataBuffer().toString('utf-8') });
+      return auth
+        ? route.fulfill({ json: { status: 'success', signature: { verified: true, signer: 'Studio laptop' } } })
+        : route.fulfill({ status: 401, json: { detail: 'Not logged in.' } });
+    });
+    await page.route('**/api/auth/login', (route) => route.fulfill({
+      json: { token: 'gcs-tok', operator: 'chloe', role: 'CHOREOGRAPHER', expires_at: 0 },
+    }));
+    page.on('dialog', (d) => d.accept());
+    await consoleTab(page, 'TRANSMIT');
+    const transmit = page.getByRole('button', { name: /Transmit to GCS Fleet/ });
+
+    // Not signed in yet: the GCS says 401 and the Studio explains what to do.
+    await transmit.click();
+    await expect(page.getByText(/needs an operator sign-in/)).toBeVisible();
+
+    await page.getByLabel('GCS operator').fill('chloe');
+    await page.getByLabel('GCS passphrase').fill('choreographer passphrase');
+    await page.getByRole('button', { name: 'Sign in to GCS' }).click();
+    await expect(page.getByTestId('gcs-session')).toContainText('chloe · CHOREOGRAPHER');
+
+    await transmit.click();
+    await expect.poll(() => uploads.length).toBe(2);
+    const sent = uploads[1];
+    expect(sent.auth).toBe('Bearer gcs-tok');
+    expect(sent.body).toContain('filename="choreography.json"');
+    expect(sent.body).toContain('name="signature"; filename="choreography.json.sig.json"');
+    expect(sent.body).toContain(EXPORT.content.trim());
+    expect(sent.body).toContain(EXPORT.signature.content.trim());
   });
 });

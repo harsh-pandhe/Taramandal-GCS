@@ -36,6 +36,7 @@ from tara_studio.energy import (
     validate_energy,
 )
 from tara_studio.exporter import export_json, export_csv, export_kml, export_tara
+from tara_studio.signing import SIGNABLE_FORMATS, SigningUnavailable, sign_export, signing_status
 from tara_studio.led_engine import (
     apply_track_to_choreo,
     led_sample_rate_hz,
@@ -88,6 +89,11 @@ class ExportRequest(BaseModel):
         None, description="LED keyframes to bake into the export (see led_engine.LedKeyframe)"
     )
     rate_hz: Optional[float] = Field(0.0, description="Sample rate recorded in the .tara header")
+    sign: Optional[bool] = Field(
+        None,
+        description="Attach a .sig.json manifest (issue #49): true requires one, false never, "
+        "null signs whenever a signing key is configured and the format is a GCS upload (json, csv)",
+    )
 
 def _with_limits(report: dict) -> dict:
     """Attach the SafetyLimits the report was judged against (issue #97).
@@ -100,6 +106,12 @@ def _with_limits(report: dict) -> dict:
     out.
     """
     return {**report, "limits": asdict(DEFAULT_LIMITS)}
+
+
+@app.get("/api/signing")
+def api_signing():
+    """Whether exports will be signed, and with which key. Never the private key."""
+    return signing_status()
 
 
 @app.get("/status")
@@ -491,6 +503,8 @@ def api_validate_energy(req: EnergyRequest):
 def api_export(req: ExportRequest):
     fmt = req.format.lower()
     choreo = req.choreo
+    if req.sign and fmt not in SIGNABLE_FORMATS:
+        raise HTTPException(status_code=400, detail=f"Only {', '.join(sorted(SIGNABLE_FORMATS))} exports can be signed.")
     rate_hz = req.rate_hz or 0.0
 
     # Feasibility certification (issue #60 — jerk/velocity/acceleration/
@@ -557,12 +571,20 @@ def api_export(req: ExportRequest):
         }
     else:
         raise HTTPException(status_code=400, detail=f"Unsupported export format: {req.format}")
-        
+
+    # Signed over exactly the UTF-8 bytes the client will write or upload, so
+    # the GCS verifies the file it actually receives (issue #49).
+    try:
+        signature = sign_export(content.encode("utf-8"), filename, req.sign)
+    except SigningUnavailable as e:
+        raise HTTPException(status_code=409, detail=f"Cannot sign the export: {e}")
+
     return {
         "filename": filename,
         "content": content,
         "mime_type": mime_type,
         "encoding": "utf-8",
+        **({"signature": signature} if signature else {}),
     }
 
 if __name__ == "__main__":

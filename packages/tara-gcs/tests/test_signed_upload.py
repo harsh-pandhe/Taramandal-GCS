@@ -299,3 +299,47 @@ def test_gcs_process_enforces_signatures_per_launch_flag(tmp_path, key, allow_un
     finally:
         proc.kill()
         proc.wait(timeout=10)
+
+
+def test_a_show_signed_by_studio_export_uploads(gcs, key, tmp_path, monkeypatch):
+    """Issue #49 end to end: the Studio's own /api/export signs, this GCS accepts.
+
+    The Studio holds the private key the GCS trusts as "Harsh"; the show and its
+    manifest go from one real app to the other byte for byte, as the Studio's
+    Transmit button sends them.
+    """
+    from tara_core.signing import private_key_to_pem
+    from tara_studio import signing as studio_signing
+    from tara_studio.generator import generate_circle
+    from tara_studio.server import app as studio_app
+
+    key_path = tmp_path / "studio.pem"
+    fd = os.open(key_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    with os.fdopen(fd, "wb") as f:
+        f.write(private_key_to_pem(key))
+    monkeypatch.setattr(studio_signing, "DEFAULT_TOML", tmp_path / "tara.toml")
+    monkeypatch.setenv(studio_signing.SIGNING_KEY_ENV, str(key_path))
+
+    exported = TestClient(studio_app).post(
+        "/api/export", json={"choreo": generate_circle(1, 12.0, 2.0), "format": "json", "sign": True},
+    ).json()
+    client, _ = gcs
+    resp = _upload(
+        client, exported["content"].encode("utf-8"), exported["signature"]["content"].encode("utf-8"),
+        filename=exported["filename"],
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["signature"]["signer"] == "Harsh"
+
+    # And a Studio export signed by a key this GCS does not trust is refused.
+    other = tmp_path / "other.pem"
+    fd = os.open(other, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    with os.fdopen(fd, "wb") as f:
+        f.write(private_key_to_pem(generate_private_key()))
+    monkeypatch.setenv(studio_signing.SIGNING_KEY_ENV, str(other))
+    exported = TestClient(studio_app).post(
+        "/api/export", json={"choreo": generate_circle(1, 12.0, 2.0), "format": "json", "sign": True},
+    ).json()
+    resp = _upload(client, exported["content"].encode("utf-8"), exported["signature"]["content"].encode("utf-8"),
+                   filename=exported["filename"])
+    assert resp.status_code == 403

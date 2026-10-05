@@ -810,6 +810,30 @@ input[type="number"] { font-family: var(--mono); font-variant-numeric: tabular-n
 }
 .btn-danger-outline:disabled { opacity: 0.35; cursor: not-allowed; }
 .btn-gcs { background: linear-gradient(135deg, #06b6d4, #0891b2); border-color: #0891b2; }
+
+/* Signed exports and GCS sign-in in the Transmit tab (#49, #64). */
+.signing-status {
+  display: flex; gap: 0.45rem; align-items: flex-start; font-size: 0.7rem; line-height: 1.5;
+  border-radius: var(--r-sm); padding: 0.5rem 0.6rem; border: 1px solid var(--border);
+}
+.signing-status svg { flex: none; margin-top: 2px; }
+.signing-status.ok { color: var(--text-dim); }
+.signing-status.ok svg { color: var(--success); }
+.signing-status.warn { color: var(--text-dim); border-color: var(--warning); }
+.signing-status.warn svg { color: var(--warning); }
+.signing-status code, .panel-hint code { font-family: var(--mono); word-break: break-all; }
+.gcs-signin { display: flex; flex-wrap: wrap; gap: 0.4rem; align-items: center; }
+.gcs-signin input {
+  flex: 1 1 7rem; min-width: 0; background: var(--bg-input); color: var(--text);
+  border: 1px solid var(--border); border-radius: var(--r-sm); padding: 0.35rem 0.5rem; font-size: 0.75rem;
+}
+.gcs-signin .btn-sm, .gcs-session .btn-sm { display: inline-flex; align-items: center; gap: 0.3rem; margin: 0; }
+.gcs-signin-error { flex-basis: 100%; color: var(--danger); font-size: 0.7rem; }
+.gcs-session {
+  display: flex; align-items: center; justify-content: space-between; gap: 0.5rem;
+  font-size: 0.72rem; color: var(--text-dim);
+}
+.gcs-session strong { color: var(--text); }
 .color-row { display: flex; gap: 0.5rem; align-items: center; }
 .color-row input[type="color"] { width: 44px; height: 32px; padding: 2px; cursor: pointer; }
 .color-row input[type="text"] { flex: 1; }
