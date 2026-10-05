@@ -1152,3 +1152,52 @@ input[type="number"] { font-family: var(--mono); font-variant-numeric: tabular-n
 }
 .led-palette-row { flex-wrap: wrap; align-items: center; }
 .led-palette-row input[type="color"] { width: 26px; height: 24px; }
+
+/* ------------------------------------------------- Edit history (#100) ---- */
+.history-bar { display: flex; flex-direction: column; gap: 0.4rem; }
+.history-actions { display: flex; gap: 0.4rem; }
+.history-actions .btn-sm {
+  display: inline-flex; align-items: center; gap: 0.3rem; margin: 0;
+}
+.history-actions .btn-sm:disabled { opacity: 0.45; cursor: not-allowed; }
+
+.history-list summary {
+  display: flex; align-items: center; gap: 0.35rem; cursor: pointer;
+  font-size: 0.68rem; color: var(--text-faint); font-family: var(--mono);
+  text-transform: uppercase; letter-spacing: 0.8px; user-select: none;
+}
+.history-count { margin-left: auto; font-variant-numeric: tabular-nums; }
+.history-list ol {
+  list-style: none; margin: 0.4rem 0 0; padding: 0;
+  max-height: 180px; overflow-y: auto;
+  border: 1px solid var(--border); border-radius: var(--r-sm);
+}
+.history-list li + li { border-top: 1px solid var(--border); }
+.history-list li button {
+  display: block; width: 100%; text-align: left; cursor: pointer;
+  padding: 0.3rem 0.5rem; font-size: 0.72rem;
+  background: transparent; border: 0; color: var(--text);
+}
+.history-list li button:hover { background: var(--bg-surface); }
+.history-list li button.current { color: var(--accent); background: var(--bg-surface); }
+.history-list li button.undone { color: var(--text-faint); text-decoration: line-through; }
+
+/* --------------------------------------------- Project save history (#100) */
+.vault-versions { margin: 0.5rem 0; }
+.vault-versions summary {
+  display: flex; align-items: center; gap: 0.35rem; cursor: pointer;
+  font-size: 0.7rem; color: var(--text-faint); user-select: none;
+}
+.vault-versions ol {
+  list-style: none; margin: 0.4rem 0 0; padding: 0;
+  max-height: 200px; overflow-y: auto;
+  border: 1px solid var(--border); border-radius: var(--r-sm);
+}
+.vault-versions li {
+  display: grid; grid-template-columns: 1fr auto; gap: 0.1rem 0.5rem;
+  align-items: center; padding: 0.35rem 0.5rem;
+}
+.vault-versions li + li { border-top: 1px solid var(--border); }
+.vault-version-when { font-size: 0.72rem; color: var(--text); font-variant-numeric: tabular-nums; }
+.vault-version-meta { grid-column: 1; font-size: 0.66rem; color: var(--text-faint); }
+.vault-versions li button { grid-column: 2; grid-row: 1 / span 2; margin: 0; }

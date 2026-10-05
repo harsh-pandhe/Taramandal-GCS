@@ -1,11 +1,12 @@
 import { Plus, Sparkles } from 'lucide-react';
 import SceneCard from './SceneCard.jsx';
+import HistoryBar from './HistoryBar.jsx';
 
 /**
  * The scene list editor: the stack of scene cards plus the build action.
  */
 export default function SequencerPanel({
-  list, loading, onBuild, onOpenLibrary,
+  list, history, loading, onBuild, onOpenLibrary,
 }) {
   const {
     scenes, addScene, patchScene, duplicateScene, deleteScene, moveScene,
@@ -15,6 +16,7 @@ export default function SequencerPanel({
   return (
     <div className="glass-panel-inner">
       <h4 className="section-subtitle">Scene Sequencer</h4>
+      <HistoryBar history={history} />
 
       <div className="scene-list">
         {scenes.map((scene, i) => (

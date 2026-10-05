@@ -9,7 +9,7 @@ const TABS = ['sequence', 'light', 'audio', 'safety', 'transmit'];
 
 /** The sliding control console: scene editing, lighting, safety, export. */
 export default function ConsoleDrawer({
-  open, onClose, tab, onTab, list, loading, onBuild, onOpenLibrary,
+  open, onClose, tab, onTab, list, history, loading, onBuild, onOpenLibrary,
   light, choreoData, currentTime, lightingOpts, validation, venue, transmit, audio,
 }) {
   return (
@@ -37,7 +37,7 @@ export default function ConsoleDrawer({
       <div className="drawer-content">
         {tab === 'sequence' && (
           <SequencerPanel
-            list={list} loading={loading}
+            list={list} history={history} loading={loading}
             onBuild={onBuild} onOpenLibrary={onOpenLibrary}
           />
         )}
