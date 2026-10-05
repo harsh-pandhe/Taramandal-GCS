@@ -28,7 +28,7 @@ const AUTH_DISABLED = import.meta.env.VITE_DISABLE_AUTH === 'true';
 const INITIAL_DOC = { scenes: [
   makeScene({ name: '5', shapeType: 'text', shapePayload: '5', holdDurationSeconds: 6, transitionDurationSeconds: 0 }),
   makeScene({ name: '4', shapeType: 'text', shapePayload: '4', holdDurationSeconds: 6, transitionDurationSeconds: 4 }),
-] };
+], dronesList: defaultFleet(6) };
 
 export default function App() {
   const [unlocked, setUnlocked] = useState(
@@ -53,7 +53,7 @@ export default function App() {
   const audio = useAudioTrack();
   const history = useStudioHistory(INITIAL_DOC);
   const list = useSceneList(history);
-  const fleet = useFleet(defaultFleet(6));
+  const fleet = useFleet(history);
   const builder = useShowBuilder();
 
   const { scenes } = list;
@@ -236,7 +236,9 @@ export default function App() {
             onAdd={fleet.addDrone}
             onRemove={fleet.removeDrone}
             onUpdate={fleet.updateDrone}
+            onBulkUpdate={fleet.bulkUpdate}
             onSetCount={fleet.setCount}
+            history={history}
           />
         )}
       </div>
