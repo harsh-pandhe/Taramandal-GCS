@@ -9,4 +9,6 @@ set -euo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 
 ci_log "100-drone show, zero safety breaches"
-pytest packages/tara-gcs/tests/test_sim_backend.py::test_100_drone_sim_show_completes_with_zero_safety_violations -v --durations=0
+# lib.sh disables plugin autoload, so pytest-asyncio has to be loaded by name
+# (as python-tests.sh does); without it this async test cannot run at all.
+pytest -p asyncio packages/tara-gcs/tests/test_sim_backend.py::test_100_drone_sim_show_completes_with_zero_safety_violations -v --durations=0
