@@ -46,11 +46,30 @@ def test_keygen_refuses_to_overwrite_a_key(tmp_path):
     assert key_path.read_text() == "existing"
 
 
+def test_sign_refuses_a_key_other_users_can_read(tmp_path):
+    """Issue #64: a signing key readable by others is refused, as ssh does."""
+    key_path = tmp_path / "studio.pem"
+    assert runner.invoke(app, ["keygen", str(key_path), "--signer", "x"]).exit_code == 0
+    show = tmp_path / "show.json"
+    show.write_text("{}")
+
+    for mode in (0o640, 0o644, 0o604):
+        key_path.chmod(mode)
+        result = runner.invoke(app, ["sign", str(show), "--key", str(key_path)])
+        assert result.exit_code == 1
+        assert "chmod 600" in result.output
+        assert not Path(str(show) + ".sig.json").exists()
+
+    key_path.chmod(0o600)
+    assert runner.invoke(app, ["sign", str(show), "--key", str(key_path)]).exit_code == 0
+
+
 def test_sign_rejects_a_non_key_file(tmp_path):
     show = tmp_path / "show.json"
     show.write_text("{}")
     bogus = tmp_path / "bogus.pem"
     bogus.write_text("not a key")
+    bogus.chmod(0o600)  # past the permission check, so this tests the parse
 
     result = runner.invoke(app, ["sign", str(show), "--key", str(bogus)])
 

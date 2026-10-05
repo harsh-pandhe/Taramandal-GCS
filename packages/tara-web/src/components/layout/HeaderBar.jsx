@@ -14,7 +14,7 @@ const FLEET_STATE_DOT = {
 };
 
 /** Top bar: product mark, GCS telemetry link status, and fleet lifecycle state. */
-export default function HeaderBar({ wsConnected, fleetState }) {
+export default function HeaderBar({ wsConnected, fleetState, session, onLogout }) {
   return (
     <header className="header-bar">
       <div className="logo-section">
@@ -41,6 +41,12 @@ export default function HeaderBar({ wsConnected, fleetState }) {
           <div className="status-badge" title={fleetState.description} data-testid="fleet-state">
             <span className={`dot ${FLEET_STATE_DOT[fleetState.state] || 'grey'}`}></span>
             FLEET: {fleetState.state}
+          </div>
+        )}
+        {session && (
+          <div className="status-badge operator-badge" data-testid="operator">
+            {session.operator} · {session.role}
+            <button type="button" onClick={onLogout}>SIGN OUT</button>
           </div>
         )}
       </div>

@@ -14,7 +14,13 @@ from fastapi import HTTPException
 
 from tara_core import DEFAULT_LIMITS, altitude_layers
 from tara_gcs import main as gcs_main
+from tara_gcs.auth import Operator, Role
 from tara_gcs.drone_manager import DroneManager, _pad_offset, abort_clearance
+
+
+# Issue #64: route handlers called directly take the operator that the auth
+# dependency would otherwise inject.
+COMMANDER = Operator("test-commander", Role.FLIGHT_COMMANDER)
 
 
 def _tel(drone_id, x=0.0, y=0.0, z=5.0, armed=True):
@@ -365,7 +371,7 @@ def patched_manager(monkeypatch):
 ])
 async def test_abort_endpoints_return_success_with_clearance(patched_manager, route, mode):
     patched_manager(_manager_with_mock_drones(2))
-    body = await route(1)
+    body = await route(1, operator=COMMANDER)
     assert body["status"] == "success"
     assert body["mode"] == mode and body["drone_id"] == 1
     assert body["clearance"]["clear"] is True
@@ -375,7 +381,7 @@ async def test_abort_endpoints_return_success_with_clearance(patched_manager, ro
 async def test_abort_endpoint_404s_for_unknown_drone(patched_manager):
     patched_manager(_manager_with_mock_drones(1))
     with pytest.raises(HTTPException) as exc:
-        await gcs_main.abort_drone_land(5)
+        await gcs_main.abort_drone_land(5, operator=COMMANDER)
     assert exc.value.status_code == 404
 
 
@@ -383,7 +389,7 @@ async def test_abort_endpoint_502s_when_the_vehicle_rejects(patched_manager):
     manager = patched_manager(_manager_with_mock_drones(1))
     manager.drones[0].action.return_to_launch.side_effect = Exception("COMMAND_DENIED")
     with pytest.raises(HTTPException) as exc:
-        await gcs_main.abort_drone_rtl(0)
+        await gcs_main.abort_drone_rtl(0, operator=COMMANDER)
     assert exc.value.status_code == 502
     assert exc.value.detail["error"] == "COMMAND_DENIED"
     assert "clearance" in exc.value.detail
@@ -393,7 +399,7 @@ async def test_abort_endpoint_returns_the_collision_warning(patched_manager):
     manager = patched_manager(_manager_with_mock_drones(2))
     manager.telemetry[0].update(fleet_x=0.0, fleet_y=0.0, fleet_z=10.0)
     manager.telemetry[1].update(fleet_x=1.0, fleet_y=0.0, fleet_z=4.0)
-    body = await gcs_main.abort_drone_land(0)
+    body = await gcs_main.abort_drone_land(0, operator=COMMANDER)
     assert body["status"] == "success"
     assert body["warning"] and "Drone 1" in body["warning"]
 
@@ -453,7 +459,7 @@ async def test_sim_abort_lands_one_drone_while_the_rest_fly_the_show(patched_man
         await asyncio.sleep(0.3)
         assert sent_to_0, "sanity: drone 0 is being flown by playback before the abort"
 
-        body = await gcs_main.abort_drone_land(0)
+        body = await gcs_main.abort_drone_land(0, operator=COMMANDER)
         assert body["status"] == "success"
         # Drone 0's column at (0,0) from 2m clears drone 1 (2m over, 4m up) by ~2.8m.
         assert body["clearance"]["clear"] is True, body["clearance"]

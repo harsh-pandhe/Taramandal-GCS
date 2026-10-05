@@ -18,6 +18,7 @@ from fastapi import HTTPException
 from fastapi.testclient import TestClient
 
 from tara_gcs import main as gcs_main
+from tara_gcs.auth import Operator, Role
 from tara_gcs.drone_manager import DroneManager
 from tara_gcs.fleet_fsm import (
     AIRBORNE_STATES,
@@ -31,6 +32,11 @@ from tara_gcs.fleet_fsm import (
     can_transition,
 )
 from tara_gcs.telemetry_codec import encode_slow_frame
+
+# Issue #64: route handlers called directly take the operator that the auth
+# dependency would otherwise inject.
+COMMANDER = Operator("test-commander", Role.FLIGHT_COMMANDER)
+
 
 ISSUE_CHAIN = [
     S.STAGED, S.PREARM, S.ARMED, S.TAKEOFF, S.FORMATION_HOLD, S.RUNNING,
@@ -238,29 +244,29 @@ async def test_a_whole_show_walks_the_lifecycle_and_illegal_commands_are_409(fle
     try:
         await _connect(manager)
 
-        await gcs_main.launch_fleet(x_operator_id="alice")
+        await gcs_main.launch_fleet(operator=Operator("alice", Role.FLIGHT_COMMANDER))
 
         # Before takeoff completes: a start is a conflict, and so is launching again.
         with pytest.raises(HTTPException) as exc:
-            await gcs_main.start_trajectory(gcs_main.StartTrajectoryRequest())
+            await gcs_main.start_trajectory(gcs_main.StartTrajectoryRequest(), operator=COMMANDER)
         assert exc.value.status_code == 409
         assert exc.value.detail["command"] == "start_trajectory"
 
         await _wait_for_state(manager, S.FORMATION_HOLD)
         with pytest.raises(HTTPException) as exc:
-            await gcs_main.launch_fleet()
+            await gcs_main.launch_fleet(operator=COMMANDER)
         assert exc.value.status_code == 409
         assert exc.value.detail["state"] == "FORMATION_HOLD"
 
         manager.active_trajectory = _short_show()
-        await gcs_main.start_trajectory(gcs_main.StartTrajectoryRequest(execution="streamed"), x_operator_id="alice")
+        await gcs_main.start_trajectory(gcs_main.StartTrajectoryRequest(execution="streamed"), operator=Operator("alice", Role.FLIGHT_COMMANDER))
         await _wait_for_state(manager, S.SHOW_COMPLETE)
 
         with pytest.raises(HTTPException) as exc:
-            await gcs_main.stop_trajectory()
+            await gcs_main.stop_trajectory(operator=COMMANDER)
         assert exc.value.status_code == 409
 
-        await gcs_main.trigger_land(x_operator_id="alice")
+        await gcs_main.trigger_land(operator=Operator("alice", Role.FLIGHT_COMMANDER))
         await _wait_for_state(manager, S.DISARMED)
 
         history = [(h["from"], h["to"], h["operator"], h["trigger"]) for h in manager.fleet_fsm.history]
@@ -288,7 +294,7 @@ async def test_a_failed_start_leaves_the_fleet_in_formation_hold(fleet):
     _drive_to(manager.fleet_fsm, S.FORMATION_HOLD)
 
     with pytest.raises(HTTPException) as exc:
-        await gcs_main.start_trajectory(gcs_main.StartTrajectoryRequest())
+        await gcs_main.start_trajectory(gcs_main.StartTrajectoryRequest(), operator=COMMANDER)
 
     assert exc.value.status_code == 400
     assert manager.fleet_fsm.state is S.FORMATION_HOLD
@@ -300,8 +306,8 @@ async def test_an_emergency_during_launch_stops_the_rest_of_the_launch(fleet):
     try:
         await _connect(manager)  # connected, but still inside the sim's 0.3s armable delay
 
-        await gcs_main.launch_fleet()
-        await gcs_main.trigger_land()
+        await gcs_main.launch_fleet(operator=COMMANDER)
+        await gcs_main.trigger_land(operator=COMMANDER)
         await manager.launch_task
 
         assert not any(tel["armed"] for tel in manager.telemetry.values())
@@ -315,10 +321,10 @@ async def test_estop_kills_the_motors_and_settles_to_disarmed(fleet):
     manager = fleet(1)
     try:
         await _connect(manager)
-        await gcs_main.launch_fleet()
+        await gcs_main.launch_fleet(operator=COMMANDER)
         await _wait_for_state(manager, S.FORMATION_HOLD)
 
-        await gcs_main.trigger_estop(x_operator_id="alice")
+        await gcs_main.trigger_estop(operator=Operator("alice", Role.FLIGHT_COMMANDER))
         assert manager.fleet_fsm.state is S.ESTOP
 
         await _wait_for_state(manager, S.DISARMED, timeout=5.0)
@@ -391,7 +397,7 @@ async def test_a_launch_that_arms_nobody_returns_to_staged(fleet):
 
         manager.drones[0].action.arm = _failing_arm
 
-        await gcs_main.launch_fleet()
+        await gcs_main.launch_fleet(operator=COMMANDER)
         await manager.launch_task
         manager.evaluate_lifecycle()
 
@@ -412,7 +418,6 @@ def test_an_illegal_command_is_an_http_409_with_a_descriptive_body(fleet):
     response = client.post(
         "/api/start-trajectory",
         json={"mode": "LOCAL", "trigger_epoch_ms": 0},
-        headers={"X-Operator-ID": "alice"},
     )
 
     assert response.status_code == 409

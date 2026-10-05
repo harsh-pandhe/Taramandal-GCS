@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { STATE_LABEL, summarizeRules } from './preflight';
+import { gcsFetch } from './session';
 
 // Pre-arm checklist HUD and launch modal (issue #48).
 //
@@ -54,7 +55,7 @@ export function ProfileBadge({ report }) {
 }
 
 async function postJson(url, body) {
-  const res = await fetch(url, {
+  const res = await gcsFetch(url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body ?? {}),

@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import { signIn } from './session.js';
 
 // Issue #98: EMERGENCY RTL and EMER LAND trigger real fleet-wide actions, so a
 // single click must not fire them. The first click arms, a second click
@@ -24,6 +25,7 @@ async function openDashboard(page) {
   });
   // The sim status poll would otherwise hit a GCS that isn't running.
   await page.route('**/api/sim/status', (route) => route.fulfill({ json: {} }));
+  await signIn(page);
   await page.goto('/');
   return calls;
 }

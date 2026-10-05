@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { API_BASE } from '../config';
+import { gcsFetch } from '../session';
 
 // FastAPI puts errors in `detail`; a lifecycle 409 makes that an object whose
 // `message` says why the command was refused and when it would be allowed.
@@ -77,7 +78,7 @@ export default function useMission(setErrorMsg, fleetState = null) {
   // Trigger POST Actions
   const triggerAction = async (endpoint) => {
     try {
-      const res = await fetch(`${API_BASE}${endpoint}`, { method: 'POST' });
+      const res = await gcsFetch(`${API_BASE}${endpoint}`, { method: 'POST' });
       const data = await res.json();
       if (data.status !== 'success') {
         setErrorMsg(apiErrorMessage(data, 'Operation failed'));
@@ -111,7 +112,7 @@ export default function useMission(setErrorMsg, fleetState = null) {
     if (signature) formData.append('signature', signature);
 
     try {
-      const res = await fetch(`${API_BASE}/api/upload-trajectory`, {
+      const res = await gcsFetch(`${API_BASE}/api/upload-trajectory`, {
         method: 'POST',
         body: formData
       });
@@ -145,7 +146,7 @@ export default function useMission(setErrorMsg, fleetState = null) {
   const triggerVerifyLaunch = async () => {
     setIsVerifying(true);
     try {
-      const res = await fetch(`${API_BASE}/api/verify-launch-geometry?tolerance_m=0.5`, {
+      const res = await gcsFetch(`${API_BASE}/api/verify-launch-geometry?tolerance_m=0.5`, {
         method: 'POST'
       });
       const data = await res.json();
@@ -164,7 +165,7 @@ export default function useMission(setErrorMsg, fleetState = null) {
   const uploadMissionToFleet = async () => {
     setIsUploadingMission(true);
     try {
-      const res = await fetch(`${API_BASE}/api/upload-mission`, { method: 'POST' });
+      const res = await gcsFetch(`${API_BASE}/api/upload-mission`, { method: 'POST' });
       const data = await res.json();
       if (res.ok) {
         setMissionStatus(data);
@@ -181,7 +182,7 @@ export default function useMission(setErrorMsg, fleetState = null) {
   const handleStartTrajectory = async () => {
     try {
       const triggerTimeEpoch = triggerDelay > 0 ? Date.now() + (triggerDelay * 1000) : 0.0;
-      const res = await fetch(`${API_BASE}/api/start-trajectory`, {
+      const res = await gcsFetch(`${API_BASE}/api/start-trajectory`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
