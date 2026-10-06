@@ -49,6 +49,10 @@ trusted_keys = [
 # leaves the Studio backend: the browser only sees its id. STUDIO_SIGNING_KEY
 # overrides this. Unset: exports are unsigned.
 # signing_key = "~/.config/taramandal/studio-signing.pem"
+# Where the Studio backend keeps saved projects (issue #101): one directory of
+# JSON files per project. STUDIO_VAULT_DIR overrides this. Unset: the per-user
+# default below, outside the checkout so a `git clean` cannot remove shows.
+# vault_dir = "~/.local/share/taramandal/projects"
 
 [safety]
 # Pre-arm checklist profile the GCS enforces on /api/launch (issue #48):
