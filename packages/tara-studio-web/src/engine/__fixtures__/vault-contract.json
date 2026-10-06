@@ -1,0 +1,1614 @@
+{
+  "steps": [
+    {
+      "name": "list an empty vault",
+      "request": {
+        "method": "GET",
+        "path": "/api/projects",
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "body": {
+          "projects": []
+        }
+      }
+    },
+    {
+      "name": "create",
+      "request": {
+        "method": "POST",
+        "path": "/api/projects",
+        "body": {
+          "id": "diwali",
+          "name": "Diwali",
+          "document": {
+            "scenes": [
+              {
+                "id": "s1",
+                "name": "S1"
+              }
+            ],
+            "dronesList": [
+              {
+                "id": 0,
+                "name": "Drone 1"
+              },
+              {
+                "id": 1,
+                "name": "Drone 2"
+              }
+            ],
+            "rate": 4,
+            "homeLat": 12.9716,
+            "homeLon": 77.5946
+          }
+        }
+      },
+      "response": {
+        "status": 201,
+        "body": {
+          "project": {
+            "format": "tara-project",
+            "format_version": 1,
+            "id": "diwali",
+            "name": "Diwali",
+            "revision": 1,
+            "created_at": "<time>",
+            "updated_at": "<time>",
+            "document": {
+              "scenes": [
+                {
+                  "id": "s1",
+                  "name": "S1"
+                }
+              ],
+              "dronesList": [
+                {
+                  "id": 0,
+                  "name": "Drone 1"
+                },
+                {
+                  "id": 1,
+                  "name": "Drone 2"
+                }
+              ],
+              "rate": 4,
+              "homeLat": 12.9716,
+              "homeLon": 77.5946
+            },
+            "validation": null,
+            "versions": [],
+            "has_show": false
+          },
+          "warnings": []
+        }
+      }
+    },
+    {
+      "name": "create over an existing id",
+      "request": {
+        "method": "POST",
+        "path": "/api/projects",
+        "body": {
+          "id": "diwali",
+          "name": "Again",
+          "document": {
+            "scenes": [
+              {
+                "id": "s1",
+                "name": "S1"
+              }
+            ],
+            "dronesList": [
+              {
+                "id": 0,
+                "name": "Drone 1"
+              },
+              {
+                "id": 1,
+                "name": "Drone 2"
+              }
+            ],
+            "rate": 4,
+            "homeLat": 12.9716,
+            "homeLon": 77.5946
+          }
+        }
+      },
+      "response": {
+        "status": 409,
+        "body": {
+          "detail": {
+            "code": "project_exists"
+          }
+        }
+      }
+    },
+    {
+      "name": "create with an unusable id",
+      "request": {
+        "method": "POST",
+        "path": "/api/projects",
+        "body": {
+          "id": "bad.id",
+          "name": "x",
+          "document": {
+            "scenes": [
+              {
+                "id": "s1",
+                "name": "S1"
+              }
+            ],
+            "dronesList": [
+              {
+                "id": 0,
+                "name": "Drone 1"
+              },
+              {
+                "id": 1,
+                "name": "Drone 2"
+              }
+            ],
+            "rate": 4,
+            "homeLat": 12.9716,
+            "homeLon": 77.5946
+          }
+        }
+      },
+      "response": {
+        "status": 422,
+        "body": {
+          "detail": {
+            "code": "invalid_project"
+          }
+        }
+      }
+    },
+    {
+      "name": "create without a name",
+      "request": {
+        "method": "POST",
+        "path": "/api/projects",
+        "body": {
+          "name": "",
+          "document": {
+            "scenes": [
+              {
+                "id": "s1",
+                "name": "S1"
+              }
+            ],
+            "dronesList": [
+              {
+                "id": 0,
+                "name": "Drone 1"
+              },
+              {
+                "id": 1,
+                "name": "Drone 2"
+              }
+            ],
+            "rate": 4,
+            "homeLat": 12.9716,
+            "homeLon": 77.5946
+          }
+        }
+      },
+      "response": {
+        "status": 422,
+        "body": {
+          "detail": "<validation>"
+        }
+      }
+    },
+    {
+      "name": "get",
+      "request": {
+        "method": "GET",
+        "path": "/api/projects/diwali",
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "body": {
+          "project": {
+            "format": "tara-project",
+            "format_version": 1,
+            "id": "diwali",
+            "name": "Diwali",
+            "revision": 1,
+            "created_at": "<time>",
+            "updated_at": "<time>",
+            "document": {
+              "scenes": [
+                {
+                  "id": "s1",
+                  "name": "S1"
+                }
+              ],
+              "dronesList": [
+                {
+                  "id": 0,
+                  "name": "Drone 1"
+                },
+                {
+                  "id": 1,
+                  "name": "Drone 2"
+                }
+              ],
+              "rate": 4,
+              "homeLat": 12.9716,
+              "homeLon": 77.5946
+            },
+            "validation": null,
+            "versions": [],
+            "has_show": false,
+            "show": null
+          }
+        }
+      }
+    },
+    {
+      "name": "get a missing project",
+      "request": {
+        "method": "GET",
+        "path": "/api/projects/ghost",
+        "body": null
+      },
+      "response": {
+        "status": 404,
+        "body": {
+          "detail": {
+            "code": "project_not_found"
+          }
+        }
+      }
+    },
+    {
+      "name": "save with a built show and history",
+      "request": {
+        "method": "PUT",
+        "path": "/api/projects/diwali",
+        "body": {
+          "base_revision": 1,
+          "name": "Diwali 2026",
+          "document": {
+            "scenes": [
+              {
+                "id": "s1",
+                "name": "S1"
+              },
+              {
+                "id": "s2",
+                "name": "S2"
+              }
+            ],
+            "dronesList": [
+              {
+                "id": 0,
+                "name": "Drone 1"
+              },
+              {
+                "id": 1,
+                "name": "Drone 2"
+              }
+            ],
+            "rate": 4,
+            "homeLat": 12.9716,
+            "homeLon": 77.5946
+          },
+          "show": {
+            "drones": [
+              {
+                "id": 0,
+                "waypoints": [
+                  {
+                    "time": 0.0,
+                    "x": 0.0,
+                    "y": 0.0,
+                    "z": -5.0,
+                    "yaw": 0.0
+                  },
+                  {
+                    "time": 1.0,
+                    "x": 0.0,
+                    "y": 0.0,
+                    "z": -5.0,
+                    "yaw": 0.0
+                  }
+                ]
+              },
+              {
+                "id": 1,
+                "waypoints": [
+                  {
+                    "time": 0.0,
+                    "x": 0.0,
+                    "y": 2.0,
+                    "z": -5.0,
+                    "yaw": 0.0
+                  },
+                  {
+                    "time": 1.0,
+                    "x": 0.0,
+                    "y": 2.0,
+                    "z": -5.0,
+                    "yaw": 0.0
+                  }
+                ]
+              }
+            ],
+            "_duration": 1.0
+          },
+          "validation": {
+            "status": "PASSED"
+          },
+          "versions": [
+            {
+              "id": "v-1",
+              "savedAt": "2026-10-06T10:01:00.000Z",
+              "label": "Saved",
+              "scenes": [
+                {
+                  "id": "s1",
+                  "name": "S1"
+                },
+                {
+                  "id": "s2",
+                  "name": "S2"
+                }
+              ],
+              "dronesList": [
+                {
+                  "id": 0,
+                  "name": "Drone 1"
+                },
+                {
+                  "id": 1,
+                  "name": "Drone 2"
+                }
+              ],
+              "rate": 4,
+              "homeLat": 12.9716,
+              "homeLon": 77.5946
+            }
+          ]
+        }
+      },
+      "response": {
+        "status": 200,
+        "body": {
+          "project": {
+            "format": "tara-project",
+            "format_version": 1,
+            "id": "diwali",
+            "name": "Diwali 2026",
+            "revision": 2,
+            "created_at": "<time>",
+            "updated_at": "<time>",
+            "document": {
+              "scenes": [
+                {
+                  "id": "s1",
+                  "name": "S1"
+                },
+                {
+                  "id": "s2",
+                  "name": "S2"
+                }
+              ],
+              "dronesList": [
+                {
+                  "id": 0,
+                  "name": "Drone 1"
+                },
+                {
+                  "id": 1,
+                  "name": "Drone 2"
+                }
+              ],
+              "rate": 4,
+              "homeLat": 12.9716,
+              "homeLon": 77.5946
+            },
+            "validation": {
+              "status": "PASSED"
+            },
+            "versions": [
+              {
+                "id": "v-1",
+                "savedAt": "2026-10-06T10:01:00.000Z",
+                "label": "Saved",
+                "scenes": [
+                  {
+                    "id": "s1",
+                    "name": "S1"
+                  },
+                  {
+                    "id": "s2",
+                    "name": "S2"
+                  }
+                ],
+                "dronesList": [
+                  {
+                    "id": 0,
+                    "name": "Drone 1"
+                  },
+                  {
+                    "id": 1,
+                    "name": "Drone 2"
+                  }
+                ],
+                "rate": 4,
+                "homeLat": 12.9716,
+                "homeLon": 77.5946
+              }
+            ],
+            "has_show": true
+          },
+          "warnings": []
+        }
+      }
+    },
+    {
+      "name": "get with the built show",
+      "request": {
+        "method": "GET",
+        "path": "/api/projects/diwali",
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "body": {
+          "project": {
+            "format": "tara-project",
+            "format_version": 1,
+            "id": "diwali",
+            "name": "Diwali 2026",
+            "revision": 2,
+            "created_at": "<time>",
+            "updated_at": "<time>",
+            "document": {
+              "scenes": [
+                {
+                  "id": "s1",
+                  "name": "S1"
+                },
+                {
+                  "id": "s2",
+                  "name": "S2"
+                }
+              ],
+              "dronesList": [
+                {
+                  "id": 0,
+                  "name": "Drone 1"
+                },
+                {
+                  "id": 1,
+                  "name": "Drone 2"
+                }
+              ],
+              "rate": 4,
+              "homeLat": 12.9716,
+              "homeLon": 77.5946
+            },
+            "validation": {
+              "status": "PASSED"
+            },
+            "versions": [
+              {
+                "id": "v-1",
+                "savedAt": "2026-10-06T10:01:00.000Z",
+                "label": "Saved",
+                "scenes": [
+                  {
+                    "id": "s1",
+                    "name": "S1"
+                  },
+                  {
+                    "id": "s2",
+                    "name": "S2"
+                  }
+                ],
+                "dronesList": [
+                  {
+                    "id": 0,
+                    "name": "Drone 1"
+                  },
+                  {
+                    "id": 1,
+                    "name": "Drone 2"
+                  }
+                ],
+                "rate": 4,
+                "homeLat": 12.9716,
+                "homeLon": 77.5946
+              }
+            ],
+            "has_show": true,
+            "show": {
+              "version": 1,
+              "drones": [
+                {
+                  "id": 0,
+                  "waypoints": [
+                    {
+                      "time": 0.0,
+                      "x": 0.0,
+                      "y": 0.0,
+                      "z": -5.0,
+                      "yaw": 0.0
+                    },
+                    {
+                      "time": 1.0,
+                      "x": 0.0,
+                      "y": 0.0,
+                      "z": -5.0,
+                      "yaw": 0.0
+                    }
+                  ]
+                },
+                {
+                  "id": 1,
+                  "waypoints": [
+                    {
+                      "time": 0.0,
+                      "x": 0.0,
+                      "y": 2.0,
+                      "z": -5.0,
+                      "yaw": 0.0
+                    },
+                    {
+                      "time": 1.0,
+                      "x": 0.0,
+                      "y": 2.0,
+                      "z": -5.0,
+                      "yaw": 0.0
+                    }
+                  ]
+                }
+              ],
+              "_duration": 1.0
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "list",
+      "request": {
+        "method": "GET",
+        "path": "/api/projects",
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "body": {
+          "projects": [
+            {
+              "format": "tara-project",
+              "format_version": 1,
+              "id": "diwali",
+              "name": "Diwali 2026",
+              "revision": 2,
+              "created_at": "<time>",
+              "updated_at": "<time>",
+              "document": {
+                "scenes": [
+                  {
+                    "id": "s1",
+                    "name": "S1"
+                  },
+                  {
+                    "id": "s2",
+                    "name": "S2"
+                  }
+                ],
+                "dronesList": [
+                  {
+                    "id": 0,
+                    "name": "Drone 1"
+                  },
+                  {
+                    "id": 1,
+                    "name": "Drone 2"
+                  }
+                ],
+                "rate": 4,
+                "homeLat": 12.9716,
+                "homeLon": 77.5946
+              },
+              "validation": {
+                "status": "PASSED"
+              },
+              "versions": [
+                {
+                  "id": "v-1",
+                  "savedAt": "2026-10-06T10:01:00.000Z",
+                  "label": "Saved",
+                  "scenes": [
+                    {
+                      "id": "s1",
+                      "name": "S1"
+                    },
+                    {
+                      "id": "s2",
+                      "name": "S2"
+                    }
+                  ],
+                  "dronesList": [
+                    {
+                      "id": 0,
+                      "name": "Drone 1"
+                    },
+                    {
+                      "id": 1,
+                      "name": "Drone 2"
+                    }
+                  ],
+                  "rate": 4,
+                  "homeLat": 12.9716,
+                  "homeLon": 77.5946
+                }
+              ],
+              "has_show": true
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "save from a stale revision",
+      "request": {
+        "method": "PUT",
+        "path": "/api/projects/diwali",
+        "body": {
+          "base_revision": 1,
+          "name": "Stale",
+          "document": {
+            "scenes": [
+              {
+                "id": "s1",
+                "name": "S1"
+              }
+            ],
+            "dronesList": [
+              {
+                "id": 0,
+                "name": "Drone 1"
+              },
+              {
+                "id": 1,
+                "name": "Drone 2"
+              }
+            ],
+            "rate": 4,
+            "homeLat": 12.9716,
+            "homeLon": 77.5946
+          }
+        }
+      },
+      "response": {
+        "status": 409,
+        "body": {
+          "detail": {
+            "code": "revision_conflict",
+            "current_revision": 2
+          }
+        }
+      }
+    },
+    {
+      "name": "save a show that breaks show_v1",
+      "request": {
+        "method": "PUT",
+        "path": "/api/projects/diwali",
+        "body": {
+          "base_revision": 2,
+          "name": "Diwali 2026",
+          "document": {
+            "scenes": [
+              {
+                "id": "s1",
+                "name": "S1"
+              },
+              {
+                "id": "s2",
+                "name": "S2"
+              },
+              {
+                "id": "s3",
+                "name": "S3"
+              }
+            ],
+            "dronesList": [
+              {
+                "id": 0,
+                "name": "Drone 1"
+              },
+              {
+                "id": 1,
+                "name": "Drone 2"
+              }
+            ],
+            "rate": 4,
+            "homeLat": 12.9716,
+            "homeLon": 77.5946
+          },
+          "show": {
+            "drones": [
+              {
+                "id": 0,
+                "waypoints": [
+                  {
+                    "time": 0.0,
+                    "x": 0.0,
+                    "y": 0.0,
+                    "z": -5.0,
+                    "yaw": 400.0
+                  },
+                  {
+                    "time": 1.0,
+                    "x": 0.0,
+                    "y": 0.0,
+                    "z": -5.0,
+                    "yaw": 400.0
+                  }
+                ]
+              },
+              {
+                "id": 1,
+                "waypoints": [
+                  {
+                    "time": 0.0,
+                    "x": 0.0,
+                    "y": 2.0,
+                    "z": -5.0,
+                    "yaw": 400.0
+                  },
+                  {
+                    "time": 1.0,
+                    "x": 0.0,
+                    "y": 2.0,
+                    "z": -5.0,
+                    "yaw": 400.0
+                  }
+                ]
+              }
+            ],
+            "_duration": 1.0
+          },
+          "versions": [
+            {
+              "id": "v-2",
+              "savedAt": "2026-10-06T10:02:00.000Z",
+              "label": "Saved",
+              "scenes": [
+                {
+                  "id": "s1",
+                  "name": "S1"
+                },
+                {
+                  "id": "s2",
+                  "name": "S2"
+                },
+                {
+                  "id": "s3",
+                  "name": "S3"
+                }
+              ],
+              "dronesList": [
+                {
+                  "id": 0,
+                  "name": "Drone 1"
+                },
+                {
+                  "id": 1,
+                  "name": "Drone 2"
+                }
+              ],
+              "rate": 4,
+              "homeLat": 12.9716,
+              "homeLon": 77.5946
+            },
+            {
+              "id": "v-1",
+              "savedAt": "2026-10-06T10:01:00.000Z",
+              "label": "Saved",
+              "scenes": [
+                {
+                  "id": "s1",
+                  "name": "S1"
+                },
+                {
+                  "id": "s2",
+                  "name": "S2"
+                }
+              ],
+              "dronesList": [
+                {
+                  "id": 0,
+                  "name": "Drone 1"
+                },
+                {
+                  "id": 1,
+                  "name": "Drone 2"
+                }
+              ],
+              "rate": 4,
+              "homeLat": 12.9716,
+              "homeLon": 77.5946
+            }
+          ]
+        }
+      },
+      "response": {
+        "status": 200,
+        "body": {
+          "project": {
+            "format": "tara-project",
+            "format_version": 1,
+            "id": "diwali",
+            "name": "Diwali 2026",
+            "revision": 3,
+            "created_at": "<time>",
+            "updated_at": "<time>",
+            "document": {
+              "scenes": [
+                {
+                  "id": "s1",
+                  "name": "S1"
+                },
+                {
+                  "id": "s2",
+                  "name": "S2"
+                },
+                {
+                  "id": "s3",
+                  "name": "S3"
+                }
+              ],
+              "dronesList": [
+                {
+                  "id": 0,
+                  "name": "Drone 1"
+                },
+                {
+                  "id": 1,
+                  "name": "Drone 2"
+                }
+              ],
+              "rate": 4,
+              "homeLat": 12.9716,
+              "homeLon": 77.5946
+            },
+            "validation": null,
+            "versions": [
+              {
+                "id": "v-2",
+                "savedAt": "2026-10-06T10:02:00.000Z",
+                "label": "Saved",
+                "scenes": [
+                  {
+                    "id": "s1",
+                    "name": "S1"
+                  },
+                  {
+                    "id": "s2",
+                    "name": "S2"
+                  },
+                  {
+                    "id": "s3",
+                    "name": "S3"
+                  }
+                ],
+                "dronesList": [
+                  {
+                    "id": 0,
+                    "name": "Drone 1"
+                  },
+                  {
+                    "id": 1,
+                    "name": "Drone 2"
+                  }
+                ],
+                "rate": 4,
+                "homeLat": 12.9716,
+                "homeLon": 77.5946
+              },
+              {
+                "id": "v-1",
+                "savedAt": "2026-10-06T10:01:00.000Z",
+                "label": "Saved",
+                "scenes": [
+                  {
+                    "id": "s1",
+                    "name": "S1"
+                  },
+                  {
+                    "id": "s2",
+                    "name": "S2"
+                  }
+                ],
+                "dronesList": [
+                  {
+                    "id": 0,
+                    "name": "Drone 1"
+                  },
+                  {
+                    "id": 1,
+                    "name": "Drone 2"
+                  }
+                ],
+                "rate": 4,
+                "homeLat": 12.9716,
+                "homeLon": 77.5946
+              }
+            ],
+            "has_show": false
+          },
+          "warnings": [
+            {
+              "code": "show_schema"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "save a missing project",
+      "request": {
+        "method": "PUT",
+        "path": "/api/projects/ghost",
+        "body": {
+          "base_revision": 1,
+          "name": "Ghost",
+          "document": {
+            "scenes": [
+              {
+                "id": "s1",
+                "name": "S1"
+              }
+            ],
+            "dronesList": [
+              {
+                "id": 0,
+                "name": "Drone 1"
+              },
+              {
+                "id": 1,
+                "name": "Drone 2"
+              }
+            ],
+            "rate": 4,
+            "homeLat": 12.9716,
+            "homeLon": 77.5946
+          }
+        }
+      },
+      "response": {
+        "status": 404,
+        "body": {
+          "detail": {
+            "code": "project_not_found"
+          }
+        }
+      }
+    },
+    {
+      "name": "save without a base revision",
+      "request": {
+        "method": "PUT",
+        "path": "/api/projects/diwali",
+        "body": {
+          "name": "x",
+          "document": {
+            "scenes": [
+              {
+                "id": "s1",
+                "name": "S1"
+              }
+            ],
+            "dronesList": [
+              {
+                "id": 0,
+                "name": "Drone 1"
+              },
+              {
+                "id": 1,
+                "name": "Drone 2"
+              }
+            ],
+            "rate": 4,
+            "homeLat": 12.9716,
+            "homeLon": 77.5946
+          }
+        }
+      },
+      "response": {
+        "status": 422,
+        "body": {
+          "detail": "<validation>"
+        }
+      }
+    },
+    {
+      "name": "save with too much history",
+      "request": {
+        "method": "PUT",
+        "path": "/api/projects/diwali",
+        "body": {
+          "base_revision": 3,
+          "name": "x",
+          "document": {
+            "scenes": [
+              {
+                "id": "s1",
+                "name": "S1"
+              }
+            ],
+            "dronesList": [
+              {
+                "id": 0,
+                "name": "Drone 1"
+              },
+              {
+                "id": 1,
+                "name": "Drone 2"
+              }
+            ],
+            "rate": 4,
+            "homeLat": 12.9716,
+            "homeLon": 77.5946
+          },
+          "versions": [
+            {
+              "id": "v-0",
+              "savedAt": "2026-10-06T10:00:00.000Z"
+            },
+            {
+              "id": "v-1",
+              "savedAt": "2026-10-06T10:00:00.000Z"
+            },
+            {
+              "id": "v-2",
+              "savedAt": "2026-10-06T10:00:00.000Z"
+            },
+            {
+              "id": "v-3",
+              "savedAt": "2026-10-06T10:00:00.000Z"
+            },
+            {
+              "id": "v-4",
+              "savedAt": "2026-10-06T10:00:00.000Z"
+            },
+            {
+              "id": "v-5",
+              "savedAt": "2026-10-06T10:00:00.000Z"
+            },
+            {
+              "id": "v-6",
+              "savedAt": "2026-10-06T10:00:00.000Z"
+            },
+            {
+              "id": "v-7",
+              "savedAt": "2026-10-06T10:00:00.000Z"
+            },
+            {
+              "id": "v-8",
+              "savedAt": "2026-10-06T10:00:00.000Z"
+            },
+            {
+              "id": "v-9",
+              "savedAt": "2026-10-06T10:00:00.000Z"
+            },
+            {
+              "id": "v-10",
+              "savedAt": "2026-10-06T10:00:00.000Z"
+            },
+            {
+              "id": "v-11",
+              "savedAt": "2026-10-06T10:00:00.000Z"
+            },
+            {
+              "id": "v-12",
+              "savedAt": "2026-10-06T10:00:00.000Z"
+            },
+            {
+              "id": "v-13",
+              "savedAt": "2026-10-06T10:00:00.000Z"
+            },
+            {
+              "id": "v-14",
+              "savedAt": "2026-10-06T10:00:00.000Z"
+            },
+            {
+              "id": "v-15",
+              "savedAt": "2026-10-06T10:00:00.000Z"
+            },
+            {
+              "id": "v-16",
+              "savedAt": "2026-10-06T10:00:00.000Z"
+            },
+            {
+              "id": "v-17",
+              "savedAt": "2026-10-06T10:00:00.000Z"
+            },
+            {
+              "id": "v-18",
+              "savedAt": "2026-10-06T10:00:00.000Z"
+            },
+            {
+              "id": "v-19",
+              "savedAt": "2026-10-06T10:00:00.000Z"
+            },
+            {
+              "id": "v-20",
+              "savedAt": "2026-10-06T10:00:00.000Z"
+            }
+          ]
+        }
+      },
+      "response": {
+        "status": 422,
+        "body": {
+          "detail": "<validation>"
+        }
+      }
+    },
+    {
+      "name": "import a browser's project",
+      "request": {
+        "method": "POST",
+        "path": "/api/projects/import",
+        "body": {
+          "id": "default-proj",
+          "name": "Untitled Show",
+          "document": {
+            "scenes": [
+              {
+                "id": "laptop",
+                "name": "LAPTOP"
+              }
+            ],
+            "dronesList": [
+              {
+                "id": 0,
+                "name": "Drone 1"
+              },
+              {
+                "id": 1,
+                "name": "Drone 2"
+              }
+            ],
+            "rate": 4,
+            "homeLat": 12.9716,
+            "homeLon": 77.5946
+          },
+          "versions": [
+            {
+              "id": "v-1",
+              "savedAt": "2026-10-06T10:01:00.000Z",
+              "label": "Saved",
+              "scenes": [
+                {
+                  "id": "laptop",
+                  "name": "LAPTOP"
+                }
+              ],
+              "dronesList": [
+                {
+                  "id": 0,
+                  "name": "Drone 1"
+                },
+                {
+                  "id": 1,
+                  "name": "Drone 2"
+                }
+              ],
+              "rate": 4,
+              "homeLat": 12.9716,
+              "homeLon": 77.5946
+            }
+          ]
+        }
+      },
+      "response": {
+        "status": 200,
+        "body": {
+          "project": {
+            "format": "tara-project",
+            "format_version": 1,
+            "id": "default-proj",
+            "name": "Untitled Show",
+            "revision": 1,
+            "created_at": "<time>",
+            "updated_at": "<time>",
+            "document": {
+              "scenes": [
+                {
+                  "id": "laptop",
+                  "name": "LAPTOP"
+                }
+              ],
+              "dronesList": [
+                {
+                  "id": 0,
+                  "name": "Drone 1"
+                },
+                {
+                  "id": 1,
+                  "name": "Drone 2"
+                }
+              ],
+              "rate": 4,
+              "homeLat": 12.9716,
+              "homeLon": 77.5946
+            },
+            "validation": null,
+            "versions": [
+              {
+                "id": "v-1",
+                "savedAt": "2026-10-06T10:01:00.000Z",
+                "label": "Saved",
+                "scenes": [
+                  {
+                    "id": "laptop",
+                    "name": "LAPTOP"
+                  }
+                ],
+                "dronesList": [
+                  {
+                    "id": 0,
+                    "name": "Drone 1"
+                  },
+                  {
+                    "id": 1,
+                    "name": "Drone 2"
+                  }
+                ],
+                "rate": 4,
+                "homeLat": 12.9716,
+                "homeLon": 77.5946
+              }
+            ],
+            "has_show": false
+          },
+          "warnings": [],
+          "status": "created"
+        }
+      }
+    },
+    {
+      "name": "import it again",
+      "request": {
+        "method": "POST",
+        "path": "/api/projects/import",
+        "body": {
+          "id": "default-proj",
+          "name": "Untitled Show",
+          "document": {
+            "scenes": [
+              {
+                "id": "laptop",
+                "name": "LAPTOP"
+              }
+            ],
+            "dronesList": [
+              {
+                "id": 0,
+                "name": "Drone 1"
+              },
+              {
+                "id": 1,
+                "name": "Drone 2"
+              }
+            ],
+            "rate": 4,
+            "homeLat": 12.9716,
+            "homeLon": 77.5946
+          },
+          "versions": [
+            {
+              "id": "v-1",
+              "savedAt": "2026-10-06T10:01:00.000Z",
+              "label": "Saved",
+              "scenes": [
+                {
+                  "id": "laptop",
+                  "name": "LAPTOP"
+                }
+              ],
+              "dronesList": [
+                {
+                  "id": 0,
+                  "name": "Drone 1"
+                },
+                {
+                  "id": 1,
+                  "name": "Drone 2"
+                }
+              ],
+              "rate": 4,
+              "homeLat": 12.9716,
+              "homeLon": 77.5946
+            }
+          ]
+        }
+      },
+      "response": {
+        "status": 200,
+        "body": {
+          "project": {
+            "format": "tara-project",
+            "format_version": 1,
+            "id": "default-proj",
+            "name": "Untitled Show",
+            "revision": 1,
+            "created_at": "<time>",
+            "updated_at": "<time>",
+            "document": {
+              "scenes": [
+                {
+                  "id": "laptop",
+                  "name": "LAPTOP"
+                }
+              ],
+              "dronesList": [
+                {
+                  "id": 0,
+                  "name": "Drone 1"
+                },
+                {
+                  "id": 1,
+                  "name": "Drone 2"
+                }
+              ],
+              "rate": 4,
+              "homeLat": 12.9716,
+              "homeLon": 77.5946
+            },
+            "validation": null,
+            "versions": [
+              {
+                "id": "v-1",
+                "savedAt": "2026-10-06T10:01:00.000Z",
+                "label": "Saved",
+                "scenes": [
+                  {
+                    "id": "laptop",
+                    "name": "LAPTOP"
+                  }
+                ],
+                "dronesList": [
+                  {
+                    "id": 0,
+                    "name": "Drone 1"
+                  },
+                  {
+                    "id": 1,
+                    "name": "Drone 2"
+                  }
+                ],
+                "rate": 4,
+                "homeLat": 12.9716,
+                "homeLon": 77.5946
+              }
+            ],
+            "has_show": false
+          },
+          "warnings": [],
+          "status": "skipped"
+        }
+      }
+    },
+    {
+      "name": "import another browser's project with the same id",
+      "request": {
+        "method": "POST",
+        "path": "/api/projects/import",
+        "body": {
+          "id": "default-proj",
+          "name": "Untitled Show",
+          "document": {
+            "scenes": [
+              {
+                "id": "desktop",
+                "name": "DESKTOP"
+              }
+            ],
+            "dronesList": [
+              {
+                "id": 0,
+                "name": "Drone 1"
+              },
+              {
+                "id": 1,
+                "name": "Drone 2"
+              }
+            ],
+            "rate": 4,
+            "homeLat": 12.9716,
+            "homeLon": 77.5946
+          }
+        }
+      },
+      "response": {
+        "status": 200,
+        "body": {
+          "project": {
+            "format": "tara-project",
+            "format_version": 1,
+            "id": "default-proj-<fingerprint>",
+            "name": "Untitled Show",
+            "revision": 1,
+            "created_at": "<time>",
+            "updated_at": "<time>",
+            "document": {
+              "scenes": [
+                {
+                  "id": "desktop",
+                  "name": "DESKTOP"
+                }
+              ],
+              "dronesList": [
+                {
+                  "id": 0,
+                  "name": "Drone 1"
+                },
+                {
+                  "id": 1,
+                  "name": "Drone 2"
+                }
+              ],
+              "rate": 4,
+              "homeLat": 12.9716,
+              "homeLon": 77.5946
+            },
+            "validation": null,
+            "versions": [],
+            "has_show": false
+          },
+          "warnings": [],
+          "status": "renamed"
+        }
+      }
+    },
+    {
+      "name": "delete",
+      "request": {
+        "method": "DELETE",
+        "path": "/api/projects/diwali",
+        "body": null
+      },
+      "response": {
+        "status": 204,
+        "body": null
+      }
+    },
+    {
+      "name": "delete again",
+      "request": {
+        "method": "DELETE",
+        "path": "/api/projects/diwali",
+        "body": null
+      },
+      "response": {
+        "status": 404,
+        "body": {
+          "detail": {
+            "code": "project_not_found"
+          }
+        }
+      }
+    },
+    {
+      "name": "list after all of it",
+      "request": {
+        "method": "GET",
+        "path": "/api/projects",
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "body": {
+          "projects": [
+            {
+              "format": "tara-project",
+              "format_version": 1,
+              "id": "default-proj",
+              "name": "Untitled Show",
+              "revision": 1,
+              "created_at": "<time>",
+              "updated_at": "<time>",
+              "document": {
+                "scenes": [
+                  {
+                    "id": "laptop",
+                    "name": "LAPTOP"
+                  }
+                ],
+                "dronesList": [
+                  {
+                    "id": 0,
+                    "name": "Drone 1"
+                  },
+                  {
+                    "id": 1,
+                    "name": "Drone 2"
+                  }
+                ],
+                "rate": 4,
+                "homeLat": 12.9716,
+                "homeLon": 77.5946
+              },
+              "validation": null,
+              "versions": [
+                {
+                  "id": "v-1",
+                  "savedAt": "2026-10-06T10:01:00.000Z",
+                  "label": "Saved",
+                  "scenes": [
+                    {
+                      "id": "laptop",
+                      "name": "LAPTOP"
+                    }
+                  ],
+                  "dronesList": [
+                    {
+                      "id": 0,
+                      "name": "Drone 1"
+                    },
+                    {
+                      "id": 1,
+                      "name": "Drone 2"
+                    }
+                  ],
+                  "rate": 4,
+                  "homeLat": 12.9716,
+                  "homeLon": 77.5946
+                }
+              ],
+              "has_show": false
+            },
+            {
+              "format": "tara-project",
+              "format_version": 1,
+              "id": "default-proj-<fingerprint>",
+              "name": "Untitled Show",
+              "revision": 1,
+              "created_at": "<time>",
+              "updated_at": "<time>",
+              "document": {
+                "scenes": [
+                  {
+                    "id": "desktop",
+                    "name": "DESKTOP"
+                  }
+                ],
+                "dronesList": [
+                  {
+                    "id": 0,
+                    "name": "Drone 1"
+                  },
+                  {
+                    "id": 1,
+                    "name": "Drone 2"
+                  }
+                ],
+                "rate": 4,
+                "homeLat": 12.9716,
+                "homeLon": 77.5946
+              },
+              "validation": null,
+              "versions": [],
+              "has_show": false
+            }
+          ]
+        }
+      }
+    }
+  ]
+}

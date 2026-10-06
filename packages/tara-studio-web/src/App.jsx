@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect, useCallback } from 'react';
+import { useState, useMemo, useEffect, useCallback, useRef } from 'react';
 
 import SecurityGate from './components/SecurityGate.jsx';
 import Sidebar from './components/Sidebar.jsx';
@@ -102,8 +102,21 @@ export default function App() {
     if (show) { setIsPlaying(false); scrub(0); }
   }, [builder, scenes, numDrones, rate, setIsPlaying, scrub]);
 
-  // Build the demo show once so the stage isn't empty on first load.
-  useEffect(() => { handleBuild(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, []);
+  // Build once on startup so the stage isn't empty - after the Project Vault
+  // has put the last open project in the editor (issue #101), and only if that
+  // project did not come with its built show. An unreachable vault still
+  // boots, so the demo show builds either way.
+  const builtOnStartup = useRef(false);
+  useEffect(() => {
+    if (!projects.booted || builtOnStartup.current) return;
+    builtOnStartup.current = true;
+    if (!choreoData) handleBuild();
+    /* eslint-disable-next-line react-hooks/exhaustive-deps */
+  }, [projects.booted]);
+
+  // Another browser may have saved since this one listed the vault.
+  const refreshVault = projects.refresh;
+  useEffect(() => { if (activePage === 'projects') refreshVault(); }, [activePage, refreshVault]);
 
   // Jump the playhead to the previous/next scene boundary.
   const stepScene = useCallback((dir) => {
@@ -158,6 +171,8 @@ export default function App() {
           projectName={projects.projectName}
           onProjectName={projects.setProjectName}
           onSave={projects.saveCurrent}
+          // The vault page shows it in full; everywhere else it goes by Save.
+          vaultError={activePage === 'projects' ? null : projects.error}
         />
 
         {activePage === 'choreo' && (
@@ -229,6 +244,9 @@ export default function App() {
             onCreate={projects.create}
             onDelete={projects.remove}
             onRestore={(id, versionId) => { projects.restore(id, versionId); setActivePage('choreo'); }}
+            status={projects.status}
+            error={projects.error}
+            onRetry={projects.retry}
           />
         )}
 

@@ -6,7 +6,8 @@
 //
 // A version holds what the designer edits (scenes, fleet, rate, home), not the
 // built trajectory: a built 100-drone show is megabytes, twenty of them would
-// blow the localStorage quota, and it can be regenerated from the scenes.
+// be sent to the Project Vault on every save, and it can be regenerated from
+// the scenes.
 
 /** Versions kept per project; the oldest is dropped past this. */
 export const MAX_VERSIONS = 20;
@@ -14,7 +15,8 @@ export const MAX_VERSIONS = 20;
 const FIELDS = ['scenes', 'rate', 'homeLat', 'homeLon', 'dronesList'];
 
 const pick = (state) => Object.fromEntries(FIELDS.map((k) => [k, state[k]]));
-const sameContent = (a, b) => JSON.stringify(pick(a)) === JSON.stringify(pick(b));
+/** True when two states hold the same editable show. */
+export const sameContent = (a, b) => JSON.stringify(pick(a)) === JSON.stringify(pick(b));
 
 export const versionsOf = (project) => (Array.isArray(project?.versions) ? project.versions : []);
 

@@ -1226,6 +1226,17 @@ input[type="number"] { font-family: var(--mono); font-variant-numeric: tabular-n
 .vault-version-meta { grid-column: 1; font-size: 0.66rem; color: var(--text-faint); }
 .vault-versions li button { grid-column: 2; grid-row: 1 / span 2; margin: 0; }
 
+/* --------------------------------------- Project Vault, backend (#101) */
+.vault-note { font-size: 0.76rem; color: var(--text-dim); margin-bottom: 1rem; }
+.vault-alert {
+  display: flex; align-items: center; gap: 0.6rem; margin-bottom: 1rem;
+  background: var(--danger-tint); border: 1px solid var(--danger); border-radius: var(--r-sm);
+  color: var(--danger); padding: 0.55rem 0.8rem; font-size: 0.76rem;
+}
+.vault-alert span { flex: 1; }
+.vault-alert button { margin: 0; flex-shrink: 0; }
+.vault-error { margin: 0.5rem 0 0; color: var(--danger); font-size: 0.68rem; line-height: 1.35; }
+
 /* ------------------------------------------- Fleet list, bulk edit (#102) */
 .fleet-page { gap: 1rem; }
 .fleet-toolbar {
