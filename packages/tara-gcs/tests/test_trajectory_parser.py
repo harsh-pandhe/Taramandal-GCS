@@ -39,12 +39,12 @@ def test_parse_json_missing_id():
     invalid_json = {
         "drones": [
             {
-                "waypoints": [{"time": 0.0, "x": 1.0, "y": 2.0, "z": -3.0}]
+                "waypoints": [{"time": 0.0, "x": 1.0, "y": 2.0, "z": -3.0, "yaw": 0.0}]
             }
         ]
     }
     content = json.dumps(invalid_json)
-    with pytest.raises(ValueError, match="Drone entry is missing required 'id' key"):
+    with pytest.raises(ValueError, match=r"drones\.0\.id: Field required"):
         _parse_json(content)
 
 def test_parse_json_invalid_id():
@@ -52,25 +52,25 @@ def test_parse_json_invalid_id():
         "drones": [
             {
                 "id": "abc",
-                "waypoints": [{"time": 0.0, "x": 1.0, "y": 2.0, "z": -3.0}]
+                "waypoints": [{"time": 0.0, "x": 1.0, "y": 2.0, "z": -3.0, "yaw": 0.0}]
             }
         ]
     }
     content = json.dumps(invalid_json)
-    with pytest.raises(ValueError, match="Invalid drone 'id' value"):
+    with pytest.raises(ValueError, match=r"drones\.0\.id: Input should be a valid integer"):
         _parse_json(content)
 
 def test_parse_json_out_of_range_id():
     invalid_json = {
         "drones": [
             {
-                "id": 105,
-                "waypoints": [{"time": 0.0, "x": 1.0, "y": 2.0, "z": -3.0}]
+                "id": 1000,
+                "waypoints": [{"time": 0.0, "x": 1.0, "y": 2.0, "z": -3.0, "yaw": 0.0}]
             }
         ]
     }
     content = json.dumps(invalid_json)
-    with pytest.raises(ValueError, match="Drone ID out of range"):
+    with pytest.raises(ValueError, match=r"drones\.0\.id: Input should be less than 1000"):
         _parse_json(content)
 
 def test_parse_csv_valid():

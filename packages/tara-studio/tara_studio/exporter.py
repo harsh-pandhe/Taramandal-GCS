@@ -14,9 +14,9 @@ from tara_core.show import SHOW_FORMAT_VERSION, Show, ShowContainer
 def export_json(choreo_data: dict) -> str:
     """Serialises a choreography as a show file, refusing one that breaks the schema.
 
-    Stamps ``version`` when the choreography doesn't carry one, computes the
-    per-show geofence envelope (issue #53), then checks the result against
-    ``schemas/show_v1.json`` (via ``ShowContainer``) before anything is written:
+    Stamps ``version`` when the choreography doesn't carry one, checks the
+    show against ``schemas/show_v1.json`` (via ``ShowContainer``), then adds
+    the per-show geofence envelope (issue #53), all before anything is written:
     a malformed show should fail here, in the Studio, rather than on upload to
     the GCS. The dict itself is what gets written, not the model's dump, so
     unknown keys and number formatting survive unchanged.
@@ -26,9 +26,14 @@ def export_json(choreo_data: dict) -> str:
             path, e.g. ``drones.0.waypoints.12.yaw``.
     """
     data = {"version": SHOW_FORMAT_VERSION, **choreo_data}
+    # Validated before the geofence is computed: Show.from_any assumes a
+    # well-formed show, and on a string coordinate or a missing id it raised a
+    # TypeError/ValueError with no field path (a 500 from /api/export). Any
+    # incoming _geofence is left out because it is replaced below; the one
+    # computed there is derived from coordinates this check has just vetted.
+    ShowContainer.model_validate({k: v for k, v in data.items() if k != "_geofence"})
     if isinstance(data.get("drones"), list):
         data["_geofence"] = Show.from_any(data).geofence_envelope()
-    ShowContainer.model_validate(data)
     # allow_nan=False: the schema only vets the fields it knows, and a NaN in
     # an unknown key would otherwise be written out as invalid JSON.
     return json.dumps(data, indent=2, allow_nan=False)

@@ -37,6 +37,7 @@ from tara_gcs.fleet_fsm import (
     LifecycleState,
 )
 from tara_gcs.state_store import DEFAULT_STATE_PATH, discard_show_state, load_show_state, save_show_state
+from tara_gcs.trajectory_parser import gate_trajectory
 
 # Fleet-wide safety limits and launch geometry come from tara_core so that this
 # runtime monitor, the upload gate and the Studio's design-time validator can no
@@ -1699,13 +1700,20 @@ class DroneManager:
         Returns the elapsed playback time (seconds) the show had reached
         when it was last saved, for the caller/frontend to display.
 
-        Raises ValueError if there is no pending resume state.
+        Raises ValueError if there is no pending resume state, or if the saved
+        trajectory no longer passes the upload gate — the snapshot is a plain
+        file, so it is checked again exactly as an upload would be (issue
+        #55). A refused show is left pending, for the operator to discard.
         """
         if not self.pending_resume_state:
             raise ValueError("No pending saved show state to resume.")
 
         state = self.pending_resume_state
-        self.active_trajectory = state["trajectory"]
+        try:
+            trajectory = gate_trajectory(state["trajectory"])
+        except ValueError as e:
+            raise ValueError(f"Saved show cannot be resumed: {e}") from e
+        self.active_trajectory = trajectory
         self.show_mode = state["mode"]
         elapsed = max(0.0, state["saved_at"] - state["show_started_at"])
         self.pending_resume_state = None
