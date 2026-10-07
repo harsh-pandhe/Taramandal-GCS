@@ -343,3 +343,44 @@ def test_a_show_signed_by_studio_export_uploads(gcs, key, tmp_path, monkeypatch)
     resp = _upload(client, exported["content"].encode("utf-8"), exported["signature"]["content"].encode("utf-8"),
                    filename=exported["filename"])
     assert resp.status_code == 403
+
+
+def test_signed_canonical_show_with_led_and_100_drones_uploads_and_preserves_data(gcs, key, tmp_path, monkeypatch):
+    """Verifies that a 100-drone canonical show with LED data signed by Studio uploads and preserves LEDs."""
+    from tara_core.signing import private_key_to_pem
+    from tara_studio import signing as studio_signing
+    from tara_studio.generator import generate_circle
+    from tara_studio.led_engine import apply_track_to_choreo
+    from tara_studio.server import app as studio_app
+
+    key_path = tmp_path / "studio.pem"
+    fd = os.open(key_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    with os.fdopen(fd, "wb") as f:
+        f.write(private_key_to_pem(key))
+    monkeypatch.setattr(studio_signing, "DEFAULT_TOML", tmp_path / "tara.toml")
+    monkeypatch.setenv(studio_signing.SIGNING_KEY_ENV, str(key_path))
+
+    choreo = generate_circle(100, 10.0, 1.0)
+    choreo = apply_track_to_choreo(
+        choreo, [{"pattern": "SOLID", "start_time": 0, "duration": 999, "color": "#FF8000"}]
+    )
+
+    exported = TestClient(studio_app).post(
+        "/api/export", json={"choreo": choreo, "format": "json", "sign": True},
+    ).json()
+    client, _ = gcs
+    resp = _upload(
+        client, exported["content"].encode("utf-8"), exported["signature"]["content"].encode("utf-8"),
+        filename=exported["filename"],
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["signature"]["verified"] is True
+    assert gcs_main.drone_manager.active_trajectory is not None
+    assert len(gcs_main.drone_manager.active_trajectory) == 100
+    assert 99 in gcs_main.drone_manager.active_trajectory
+    sample_wp = gcs_main.drone_manager.active_trajectory[0][0]
+    assert sample_wp["r"] == 255
+    assert sample_wp["g"] == 128
+    assert sample_wp["b"] == 0
+

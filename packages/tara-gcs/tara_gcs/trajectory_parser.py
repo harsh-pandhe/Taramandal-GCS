@@ -1,9 +1,11 @@
 import json
 import io
 import zipfile
+from typing import Any
 import pandas as pd
 
-from tara_core import DEFAULT_LIMITS
+from tara_core import DEFAULT_LIMITS, MAX_FLEET_SIZE, SHOW_FORMAT_VERSION
+from tara_core.show import Show
 from tara_core.validate import collision_errors
 
 def parse_trajectory_file(content: str, filename: str) -> dict:
@@ -88,77 +90,89 @@ def validate_trajectory_collisions(trajectory_data: dict, safety_distance: float
     )
 
 def _parse_json(content: str) -> dict:
-    data = json.loads(content)
+    try:
+        data = json.loads(content)
+    except Exception as e:
+        raise ValueError(f"Invalid JSON content: {e}")
+
+    if not isinstance(data, dict):
+        raise ValueError(f"Expected JSON object at top level, got {type(data).__name__}")
+
+    # Canonical show format (issue #55): contains "drones" or "version".
+    # Must be validated through Tara Core's canonical ShowContainer / Show.validate_and_load.
+    # Malformed canonical shows MUST NOT be silently treated as legacy input.
+    if "drones" in data or "version" in data:
+        # Check explicit version compatibility first if version is present
+        version = data.get("version")
+        if version is not None and isinstance(version, int) and version > SHOW_FORMAT_VERSION:
+            raise ValueError(
+                f"Unsupported show format version {version}. "
+                f"This GCS supports up to version {SHOW_FORMAT_VERSION}."
+            )
+        try:
+            show = Show.validate_and_load(data)
+        except Exception as e:
+            raise ValueError(f"Show schema validation failed: {e}") from e
+
+        return show.to_gcs()
+
+    # Legacy direct dict representation: {0: [...], 1: [...]} or {"0": [...]}
     result = {}
-    
-    if "drones" in data:
-        if not isinstance(data["drones"], list):
-            raise ValueError("'drones' key in JSON must map to a list.")
-            
-        for drone_data in data["drones"]:
-            if "id" not in drone_data:
-                raise ValueError("Drone entry is missing required 'id' key.")
+    for k, v in data.items():
+        if str(k).startswith("_"):
+            continue
+        try:
+            drone_id = int(k)
+            if drone_id < 0 or drone_id >= MAX_FLEET_SIZE:
+                raise ValueError(f"Drone ID {drone_id} out of range [0, {MAX_FLEET_SIZE - 1}].")
+        except (ValueError, TypeError) as e:
+            raise ValueError(f"Invalid drone ID key '{k}'. Must be an integer: {e}")
+
+        if not isinstance(v, list):
+            raise ValueError(f"Waypoint list for drone {drone_id} must be a list.")
+
+        parsed_wps = []
+        for wp in v:
+            if not isinstance(wp, dict):
+                raise ValueError(f"Waypoint for drone {drone_id} must be an object.")
             try:
-                drone_id = int(drone_data["id"])
-                if drone_id < 0 or drone_id >= 100:
-                    raise ValueError("Drone ID out of range [0, 99].")
+                t_val = float(wp["time"])
+                x_val = float(wp["x"])
+                y_val = float(wp["y"])
+                z_val = float(wp["z"])
+                yaw_val = float(wp.get("yaw", 0.0))
+            except KeyError as e:
+                raise ValueError(f"Waypoint for drone {drone_id} is missing required key: {e}")
             except (ValueError, TypeError) as e:
-                raise ValueError(f"Invalid drone 'id' value: {drone_data.get('id')}. Must be an integer: {e}")
-                
-            waypoints = drone_data.get("waypoints", [])
-            if not isinstance(waypoints, list):
-                raise ValueError(f"'waypoints' for drone {drone_id} must be a list.")
-                
-            # Parse and validate waypoints
-            parsed_wps = []
-            for wp in waypoints:
-                try:
-                    parsed_wps.append({
-                        "time": float(wp["time"]),
-                        "x": float(wp["x"]),
-                        "y": float(wp["y"]),
-                        "z": float(wp["z"]),
-                        "yaw": float(wp.get("yaw", 0.0))
-                    })
-                except KeyError as e:
-                    raise ValueError(f"Waypoint for drone {drone_id} is missing required key: {e}")
-                except (ValueError, TypeError) as e:
-                    raise ValueError(f"Invalid numeric value in waypoint for drone {drone_id}: {e}")
-                    
-            # Sort waypoints by time
-            sorted_wps = sorted(parsed_wps, key=lambda w: w["time"])
-            result[drone_id] = sorted_wps
-    else:
-        # Fallback to direct dict representation if structured differently
-        for k, v in data.items():
-            try:
-                drone_id = int(k)
-                if drone_id < 0 or drone_id >= 100:
-                    raise ValueError("Drone ID out of range [0, 99].")
-            except (ValueError, TypeError) as e:
-                raise ValueError(f"Invalid drone ID key '{k}'. Must be an integer: {e}")
-                
-            if not isinstance(v, list):
-                raise ValueError(f"Waypoint list for drone {drone_id} must be a list.")
-                
-            parsed_wps = []
-            for wp in v:
-                try:
-                    parsed_wps.append({
-                        "time": float(wp["time"]),
-                        "x": float(wp["x"]),
-                        "y": float(wp["y"]),
-                        "z": float(wp["z"]),
-                        "yaw": float(wp.get("yaw", 0.0))
-                    })
-                except KeyError as e:
-                    raise ValueError(f"Waypoint for drone {drone_id} is missing required key: {e}")
-                except (ValueError, TypeError) as e:
-                    raise ValueError(f"Invalid numeric value in waypoint for drone {drone_id}: {e}")
-                    
-            sorted_wps = sorted(parsed_wps, key=lambda w: w["time"])
-            result[drone_id] = sorted_wps
-                
+                raise ValueError(f"Invalid numeric value in waypoint for drone {drone_id}: {e}")
+
+            wp_dict: dict[str, Any] = {
+                "time": t_val,
+                "x": x_val,
+                "y": y_val,
+                "z": z_val,
+                "yaw": yaw_val,
+            }
+            # Preserve LED channels if present
+            for c in ("r", "g", "b", "w"):
+                if c in wp and wp[c] is not None:
+                    try:
+                        wp_dict[c] = int(wp[c])
+                    except (ValueError, TypeError):
+                        pass
+            # Preserve velocity if present
+            for vel in ("vx", "vy", "vz"):
+                if vel in wp and wp[vel] is not None:
+                    try:
+                        wp_dict[vel] = float(wp[vel])
+                    except (ValueError, TypeError):
+                        pass
+
+            parsed_wps.append(wp_dict)
+
+        sorted_wps = sorted(parsed_wps, key=lambda w: w["time"])
+        result[drone_id] = sorted_wps
+
     return result
 
 
@@ -277,8 +291,8 @@ def _parse_csv(content: str) -> dict:
             if pd.isna(drone_id):
                 raise ValueError("Drone ID cannot be null/empty.")
             drone_id_int = int(float(drone_id))
-            if drone_id_int < 0 or drone_id_int >= 100:
-                raise ValueError(f"Drone ID {drone_id_int} out of range [0, 99].")
+            if drone_id_int < 0 or drone_id_int >= MAX_FLEET_SIZE:
+                raise ValueError(f"Drone ID {drone_id_int} out of range [0, {MAX_FLEET_SIZE - 1}].")
         except (ValueError, TypeError) as e:
             raise ValueError(f"Invalid drone ID value: {drone_id}. Must be a valid integer: {e}")
             
@@ -295,12 +309,30 @@ def _parse_csv(content: str) -> dict:
             except (ValueError, TypeError) as e:
                 raise ValueError(f"Invalid coordinate or float value in row for Drone {drone_id_int}: {e}")
                 
-            result[drone_id_int].append({
+            wp_entry: dict[str, Any] = {
                 "time": t_val,
                 "x": x_val,
                 "y": y_val,
                 "z": z_val,
                 "yaw": yaw_val
-            })
+            }
+            # Optional LED channels (as exported by Studio: r, g, b, and w if present)
+            for c in ("r", "g", "b", "w"):
+                if c in row and not pd.isna(row[c]):
+                    try:
+                        c_val = int(round(float(row[c])))
+                        if 0 <= c_val <= 255:
+                            wp_entry[c] = c_val
+                    except (ValueError, TypeError):
+                        pass
+            # Optional velocity channels (vx, vy, vz)
+            for vel in ("vx", "vy", "vz"):
+                if vel in row and not pd.isna(row[vel]):
+                    try:
+                        wp_entry[vel] = float(row[vel])
+                    except (ValueError, TypeError):
+                        pass
+
+            result[drone_id_int].append(wp_entry)
         
     return result

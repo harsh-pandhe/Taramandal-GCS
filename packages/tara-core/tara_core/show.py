@@ -153,9 +153,15 @@ class Show:
 
     Attributes:
         drones: Mapping of drone id to its time-ordered waypoint list.
+        version: Show format version (stamped SHOW_FORMAT_VERSION by default).
+        geofence: Optional computed or stored geofence envelope dict.
+        signature_ref: Optional detached signature manifest filename.
     """
 
     drones: dict[int, list[dict]] = field(default_factory=dict)
+    version: int = SHOW_FORMAT_VERSION
+    geofence: dict | None = None
+    signature_ref: str | None = None
 
     # ------------------------------------------------------------------ load
 
@@ -176,7 +182,14 @@ class Show:
         if not isinstance(data, dict):
             raise ValueError(f"cannot build a Show from {type(data).__name__}")
 
+        version = SHOW_FORMAT_VERSION
+        geofence = None
+        signature_ref = None
+
         if "drones" in data and isinstance(data["drones"], list):
+            version = data.get("version", SHOW_FORMAT_VERSION)
+            geofence = data.get("_geofence")
+            signature_ref = data.get("signature_ref")
             drones = {}
             for entry in data["drones"]:
                 if "id" not in entry:
@@ -184,6 +197,7 @@ class Show:
                 drones[int(entry["id"])] = list(entry.get("waypoints", []))
         else:
             drones = {int(k): list(v) for k, v in data.items() if not str(k).startswith("_")}
+            geofence = data.get("_geofence")
 
         for drone_id, wps in drones.items():
             for wp in wps:
@@ -192,7 +206,7 @@ class Show:
                     raise ValueError(
                         f"drone {drone_id} has a waypoint missing {missing}"
                     )
-        return cls(drones=drones)
+        return cls(drones=drones, version=version, geofence=geofence, signature_ref=signature_ref)
 
     @classmethod
     def validate_and_load(cls, data) -> "Show":
@@ -214,25 +228,36 @@ class Show:
             drones={
                 track.id: [wp.model_dump(exclude_unset=True) for wp in track.waypoints]
                 for track in container.drones
-            }
+            },
+            version=container.version,
+            geofence=container.geofence.model_dump(exclude_unset=True) if container.geofence else None,
+            signature_ref=container.signature_ref,
         )
 
     # ------------------------------------------------------------------ dump
 
     def to_studio(self) -> dict:
-        """Return the Studio-shaped dict, including the computed duration."""
-        return {
-            "version": SHOW_FORMAT_VERSION,
+        """Return the Studio-shaped dict, including the computed duration and optional metadata."""
+        out: dict[str, Any] = {
+            "version": self.version,
             "drones": [
-                {"id": drone_id, "waypoints": wps}
+                {"id": drone_id, "waypoints": sorted(wps, key=lambda w: w["time"])}
                 for drone_id, wps in sorted(self.drones.items())
             ],
             "_duration": self.duration,
         }
+        if self.geofence is not None:
+            out["_geofence"] = self.geofence
+        if self.signature_ref is not None:
+            out["signature_ref"] = self.signature_ref
+        return out
 
     def to_gcs(self) -> dict[int, list[dict]]:
-        """Return the GCS-shaped ``{drone_id: [waypoints]}`` dict."""
-        return dict(self.drones)
+        """Return the GCS-shaped ``{drone_id: [waypoints]}`` dict with waypoints ordered by time."""
+        return {
+            drone_id: sorted(wps, key=lambda w: w["time"])
+            for drone_id, wps in sorted(self.drones.items())
+        }
 
     # ------------------------------------------------------------ properties
 
