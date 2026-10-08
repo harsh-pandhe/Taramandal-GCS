@@ -65,7 +65,7 @@ def generate_circle_trajectory(num_drones, duration, step_rate):
                 x_val = 0.0 + blend_ratio * (target_x - 0.0)
                 y_val = start_positions[d_id]["y"] + blend_ratio * (target_y - start_positions[d_id]["y"])
                 
-                yaw_val = round(math.degrees(angle) % 360, 1)
+                yaw_val = round(math.degrees(angle) % 360, 1) % 360
                 
                 drones_wps[d_id].append({
                     "time": round(t, 2),
@@ -158,7 +158,7 @@ def generate_helix_trajectory(num_drones, duration, step_rate):
                     "x": round(x_val, 2),
                     "y": round(y_val, 2),
                     "z": round(target_z, 2),
-                    "yaw": round(math.degrees(angle) % 360, 1)
+                    "yaw": round(math.degrees(angle) % 360, 1) % 360
                 })
                 
         # Landing: 25 to 30s

@@ -131,9 +131,13 @@ export const gcsLogout = async () => {
  * uploads the show with its .sig.json manifest to the GCS. The GCS verifies
  * the signature before it stages anything; the bytes uploaded are exactly the
  * bytes the Studio backend signed.
+ *
+ * Takes the same LED track and rate as a download (issue #55), so the backend
+ * bakes the same upsampled r/g/b/w frames into both: what is transmitted is
+ * the file a designer would get from the JSON button.
  */
-export const sendShowToGCS = async ({ choreo, homeLat, homeLon }) => {
-  const data = await exportShow({ choreo, format: 'json', homeLat, homeLon });
+export const sendShowToGCS = async ({ choreo, homeLat, homeLon, ledTrack, rateHz }) => {
+  const data = await exportShow({ choreo, format: 'json', homeLat, homeLon, ledTrack, rateHz });
 
   const formData = new FormData();
   formData.append('file', new Blob([data.content], { type: 'application/json' }), data.filename);

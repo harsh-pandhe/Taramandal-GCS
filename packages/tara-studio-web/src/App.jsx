@@ -133,6 +133,8 @@ export default function App() {
     try {
       await sendShowToGCS({
         choreo: buildColoredChoreo(choreoData, lightingOpts), homeLat, homeLon,
+        ledTrack: ledTrack.length ? serializeTrack(ledTrack) : null,
+        rateHz: rate,
       });
       builder.setError(null);
       alert('Trajectory pushed to the GCS fleet. Run launch checks on the GCS dashboard.');
@@ -141,7 +143,7 @@ export default function App() {
     } finally {
       setSending(false);
     }
-  }, [choreoData, lightingOpts, homeLat, homeLon, builder]);
+  }, [choreoData, lightingOpts, homeLat, homeLon, builder, ledTrack, rate]);
 
   if (!unlocked) return <SecurityGate onUnlock={() => setUnlocked(true)} />;
 

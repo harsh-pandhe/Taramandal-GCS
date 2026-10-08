@@ -1,20 +1,52 @@
-import json
-import io
-import zipfile
-import pandas as pd
+"""Turns an uploaded show file into the trajectory the GCS flies.
 
-from tara_core import DEFAULT_LIMITS
+Every upload, whatever its format, goes through one gate (issue #55):
+
+    canonical {"version", "drones": [...]}  ->  Show.validate_and_load
+        ->  Show.to_gcs()  ->  sort by time  ->  collision_errors
+
+so the GCS has no show schema of its own: what it accepts is exactly what
+``tara_core.show.ShowContainer`` (the mirror of ``schemas/show_v1.json``)
+accepts, the same check the Studio runs before it exports.
+
+Studio-shaped JSON goes to the gate unchanged, so LED channels (r/g/b/w),
+feed-forward velocities (vx/vy/vz) and unknown waypoint keys all survive. The
+older formats — GCS-shaped JSON ``{id: [waypoints]}``, CSV and .skyc — are
+thin adapters that only wrap their rows into the canonical shape. For those
+alone, numpy scalars are cast to Python numbers and yaw is wrapped into
+[0, 360), since files written before the schema existed routinely carry 360.0
+or negative headings.
+"""
+
+import io
+import json
+import logging
+import numbers
+import zipfile
+
+import pandas as pd
+from pydantic import ValidationError
+
+from tara_core import DEFAULT_LIMITS, SHOW_FORMAT_VERSION, Show
 from tara_core.validate import collision_errors
+
+logger = logging.getLogger("TaramandalGCS")
+
+#: Schema errors listed in one rejection before the rest are summarised.
+_MAX_REPORTED_ERRORS = 10
+
+_LED_CHANNELS = ("r", "g", "b", "w")
+
 
 def parse_trajectory_file(content: str, filename: str) -> dict:
     """
     Parses a trajectory file (JSON or CSV) and returns a structured dictionary
     mapping drone IDs to lists of time-ordered waypoints.
-    
+
     Structure:
     {
         drone_id: [
-            {"time": 0.0, "x": 0.0, "y": 0.0, "z": -2.0, "yaw": 0.0},
+            {"time": 0.0, "x": 0.0, "y": 0.0, "z": -2.0, "yaw": 0.0, ...},
             ...
         ]
     }
@@ -23,18 +55,11 @@ def parse_trajectory_file(content: str, filename: str) -> dict:
     """
     try:
         if filename.endswith('.json'):
-            parsed = _parse_json(content)
+            return _parse_json(content)
         elif filename.endswith('.csv'):
-            parsed = _parse_csv(content)
+            return _parse_csv(content)
         else:
             raise ValueError("Unsupported file format. Must be .json or .csv (use parse_trajectory_bytes for .skyc)")
-            
-        # Run pre-flight space-time collision validation
-        collision_errors = validate_trajectory_collisions(parsed)
-        if collision_errors:
-            raise ValueError("Trajectory safety check failed:\n" + "\n".join(collision_errors))
-            
-        return parsed
     except Exception as e:
         raise ValueError(f"Error parsing trajectory file: {str(e)}")
 
@@ -52,20 +77,92 @@ def parse_trajectory_bytes(content: bytes, filename: str) -> dict:
     """
     try:
         if filename.endswith('.skyc'):
-            parsed = _parse_skyc(content)
-        else:
-            # Decode as UTF-8 and fall back to text-based parser
-            content_str = content.decode('utf-8')
-            return parse_trajectory_file(content_str, filename)
-
-        # Run pre-flight space-time collision validation
-        collision_errors = validate_trajectory_collisions(parsed)
-        if collision_errors:
-            raise ValueError("Trajectory safety check failed:\n" + "\n".join(collision_errors))
-
-        return parsed
+            return _parse_skyc(content)
+        # Decode as UTF-8 and fall back to text-based parser
+        return parse_trajectory_file(content.decode('utf-8'), filename)
     except Exception as e:
         raise ValueError(f"Error parsing trajectory bytes ({filename}): {str(e)}")
+
+
+def gate_show(canonical: dict) -> dict:
+    """The one gate every show passes before the GCS will hold it.
+
+    Args:
+        canonical: A Studio-shaped show, ``{"version", "drones": [...]}``.
+            A missing ``version`` is read as 1 (shows exported before the
+            field existed), with a warning.
+
+    Returns:
+        The GCS-shaped trajectory ``{drone_id: [waypoints]}``, each drone's
+        waypoints sorted by time, every key the file carried kept.
+
+    Raises:
+        ValueError: With an operator-readable reason — a newer show format,
+            each schema violation by its field path (e.g.
+            ``drones.3.waypoints.12.yaw``), an empty show, or a collision.
+    """
+    if not isinstance(canonical, dict):
+        raise ValueError("A show file must be a JSON object.")
+
+    version = canonical.get("version")
+    if "version" not in canonical:
+        logger.warning(
+            f"Show file has no 'version'; reading it as show format {SHOW_FORMAT_VERSION}."
+        )
+        canonical = {"version": SHOW_FORMAT_VERSION, **canonical}
+    elif isinstance(version, int) and not isinstance(version, bool) and version > SHOW_FORMAT_VERSION:
+        # Checked before the schema: a newer format may legitimately fail
+        # this version's rules, and "update the GCS" is the useful answer.
+        raise ValueError(
+            f"Show format version {version} is newer than this GCS understands "
+            f"(up to {SHOW_FORMAT_VERSION}). Update the GCS, or re-export the show "
+            f"from a Studio that writes version {SHOW_FORMAT_VERSION}."
+        )
+
+    try:
+        show = Show.validate_and_load(canonical)
+    except ValidationError as e:
+        raise ValueError(_describe_schema_errors(e)) from None
+
+    if not show.drones:
+        raise ValueError("Show has no drones.")
+    empty = sorted(drone_id for drone_id, wps in show.drones.items() if not wps)
+    if empty:
+        raise ValueError(f"Drone(s) {empty} have no waypoints.")
+
+    trajectory = {
+        drone_id: sorted(wps, key=lambda w: w["time"])
+        for drone_id, wps in show.to_gcs().items()
+    }
+
+    errors = validate_trajectory_collisions(trajectory)
+    if errors:
+        raise ValueError("Trajectory safety check failed:\n" + "\n".join(errors))
+    return trajectory
+
+
+def gate_trajectory(trajectory: dict) -> dict:
+    """:func:`gate_show` for a GCS-shaped trajectory this GCS produced itself
+    (e.g. a show-state snapshot being resumed). Unlike the legacy file
+    adapters nothing is cast or wrapped: the trajectory was gated once
+    already, so anything that now fails was changed since.
+    """
+    return gate_show({
+        "version": SHOW_FORMAT_VERSION,
+        "drones": [{"id": drone_id, "waypoints": wps} for drone_id, wps in trajectory.items()],
+    })
+
+
+def _describe_schema_errors(error: ValidationError) -> str:
+    lines = []
+    for err in error.errors(include_url=False, include_input=False, include_context=False):
+        where = ".".join(str(part) for part in err["loc"]) or "show"
+        lines.append(f"  {where}: {err['msg']}")
+    shown = lines[:_MAX_REPORTED_ERRORS]
+    if len(lines) > len(shown):
+        shown.append(f"  (+{len(lines) - len(shown)} more)")
+    return "Show does not match the show schema (show_v1):\n" + "\n".join(shown)
+
 
 def validate_trajectory_collisions(trajectory_data: dict, safety_distance: float = None) -> list:
     """
@@ -87,84 +184,78 @@ def validate_trajectory_collisions(trajectory_data: dict, safety_distance: float
         separation=safety_distance,
     )
 
+
+# ---------------------------------------------------------------- adapters
+
+
+def _python_number(value):
+    """A numpy scalar as the plain Python int/float it holds; anything else unchanged."""
+    if hasattr(value, "item") and isinstance(value, numbers.Number):
+        return value.item()
+    return value
+
+
+def _legacy_waypoint(wp) -> dict:
+    """Prepares one waypoint from a pre-schema format for the gate.
+
+    Only normalises; it never fills in or drops a field, so a waypoint that is
+    still wrong afterwards is reported by the gate with its field path.
+    """
+    if not isinstance(wp, dict):
+        return wp
+    out = {k: _python_number(v) for k, v in wp.items()}
+    yaw = out.get("yaw")
+    if isinstance(yaw, numbers.Real) and not isinstance(yaw, bool):
+        yaw = float(yaw) % 360.0
+        # -1e-17 % 360.0 rounds to 360.0, which the schema's [0, 360) refuses.
+        out["yaw"] = 0.0 if yaw >= 360.0 else yaw
+    return out
+
+
+def _legacy_canonical(drones: dict, version=SHOW_FORMAT_VERSION) -> dict:
+    """Wraps a GCS-shaped ``{id: [waypoints]}`` dict into the canonical shape."""
+    return {
+        "version": version,
+        "drones": [
+            {
+                "id": drone_id,
+                "waypoints": [_legacy_waypoint(wp) for wp in wps] if isinstance(wps, list) else wps,
+            }
+            for drone_id, wps in drones.items()
+        ],
+    }
+
+
 def _parse_json(content: str) -> dict:
     data = json.loads(content)
-    result = {}
-    
-    if "drones" in data:
-        if not isinstance(data["drones"], list):
-            raise ValueError("'drones' key in JSON must map to a list.")
-            
-        for drone_data in data["drones"]:
-            if "id" not in drone_data:
-                raise ValueError("Drone entry is missing required 'id' key.")
-            try:
-                drone_id = int(drone_data["id"])
-                if drone_id < 0 or drone_id >= 100:
-                    raise ValueError("Drone ID out of range [0, 99].")
-            except (ValueError, TypeError) as e:
-                raise ValueError(f"Invalid drone 'id' value: {drone_data.get('id')}. Must be an integer: {e}")
-                
-            waypoints = drone_data.get("waypoints", [])
-            if not isinstance(waypoints, list):
-                raise ValueError(f"'waypoints' for drone {drone_id} must be a list.")
-                
-            # Parse and validate waypoints
-            parsed_wps = []
-            for wp in waypoints:
-                try:
-                    parsed_wps.append({
-                        "time": float(wp["time"]),
-                        "x": float(wp["x"]),
-                        "y": float(wp["y"]),
-                        "z": float(wp["z"]),
-                        "yaw": float(wp.get("yaw", 0.0))
-                    })
-                except KeyError as e:
-                    raise ValueError(f"Waypoint for drone {drone_id} is missing required key: {e}")
-                except (ValueError, TypeError) as e:
-                    raise ValueError(f"Invalid numeric value in waypoint for drone {drone_id}: {e}")
-                    
-            # Sort waypoints by time
-            sorted_wps = sorted(parsed_wps, key=lambda w: w["time"])
-            result[drone_id] = sorted_wps
-    else:
-        # Fallback to direct dict representation if structured differently
-        for k, v in data.items():
-            try:
-                drone_id = int(k)
-                if drone_id < 0 or drone_id >= 100:
-                    raise ValueError("Drone ID out of range [0, 99].")
-            except (ValueError, TypeError) as e:
-                raise ValueError(f"Invalid drone ID key '{k}'. Must be an integer: {e}")
-                
-            if not isinstance(v, list):
-                raise ValueError(f"Waypoint list for drone {drone_id} must be a list.")
-                
-            parsed_wps = []
-            for wp in v:
-                try:
-                    parsed_wps.append({
-                        "time": float(wp["time"]),
-                        "x": float(wp["x"]),
-                        "y": float(wp["y"]),
-                        "z": float(wp["z"]),
-                        "yaw": float(wp.get("yaw", 0.0))
-                    })
-                except KeyError as e:
-                    raise ValueError(f"Waypoint for drone {drone_id} is missing required key: {e}")
-                except (ValueError, TypeError) as e:
-                    raise ValueError(f"Invalid numeric value in waypoint for drone {drone_id}: {e}")
-                    
-            sorted_wps = sorted(parsed_wps, key=lambda w: w["time"])
-            result[drone_id] = sorted_wps
-                
-    return result
+    if isinstance(data, dict) and "drones" in data:
+        # The Studio's own show format: the gate sees it exactly as written.
+        return gate_show(data)
+    if not isinstance(data, dict):
+        raise ValueError("A show file must be a JSON object.")
+
+    # Legacy GCS shape {"0": [waypoints], ...}. As in Show.from_any,
+    # underscore keys are metadata (e.g. _geofence), not drones.
+    drones = {}
+    for k, v in data.items():
+        if k == "version" or str(k).startswith("_"):
+            continue
+        try:
+            drone_id = int(k)
+        except (ValueError, TypeError) as e:
+            raise ValueError(f"Invalid drone ID key '{k}'. Must be an integer: {e}")
+        if not isinstance(v, list):
+            raise ValueError(f"Waypoint list for drone {drone_id} must be a list.")
+        if drone_id in drones:
+            # "1" and "01" are both drone 1; the dict would keep only one path.
+            raise ValueError(f"duplicate drone id(s): [{drone_id}]")
+        drones[drone_id] = v
+    return gate_show(_legacy_canonical(drones, data.get("version", SHOW_FORMAT_VERSION)))
 
 
-def _parse_skyc(content: bytes) -> dict:
+def _read_skyc(content: bytes) -> dict:
     """
-    Parses a Skybrush .skyc choreography file (ZIP archive containing show.json).
+    Reads a Skybrush .skyc choreography file (ZIP archive containing show.json).
 
     The .skyc ZIP structure:
       show.json   (may be at root or inside a single sub-folder)
@@ -172,7 +263,7 @@ def _parse_skyc(content: bytes) -> dict:
     show.json trajectory points format:
       [time_seconds, [x, y, z], [tangent_in or color]]
 
-    Returns the standard trajectory dict:
+    Returns the GCS-shaped trajectory dict:
       {
           drone_id (int): [
               {"time": float, "x": float, "y": float, "z": float, "yaw": 0.0},
@@ -243,16 +334,20 @@ def _parse_skyc(content: bytes) -> dict:
     return result
 
 
+def _parse_skyc(content: bytes) -> dict:
+    return gate_show(_legacy_canonical(_read_skyc(content)))
+
+
 def _parse_csv(content: str) -> dict:
     # Guard CSV row limits (read max 100,001 rows to check overflow)
     df = pd.read_csv(io.StringIO(content), nrows=100001)
     if len(df) > 100000:
         raise ValueError("CSV exceeds maximum trajectory row limit (100,000 rows).")
-        
+
     # Required columns validation (case-insensitive)
     required_cols = {"drone_id", "time", "x", "y", "z", "yaw"}
     df.columns = [col.lower().strip() for col in df.columns]
-    
+
     if not required_cols.issubset(df.columns):
         # Let's check for variations
         col_map = {}
@@ -264,12 +359,16 @@ def _parse_csv(content: str) -> dict:
             elif col == "x" or col == "y" or col == "z" or col == "yaw":
                 col_map[col] = col
         df = df.rename(columns=col_map)
-        
+
     # Re-verify
     if not required_cols.issubset(df.columns):
         raise ValueError(f"CSV is missing one or more required columns: {required_cols}. Found: {list(df.columns)}")
-        
-    result = {}
+
+    # Studio's CSV export carries r,g,b when the show has light data; w is
+    # read too when present. An empty cell leaves that channel out.
+    led_cols = [c for c in _LED_CHANNELS if c in df.columns]
+
+    drones = {}
     # Group by drone_id
     grouped = df.groupby("drone_id")
     for drone_id, group in grouped:
@@ -277,30 +376,34 @@ def _parse_csv(content: str) -> dict:
             if pd.isna(drone_id):
                 raise ValueError("Drone ID cannot be null/empty.")
             drone_id_int = int(float(drone_id))
-            if drone_id_int < 0 or drone_id_int >= 100:
-                raise ValueError(f"Drone ID {drone_id_int} out of range [0, 99].")
         except (ValueError, TypeError) as e:
             raise ValueError(f"Invalid drone ID value: {drone_id}. Must be a valid integer: {e}")
-            
+
         # Sort group by time
         sorted_group = group.sort_values(by="time")
-        result[drone_id_int] = []
+        drones[drone_id_int] = []
         for _, row in sorted_group.iterrows():
             try:
-                t_val = float(row["time"])
-                x_val = float(row["x"])
-                y_val = float(row["y"])
-                z_val = float(row["z"])
-                yaw_val = float(row["yaw"])
+                wp = {
+                    "time": float(row["time"]),
+                    "x": float(row["x"]),
+                    "y": float(row["y"]),
+                    "z": float(row["z"]),
+                    "yaw": float(row["yaw"]),
+                }
             except (ValueError, TypeError) as e:
                 raise ValueError(f"Invalid coordinate or float value in row for Drone {drone_id_int}: {e}")
-                
-            result[drone_id_int].append({
-                "time": t_val,
-                "x": x_val,
-                "y": y_val,
-                "z": z_val,
-                "yaw": yaw_val
-            })
-        
-    return result
+            for channel in led_cols:
+                value = row[channel]
+                if pd.isna(value):
+                    continue
+                value = _python_number(value)
+                # pandas reads an int column holding any blank as float; a
+                # whole-number float is that int. A fractional one is left
+                # for the schema to refuse rather than silently truncated.
+                if isinstance(value, float) and value.is_integer():
+                    value = int(value)
+                wp[channel] = value
+            drones[drone_id_int].append(wp)
+
+    return gate_show(_legacy_canonical(drones))

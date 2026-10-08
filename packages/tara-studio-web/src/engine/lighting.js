@@ -80,6 +80,11 @@ export const droneColorAt = (idx, t, opts) => {
   return c;
 };
 
+// THREE.Color does not clamp, and 'pulse' brightens by up to 1.6x, so a bright
+// base colour goes past 1.0. The show schema caps LED channels at 255 and the
+// export refuses anything above it (issue #55).
+const toChannel = (v) => Math.min(255, Math.max(0, Math.round(v * 255)));
+
 /**
  * Bakes the live LED colour into every waypoint (r,g,b 0-255) so an exported
  * show carries its light choreography, not just position.
@@ -94,9 +99,9 @@ export const buildColoredChoreo = (choreoData, opts) => {
         const c = droneColorAt(i, wp.time, { ...opts, position: wp });
         return {
           ...wp,
-          r: Math.round(c.r * 255),
-          g: Math.round(c.g * 255),
-          b: Math.round(c.b * 255),
+          r: toChannel(c.r),
+          g: toChannel(c.g),
+          b: toChannel(c.b),
         };
       }),
     })),
