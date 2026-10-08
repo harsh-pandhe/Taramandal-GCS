@@ -31,3 +31,43 @@ describe('VaultPage save history', () => {
     for (const row of rows) expect(row).toMatch(/aria-label="Restore Diwali to [^"]+"/);
   });
 });
+
+// Issue #101: the projects come from the backend's vault, which can be
+// unreachable, and the list no longer carries each project's built show.
+describe('VaultPage backed by the Project Vault', () => {
+  const page = (props) => renderToStaticMarkup(
+    <VaultPage
+      projectsList={[base]} activeProjectId="p1"
+      onLoad={noop} onCreate={noop} onDelete={noop} onRestore={noop} onRetry={noop}
+      {...props}
+    />,
+  );
+
+  it('shows a project as built from the vault\'s flag, without its trajectory loaded', () => {
+    expect(page({ projectsList: [{ ...base, hasShow: true }] })).toContain('Trajectory built');
+    expect(page({ projectsList: [{ ...base, hasShow: false }] })).toContain('Not built');
+  });
+
+  it('says the vault is unreachable, that nothing is lost, and offers a retry', () => {
+    const html = page({ projectsList: [], status: 'offline', error: 'The Project Vault cannot be reached.' });
+    expect(html).toContain('role="alert"');
+    expect(html).toContain('The Project Vault cannot be reached.');
+    expect(html).toContain('not lost');
+    expect(html).toMatch(/<button[^>]*>Retry<\/button>/);
+    // A new show cannot be created in a vault that is not there.
+    expect(html).toMatch(/<button[^>]*disabled=""[^>]*>.*New Show/);
+  });
+
+  it('shows a vault notice while staying usable', () => {
+    const html = page({ error: 'Your edits were saved as a separate project.' });
+    expect(html).toContain('Your edits were saved as a separate project.');
+    expect(html).not.toContain('Retry');
+    expect(html).not.toMatch(/<button[^>]*disabled=""[^>]*>.*New Show/);
+  });
+
+  it('shows nothing extra when the vault is fine', () => {
+    const html = page({});
+    expect(html).not.toContain('role="alert"');
+    expect(html).not.toContain('Opening the Project Vault');
+  });
+});

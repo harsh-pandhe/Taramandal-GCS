@@ -9,8 +9,12 @@
 //  - The 3D stage canvas is hidden. It's WebGL, and the UI migration changes
 //    the chrome around it, not the scene inside it.
 //  - Fonts are awaited, so a slow font load never shows up as a diff.
+//  - The Project Vault (/api/projects, issue #101) is answered by an in-memory
+//    copy of the backend API, empty at the start of each test. It lives here in
+//    the test process, so it outlives a page reload like a real backend does.
 import { fileURLToPath } from 'node:url';
 import { test, expect } from '@playwright/test';
+import { createFakeVaultServer } from '../src/engine/__fixtures__/fakeVaultServer.js';
 
 const PASSPHRASE = 'TARAMANDAL_2026'; // src/components/SecurityGate.jsx
 
@@ -56,7 +60,7 @@ const ENERGY_REPORT = {
   },
 };
 
-async function stubBackend(page, report = PASSED_REPORT) {
+async function stubBackend(page, report = PASSED_REPORT, vault = createFakeVaultServer()) {
   // Registered first because Playwright tries routes newest-first: the
   // specific stubs below must win over this catch-all.
   await page.route('**/api/**', (route) => route.fulfill({ status: 503, body: 'not stubbed in e2e' }));
@@ -71,6 +75,15 @@ async function stubBackend(page, report = PASSED_REPORT) {
   await page.route('**/api/validate-energy', (route) => route.fulfill({ json: ENERGY_REPORT }));
   // Issue #49: a configured signing key, so the Transmit tab reads the same every run.
   await page.route('**/api/signing', (route) => route.fulfill({ json: SIGNING_READY }));
+  await page.route(/\/api\/projects(\/[^?]*)?$/, async (route) => {
+    if (vault.down) return route.abort('connectionrefused');
+    const request = route.request();
+    const { status, body } = vault.handle(
+      request.method(), new URL(request.url()).pathname, request.postDataJSON() ?? undefined,
+    );
+    return route.fulfill(body === null ? { status } : { status, json: body });
+  });
+  return vault;
 }
 
 const SIGNING_READY = { configured: true, ready: true, key_id: 'ab12cd34ef567890', public_key: 'cHVibGljLWtleQ==' };
@@ -79,13 +92,14 @@ const SIGNING_READY = { configured: true, ready: true, key_id: 'ab12cd34ef567890
 // Safety tab only once its verdict is on screen.
 const enduranceSettled = (page) => expect(page.getByText(ENERGY_REPORT.summary)).toBeVisible();
 
-async function openStudio(page, report) {
-  await stubBackend(page, report);
+async function openStudio(page, report, vault) {
+  const stubbed = await stubBackend(page, report, vault);
   await page.goto('/');
   await page.getByPlaceholder(/authorization key/i).fill(PASSPHRASE);
   await page.getByRole('button', { name: 'AUTHORIZE CONNECTION' }).click();
   await expect(page.getByText(/^Built · /)).toBeVisible();
   await page.evaluate(() => document.fonts.ready);
+  return stubbed;
 }
 
 const HIDE_STAGE_CSS = fileURLToPath(new URL('./screenshot.css', import.meta.url));
@@ -364,6 +378,154 @@ test('project save history can be browsed and restored', async ({ page }) => {
   await expect(page.getByText(/^Built · /)).toBeVisible();
   await page.getByRole('button', { name: 'Project Vault' }).click();
   await expect(page.locator('.vault-versions summary')).toHaveText(/Save history \(3\)/);
+});
+
+// Issue #101: projects are kept by the backend, not by this browser.
+test.describe('backend project vault', () => {
+  const cards = (page) => page.locator('.scene-card');
+  const projectName = (page) => page.getByLabel('Project name');
+  const vaultCards = (page) => page.locator('.vault-card');
+
+  async function saveDiwali(page) {
+    await projectName(page).fill('Diwali');
+    await page.getByRole('button', { name: 'Add Scene' }).click();
+    await expect(cards(page)).toHaveCount(3);
+    await page.getByRole('button', { name: 'Generate Sequence' }).click();
+    await expect(page.getByText(/^Built · /)).toBeVisible();
+    await page.getByRole('button', { name: 'Save Project' }).click();
+    await page.getByRole('button', { name: 'Project Vault' }).click();
+    await expect(vaultCards(page).filter({ hasText: 'Diwali' })).toContainText('Scenes: 3');
+    await expect(vaultCards(page).filter({ hasText: 'Diwali' })).toContainText('Trajectory built');
+    await page.getByRole('button', { name: 'Sequencer', exact: true }).click();
+  }
+
+  test('a reload reopens the saved project instead of the demo show', async ({ page }) => {
+    await openStudio(page);
+    await saveDiwali(page);
+
+    let builds = 0;
+    page.on('request', (request) => { if (request.url().endsWith('/api/assign-chain')) builds += 1; });
+    await page.reload();
+    await expect(page.getByText(/^Built · /)).toBeVisible();
+    await expect(projectName(page)).toHaveValue('Diwali');
+    await expect(cards(page)).toHaveCount(3);
+    // The built trajectory came back from the vault; nothing was rebuilt.
+    expect(builds).toBe(0);
+  });
+
+  test('projects and their history survive a cleared browser cache', async ({ page }) => {
+    await openStudio(page);
+    await saveDiwali(page);
+
+    await page.evaluate(() => { localStorage.clear(); sessionStorage.clear(); });
+    await page.reload();
+    await page.getByPlaceholder(/authorization key/i).fill(PASSPHRASE);
+    await page.getByRole('button', { name: 'AUTHORIZE CONNECTION' }).click();
+    await expect(page.getByText(/^Built · /)).toBeVisible();
+
+    await expect(projectName(page)).toHaveValue('Diwali');
+    await expect(cards(page)).toHaveCount(3);
+    await page.getByRole('button', { name: 'Project Vault' }).click();
+    // Two saves: leaving the name field saved the rename, then Save Project.
+    await expect(page.locator('.vault-versions summary')).toHaveText(/Save history \(2\)/);
+  });
+
+  test('a project saved in one browser opens in another', async ({ page, browser }) => {
+    const vault = await openStudio(page);
+    await saveDiwali(page);
+
+    const elsewhere = await browser.newContext();
+    try {
+      const other = await elsewhere.newPage();
+      await openStudio(other, undefined, vault);
+      await expect(projectName(other)).toHaveValue('Diwali');
+      await expect(cards(other)).toHaveCount(3);
+    } finally {
+      await elsewhere.close();
+    }
+  });
+
+  test('a save made elsewhere is kept, and this browser\'s edits become their own project', async ({ page, browser }) => {
+    const vault = await openStudio(page);
+    await saveDiwali(page);
+
+    const elsewhere = await browser.newContext();
+    try {
+      const other = await elsewhere.newPage();
+      await openStudio(other, undefined, vault);
+      await other.getByRole('button', { name: 'Add Scene' }).click();
+      await other.getByRole('button', { name: 'Save Project' }).click();
+      await other.getByRole('button', { name: 'Project Vault' }).click();
+      await expect(vaultCards(other).filter({ hasText: 'Diwali' })).toContainText('Scenes: 4');
+    } finally {
+      await elsewhere.close();
+    }
+
+    // This browser still has the 3-scene show open and does not know.
+    await page.getByRole('button', { name: 'Delete scene' }).first().click();
+    await page.getByRole('button', { name: 'Save Project' }).click();
+    await expect(page.getByRole('alert')).toContainText('saved somewhere else');
+    await expect(projectName(page)).toHaveValue('Diwali (conflicted copy)');
+
+    await page.getByRole('button', { name: 'Project Vault' }).click();
+    await expect(vaultCards(page)).toHaveCount(2);
+    await expect(vaultCards(page).filter({ hasText: 'Diwali (conflicted copy)' })).toContainText('Scenes: 2');
+    await expect(vaultCards(page).filter({ hasText: 'Scenes: 4' })).toHaveCount(1);
+  });
+
+  test('an unreachable vault is reported, and the show is saved once it is back', async ({ page }) => {
+    const vault = createFakeVaultServer();
+    vault.down = true;
+    await openStudio(page, undefined, vault);          // the demo show still builds
+
+    // A save that cannot be stored says so, right by the Save button.
+    await page.getByRole('button', { name: 'Save Project' }).click();
+    await expect(page.locator('.sidebar-project-info').getByRole('alert')).toContainText('cannot be reached');
+
+    await page.getByRole('button', { name: 'Project Vault' }).click();
+    await expect(page.getByRole('alert')).toContainText('cannot be reached');
+    await expect(vaultCards(page)).toHaveCount(0);
+
+    vault.down = false;
+    await page.getByRole('button', { name: 'Retry' }).click();
+    await expect(page.getByRole('alert')).toHaveCount(0);
+    await expect(vaultCards(page)).toHaveCount(1);
+    await expect(vaultCards(page)).toContainText('Scenes: 2');
+  });
+
+  test('projects saved in this browser before the vault are imported', async ({ page }) => {
+    const scene = (id, name) => ({
+      id, name, shapeType: 'text', shapePayload: name, scale: 1,
+      holdDurationSeconds: 6, transitionDurationSeconds: 4, transitLayerGapMeters: 2,
+    });
+    const legacy = [{
+      id: 'proj-1759400000000', name: 'Navratri', rate: 4, homeLat: 12.9716, homeLon: 77.5946,
+      scenes: [scene('scene-a', 'A'), scene('scene-b', 'B'), scene('scene-c', 'C')],
+      dronesList: Array.from({ length: 6 }, (_, i) => ({
+        id: i, name: `Drone 0${i}`, hoverAlt: 2 + i * 0.7, spawnOffset: 2 * i, colorHex: '#38bdf8',
+      })),
+      choreoData: null, validation: null,
+      versions: [{
+        id: 'v-1759400000000-0', savedAt: '2026-10-02T10:13:20.000Z', label: 'Saved',
+        scenes: [scene('scene-a', 'A')], rate: 4, homeLat: 12.9716, homeLon: 77.5946, dronesList: [],
+      }],
+    }];
+    await page.addInitScript((projects) => {
+      if (!localStorage.getItem('taramandal_projects')) localStorage.setItem('taramandal_projects', JSON.stringify(projects));
+    }, legacy);
+
+    const vault = await openStudio(page);
+    await expect(projectName(page)).toHaveValue('Navratri');
+    await expect(cards(page)).toHaveCount(3);
+    expect(vault.stored('proj-1759400000000').versions).toHaveLength(1);
+
+    // Imported once: a reload neither duplicates it nor loses the old copy.
+    await page.reload();
+    await expect(page.getByText(/^Built · /)).toBeVisible();
+    await page.getByRole('button', { name: 'Project Vault' }).click();
+    await expect(vaultCards(page)).toHaveCount(1);
+    expect(await page.evaluate(() => JSON.parse(localStorage.getItem('taramandal_projects')).length)).toBe(1);
+  });
 });
 
 // Issue #102: fleet editing at 100 drones. Behaviour against the real page.

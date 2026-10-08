@@ -37,6 +37,7 @@ from tara_studio.energy import (
 )
 from tara_studio.exporter import export_json, export_csv, export_kml, export_tara
 from tara_studio.signing import SIGNABLE_FORMATS, SigningUnavailable, sign_export, signing_status
+from tara_studio.project_api import router as project_router
 from tara_studio.led_engine import (
     apply_track_to_choreo,
     led_sample_rate_hz,
@@ -67,6 +68,9 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# The Project Vault (issue #101): /api/projects.
+app.include_router(project_router)
 
 class GenerateRequest(BaseModel):
     shape: str = Field("circle", description="Trajectory pattern: circle, helix, heart, cube")

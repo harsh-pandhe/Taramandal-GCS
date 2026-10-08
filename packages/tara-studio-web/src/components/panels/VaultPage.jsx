@@ -6,9 +6,10 @@ const fmtSavedAt = (iso) => {
   return Number.isNaN(d.getTime()) ? iso : d.toLocaleString();
 };
 
-/** Saved projects, persisted to localStorage. */
+/** Saved projects, kept in the backend's Project Vault (issue #101). */
 export default function VaultPage({
   projectsList, activeProjectId, onLoad, onCreate, onDelete, onRestore,
+  status = 'ready', error = null, onRetry,
 }) {
   return (
     <main className="studio-viewport-page">
@@ -17,10 +18,25 @@ export default function VaultPage({
           <h2>Project Vault</h2>
           <p>Save progress, switch workspaces, or reload a stored choreography.</p>
         </div>
-        <button type="button" className="btn-primary btn-inline" onClick={onCreate}>
+        <button type="button" className="btn-primary btn-inline" onClick={onCreate} disabled={status !== 'ready'}>
           <Plus size={15} /> New Show
         </button>
       </div>
+
+      {status === 'loading' && <p className="vault-note">Opening the Project Vault…</p>}
+      {status === 'offline' && (
+        <div className="vault-alert" role="alert">
+          <AlertTriangle size={15} />
+          <span>
+            {error ?? 'The Project Vault cannot be reached.'} The show on screen is not lost: Save
+            Project stores it once the vault is back.
+          </span>
+          <button type="button" className="btn-secondary btn-sm" onClick={onRetry}>Retry</button>
+        </div>
+      )}
+      {status === 'ready' && error && (
+        <div className="vault-alert" role="alert"><AlertTriangle size={15} /><span>{error}</span></div>
+      )}
 
       <div className="vault-grid">
         {projectsList.map((proj) => (
@@ -37,7 +53,7 @@ export default function VaultPage({
             </div>
 
             <div className="vault-proj-status">
-              {proj.choreoData ? (
+              {proj.hasShow || proj.choreoData ? (
                 <span className="status-badge valid"><CheckCircle size={12} /> Trajectory built</span>
               ) : (
                 <span className="status-badge empty"><AlertTriangle size={12} /> Not built</span>

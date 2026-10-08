@@ -88,6 +88,33 @@ npm run dev -- --host 0.0.0.0 --port 5174
 
 ---
 
+## 🗄️ Project Vault
+
+Projects are stored by the backend, not by the browser (issue #101), so a show saved from one browser opens in another and survives a cleared cache. Each project is a directory of plain JSON files:
+
+```
+<vault>/<project id>/project.json   name, revision, scenes + fleet, save history, validation report
+<vault>/<project id>/show.json      the built trajectory, a show_v1 file (schemas/show_v1.json)
+<vault>/.trash/                     deleted projects, kept for recovery
+```
+
+The vault is `~/.local/share/taramandal/projects` unless `STUDIO_VAULT_DIR` or `[studio].vault_dir` in `tara.toml` says otherwise. Back it up by copying the directory.
+
+| Endpoint | Purpose |
+|---|---|
+| `GET /api/projects` | List projects (without their built show) |
+| `POST /api/projects` | Create |
+| `GET /api/projects/{id}` | One project with its built show |
+| `PUT /api/projects/{id}` | Save; needs `base_revision`, answers `409 revision_conflict` to a stale save |
+| `DELETE /api/projects/{id}` | Move to `.trash` |
+| `POST /api/projects/import` | Import a project from a browser's old localStorage vault; safe to repeat |
+
+One writer at a time: a save based on an out-of-date revision is refused, and the web app then stores those edits as a separate "(conflicted copy)" project instead of overwriting. Projects a browser saved before the vault existed are imported the first time it connects; the old localStorage entry is left in place.
+
+The vault API has no authentication, like the rest of the Studio backend. Keep `STUDIO_HOST` on a trusted network if you point several machines at one backend.
+
+---
+
 ## 🎬 Blender Trajectory Exporter
 
 For animations custom-designed in **Blender**, `studio/blender_export.py` can be run inside Blender's python runtime (`bpy`) to scrape keyframes:

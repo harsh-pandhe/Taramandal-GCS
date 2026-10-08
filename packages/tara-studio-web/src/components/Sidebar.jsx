@@ -8,7 +8,7 @@ const PAGES = [
 
 /** Brand, page navigation, and the active project's name/save control. */
 export default function Sidebar({
-  activePage, onNavigate, projectName, onProjectName, onSave,
+  activePage, onNavigate, projectName, onProjectName, onSave, vaultError,
 }) {
   return (
     <aside className="studio-sidebar">
@@ -45,6 +45,7 @@ export default function Sidebar({
         <button type="button" className="btn-secondary btn-inline" onClick={onSave}>
           <Save size={14} /> Save Project
         </button>
+        {vaultError && <p className="vault-error" role="alert">{vaultError}</p>}
       </div>
     </aside>
   );
