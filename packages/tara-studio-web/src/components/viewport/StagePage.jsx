@@ -1,5 +1,6 @@
+import { useRef } from 'react';
 import {
-  Compass, Globe, Users, Activity, AlertTriangle,
+  Compass, Globe, Users, Activity, AlertTriangle, Scan, RotateCcw,
 } from 'lucide-react';
 import SequencerHeader from '../sequencer/SequencerHeader.jsx';
 import TimelineTrack from '../sequencer/TimelineTrack.jsx';
@@ -21,24 +22,47 @@ export default function StagePage({
   header, viewMode, onViewMode, showPaths, onShowPaths,
   drawerOpen, onOpenDrawer, choreoData, currentTime, lightingOpts,
   dronesList, rate, loading, error, playback, segments, duration, audioPeaks, zoom,
-  onScrub, onStep, activeSceneId, onSelectScene,
+  onScrub, onStep, activeSceneId, onSelectScene, projectId, cameraStore,
 }) {
+  const stageRef = useRef(null);
+  // The telemetry matrix has no camera, and an empty stage has nothing to frame.
+  const noCamera = viewMode === 'matrix' || !choreoData;
+
   return (
     <main className="studio-viewport">
       <SequencerHeader {...header} />
 
       <div className="view-mode-tabs-container">
-        <div className="view-mode-tabs">
-          {VIEWS.map(({ id, icon: Icon, label }) => (
+        <div className="viewport-left-actions">
+          <div className="view-mode-tabs">
+            {VIEWS.map(({ id, icon: Icon, label }) => (
+              <button
+                key={id}
+                type="button"
+                className={`view-tab${viewMode === id ? ' active' : ''}`}
+                onClick={() => onViewMode(id)}
+              >
+                <Icon size={13} /> {label}
+              </button>
+            ))}
+          </div>
+
+          <div className="view-mode-tabs">
             <button
-              key={id}
-              type="button"
-              className={`view-tab${viewMode === id ? ' active' : ''}`}
-              onClick={() => onViewMode(id)}
+              type="button" className="view-tab" disabled={noCamera}
+              title="Frame the fleet where it is now (F)"
+              onClick={() => stageRef.current?.fit()}
             >
-              <Icon size={13} /> {label}
+              <Scan size={13} /> FIT
             </button>
-          ))}
+            <button
+              type="button" className="view-tab" disabled={noCamera}
+              title="Back to the default view of the whole show (Home)"
+              onClick={() => stageRef.current?.reset()}
+            >
+              <RotateCcw size={13} /> RESET
+            </button>
+          </div>
         </div>
 
         <div className="viewport-right-actions">
@@ -62,6 +86,7 @@ export default function StagePage({
           />
         ) : (
           <StageViewport3D
+            ref={stageRef} frameKey={projectId} cameraStore={cameraStore}
             choreoData={choreoData} currentTime={currentTime}
             viewMode={viewMode} lighting={lightingOpts} showPaths={showPaths}
           />

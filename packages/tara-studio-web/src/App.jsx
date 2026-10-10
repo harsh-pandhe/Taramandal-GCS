@@ -38,6 +38,8 @@ export default function App() {
   const [drawerOpen, setDrawerOpen] = useState(true);
   const [drawerTab, setDrawerTab] = useState('sequence');
   const [viewMode, setViewMode] = useState('3d');
+  // The stage camera, kept here because the stage unmounts on every page change.
+  const stageCamera = useRef(null);
   const [librarySceneId, setLibrarySceneId] = useState(null);
   const [activeSceneId, setActiveSceneId] = useState(null);
   const [rate, setRate] = useState(4);
@@ -217,6 +219,8 @@ export default function App() {
               drawerOpen={drawerOpen}
               onOpenDrawer={() => setDrawerOpen(true)}
               choreoData={choreoData}
+              projectId={projects.activeProjectId}
+              cameraStore={stageCamera}
               currentTime={currentTime}
               lightingOpts={lightingOpts}
               dronesList={fleet.dronesList}

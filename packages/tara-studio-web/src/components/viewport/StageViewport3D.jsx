@@ -1,7 +1,12 @@
-import { useRef, useEffect } from 'react';
+import { useRef, useEffect, useImperativeHandle } from 'react';
 import * as THREE from 'three';
 import { interpolateWaypoint } from '../../engine/sequencer.js';
 import { droneColorAt } from '../../engine/lighting.js';
+import {
+  createCamera, cameraPosition, cameraDistance, worldPerPixel,
+  orbitBy, zoomBy, panBy, frameBounds, showBounds, fleetBoundsAt,
+} from '../../engine/camera.js';
+import { cameraShortcut } from '../../engine/shortcuts.js';
 
 // Preview geometry is a single instanced mesh rather than a Group per drone.
 // The old per-drone model (chassis, canopy, 4 arms, 4 props, LEDs — ~15 meshes
@@ -11,9 +16,8 @@ import { droneColorAt } from '../../engine/lighting.js';
 // only its per-instance matrices and colours change per frame.
 
 const UP_AXIS_SCALE = 1; // NED z is negated when mapped to three's Y
-const AUDIENCE_EYE_HEIGHT_M = 1.7; // a spectator standing on the ground
 
-// The camera backs off to frame the whole formation (see orbit.radius below),
+// The camera backs off to frame the whole formation (see frameBounds),
 // which at large fleet sizes spread over a wide formation can put it hundreds
 // of units away. A fixed-radius sphere shrinks with distance like anything
 // else in perspective — at N=100 on a wide glyph formation it measured out to
@@ -35,12 +39,29 @@ const MAX_SCALE = 3;
  *
  * Owns its own render loop and reads playback time through a ref, so scrubbing
  * and playback repaint without re-running this effect or rebuilding the scene.
+ *
+ * Camera (maths in engine/camera.js):
+ *   3D         left drag rotates; right, middle or Shift+left drag pans
+ *   top-down   any drag pans
+ *   audience   any drag walks along the audience line and tilts the gaze
+ *   all views  wheel zooms, F fits the fleet at the current time, Home resets
+ *
+ * The show is framed automatically until the designer moves the camera; after
+ * that a rebuild leaves the view alone. Reset, or a change of `frameKey` (the
+ * open project), hands framing back. `ref` exposes { fit, reset }.
+ *
+ * This component unmounts whenever the designer leaves the stage (another
+ * page, the telemetry view), so the camera is kept in `cameraStore`, a ref the
+ * parent owns, and picked up again on the way back.
  */
 export default function StageViewport3D({
-  choreoData, currentTime, viewMode, lighting, showPaths,
+  choreoData, currentTime, viewMode, lighting, showPaths, frameKey, cameraStore, ref,
 }) {
   const containerRef = useRef(null);
   const stateRef = useRef({});
+  const ownStore = useRef(null);
+  const store = cameraStore ?? ownStore;
+  if (!store.current) store.current = { cam: createCamera(), userMoved: false, frameKey };
 
   // Live values the render loop reads without needing to be re-created.
   const timeRef = useRef(currentTime);
@@ -77,56 +98,82 @@ export default function StageViewport3D({
     const pathsGroup = new THREE.Group();
     scene.add(pathsGroup);
 
-    // Orbit state, driven by pointer maths rather than a controls dependency.
-    const orbit = { theta: Math.PI / 4, phi: Math.PI / 3, radius: 40, target: new THREE.Vector3(5, 4, 5) };
+    // The camera is driven by pointer maths rather than a controls dependency.
+    const lens = () => ({
+      fovDeg: camera.fov,
+      aspect: container.clientWidth / (container.clientHeight || 1),
+    });
     const applyCamera = () => {
-      if (viewModeRef.current === 'top-down') {
-        camera.position.set(orbit.target.x, orbit.radius, orbit.target.z + 0.001);
-      } else if (viewModeRef.current === 'audience') {
-        // A spectator standing at ground level on the -X side, looking
-        // toward +X. Not an arbitrary side: a text formation (see
-        // engine/formations.js fmtText) puts fleet x = 0 (a wall in this
-        // scene's X=0 plane) with the glyph's own left-to-right reading
-        // axis mapped to fleet y -> this scene's Z axis. A camera looking
-        // down -X has its screen-right pointing along -Z, which reads that
-        // axis backwards (mirrored); one looking down +X (i.e. standing on
-        // the -X side, which is what this branch does) has screen-right
-        // along +Z, matching the glyph's own left-to-right order. See
-        // engine/audienceView.test.js for the coordinate derivation this
-        // is pinned against.
-        camera.position.set(orbit.target.x - orbit.radius, AUDIENCE_EYE_HEIGHT_M, orbit.target.z);
-      } else {
-        camera.position.set(
-          orbit.target.x + orbit.radius * Math.sin(orbit.phi) * Math.sin(orbit.theta),
-          orbit.radius * Math.cos(orbit.phi),
-          orbit.target.z + orbit.radius * Math.sin(orbit.phi) * Math.cos(orbit.theta),
-        );
-      }
-      camera.lookAt(orbit.target);
+      const { cam } = store.current;
+      const eye = cameraPosition(cam, viewModeRef.current);
+      camera.position.set(eye.x, eye.y, eye.z);
+      camera.lookAt(cam.target.x, cam.target.y, cam.target.z);
+      // The canvas is WebGL, so this is the only way the e2e suite can see
+      // where the camera is.
+      container.dataset.camera = JSON.stringify({
+        eye: [eye.x, eye.y, eye.z].map((v) => +v.toFixed(2)),
+        target: [cam.target.x, cam.target.y, cam.target.z].map((v) => +v.toFixed(2)),
+      });
     };
-    applyCamera();
-
-    let dragging = false, px = 0, py = 0;
-    const onDown = (e) => { dragging = true; px = e.clientX; py = e.clientY; };
-    const onMove = (e) => {
-      if (!dragging || viewModeRef.current === 'top-down' || viewModeRef.current === 'audience') return;
-      orbit.theta -= (e.clientX - px) * 0.005;
-      orbit.phi -= (e.clientY - py) * 0.005;
-      orbit.phi = Math.max(0.05, Math.min(Math.PI / 2.05, orbit.phi)); // stay above ground
-      px = e.clientX; py = e.clientY;
+    // A camera change made by the designer, as opposed to automatic framing.
+    const moveCamera = (cam) => {
+      store.current.cam = cam;
+      store.current.userMoved = true;
       applyCamera();
     };
-    const onUp = () => { dragging = false; };
+    const fit = () => {
+      const bounds = fleetBoundsAt(stateRef.current.show, timeRef.current);
+      if (bounds) moveCamera(frameBounds(store.current.cam, bounds, lens()));
+    };
+    const reset = () => {
+      store.current.cam = frameBounds(createCamera(), showBounds(stateRef.current.show), lens());
+      store.current.userMoved = false;
+      applyCamera();
+    };
+
+    let drag = null, px = 0, py = 0;
+    const onDown = (e) => {
+      const pan = viewModeRef.current !== '3d' || e.button !== 0 || e.shiftKey;
+      drag = pan ? 'pan' : 'orbit';
+      px = e.clientX; py = e.clientY;
+      if (e.button === 1) e.preventDefault(); // no middle-click autoscroll
+      container.setPointerCapture?.(e.pointerId);
+    };
+    const onMove = (e) => {
+      if (!drag) return;
+      const dx = e.clientX - px, dy = e.clientY - py;
+      px = e.clientX; py = e.clientY;
+      if (!dx && !dy) return;
+      const { cam } = store.current;
+      if (drag === 'orbit') {
+        moveCamera(orbitBy(cam, dx, dy));
+        return;
+      }
+      const viewMode = viewModeRef.current;
+      const metresPerPx = worldPerPixel(
+        cameraDistance(cam, viewMode), camera.fov, container.clientHeight,
+      );
+      moveCamera(panBy(cam, viewMode, dx, dy, metresPerPx));
+    };
+    const onUp = () => { drag = null; };
     const onWheel = (e) => {
       e.preventDefault();
-      orbit.radius = Math.max(4, Math.min(400, orbit.radius + e.deltaY * 0.05));
-      applyCamera();
+      moveCamera(zoomBy(store.current.cam, e.deltaY));
+    };
+    const onContextMenu = (e) => e.preventDefault(); // right drag pans
+    const onKeyDown = (e) => {
+      const action = cameraShortcut(e);
+      if (!action) return;
+      e.preventDefault();
+      if (action === 'fit') fit(); else reset();
     };
 
     container.addEventListener('pointerdown', onDown);
     container.addEventListener('pointermove', onMove);
     window.addEventListener('pointerup', onUp);
     container.addEventListener('wheel', onWheel, { passive: false });
+    container.addEventListener('contextmenu', onContextMenu);
+    window.addEventListener('keydown', onKeyDown);
 
     const onResize = () => {
       if (!container.clientWidth) return;
@@ -139,7 +186,10 @@ export default function StageViewport3D({
     const ro = new ResizeObserver(onResize);
     ro.observe(container);
 
-    stateRef.current = { scene, camera, renderer, pathsGroup, orbit, applyCamera, mesh: null };
+    stateRef.current = {
+      scene, camera, renderer, pathsGroup, mesh: null, applyCamera, fit, reset, lens,
+    };
+    applyCamera();
 
     const dummy = new THREE.Object3D();
     let frame;
@@ -154,8 +204,11 @@ export default function StageViewport3D({
         // world-size needed for TARGET_SCREEN_PX grows linearly with distance
         // (basic perspective), clamped so nearby formations keep their
         // original tuned size and far/spread ones don't balloon into overlap.
-        const canvasH = renderer.domElement.clientHeight || 1;
-        const worldPerPx = (2 * st.orbit.radius * Math.tan((camera.fov * Math.PI) / 360)) / canvasH;
+        // Measured to the target rather than read off the orbit radius, which
+        // is not the viewing distance in the audience view.
+        const worldPerPx = worldPerPixel(
+          cameraDistance(store.current.cam, viewModeRef.current), camera.fov, renderer.domElement.clientHeight,
+        );
         const scale = Math.min(
           Math.max((TARGET_SCREEN_PX * worldPerPx) / (2 * BASE_SPHERE_RADIUS), MIN_SCALE),
           MAX_SCALE,
@@ -185,6 +238,8 @@ export default function StageViewport3D({
       container.removeEventListener('pointermove', onMove);
       window.removeEventListener('pointerup', onUp);
       container.removeEventListener('wheel', onWheel);
+      container.removeEventListener('contextmenu', onContextMenu);
+      window.removeEventListener('keydown', onKeyDown);
       window.removeEventListener('resize', onResize);
       ro.disconnect();
       // The container may already be detached (e.g. after a view switch), which
@@ -194,7 +249,12 @@ export default function StageViewport3D({
       }
       renderer.dispose();
     };
-  }, []);
+  }, [store]);
+
+  useImperativeHandle(ref, () => ({
+    fit: () => stateRef.current.fit?.(),
+    reset: () => stateRef.current.reset?.(),
+  }), []);
 
   // ---- rebuild fleet instances when the show changes -------------------------
   useEffect(() => {
@@ -232,23 +292,26 @@ export default function StageViewport3D({
     mesh.frustumCulled = false; // instances move well outside the initial bounds
     st.scene.add(mesh);
     st.mesh = mesh;
-
-    // Frame the show: centre the orbit on the fleet and back off far enough to
-    // see it, so large formations aren't off-screen on first build.
-    let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity, maxUp = 0;
-    for (const d of choreoData.drones) {
-      for (const wp of d.waypoints) {
-        if (wp.x < minX) minX = wp.x;
-        if (wp.x > maxX) maxX = wp.x;
-        if (wp.y < minY) minY = wp.y;
-        if (wp.y > maxY) maxY = wp.y;
-        if (-wp.z > maxUp) maxUp = -wp.z;
-      }
-    }
-    st.orbit.target.set((minX + maxX) / 2, maxUp / 2, (minY + maxY) / 2);
-    st.orbit.radius = Math.max(12, Math.hypot(maxX - minX, maxY - minY) * 1.1 + maxUp);
-    st.applyCamera();
   }, [choreoData]);
+
+  // ---- frame the show until the designer takes the camera --------------------
+  // Runs after the rebuild above, so st.show is already the new show. Framing
+  // on every rebuild would snap the view back after each edit, so it stops
+  // once the camera has been moved and resumes for a different project.
+  useEffect(() => {
+    const st = stateRef.current;
+    if (!st.scene) return;
+    const kept = store.current;
+    if (kept.frameKey !== frameKey) {
+      kept.frameKey = frameKey;
+      kept.userMoved = false;
+    }
+    if (kept.userMoved) return;
+    const bounds = showBounds(choreoData);
+    if (!bounds) return;
+    kept.cam = frameBounds(kept.cam, bounds, st.lens());
+    st.applyCamera();
+  }, [choreoData, frameKey, store]);
 
   // ---- static path lines ----------------------------------------------------
   useEffect(() => {

@@ -673,3 +673,167 @@ test.describe('signed export and transmit', () => {
     expect(sent.body).toContain(EXPORT.signature.content.trim());
   });
 });
+
+// Movable stage camera. The maths is unit-tested in engine/camera.test.js;
+// these cover what only the component does. The canvas is WebGL, so the camera
+// is read from the data-camera attribute the viewport keeps on its container.
+test.describe('stage camera', () => {
+  test.beforeEach(async ({ page }) => openStudio(page));
+
+  const stage = (page) => page.locator('.canvas-container');
+  const cameraOf = async (page) => JSON.parse(await stage(page).getAttribute('data-camera'));
+  const view = (page, name) => page.getByRole('button', { name, exact: true }).click();
+
+  // A spot on the stage clear of the view tabs, the console and the timeline.
+  async function grip(page) {
+    const box = await stage(page).boundingBox();
+    return { x: box.x + box.width * 0.3, y: box.y + box.height * 0.45 };
+  }
+  async function drag(page, dx, dy, { button = 'left', shift = false } = {}) {
+    const { x, y } = await grip(page);
+    await page.mouse.move(x, y);
+    if (shift) await page.keyboard.down('Shift');
+    await page.mouse.down({ button });
+    await page.mouse.move(x + dx, y + dy, { steps: 4 });
+    await page.mouse.up({ button });
+    if (shift) await page.keyboard.up('Shift');
+  }
+  async function wheel(page, deltaY) {
+    const { x, y } = await grip(page);
+    await page.mouse.move(x, y);
+    await page.mouse.wheel(0, deltaY);
+  }
+  async function rebuild(page) {
+    await page.getByRole('button', { name: 'Add Scene' }).click();
+    await page.getByRole('button', { name: 'Generate Sequence' }).click();
+    await expect(page.getByText(/^Built · /)).toBeVisible();
+  }
+
+  test('the 3D view rotates on a left drag and pans on a right or Shift drag', async ({ page }) => {
+    const start = await cameraOf(page);
+
+    await drag(page, 90, 30);
+    const rotated = await cameraOf(page);
+    expect(rotated.target).toEqual(start.target);
+    expect(rotated.eye).not.toEqual(start.eye);
+
+    await drag(page, 90, 30, { button: 'right' });
+    const panned = await cameraOf(page);
+    expect(panned.target).not.toEqual(rotated.target);
+
+    await drag(page, -60, 20, { shift: true });
+    expect((await cameraOf(page)).target).not.toEqual(panned.target);
+  });
+
+  test('a rebuild keeps the camera where the designer left it', async ({ page }) => {
+    const framed = await cameraOf(page);
+    await wheel(page, -300);
+    await drag(page, 120, 40, { button: 'right' });
+    const moved = await cameraOf(page);
+    expect(moved).not.toEqual(framed);
+
+    await rebuild(page);
+    expect(await cameraOf(page)).toEqual(moved);
+  });
+
+  test('the camera survives leaving the stage and coming back', async ({ page }) => {
+    await drag(page, 120, 40, { button: 'right' });
+    const moved = await cameraOf(page);
+
+    await view(page, 'TELEMETRY');
+    await view(page, '3D STAGE');
+    expect(await cameraOf(page)).toEqual(moved);
+
+    await page.getByRole('button', { name: 'Project Vault' }).click();
+    await page.getByRole('button', { name: 'Sequencer', exact: true }).click();
+    expect(await cameraOf(page)).toEqual(moved);
+  });
+
+  test('a different project is framed afresh', async ({ page }) => {
+    await wheel(page, 2000);
+    await drag(page, 200, 80, { button: 'right' });
+    const moved = await cameraOf(page);
+
+    await page.getByRole('button', { name: 'Project Vault' }).click();
+    await page.getByRole('button', { name: 'New Show' }).click();
+    await page.getByRole('button', { name: 'Sequencer', exact: true }).click();
+    await page.getByRole('button', { name: 'Generate Sequence' }).click();
+    await expect(page.getByText(/^Built · /)).toBeVisible();
+    expect(await cameraOf(page)).not.toEqual(moved);
+
+    // Reset lands on the same automatic framing of the new project.
+    const framed = await cameraOf(page);
+    await page.getByRole('button', { name: 'RESET' }).click();
+    expect(await cameraOf(page)).toEqual(framed);
+  });
+
+  test('Fit frames the fleet at the playhead, Reset returns to the whole show', async ({ page }) => {
+    const framed = await cameraOf(page);
+    const fitButton = page.getByRole('button', { name: 'FIT', exact: true });
+    const resetButton = page.getByRole('button', { name: 'RESET', exact: true });
+
+    // The playhead is at 0, where the fleet still sits on its pads.
+    await fitButton.click();
+    const fitted = await cameraOf(page);
+    expect(fitted.target[1]).toBeLessThan(0.5);
+    expect(fitted.target[1]).toBeLessThan(framed.target[1]);
+
+    await drag(page, 90, 30);
+    await resetButton.click();
+    expect(await cameraOf(page)).toEqual(framed);
+
+    // The same two actions from the keyboard; focus is on a button, not a field.
+    await page.keyboard.press('f');
+    expect(await cameraOf(page)).toEqual(fitted);
+    await page.keyboard.press('Home');
+    expect(await cameraOf(page)).toEqual(framed);
+  });
+
+  test('F typed into a text field is text, not a camera command', async ({ page }) => {
+    const framed = await cameraOf(page);
+    await page.getByLabel('Project name').fill('Fireflies');
+    await page.getByLabel('Project name').press('f');
+    await expect(page.getByLabel('Project name')).toHaveValue('Firefliesf');
+    expect(await cameraOf(page)).toEqual(framed);
+  });
+
+  test('the top-down view pans on a drag and stays straight overhead', async ({ page }) => {
+    await view(page, 'TOP-DOWN');
+    const start = await cameraOf(page);
+    await drag(page, 100, 50);
+    const panned = await cameraOf(page);
+    expect(panned.target[0]).not.toBe(start.target[0]);
+    expect(panned.target[2]).not.toBe(start.target[2]);
+    expect(panned.target[1]).toBe(start.target[1]);
+    expect(panned.eye[0]).toBe(panned.target[0]);
+    expect(panned.eye[1]).toBeGreaterThan(panned.target[1]);
+  });
+
+  test('the audience walks their line at eye height and never crosses to the far side', async ({ page }) => {
+    await view(page, 'AUDIENCE');
+    const start = await cameraOf(page);
+    expect(start.eye[1]).toBe(1.7);
+
+    await drag(page, 150, 0);
+    const walked = await cameraOf(page);
+    expect(walked.eye[2]).not.toBe(start.eye[2]);
+    expect(walked.eye[0]).toBe(start.eye[0]);
+    expect(walked.eye[1]).toBe(1.7);
+
+    // Zoom in as far as it goes: still on the -X side, so text is not mirrored.
+    await wheel(page, -100000);
+    const close = await cameraOf(page);
+    expect(close.eye[1]).toBe(1.7);
+    expect(close.eye[0]).toBeLessThan(close.target[0]);
+  });
+
+  test('Fit and Reset are off where there is no camera', async ({ page }) => {
+    const fitButton = page.getByRole('button', { name: 'FIT', exact: true });
+    const resetButton = page.getByRole('button', { name: 'RESET', exact: true });
+    await expect(fitButton).toBeEnabled();
+    await expect(resetButton).toBeEnabled();
+    await view(page, 'TELEMETRY');
+    await expect(fitButton).toBeDisabled();
+    await expect(resetButton).toBeDisabled();
+  });
+});
