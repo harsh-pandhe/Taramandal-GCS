@@ -4,6 +4,7 @@ Exposes API endpoints for generating, validating, and exporting drone shows.
 """
 
 import base64
+import os
 from dataclasses import asdict
 
 from fastapi import FastAPI, HTTPException
@@ -61,10 +62,30 @@ from tara_core.assignment import optimal_assignment
 
 app = FastAPI(title="Taramandal Studio Choreography Engine", version="1.0.0")
 
+DEFAULT_STUDIO_ORIGINS = [
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
+    "http://localhost:8001",
+    "http://127.0.0.1:8001",
+    "http://localhost:8090",
+    "http://127.0.0.1:8090",
+]
+
+raw_origins = os.environ.get("STUDIO_ALLOWED_ORIGINS")
+if raw_origins:
+    allowed_origins = [o.strip() for o in raw_origins.split(",") if o.strip()]
+else:
+    allowed_origins = DEFAULT_STUDIO_ORIGINS
+
+allow_creds = True
+if "*" in allowed_origins:
+    # Security: wildcard origin cannot be combined with allow_credentials=True
+    allow_creds = False
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Open API access for local dashboard utility
-    allow_credentials=True,
+    allow_origins=allowed_origins,
+    allow_credentials=allow_creds,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -207,8 +228,9 @@ class VoxelizeRequest(BaseModel):
     source_type: str = Field("text", description="Geometry source: text, svg, mesh")
     content: str = Field(
         ...,
+        max_length=500_000,
         description=(
-            "Text to form, SVG path/document markup, or a path to an .obj/.stl file"
+            "Text to form, SVG path/document markup, or raw .obj/.stl data"
         ),
     )
     drone_count: int = Field(
