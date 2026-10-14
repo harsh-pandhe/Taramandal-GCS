@@ -253,7 +253,6 @@ const stackIfOversized = (gen, n, scale) => {
   const reach = horizontalReach(floorPts);
   const maxRadius = maxRadiusFor(n);
   if (n < 2) return raw;
-  if (scale > 1.0 && minPairDist(raw) >= FORMATION_SPACING) return raw;
   if (minPairDist(raw) >= FORMATION_SPACING && reach <= maxRadius) return raw;
   if (reach <= maxRadius) return floorPts;
 
@@ -331,7 +330,7 @@ export const buildFormation = (shapeType, shapePayload, n, scale = 1.0) => {
 
   // Enforce SITE_RADIUS_M: if pad-grid offset or large span pushes any point
   // beyond SITE_RADIUS_M (30m), first shift toward origin if it fits,
-  // otherwise scale horizontally about its centroid.
+  // otherwise scale horizontally about its centroid without violating minimum spacing.
   let current = placed;
   const maxReach = current.reduce((m, p) => Math.max(m, Math.hypot(p.x, p.y)), 0);
   if (maxReach > SITE_RADIUS_M + 1e-6) {
@@ -349,16 +348,35 @@ export const buildFormation = (shapeType, shapePayload, n, scale = 1.0) => {
       current = current.map((p) => ({ ...p, x: p.x + shiftX, y: p.y + shiftY }));
     }
 
-    // Recheck reach after shifting; scale about origin if still exceeding site boundary
+    // Recheck reach after shifting; scale about origin only if minimum separation is preserved
     const postShiftReach = current.reduce((m, p) => Math.max(m, Math.hypot(p.x, p.y)), 0);
     if (postShiftReach > SITE_RADIUS_M + 1e-6) {
       const k = (SITE_RADIUS_M - 0.5) / postShiftReach;
+      const curDist = minPairDist(current);
+      if (shapeType === 'parametric' && curDist * k < MIN_SEPARATION_M - 1e-6) {
+        throw new Error(
+          `Formation "${shapePayload}" (n=${n}, scale=${scale}) cannot fit within site radius (${SITE_RADIUS_M}m) without violating minimum spacing (${MIN_SEPARATION_M}m); required spacing would drop to ${(curDist * k).toFixed(2)}m`
+        );
+      }
       current = current.map((p) => ({
         ...p,
         x: p.x * k,
         y: p.y * k,
       }));
     }
+  }
+
+  const maxAlt = Math.max(...current.map((p) => -p.z));
+  if (maxAlt > _MAX_ALTITUDE_M + 1e-6) {
+    throw new Error(
+      `Formation "${shapePayload}" (n=${n}, scale=${scale}) exceeds maximum altitude ceiling: ${maxAlt.toFixed(1)}m > ${_MAX_ALTITUDE_M}m`
+    );
+  }
+  const finalMin = minPairDist(current);
+  if (shapeType === 'parametric' && finalMin < MIN_SEPARATION_M - 1e-6) {
+    throw new Error(
+      `Formation "${shapePayload}" (n=${n}, scale=${scale}) violates minimum spacing: ${finalMin.toFixed(2)}m < ${MIN_SEPARATION_M}m`
+    );
   }
   return current;
 };

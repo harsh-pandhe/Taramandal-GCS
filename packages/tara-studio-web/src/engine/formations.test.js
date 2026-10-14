@@ -184,3 +184,56 @@ describe('SHAPE_LIBRARY', () => {
     }
   });
 });
+
+describe('formation minimum spacing at scale > 1 (#136)', () => {
+  const minPair = (pts) => {
+    let m = Infinity;
+    for (let i = 0; i < pts.length; i++) {
+      for (let j = i + 1; j < pts.length; j++) {
+        m = Math.min(m, Math.hypot(pts[i].x - pts[j].x, pts[i].y - pts[j].y, pts[i].z - pts[j].z));
+      }
+    }
+    return m;
+  };
+
+  it('resolves the S0 benchmark failures on line, vee, and circle at scale > 1', () => {
+    const knownCases = [
+      { n: 60, shape: 'line', scales: [1.5, 2.0, 3.0] },
+      { n: 60, shape: 'vee', scales: [1.5, 2.0, 3.0] },
+      { n: 100, shape: 'line', scales: [1.5, 2.0, 3.0] },
+      { n: 100, shape: 'vee', scales: [1.5, 2.0, 3.0] },
+      { n: 100, shape: 'circle', scales: [1.5, 2.0, 3.0] },
+    ];
+
+    for (const { n, shape, scales } of knownCases) {
+      for (const scale of scales) {
+        const pts = buildFormation('parametric', shape, n, scale);
+        expect(pts).toHaveLength(n);
+        const d = minPair(pts);
+        expect(d, `${shape}@N=${n}, scale=${scale}`).toBeGreaterThanOrEqual(2.0 - 1e-6);
+        const reach = pts.reduce((m, p) => Math.max(m, Math.hypot(p.x, p.y)), 0);
+        expect(reach, `${shape}@N=${n}, scale=${scale} reach`).toBeLessThanOrEqual(30.0 + 1e-6);
+        const maxAlt = Math.max(...pts.map((p) => -p.z));
+        expect(maxAlt, `${shape}@N=${n}, scale=${scale} altitude`).toBeLessThanOrEqual(120.0 + 1e-6);
+      }
+    }
+  });
+
+  it('guarantees design separation (>= 2.0m) across all supported parametric shapes up to scale 2.0', () => {
+    for (const shape of SHAPES) {
+      for (const n of [10, 25, 50, 75, 100]) {
+        for (const scale of [0.5, 1.0, 1.5, 2.0]) {
+          const pts = buildFormation('parametric', shape, n, scale);
+          expect(pts).toHaveLength(n);
+          expect(minPair(pts), `${shape}@N=${n}, scale=${scale}`).toBeGreaterThanOrEqual(2.0 - 1e-6);
+        }
+      }
+    }
+  });
+
+  it('rejects with explicit actionable error when formation constraints cannot be met', () => {
+    // When an extreme scale would push stacked layers beyond the altitude ceiling
+    expect(() => buildFormation('parametric', 'line', 100, 20.0)).toThrow(/exceeds maximum altitude ceiling/);
+    expect(() => buildFormation('parametric', 'heart', 75, 3.0)).toThrow(/exceeds maximum altitude ceiling/);
+  });
+});
