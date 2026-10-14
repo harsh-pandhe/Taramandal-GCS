@@ -15,7 +15,19 @@
           0,
           1
         ],
-        "distance": 1.8
+        "distance": 1.8,
+        "positions": {
+          "0": [
+            0.0,
+            0.0,
+            -5.0
+          ],
+          "1": [
+            0.0,
+            1.8,
+            -5.0
+          ]
+        }
       },
       {
         "time": 0.1,
@@ -23,7 +35,19 @@
           0,
           1
         ],
-        "distance": 1.8
+        "distance": 1.8,
+        "positions": {
+          "0": [
+            0.0,
+            0.0,
+            -5.0
+          ],
+          "1": [
+            0.0,
+            1.8,
+            -5.0
+          ]
+        }
       },
       {
         "time": 0.2,
@@ -31,12 +55,49 @@
           0,
           1
         ],
-        "distance": 1.8
+        "distance": 1.8,
+        "positions": {
+          "0": [
+            0.0,
+            0.0,
+            -5.0
+          ],
+          "1": [
+            0.0,
+            1.8,
+            -5.0
+          ]
+        }
       }
     ],
     "velocity": [],
     "acceleration": [],
     "yaw_rate": []
+  },
+  "worst_violations": {
+    "proximity": {
+      "time": 0.0,
+      "drones": [
+        0,
+        1
+      ],
+      "distance": 1.8,
+      "positions": {
+        "0": [
+          0.0,
+          0.0,
+          -5.0
+        ],
+        "1": [
+          0.0,
+          1.8,
+          -5.0
+        ]
+      }
+    },
+    "velocity": null,
+    "acceleration": null,
+    "yaw_rate": null
   },
   "limits": {
     "min_separation_m": 1.5,
