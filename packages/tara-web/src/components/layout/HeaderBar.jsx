@@ -14,7 +14,7 @@ const FLEET_STATE_DOT = {
 };
 
 /** Top bar: product mark, GCS telemetry link status, and fleet lifecycle state. */
-export default function HeaderBar({ wsConnected, fleetState, session, onLogout }) {
+export default function HeaderBar({ wsConnected, fleetState, session, onLogout, mode = 'SIMULATION', telemetryStatus = 'FRESH' }) {
   return (
     <header className="header-bar">
       <div className="logo-section">
@@ -33,6 +33,10 @@ export default function HeaderBar({ wsConnected, fleetState, session, onLogout }
         </h1>
       </div>
       <div className="system-status">
+        <div className={`status-badge mode-badge ${mode === 'HARDWARE' ? 'hardware-mode' : 'simulation-mode'}`} data-testid="operating-mode">
+          <span className={`dot ${mode === 'HARDWARE' ? 'orange' : 'blue'}`}></span>
+          MODE: {mode} {telemetryStatus === 'STALE' ? '· STALE TELEMETRY' : ''}
+        </div>
         <div className="status-badge">
           <span className={`dot ${wsConnected ? 'green' : 'red'}`}></span>
           GCS LINK: {wsConnected ? 'CONNECTED' : 'OFFLINE'}

@@ -1,7 +1,9 @@
 import asyncio
+from enum import Enum
 import logging
 import os
 from pathlib import Path
+import time
 from typing import Annotated
 from fastapi import (
     Depends, FastAPI, File, HTTPException, Request, UploadFile, WebSocket, WebSocketDisconnect,
@@ -10,7 +12,7 @@ from fastapi import (
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from tara_gcs.drone_manager import DroneManager
 from tara_gcs.fleet_fsm import Command, IllegalTransitionError
 from tara_gcs.trajectory_parser import parse_trajectory_bytes
@@ -44,6 +46,36 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# --- Operating Mode & Hardware Boundary (issue #131) ------------------------
+# Explicit separation between SIMULATION and HARDWARE modes. Commands are never
+# silently retargeted, and physical flight requires separate hardware sign-off (#135).
+
+class OperatingMode(str, Enum):
+    SIMULATION = "SIMULATION"
+    HARDWARE = "HARDWARE"
+
+current_operating_mode: str = os.environ.get("GCS_OPERATING_MODE", "SIMULATION").upper()
+hardware_flight_certified: bool = False
+
+HARDWARE_PROFILE = {
+    "autopilot": "Pixhawk FMUv2 (ArduPilot Quad-X)",
+    "firmware": "ArduCopter 3.6.8 / 4.x",
+    "serial_interface": os.environ.get("HARDWARE_SERIAL_PORT", "/dev/ttyACM0"),
+    "baud_rate": int(os.environ.get("HARDWARE_BAUD_RATE", 115200)),
+    "telemetry_radio": os.environ.get("HARDWARE_RADIO_PORT", "/dev/ttyUSB0"),
+    "telemetry_baud": int(os.environ.get("HARDWARE_RADIO_BAUD", 57600)),
+    "rc_receiver": "FlySky FS-iA6B (PPM, 8ch)",
+    "rc_switch_channel": 5,
+    "rc_modes": {
+        "1000us": "Stabilize",
+        "1500us": "AltHold",
+        "2000us": "Land",
+    },
+    "battery_config": "3S LiPo, BATT_VOLT_MULT=10.938",
+    "failsafes": "FS_THR_ENABLE=1, FS_EKF_ACTION=1, BATT_FS_LOW_ACT=1",
+    "bench_audit": "diagnostics/pre_prop_audit/REPORT.md",
+}
 
 # Connect to simulation drones dynamically (defaulting to 3)
 NUM_DRONES = int(os.environ.get("NUM_DRONES", 3))
@@ -313,6 +345,7 @@ async def get_status():
     """
     telemetry = drone_manager.telemetry
     return {
+        "mode": current_operating_mode,
         "backend": drone_manager.backend,
         # Evidence tier of that backend (issue #170): "kinematic" (tara_sim,
         # scale only) or "px4-sitl" (PX4 + Gazebo, real flight dynamics).
@@ -325,6 +358,129 @@ async def get_status():
         # Drones aborted out of the show on their own (issue #59); per-drone
         # detail is each drone's "aborted" telemetry field.
         "aborted": sorted(d_id for d_id, t in telemetry.items() if t.get("aborted")),
+    }
+
+
+class ModeSwitchRequest(BaseModel):
+    mode: str
+    confirmation: str
+
+
+def check_flight_mode_and_hardware_gate(action_name: str):
+    """
+    Ensures hardware flight actions are completely unavailable and fail closed
+    until a verified hardware backend exists and hardware gate #135 has passed.
+    """
+    if current_operating_mode == "HARDWARE":
+        if not hardware_flight_certified or drone_manager.backend != "hardware":
+            raise HTTPException(
+                status_code=412,
+                detail=f"Physical flight action '{action_name}' blocked: Hardware acceptance gate #135 has not passed and verified hardware controller transport is not configured.",
+            )
+
+
+@app.get("/api/mode")
+async def get_mode(operator: Viewer):
+    """Current operating mode (SIMULATION vs HARDWARE) and telemetry freshness."""
+    now = time.time()
+    drone0 = drone_manager.telemetry.get(0, {})
+    last_hb = drone0.get("last_heartbeat")
+    freshness_s = round(now - last_hb, 2) if last_hb else None
+    is_fresh = freshness_s is not None and freshness_s < 2.5
+    is_hardware_backend = drone_manager.backend == "hardware"
+    hardware_available = is_hardware_backend and hardware_flight_certified
+    return {
+        "mode": current_operating_mode,
+        "backend": drone_manager.backend,
+        "hardware_profile": HARDWARE_PROFILE,
+        "hardware_flight_certified": hardware_flight_certified,
+        "hardware_flight_available": hardware_available,
+        "telemetry_freshness_s": freshness_s,
+        "telemetry_status": "FRESH" if is_fresh else "STALE",
+        "rc_takeover_available": False,
+        "rc_status": "UNVERIFIED",
+    }
+
+
+@app.post("/api/mode")
+async def set_mode(req: ModeSwitchRequest, operator: Commander):
+    """Switch operating mode. Requires explicit operator confirmation."""
+    global current_operating_mode
+    if operator.role < Role.FLIGHT_COMMANDER:
+        raise HTTPException(
+            status_code=403,
+            detail=f"{operator.id} is a {operator.role.name}; this needs FLIGHT_COMMANDER.",
+        )
+    target_mode = req.mode.upper()
+    if target_mode not in ("SIMULATION", "HARDWARE"):
+        raise HTTPException(status_code=400, detail="Mode must be SIMULATION or HARDWARE")
+    expected_conf = f"CONFIRM_{target_mode}"
+    if req.confirmation != expected_conf:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Confirmation mismatch. Must supply confirmation='{expected_conf}'",
+        )
+    if target_mode == "HARDWARE" and not hardware_flight_certified:
+        logger.warning(
+            f"Operator {operator.id} switched GCS mode to HARDWARE. "
+            "Note: Physical flight gate #135 remains uncertified."
+        )
+    current_operating_mode = target_mode
+    command_audit.record(
+        "mode_switch",
+        target_mode=target_mode,
+        operator=operator.id,
+        role=operator.role.name,
+    )
+    return {
+        "status": "success",
+        "mode": current_operating_mode,
+        "message": f"Operating mode switched to {current_operating_mode}",
+    }
+
+
+class SingleDroneSequenceRequest(BaseModel):
+    target_altitude_m: float = Field(default=1.0, ge=0.3, le=5.0, description="Target altitude in meters (0.3m - 5.0m)")
+    hover_duration_s: float = Field(default=5.0, ge=1.0, le=30.0, description="Hover duration in seconds (1.0s - 30.0s)")
+    descent_rate_mps: float = Field(default=0.4, ge=0.1, le=1.0, description="Descent rate in m/s (0.1 - 1.0 m/s)")
+
+
+@app.post("/api/single-drone/hover-sequence")
+async def run_single_drone_sequence(
+    req: SingleDroneSequenceRequest = SingleDroneSequenceRequest(),
+    *,
+    operator: Commander,
+):
+    """
+    Supervised low-altitude 1m hover and slow landing demo progression.
+    Requires SIMULATION mode or certified hardware acceptance gate (#135).
+    """
+    if operator.role < Role.FLIGHT_COMMANDER:
+        raise HTTPException(
+            status_code=403,
+            detail=f"{operator.id} is a {operator.role.name}; this needs FLIGHT_COMMANDER.",
+        )
+    check_flight_mode_and_hardware_gate("hover-sequence")
+    if 0 not in drone_manager.drones or not drone_manager.telemetry.get(0, {}).get("connected"):
+        raise HTTPException(
+            status_code=400,
+            detail="Drone 0 is not connected.",
+        )
+    try:
+        steps_log = await drone_manager.execute_single_drone_demo_sequence(
+            drone_id=0,
+            target_alt_m=req.target_altitude_m,
+            hover_s=req.hover_duration_s,
+            descent_rate_mps=req.descent_rate_mps,
+            operator=operator.id,
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    return {
+        "status": "COMPLETED",
+        "mode": current_operating_mode,
+        "vehicle": "SIMULATED" if current_operating_mode == "SIMULATION" else "HARDWARE",
+        "steps": steps_log,
     }
 
 @app.get("/api/preflight-check")
@@ -404,6 +560,7 @@ async def get_fleet_state(operator: Viewer):
 @app.post("/api/launch")
 async def launch_fleet(operator: Commander):
     logger.info("API: Launching fleet...")
+    check_flight_mode_and_hardware_gate("launch")
     _check_command(Command.LAUNCH, operator.id, "POST /api/launch")
     decision = preflight_engine.authorize_launch(drone_manager, operator=operator.id)
     if not decision.permitted:
@@ -611,6 +768,7 @@ async def verify_launch_geometry(tolerance_m: float = 0.5, *, operator: Choreogr
 
 @app.post("/api/start-trajectory")
 async def start_trajectory(req: StartTrajectoryRequest, operator: Commander):
+    check_flight_mode_and_hardware_gate("start-trajectory")
     logger.info(
         f"API: Starting trajectory in {req.mode} mode, {req.execution} execution, "
         f"trigger_epoch_ms={req.trigger_epoch_ms}..."

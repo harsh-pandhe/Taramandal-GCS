@@ -158,6 +158,10 @@ async def test_bulk_ingestion_matches_the_per_drone_monitors():
         await asyncio.gather(*tasks, return_exceptions=True)
 
         for d in range(n):
+            if "last_heartbeat" in bulk[d] and "last_heartbeat" in manager.telemetry[d]:
+                if bulk[d]["last_heartbeat"] is not None and manager.telemetry[d]["last_heartbeat"] is not None:
+                    assert abs(bulk[d]["last_heartbeat"] - manager.telemetry[d]["last_heartbeat"]) < 0.5
+                    manager.telemetry[d]["last_heartbeat"] = bulk[d]["last_heartbeat"]
             assert bulk[d] == manager.telemetry[d], f"drone {d}"
             for key, value in bulk[d].items():
                 assert type(value) is type(manager.telemetry[d][key]), f"drone {d} {key}"
