@@ -113,6 +113,79 @@ const normalizeAssignment = (targetIdx, sceneCount, n) => {
   };
 };
 
+const minPairDist = (pts) => {
+  let m = Infinity;
+  for (let i = 0; i < pts.length; i++) {
+    for (let j = i + 1; j < pts.length; j++) {
+      const d = Math.hypot(pts[i].x - pts[j].x, pts[i].y - pts[j].y, (pts[i].z ?? 0) - (pts[j].z ?? 0));
+      if (d < m) m = d;
+    }
+  }
+  return m;
+};
+
+/**
+ * Analytical minimum continuous pairwise separation over straight-line
+ * interpolation between two point clouds `from` and `to`.
+ * Evaluates the exact quadratic minimum on w in [0, 1] for every pair (i, j).
+ */
+export const minMorphSeparation = (from, to) => {
+  const n = from.length;
+  let minD = Infinity;
+  for (let i = 0; i < n; i++) {
+    for (let j = i + 1; j < n; j++) {
+      const ux = from[i].x - from[j].x, uy = from[i].y - from[j].y, uz = from[i].z - from[j].z;
+      const u2 = ux * ux + uy * uy + uz * uz;
+      const vx = (to[i].x - from[i].x) - (to[j].x - from[j].x);
+      const vy = (to[i].y - from[i].y) - (to[j].y - from[j].y);
+      const vz = (to[i].z - from[i].z) - (to[j].z - from[j].z);
+      const v2 = vx * vx + vy * vy + vz * vz;
+      const uv = ux * vx + uy * vy + uz * vz;
+      let d2 = Math.min(u2, (ux + vx) * (ux + vx) + (uy + vy) * (uy + vy) + (uz + vz) * (uz + vz));
+      if (v2 > 1e-12) {
+        const wStar = -uv / v2;
+        if (wStar > 0 && wStar < 1) {
+          const critD2 = u2 - (uv * uv) / v2;
+          if (critD2 < d2) d2 = critD2;
+        }
+      }
+      const d = Math.sqrt(Math.max(0, d2));
+      if (d < minD) minD = d;
+    }
+  }
+  return minD;
+};
+
+/**
+ * Greedy graph coloring for altitude layering during morphs whose direct straight-line
+ * paths come within LAYER_CLEARANCE.
+ */
+export const computeMorphLayers = (from, to, clearance = LAYER_CLEARANCE) => {
+  const n = from.length;
+  const adj = Array.from({ length: n }, () => []);
+  for (let i = 0; i < n; i++) {
+    for (let j = i + 1; j < n; j++) {
+      const ax = from[i].x - from[j].x, ay = from[i].y - from[j].y;
+      const dx = to[i].x - to[j].x - ax, dy = to[i].y - to[j].y - ay;
+      const dd = dx * dx + dy * dy;
+      const a = dd < 1e-12 ? 0 : Math.max(0, Math.min(1, -(ax * dx + ay * dy) / dd));
+      if (Math.hypot(ax + a * dx, ay + a * dy) < clearance) {
+        adj[i].push(j);
+        adj[j].push(i);
+      }
+    }
+  }
+  const order = identity(n).sort((a, b) => adj[b].length - adj[a].length || from[a].z - from[b].z || a - b);
+  const layer = new Array(n).fill(-1);
+  for (const i of order) {
+    const taken = new Set(adj[i].map((j) => layer[j]));
+    let c = 0;
+    while (taken.has(c)) c++;
+    layer[i] = c;
+  }
+  return layer;
+};
+
 /**
  * Layer index for each drone in the return swap: greedy colouring of the graph
  * whose edges are pairs whose synchronized horizontal paths come within
@@ -166,6 +239,38 @@ const planShow = (scenes, n, targetIdx) => {
 
   const legs = [];
   const move = (kind, label, sceneId, group, from, to, requested) => {
+    if (kind === 'morph') {
+      const sep = minMorphSeparation(from, to);
+      if (sep < DESIGN_SEPARATION) {
+        const minFrom = minPairDist(from);
+        const minTo = minPairDist(to);
+        if (minFrom < DESIGN_SEPARATION - 1e-4 || minTo < DESIGN_SEPARATION - 1e-4) {
+          throw new Error(`Morph "${label}" cannot be made collision-free: endpoint spacing is below minimum separation (${Math.min(minFrom, minTo).toFixed(2)}m < ${DESIGN_SEPARATION}m).`);
+        }
+        const gap = DEFAULT_TRANSIT_GAP;
+        const layer = computeMorphLayers(from, to);
+        const maxLayer = Math.max(...layer);
+        const highestAlt = Math.min(...from.map((p) => p.z), ...to.map((p) => p.z));
+        const ceilingZ = -(120.0);
+        if (highestAlt - (maxLayer + 1) * gap < ceilingZ) {
+          throw new Error(`Morph "${label}" cannot be made collision-free: required altitude layering exceeds 120m ceiling.`);
+        }
+        const fromUp = from.map((p, i) => ({ x: p.x, y: p.y, z: highestAlt - (layer[i] + 1) * gap }));
+        const toUp = to.map((p, i) => ({ x: p.x, y: p.y, z: highestAlt - (layer[i] + 1) * gap }));
+
+        // 3 legs: lift, layered transit, descent
+        const rLift = requested > 0 ? requested * 0.2 : 0;
+        const rTransit = requested > 0 ? requested * 0.6 : 0;
+        const rDesc = requested > 0 ? requested * 0.2 : 0;
+        const t1 = maxTravel(from, fromUp);
+        const t2 = maxTravel(fromUp, toUp);
+        const t3 = maxTravel(toUp, to);
+        legs.push({ kind, label, sceneId, group, from, to: fromUp, secs: easedSecs(rLift, t1.dh, t1.dv) });
+        legs.push({ kind, label, sceneId, group, from: fromUp, to: toUp, secs: easedSecs(rTransit, t2.dh, t2.dv) });
+        legs.push({ kind, label, sceneId, group, from: toUp, to, secs: easedSecs(rDesc, t3.dh, t3.dv) });
+        return;
+      }
+    }
     const { dh, dv } = maxTravel(from, to);
     legs.push({ kind, label, sceneId, group, from, to, secs: easedSecs(requested, dh, dv) });
   };
