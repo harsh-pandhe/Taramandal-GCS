@@ -8,6 +8,7 @@
 // agree on the result.
 
 import { SHOW_ALT, fleetCenter } from './layout.js';
+import { svgToFormation } from './svgImporter.js';
 
 export { SHOW_ALT };
 
@@ -303,6 +304,8 @@ export const SHAPE_LIBRARY = [
   ...Object.keys(PARAMETRIC).map((k) => ({
     shapeType: 'parametric', shapePayload: k, label: FORMATION_LABELS[k],
   })),
+  { shapeType: 'svg', shapePayload: 'dandiya_sticks', label: 'Dandiya Sticks' },
+  { shapeType: 'svg', shapePayload: 'diya_flame', label: 'Diya Flame' },
   ...['0', '1', '2', '3', '4', '5', '6', '7', '8', '9'].map((d) => ({
     shapeType: 'text', shapePayload: d, label: `Digit ${d}`,
   })),
@@ -323,7 +326,9 @@ export const buildFormation = (shapeType, shapePayload, n, scale = 1.0) => {
   const gen = PARAMETRIC[shapePayload] || fmtCircle;
   let raw;
   if (shapeType === 'text') raw = fmtText(n, s, shapePayload);
-  else if (gen === fmtSphere) raw = gen(n, s);
+  else if (shapeType === 'svg') {
+    raw = svgToFormation(shapePayload, n, { scale: s * 15.0, altitude: SHOW_ALT });
+  } else if (gen === fmtSphere) raw = gen(n, s);
   else raw = stackIfOversized(gen, n, s);
   if (n > 1 && !(minPairDist(raw) > 1e-6)) raw = fmtCircle(n, s);
   const placed = place(raw, n);
@@ -373,7 +378,7 @@ export const buildFormation = (shapeType, shapePayload, n, scale = 1.0) => {
     );
   }
   const finalMin = minPairDist(current);
-  if (shapeType === 'parametric' && finalMin < MIN_SEPARATION_M - 1e-6) {
+  if ((shapeType === 'parametric' || shapeType === 'svg') && finalMin < MIN_SEPARATION_M - 1e-6) {
     throw new Error(
       `Formation "${shapePayload}" (n=${n}, scale=${scale}) violates minimum spacing: ${finalMin.toFixed(2)}m < ${MIN_SEPARATION_M}m`
     );
