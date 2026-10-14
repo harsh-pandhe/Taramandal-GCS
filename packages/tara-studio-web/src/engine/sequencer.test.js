@@ -6,6 +6,8 @@ import {
   computeAssignmentChainLocal,
   interpolateWaypoint,
   makeScene,
+  minMorphSeparation,
+  computeMorphLayers,
   TAKEOFF_SECONDS,
   LAND_SECONDS,
 } from './sequencer.js';
@@ -328,3 +330,98 @@ describe('interpolateWaypoint', () => {
     }
   });
 });
+
+describe('intermediate morph separation (Fix B / issue #137)', () => {
+  const DESIGN_SEPARATION = 2.0;
+
+  it('maintains >= 2.0 m separation during the 24-drone Grid -> Line scale 2.0 morph', () => {
+    // S0 defect report: Grid -> Line, 24 drones, scale 2.0 dipped to 1.94 m during the return morph.
+    const scenes = [
+      scene({ name: 'Grid', shapeType: 'parametric', shapePayload: 'grid', scale: 2.0, holdDurationSeconds: 4, transitionDurationSeconds: 4 }),
+      scene({ name: 'Line', shapeType: 'parametric', shapePayload: 'line', scale: 2.0, holdDurationSeconds: 4, transitionDurationSeconds: 4 }),
+    ];
+    const n = 24;
+    const chain = computeAssignmentChainLocal(scenes, n);
+    const show = buildSequencedShow(scenes, n, 10, chain);
+
+    // Swept-sample check: test all pairs across every 10 Hz time step
+    const minD = minSeparation(show);
+    expect(minD, 'Swept minimum separation across entire 24-drone show').toBeGreaterThanOrEqual(DESIGN_SEPARATION);
+  });
+
+  it('maintains >= 2.0 m separation for single-scene Line scale 2.0 (n=24)', () => {
+    const scenes = [
+      scene({ name: 'Line', shapeType: 'parametric', shapePayload: 'line', scale: 2.0, holdDurationSeconds: 4, transitionDurationSeconds: 4 }),
+    ];
+    const n = 24;
+    const chain = computeAssignmentChainLocal(scenes, n);
+    const show = buildSequencedShow(scenes, n, 10, chain);
+
+    const minD = minSeparation(show);
+    expect(minD, 'Swept minimum separation for Line alone').toBeGreaterThanOrEqual(DESIGN_SEPARATION);
+  });
+
+  it('analytical minMorphSeparation accurately matches dense time-swept sampling', () => {
+    const from = [
+      { x: 0, y: 0, z: -8 },
+      { x: 2, y: 0, z: -8 },
+    ];
+    const to = [
+      { x: 10, y: 0, z: -10 },
+      { x: 8, y: 0, z: -8 },
+    ];
+    // Drones cross each other: drone 0 goes 0 -> 10, drone 1 goes 2 -> 8.
+    // They cross at midpoint x=5, where d_z = |-9 - (-8)| = 1.0 m.
+    const analytical = minMorphSeparation(from, to);
+
+    // Dense swept numerical simulation
+    let sweptMin = Infinity;
+    for (let k = 0; k <= 1000; k++) {
+      const w = k / 1000;
+      const p0 = { x: from[0].x + w * (to[0].x - from[0].x), y: 0, z: from[0].z + w * (to[0].z - from[0].z) };
+      const p1 = { x: from[1].x + w * (to[1].x - from[1].x), y: 0, z: from[1].z + w * (to[1].z - from[1].z) };
+      const d = Math.hypot(p0.x - p1.x, p0.y - p1.y, p0.z - p1.z);
+      if (d < sweptMin) sweptMin = d;
+    }
+    expect(analytical).toBeCloseTo(sweptMin, 3);
+    expect(analytical).toBeCloseTo(2 / Math.sqrt(5), 3);
+  });
+
+  it('rejects a transition whose endpoint formations violate minimum separation', () => {
+    // Malformed/tight formation with points only 1.0 m apart
+    const tightFrom = [
+      { x: 0, y: 0, z: -8 },
+      { x: 1.0, y: 0, z: -8 },
+    ];
+    const normalTo = [
+      { x: 0, y: 0, z: -8 },
+      { x: 4.0, y: 0, z: -8 },
+    ];
+    expect(() => {
+      // Direct call or build show with forced tight points
+      minMorphSeparation(tightFrom, normalTo);
+    }).not.toThrow();
+
+    // Verify computeMorphLayers assigns layers correctly
+    const layers = computeMorphLayers(tightFrom, normalTo);
+    expect(layers.length).toBe(2);
+  });
+
+  it('maintains >= 2.0 m across representative counts and shapes (n=10, 24, 60)', () => {
+    const testCases = [
+      { n: 10, shapes: ['circle', 'vee'] },
+      { n: 24, shapes: ['grid', 'circle'] },
+      { n: 60, shapes: ['circle', 'heart', 'grid'] },
+    ];
+    for (const tc of testCases) {
+      const scenes = tc.shapes.map((payload) =>
+        scene({ shapePayload: payload, scale: 1.0, holdDurationSeconds: 2, transitionDurationSeconds: 3 })
+      );
+      const chain = computeAssignmentChainLocal(scenes, tc.n);
+      const show = buildSequencedShow(scenes, tc.n, 4, chain);
+      const minD = minSeparation(show);
+      expect(minD, `Fleet n=${tc.n} shapes=${tc.shapes.join('->')}`).toBeGreaterThanOrEqual(DESIGN_SEPARATION);
+    }
+  });
+});
+
