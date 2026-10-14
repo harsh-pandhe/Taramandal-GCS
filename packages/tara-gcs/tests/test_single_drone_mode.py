@@ -74,20 +74,40 @@ async def test_mode_switch_requires_exact_confirmation(commander):
 
 
 @pytest.mark.asyncio
-async def test_mode_switch_and_status_reflection(commander, viewer):
+async def test_mode_switch_to_hardware_rejected_when_uncertified(commander):
+    with pytest.raises(HTTPException) as exc:
+        await gcs_main.set_mode(
+            gcs_main.ModeSwitchRequest(mode="HARDWARE", confirmation="CONFIRM_HARDWARE"),
+            operator=commander,
+        )
+    assert exc.value.status_code == 412
+    assert "Cannot switch to HARDWARE mode" in exc.value.detail
+
+
+@pytest.mark.asyncio
+async def test_mode_switch_when_certified_and_status_reflection(commander, viewer, monkeypatch):
+    monkeypatch.setattr(gcs_main, "hardware_flight_certified", True)
+    monkeypatch.setattr(gcs_main.drone_manager, "backend", "hardware")
+
     res = await gcs_main.set_mode(
         gcs_main.ModeSwitchRequest(mode="HARDWARE", confirmation="CONFIRM_HARDWARE"),
         operator=commander,
     )
     assert res["status"] == "success"
     assert res["mode"] == "HARDWARE"
+    assert res["active_backend"] == "hardware"
 
     status = await gcs_main.get_status()
     assert status["mode"] == "HARDWARE"
+    assert status["active_backend"] == "hardware"
+    assert status["hardware_flight_certified"] is True
+    assert status["hardware_flight_available"] is True
 
     mode_info = await gcs_main.get_mode(operator=viewer)
     assert mode_info["mode"] == "HARDWARE"
-    assert mode_info["hardware_flight_available"] is False
+    assert mode_info["active_backend"] == "hardware"
+    assert mode_info["hardware_flight_certified"] is True
+    assert mode_info["hardware_flight_available"] is True
 
     res_back = await gcs_main.set_mode(
         gcs_main.ModeSwitchRequest(mode="SIMULATION", confirmation="CONFIRM_SIMULATION"),
@@ -101,40 +121,88 @@ async def test_mode_switch_and_status_reflection(commander, viewer):
 
 
 @pytest.mark.asyncio
-async def test_hardware_flight_endpoints_blocked_without_acceptance_gate(commander):
-    await gcs_main.set_mode(
-        gcs_main.ModeSwitchRequest(mode="HARDWARE", confirmation="CONFIRM_HARDWARE"),
-        operator=commander,
-    )
-    try:
-        # Hover sequence blocked with 412
-        with pytest.raises(HTTPException) as exc1:
-            await gcs_main.run_single_drone_sequence(
-                gcs_main.SingleDroneSequenceRequest(target_altitude_m=1.0, hover_duration_s=2.0),
-                operator=commander,
-            )
-        assert exc1.value.status_code == 412
-        assert "Hardware acceptance gate #135 has not passed" in exc1.value.detail
+async def test_startup_refuses_hardware_mode_when_uncertified(monkeypatch):
+    monkeypatch.setattr(gcs_main, "current_operating_mode", "HARDWARE")
+    monkeypatch.setattr(gcs_main, "hardware_flight_certified", False)
+    with pytest.raises(RuntimeError) as exc:
+        await gcs_main.startup_event()
+    assert "GCS startup refused" in str(exc.value)
 
-        # Fleet launch blocked with 412
-        with pytest.raises(HTTPException) as exc2:
-            await gcs_main.launch_fleet(operator=commander)
-        assert exc2.value.status_code == 412
-        assert "Hardware acceptance gate #135 has not passed" in exc2.value.detail
 
-        # Trajectory start blocked with 412
-        with pytest.raises(HTTPException) as exc3:
-            await gcs_main.start_trajectory(
-                gcs_main.StartTrajectoryRequest(mode="LOCAL", execution="SIMULATED"),
-                operator=commander,
-            )
-        assert exc3.value.status_code == 412
-        assert "Hardware acceptance gate #135 has not passed" in exc3.value.detail
-    finally:
-        await gcs_main.set_mode(
-            gcs_main.ModeSwitchRequest(mode="SIMULATION", confirmation="CONFIRM_SIMULATION"),
+@pytest.mark.asyncio
+async def test_hardware_flight_endpoints_blocked_without_acceptance_gate(commander, monkeypatch):
+    monkeypatch.setattr(gcs_main, "current_operating_mode", "HARDWARE")
+    monkeypatch.setattr(gcs_main, "hardware_flight_certified", False)
+
+    # Hover sequence blocked with 412
+    with pytest.raises(HTTPException) as exc1:
+        await gcs_main.run_single_drone_sequence(
+            gcs_main.SingleDroneSequenceRequest(target_altitude_m=1.0, hover_duration_s=2.0),
             operator=commander,
         )
+    assert exc1.value.status_code == 412
+    assert "Hardware acceptance gate #135 has not passed" in exc1.value.detail
+
+    # Fleet launch blocked with 412
+    with pytest.raises(HTTPException) as exc2:
+        await gcs_main.launch_fleet(operator=commander)
+    assert exc2.value.status_code == 412
+    assert "Hardware acceptance gate #135 has not passed" in exc2.value.detail
+
+    # Trajectory start blocked with 412
+    with pytest.raises(HTTPException) as exc3:
+        await gcs_main.start_trajectory(
+            gcs_main.StartTrajectoryRequest(mode="LOCAL", execution="SIMULATED"),
+            operator=commander,
+        )
+    assert exc3.value.status_code == 412
+    assert "Hardware acceptance gate #135 has not passed" in exc3.value.detail
+
+    # Resume show blocked with 412
+    with pytest.raises(HTTPException) as exc4:
+        await gcs_main.resume_show(operator=commander)
+    assert exc4.value.status_code == 412
+    assert "Hardware acceptance gate #135 has not passed" in exc4.value.detail
+
+
+@pytest.mark.asyncio
+async def test_emergency_recovery_endpoints_truthful_and_fail_closed(commander, monkeypatch):
+    # In SIMULATION mode with sim backend, emergency actions report active backend truthfully
+    rtl_res = await gcs_main.trigger_rtl(operator=commander)
+    assert rtl_res["status"] == "success"
+    assert rtl_res["backend"] == gcs_main.drone_manager.backend
+
+    land_res = await gcs_main.trigger_land(operator=commander)
+    assert land_res["status"] == "success"
+    assert land_res["backend"] == gcs_main.drone_manager.backend
+
+    estop_res = await gcs_main.trigger_estop(operator=commander)
+    assert estop_res["status"] == "success"
+    assert estop_res["backend"] == gcs_main.drone_manager.backend
+
+    # In HARDWARE mode without a hardware backend, emergency routes fail closed with 503
+    monkeypatch.setattr(gcs_main, "current_operating_mode", "HARDWARE")
+    monkeypatch.setattr(gcs_main.drone_manager, "backend", "sim")
+
+    with pytest.raises(HTTPException) as exc1:
+        await gcs_main.trigger_rtl(operator=commander)
+    assert exc1.value.status_code == 503
+    assert "Physical emergency RTL unavailable" in exc1.value.detail
+
+    with pytest.raises(HTTPException) as exc2:
+        await gcs_main.trigger_land(operator=commander)
+    assert exc2.value.status_code == 503
+    assert "Physical emergency landing unavailable" in exc2.value.detail
+
+    with pytest.raises(HTTPException) as exc3:
+        await gcs_main.trigger_estop(operator=commander)
+    assert exc3.value.status_code == 503
+    assert "Physical emergency stop unavailable" in exc3.value.detail
+
+    with pytest.raises(HTTPException) as exc4:
+        await gcs_main.abort_drone_rtl(drone_id=0, operator=commander)
+    assert exc4.value.status_code == 503
+    assert "Physical emergency RTL unavailable" in exc4.value.detail
 
 
 def test_single_drone_sequence_request_bounds():
@@ -150,17 +218,10 @@ def test_single_drone_sequence_request_bounds():
     with pytest.raises(ValidationError):
         gcs_main.SingleDroneSequenceRequest(hover_duration_s=45.0)
 
-    # Descent rate bounds: 0.1 to 1.0 m/s
-    with pytest.raises(ValidationError):
-        gcs_main.SingleDroneSequenceRequest(descent_rate_mps=0.05)
-    with pytest.raises(ValidationError):
-        gcs_main.SingleDroneSequenceRequest(descent_rate_mps=2.5)
-
     # Valid parameters pass cleanly
-    req = gcs_main.SingleDroneSequenceRequest(target_altitude_m=1.5, hover_duration_s=5.0, descent_rate_mps=0.5)
+    req = gcs_main.SingleDroneSequenceRequest(target_altitude_m=1.5, hover_duration_s=5.0)
     assert req.target_altitude_m == 1.5
     assert req.hover_duration_s == 5.0
-    assert req.descent_rate_mps == 0.5
 
 
 @pytest.mark.asyncio
@@ -171,7 +232,7 @@ async def test_single_drone_hover_progression_in_simulation(commander, patched_m
         await asyncio.sleep(0.3)
 
         result = await gcs_main.run_single_drone_sequence(
-            gcs_main.SingleDroneSequenceRequest(target_altitude_m=1.0, hover_duration_s=1.0, descent_rate_mps=0.5),
+            gcs_main.SingleDroneSequenceRequest(target_altitude_m=1.0, hover_duration_s=1.0),
             operator=commander,
         )
 
@@ -192,7 +253,73 @@ async def test_single_drone_hover_progression_in_simulation(commander, patched_m
         assert hover_step["status"] == "STABLE"
 
         landing_step = next(s for s in result["steps"] if s["step"] == "LANDING_COMMANDED")
-        assert landing_step["descent_rate_mps"] == 0.5
+        assert landing_step["landing_control"] == "AUTOPILOT_DELEGATED"
+        assert "Descent rate is governed by autopilot" in landing_step["note"]
+    finally:
+        await manager.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_single_drone_fails_closed_on_disarm_timeout(commander, patched_manager, monkeypatch):
+    manager = patched_manager(DroneManager(ports=[14540], backend="sim"))
+    try:
+        await manager.connect_all()
+        await asyncio.sleep(0.3)
+
+        # Intercept armed check during landing so disarm is never confirmed by telemetry
+        original_sleep = asyncio.sleep
+        async def keep_armed_sleep(duration):
+            manager.telemetry[0]["armed"] = True
+            await original_sleep(duration)
+        monkeypatch.setattr(asyncio, "sleep", keep_armed_sleep)
+
+        with pytest.raises(HTTPException) as exc:
+            await gcs_main.run_single_drone_sequence(
+                gcs_main.SingleDroneSequenceRequest(target_altitude_m=0.5, hover_duration_s=1.0),
+                operator=commander,
+            )
+        assert exc.value.status_code == 500
+        assert "Touchdown disarm could not be confirmed" in exc.value.detail
+        # Assert tel['armed'] was NOT mutated or fabricated to False
+        assert manager.telemetry[0]["armed"] is True
+    finally:
+        await manager.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_single_drone_fails_closed_when_disconnected(commander, patched_manager):
+    manager = patched_manager(DroneManager(ports=[14540], backend="sim"))
+    try:
+        await manager.connect_all()
+        manager.telemetry[0]["connected"] = False
+
+        with pytest.raises(HTTPException) as exc:
+            await gcs_main.run_single_drone_sequence(
+                gcs_main.SingleDroneSequenceRequest(target_altitude_m=1.0, hover_duration_s=1.0),
+                operator=commander,
+            )
+        assert exc.value.status_code == 400
+        assert "Drone 0 is not connected" in exc.value.detail
+    finally:
+        await manager.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_single_drone_fails_closed_on_stale_telemetry(commander, patched_manager):
+    manager = patched_manager(DroneManager(ports=[14540], backend="sim"))
+    try:
+        await manager.connect_all()
+        await asyncio.sleep(0.3)
+        # Advance heartbeat to simulate stale link
+        manager.telemetry[0]["last_heartbeat"] = time.time() - 10.0
+
+        with pytest.raises(HTTPException) as exc:
+            await gcs_main.run_single_drone_sequence(
+                gcs_main.SingleDroneSequenceRequest(target_altitude_m=1.0, hover_duration_s=1.0),
+                operator=commander,
+            )
+        assert exc.value.status_code == 500
+        assert "stale or missing heartbeat" in exc.value.detail
     finally:
         await manager.shutdown()
 
@@ -216,3 +343,4 @@ async def test_telemetry_freshness_tracking(viewer, patched_manager):
         assert mode_stale["telemetry_freshness_s"] >= 5.0
     finally:
         await manager.shutdown()
+
