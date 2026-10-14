@@ -20,8 +20,8 @@ from tara_core.signing import (
     verify_show,
 )
 from tara_studio import signing
-from tara_studio.generator import generate_circle
 from tara_studio.server import app
+from .test_export_feasibility_gate import _quintic_smoothed_choreo
 
 client = TestClient(app)
 
@@ -45,7 +45,7 @@ def key_file(tmp_path, monkeypatch):
 
 @pytest.fixture(scope="module")
 def choreo():
-    return generate_circle(3, 12.0, 2.0)
+    return _quintic_smoothed_choreo()
 
 
 def export(choreo, fmt="json", **extra):
