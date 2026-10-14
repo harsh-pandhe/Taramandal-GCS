@@ -98,6 +98,10 @@ class ExportRequest(BaseModel):
         description="Attach a .sig.json manifest (issue #49): true requires one, false never, "
         "null signs whenever a signing key is configured and the format is a GCS upload (json, csv)",
     )
+    preview_only: bool = Field(
+        False,
+        description="Explicitly marks export as non-flight preview artifact; bypasses flight certification but cannot be signed",
+    )
 
 def _with_limits(report: dict) -> dict:
     """Attach the SafetyLimits the report was judged against (issue #97).
@@ -511,15 +515,30 @@ def api_export(req: ExportRequest):
         raise HTTPException(status_code=400, detail=f"Only {', '.join(sorted(SIGNABLE_FORMATS))} exports can be signed.")
     rate_hz = req.rate_hz or 0.0
 
-    # Feasibility certification (issue #60 — jerk/velocity/acceleration/
-    # separation bounds) is deliberately NOT enforced here. It's surfaced to
-    # the operator via /api/generate's `feasibility_certified` field and
-    # SafetyPanel's jerk category instead: two pre-existing generator gaps
-    # (coarse default waypoint sampling, and a velocity mismatch at the
-    # choreography->land phase handoff — see follow-up issues) mean no shape
-    # generator's default output currently clears the jerk bound, unrelated
-    # to what #60 asked for. Hard-blocking here would break every real export
-    # the moment this merges. Revisit once those are fixed.
+    # Hard backend safety gate (issue #128 / #139)
+    # Direct /api/export calls must validate the choreography. FAILED, UNVERIFIED, or malformed
+    # validation results fail closed (HTTP 412). Non-flight preview exports must be explicitly
+    # flagged (preview_only=True), are labeled preview-only, and can never be signed.
+    if req.preview_only:
+        if req.sign:
+            raise HTTPException(status_code=400, detail="Preview-only exports cannot be signed for flight.")
+    else:
+        try:
+            val = validate_choreography(choreo)
+        except Exception as e:
+            raise HTTPException(
+                status_code=412,
+                detail=f"Flight export blocked: validator error or malformed show: {e}",
+            )
+        if not isinstance(val, dict) or val.get("status") != "PASSED":
+            summary = val.get("summary", "Validation did not pass") if isinstance(val, dict) else "Unknown validation status"
+            raise HTTPException(
+                status_code=412,
+                detail={
+                    "message": f"Flight export blocked: choreography failed safety validation ({summary}).",
+                    "validation": val,
+                },
+            )
 
     # Bake the LED track server-side when one is supplied, so a .tara compiled
     # here matches what the Studio preview showed rather than depending on the
@@ -567,14 +586,19 @@ def api_export(req: ExportRequest):
             blob = export_tara(choreo, rate_hz)
         except ValueError as e:
             raise HTTPException(status_code=400, detail=f"Cannot compile .tara: {e}")
+        filename = "PREVIEW_ONLY_choreography.tara" if req.preview_only else "choreography.tara"
         return {
-            "filename": "choreography.tara",
+            "filename": filename,
             "content": base64.b64encode(blob).decode("ascii"),
             "mime_type": "application/octet-stream",
             "encoding": "base64",
+            "preview_only": req.preview_only,
         }
     else:
         raise HTTPException(status_code=400, detail=f"Unsupported export format: {req.format}")
+
+    if req.preview_only:
+        filename = f"PREVIEW_ONLY_{filename}"
 
     # Signed over exactly the UTF-8 bytes the client will write or upload, so
     # the GCS verifies the file it actually receives (issue #49).
@@ -588,6 +612,7 @@ def api_export(req: ExportRequest):
         "content": content,
         "mime_type": mime_type,
         "encoding": "utf-8",
+        "preview_only": req.preview_only,
         **({"signature": signature} if signature else {}),
     }
 

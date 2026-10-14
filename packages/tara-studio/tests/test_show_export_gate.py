@@ -108,3 +108,38 @@ class TestExportEndpoint:
         res = client.post("/api/export", json={"choreo": lit_circle(), "format": "json"})
         assert res.status_code == 200
         assert json.loads(res.json()["content"])["version"] == SHOW_FORMAT_VERSION
+
+    def test_unsafe_show_fails_closed_with_412_across_formats(self, client):
+        # Create an unsafe colliding show: two drones sitting on the exact same waypoints (0m distance)
+        unsafe_choreo = lit_circle()
+        # Overwrite drone 1 waypoints to match drone 0 exactly
+        unsafe_choreo["drones"][1]["waypoints"] = [dict(wp) for wp in unsafe_choreo["drones"][0]["waypoints"]]
+
+        for fmt in ["json", "csv", "kml", "tara"]:
+            res = client.post("/api/export", json={"choreo": unsafe_choreo, "format": fmt})
+            assert res.status_code == 412, f"Expected 412 for unsafe format {fmt}, got {res.status_code}"
+            body = res.json()
+            assert "Flight export blocked" in str(body["detail"])
+
+    def test_preview_only_allows_export_labeled_and_unsigned(self, client):
+        unsafe_choreo = lit_circle()
+        unsafe_choreo["drones"][1]["waypoints"] = [dict(wp) for wp in unsafe_choreo["drones"][0]["waypoints"]]
+
+        for fmt in ["json", "csv", "kml", "tara"]:
+            res = client.post("/api/export", json={"choreo": unsafe_choreo, "format": fmt, "preview_only": True})
+            assert res.status_code == 200, f"Expected 200 for preview_only {fmt}"
+            body = res.json()
+            assert body["preview_only"] is True
+            assert body["filename"].startswith("PREVIEW_ONLY_")
+
+    def test_preview_only_cannot_be_signed(self, client):
+        unsafe_choreo = lit_circle()
+        res = client.post("/api/export", json={"choreo": unsafe_choreo, "format": "json", "preview_only": True, "sign": True})
+        assert res.status_code == 400
+        assert "Preview-only exports cannot be signed" in res.json()["detail"]
+
+    def test_malformed_validator_payload_fails_closed_with_412(self, client):
+        # A payload that crashes validate_choreography
+        res = client.post("/api/export", json={"choreo": {"drones": "not-a-list"}, "format": "json"})
+        assert res.status_code == 412
+        assert "Flight export blocked" in res.json()["detail"]
