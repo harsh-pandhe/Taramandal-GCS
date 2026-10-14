@@ -18,6 +18,7 @@ import useMission from './hooks/useMission';
 import { computeFleetStats } from './fleetStats';
 import LoginScreen from './components/auth/LoginScreen';
 import { logout, useSession } from './session';
+import useOperatingMode from './hooks/useOperatingMode';
 
 /**
  * Root layout of the GCS operator dashboard. Owns only the state shared
@@ -47,12 +48,20 @@ function Dashboard({ session }) {
   const { telemetry, fleetBufferRef, wsConnected, fleetState } = useTelemetrySocket(setErrorMsg);
   const mission = useMission(setErrorMsg, fleetState);
   const sim = useSimControl(setErrorMsg);
+  const operatingMode = useOperatingMode(setErrorMsg);
 
   const stats = computeFleetStats(telemetry);
 
   return (
     <div className="app-container">
-      <HeaderBar wsConnected={wsConnected} fleetState={fleetState} session={session} onLogout={logout} />
+      <HeaderBar
+        wsConnected={wsConnected}
+        fleetState={fleetState}
+        session={session}
+        onLogout={logout}
+        mode={operatingMode.mode}
+        telemetryStatus={operatingMode.telemetryStatus}
+      />
 
       <ErrorBanner message={errorMsg} />
 
