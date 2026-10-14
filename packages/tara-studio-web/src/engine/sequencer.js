@@ -157,12 +157,30 @@ export const minMorphSeparation = (from, to) => {
 };
 
 /**
- * Greedy graph coloring for altitude layering during morphs whose direct straight-line
- * paths come within LAYER_CLEARANCE.
+ * Layer index per drone for a layered morph (lift, transit at layer height,
+ * descent), or null when no layering keeps every pair apart.
+ *
+ * - Two drones whose horizontal paths come within `clearance` get different
+ *   layers, so their transit legs are at least a layer apart vertically.
+ * - The lift and the descent are vertical. Two drones less than
+ *   DESIGN_SEPARATION apart horizontally would pass through each other there
+ *   if their up-down order changed, so such a pair keeps its starting order in
+ *   the lift and takes its final order in the descent. A pair that would need
+ *   both orders cannot be layered: null.
+ *
+ * Layers are assigned lowest first, each drone taking the lowest layer above
+ * every drone it must clear and unused by any drone it conflicts with.
  */
 export const computeMorphLayers = (from, to, clearance = LAYER_CLEARANCE) => {
   const n = from.length;
-  const adj = Array.from({ length: n }, () => []);
+  const conflict = Array.from({ length: n }, () => []);
+  const below = Array.from({ length: n }, () => new Set()); // drones i must be above
+  const above = Array.from({ length: n }, () => []);
+  const order = (pts, i, j) => {
+    if (Math.hypot(pts[i].x - pts[j].x, pts[i].y - pts[j].y) >= DESIGN_SEPARATION) return;
+    const [hi, lo] = pts[i].z < pts[j].z ? [i, j] : [j, i]; // NED: smaller z is higher
+    if (!below[hi].has(lo)) { below[hi].add(lo); above[lo].push(hi); }
+  };
   for (let i = 0; i < n; i++) {
     for (let j = i + 1; j < n; j++) {
       const ax = from[i].x - from[j].x, ay = from[i].y - from[j].y;
@@ -170,20 +188,30 @@ export const computeMorphLayers = (from, to, clearance = LAYER_CLEARANCE) => {
       const dd = dx * dx + dy * dy;
       const a = dd < 1e-12 ? 0 : Math.max(0, Math.min(1, -(ax * dx + ay * dy) / dd));
       if (Math.hypot(ax + a * dx, ay + a * dy) < clearance) {
-        adj[i].push(j);
-        adj[j].push(i);
+        conflict[i].push(j);
+        conflict[j].push(i);
       }
+      order(from, i, j);
+      order(to, i, j);
     }
   }
-  const order = identity(n).sort((a, b) => adj[b].length - adj[a].length || from[a].z - from[b].z || a - b);
   const layer = new Array(n).fill(-1);
-  for (const i of order) {
-    const taken = new Set(adj[i].map((j) => layer[j]));
+  const waiting = below.map((s) => s.size);
+  const ready = identity(n).filter((i) => waiting[i] === 0);
+  let done = 0;
+  while (ready.length) {
+    // Most-constrained first, then by index, so the result is deterministic.
+    ready.sort((a, b) => conflict[b].length - conflict[a].length || a - b);
+    const i = ready.shift();
     let c = 0;
+    for (const lo of below[i]) c = Math.max(c, layer[lo] + 1);
+    const taken = new Set(conflict[i].map((j) => layer[j]));
     while (taken.has(c)) c++;
     layer[i] = c;
+    done++;
+    for (const hi of above[i]) if (--waiting[hi] === 0) ready.push(hi);
   }
-  return layer;
+  return done === n ? layer : null; // fewer done = the order constraints form a cycle
 };
 
 /**
@@ -247,8 +275,13 @@ const planShow = (scenes, n, targetIdx) => {
         if (minFrom < DESIGN_SEPARATION - 1e-4 || minTo < DESIGN_SEPARATION - 1e-4) {
           throw new Error(`Morph "${label}" cannot be made collision-free: endpoint spacing is below minimum separation (${Math.min(minFrom, minTo).toFixed(2)}m < ${DESIGN_SEPARATION}m).`);
         }
-        const gap = DEFAULT_TRANSIT_GAP;
         const layer = computeMorphLayers(from, to);
+        if (!layer) {
+          throw new Error(`Morph "${label}" cannot be made collision-free: two drones would have to swap their vertical order in the same column.`);
+        }
+        // A little over the design limit, so sampling and rounding cannot
+        // shave a layered pair under it.
+        const gap = LAYER_CLEARANCE;
         const maxLayer = Math.max(...layer);
         const highestAlt = Math.min(...from.map((p) => p.z), ...to.map((p) => p.z));
         const ceilingZ = -(120.0);
@@ -257,6 +290,15 @@ const planShow = (scenes, n, targetIdx) => {
         }
         const fromUp = from.map((p, i) => ({ x: p.x, y: p.y, z: highestAlt - (layer[i] + 1) * gap }));
         const toUp = to.map((p, i) => ({ x: p.x, y: p.y, z: highestAlt - (layer[i] + 1) * gap }));
+
+        // Every leg is checked exactly, not trusted: the layering is a plan,
+        // and a plan that still brings a pair inside the limit is rejected.
+        for (const [a, b] of [[from, fromUp], [fromUp, toUp], [toUp, to]]) {
+          const legSep = minMorphSeparation(a, b);
+          if (legSep < DESIGN_SEPARATION - 1e-6) { // pads sit exactly 2.0 m apart
+            throw new Error(`Morph "${label}" cannot be made collision-free: a layered leg comes within ${legSep.toFixed(2)}m.`);
+          }
+        }
 
         // 3 legs: lift, layered transit, descent
         const rLift = requested > 0 ? requested * 0.2 : 0;
