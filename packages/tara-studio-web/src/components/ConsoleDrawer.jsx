@@ -62,6 +62,7 @@ export default function ConsoleDrawer({
             onHomeLat={venue.onHomeLat} onHomeLon={venue.onHomeLon}
             onExport={transmit.onExport} onSendToGCS={transmit.onSendToGCS}
             sending={transmit.sending} hasShow={!!choreoData}
+            validation={validation}
           />
         )}
       </div>

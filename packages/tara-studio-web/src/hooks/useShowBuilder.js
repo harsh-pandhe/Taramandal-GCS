@@ -49,10 +49,15 @@ export default function useShowBuilder() {
     }
     setLoading(false);
 
-    // Validate in the background — the preview is already usable.
+    // Validate in the background — preview works, but export is locked until PASSED.
     validateShow(show)
-      .then((v) => { if (v && v.metrics) setValidation(v); })
-      .catch(() => { /* backend offline; preview still works */ });
+      .then((v) => {
+        if (v && v.metrics) setValidation(v);
+        else setValidation({ status: 'UNVERIFIED', summary: 'Invalid response from validator.' });
+      })
+      .catch((err) => {
+        setValidation({ status: 'UNVERIFIED', summary: `Validation service unavailable: ${err?.message || 'offline'}` });
+      });
 
     return show;
   }, []);

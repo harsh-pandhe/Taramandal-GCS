@@ -131,6 +131,13 @@ export default function App() {
 
   const handleExport = useCallback(async (format) => {
     if (!choreoData) return;
+    if (validation?.status !== 'PASSED') {
+      const reason = validation?.status === 'FAILED'
+        ? 'choreography failed safety validation checks. Fix violations before exporting'
+        : 'choreography has not passed safety validation';
+      builder.setError(`Export blocked: ${reason}.`);
+      return;
+    }
     try {
       downloadExport(await exportShow({
         choreo: buildColoredChoreo(choreoData, lightingOpts), format, homeLat, homeLon,
@@ -140,10 +147,17 @@ export default function App() {
     } catch (e) {
       builder.setError(`Export failed: ${e.message}`);
     }
-  }, [choreoData, lightingOpts, homeLat, homeLon, builder, ledTrack, rate]);
+  }, [choreoData, lightingOpts, homeLat, homeLon, builder, ledTrack, rate, validation]);
 
   const handleSendToGCS = useCallback(async () => {
     if (!choreoData) return;
+    if (validation?.status !== 'PASSED') {
+      const reason = validation?.status === 'FAILED'
+        ? 'choreography failed safety validation checks. Fix violations before transmitting'
+        : 'choreography has not passed safety validation';
+      builder.setError(`GCS upload blocked: ${reason}.`);
+      return;
+    }
     setSending(true);
     try {
       await sendShowToGCS({
@@ -158,7 +172,7 @@ export default function App() {
     } finally {
       setSending(false);
     }
-  }, [choreoData, lightingOpts, homeLat, homeLon, builder, ledTrack, rate]);
+  }, [choreoData, lightingOpts, homeLat, homeLon, builder, ledTrack, rate, validation]);
 
   if (!unlocked) return <SecurityGate onUnlock={() => setUnlocked(true)} />;
 

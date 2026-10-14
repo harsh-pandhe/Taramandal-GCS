@@ -310,7 +310,6 @@ def test_a_show_signed_by_studio_export_uploads(gcs, key, tmp_path, monkeypatch)
     """
     from tara_core.signing import private_key_to_pem
     from tara_studio import signing as studio_signing
-    from tara_studio.generator import generate_circle
     from tara_studio.server import app as studio_app
 
     key_path = tmp_path / "studio.pem"
@@ -319,9 +318,23 @@ def test_a_show_signed_by_studio_export_uploads(gcs, key, tmp_path, monkeypatch)
         f.write(private_key_to_pem(key))
     monkeypatch.setattr(studio_signing, "DEFAULT_TOML", tmp_path / "tara.toml")
     monkeypatch.setenv(studio_signing.SIGNING_KEY_ENV, str(key_path))
+    from tara_core.geometry import quintic_segment
+
+    def _certified_choreo():
+        p0, p1 = (0.0, 0.0, -2.0), (5.0, 0.0, -2.0)
+        half = 6.0
+        dt = 1.0 / 20.0
+        waypoints = []
+        t = 0.0
+        while t <= 2 * half + 1e-9:
+            state = quintic_segment(p0, p1, half, t) if t <= half else quintic_segment(p1, p0, half, t - half)
+            x, y, z = state["position"]
+            waypoints.append({"time": round(t, 4), "x": x, "y": y, "z": z, "yaw": 0.0})
+            t += dt
+        return {"drones": [{"id": 0, "waypoints": waypoints}]}
 
     exported = TestClient(studio_app).post(
-        "/api/export", json={"choreo": generate_circle(1, 12.0, 2.0), "format": "json", "sign": True},
+        "/api/export", json={"choreo": _certified_choreo(), "format": "json", "sign": True},
     ).json()
     client, _ = gcs
     resp = _upload(
@@ -338,7 +351,7 @@ def test_a_show_signed_by_studio_export_uploads(gcs, key, tmp_path, monkeypatch)
         f.write(private_key_to_pem(generate_private_key()))
     monkeypatch.setenv(studio_signing.SIGNING_KEY_ENV, str(other))
     exported = TestClient(studio_app).post(
-        "/api/export", json={"choreo": generate_circle(1, 12.0, 2.0), "format": "json", "sign": True},
+        "/api/export", json={"choreo": _certified_choreo(), "format": "json", "sign": True},
     ).json()
     resp = _upload(client, exported["content"].encode("utf-8"), exported["signature"]["content"].encode("utf-8"),
                    filename=exported["filename"])

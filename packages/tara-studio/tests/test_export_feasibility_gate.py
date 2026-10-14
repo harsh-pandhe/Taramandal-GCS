@@ -67,9 +67,16 @@ def _quintic_smoothed_choreo():
     return {"drones": [{"id": 0, "waypoints": waypoints}]}
 
 
-def test_export_succeeds_for_an_infeasible_choreography():
+def test_flight_export_fails_closed_for_an_infeasible_choreography():
     res = client.post("/api/export", json={"choreo": _INFEASIBLE_CHOREO, "format": "json"})
+    assert res.status_code == 412
+    assert "Flight export blocked" in str(res.json()["detail"])
+
+
+def test_preview_export_succeeds_for_an_infeasible_choreography():
+    res = client.post("/api/export", json={"choreo": _INFEASIBLE_CHOREO, "format": "json", "preview_only": True})
     assert res.status_code == 200
+    assert res.json()["preview_only"] is True
 
 
 def test_export_succeeds_for_a_certified_choreography():
