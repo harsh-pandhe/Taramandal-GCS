@@ -8,9 +8,7 @@ Verifies:
 - Private key secrecy (never served over /api/signing).
 """
 
-import os
 import tempfile
-from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
