@@ -324,7 +324,19 @@ const rawFormation = (shapeType, shapePayload, n, scale) => {
   else if (shapeType === 'svg') raw = svgToFormation(shapePayload, n, { scale: s * 15.0, altitude: SHOW_ALT });
   else if (gen === fmtSphere) raw = gen(n, s);
   else raw = stackIfOversized(gen, n, s);
-  if (n > 1 && !(minPairDist(raw) > 1e-6)) raw = fmtCircle(n, s);
+  if (n > 1 && !(minPairDist(raw) > 1e-6)) {
+    // issue #146/#129 review: an SVG import that collapses to degenerate
+    // geometry (every point coincident) must fail closed, not silently fall
+    // back to a circle the way every other shape type's own degenerate case
+    // does - a parametric/text generator collapsing is a bug in this file,
+    // but an SVG's geometry comes from the uploaded asset, so silently
+    // substituting a circle would hide a bad import behind a shape the
+    // operator never asked for.
+    if (shapeType === 'svg') {
+      throw new Error('SVG formation produced degenerate geometry (points collapsed).');
+    }
+    raw = fmtCircle(n, s);
+  }
   return raw;
 };
 
@@ -367,7 +379,7 @@ export const buildFormation = (shapeType, shapePayload, n, scale = 1.0) => {
     if (postShiftReach > SITE_RADIUS_M + 1e-6) {
       const k = (SITE_RADIUS_M - 0.5) / postShiftReach;
       const curDist = minPairDist(current);
-      if (shapeType === 'parametric' && curDist * k < MIN_SEPARATION_M - 1e-6) {
+      if ((shapeType === 'parametric' || shapeType === 'svg') && curDist * k < MIN_SEPARATION_M - 1e-6) {
         throw new ShowRefusalError(
           `Formation "${shapePayload}" (n=${n}, scale=${scale}) cannot fit within site radius (${SITE_RADIUS_M}m) without violating minimum spacing (${MIN_SEPARATION_M}m); required spacing would drop to ${(curDist * k).toFixed(2)}m`
         );
@@ -391,6 +403,11 @@ export const buildFormation = (shapeType, shapePayload, n, scale = 1.0) => {
     throw new ShowRefusalError(
       `Formation "${shapePayload}" (n=${n}, scale=${scale}) violates minimum spacing: ${finalMin.toFixed(2)}m < ${MIN_SEPARATION_M}m`
     );
+  }
+  for (const p of current) {
+    if (!Number.isFinite(p.x) || !Number.isFinite(p.y) || !Number.isFinite(p.z)) {
+      throw new Error(`Formation "${shapePayload}" produced non-finite coordinates.`);
+    }
   }
   return current;
 };

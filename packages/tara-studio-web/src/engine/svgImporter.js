@@ -62,22 +62,46 @@ export function validateViewBox(svgText) {
   return { minX, minY, width, height };
 }
 
+export const IDENTITY_MATRIX = Object.freeze([1, 0, 0, 1, 0, 0]);
+
+export function applyMatrix(m, pt) {
+  return {
+    x: m[0] * pt.x + m[2] * pt.y + m[4],
+    y: m[1] * pt.x + m[3] * pt.y + m[5],
+  };
+}
+
+export function multiplyMatrices(m1, m2) {
+  return [
+    m1[0] * m2[0] + m1[2] * m2[1],
+    m1[1] * m2[0] + m1[3] * m2[1],
+    m1[0] * m2[2] + m1[2] * m2[3],
+    m1[1] * m2[2] + m1[3] * m2[3],
+    m1[0] * m2[4] + m1[2] * m2[5] + m1[4],
+    m1[1] * m2[4] + m1[3] * m2[5] + m1[5],
+  ];
+}
+
 /**
- * Parses simple 2D transforms (translate, scale).
- * Rejects unsupported or malformed transforms explicitly.
+ * Parses 2D transforms (translate, scale, rotate, matrix).
+ * Rejects unsupported (e.g. skewX, skewY) or malformed transforms explicitly.
  */
 export function parseTransform(transformStr) {
-  if (!transformStr || !transformStr.trim()) return (pt) => pt;
+  if (!transformStr || !transformStr.trim()) {
+    const fn = (pt) => pt;
+    fn.matrix = [...IDENTITY_MATRIX];
+    return fn;
+  }
   const str = transformStr.trim();
 
   // Explicitly reject unsupported transform types
-  const unsupported = /(?:matrix|rotate|skewX|skewY)\s*\(/i;
+  const unsupported = /(?:skewX|skewY)\s*\(/i;
   if (unsupported.test(str)) {
-    throw new Error(`Unsupported SVG transform: '${transformStr}'. Only translate and scale transforms are supported.`);
+    throw new Error(`Unsupported SVG transform: '${transformStr}'. Only translate, scale, rotate, and matrix transforms are supported.`);
   }
 
-  const transformRegex = /(translate|scale)\s*\(\s*([+-]?(?:\d*\.\d+|\d+)(?:[eE][+-]?\d+)?)(?:[\s,]+([+-]?(?:\d*\.\d+|\d+)(?:[eE][+-]?\d+)?))?\s*\)/gi;
-  const funcs = [];
+  const transformRegex = /(translate|scale|rotate|matrix)\s*\(\s*([^)]*)\s*\)/gi;
+  let curMatrix = [...IDENTITY_MATRIX];
   let lastIndex = 0;
   let match;
 
@@ -89,18 +113,53 @@ export function parseTransform(transformStr) {
     lastIndex = transformRegex.lastIndex;
 
     const op = match[1].toLowerCase();
-    const arg1 = Number(match[2]);
-    const arg2 = match[3] !== undefined ? Number(match[3]) : (op === 'scale' ? arg1 : 0);
-
-    if (isNaN(arg1) || isNaN(arg2)) {
+    const argsStr = match[2].trim();
+    const rawTokens = argsStr.split(/[\s,]+/).filter(Boolean);
+    const args = rawTokens.map(Number);
+    if (rawTokens.length === 0 || args.some((n) => isNaN(n))) {
       throw new Error(`Malformed SVG transform parameters in '${match[0]}'.`);
     }
 
+    let opMatrix;
     if (op === 'translate') {
-      funcs.push((pt) => ({ x: pt.x + arg1, y: pt.y + arg2 }));
+      if (args.length < 1 || args.length > 2) {
+        throw new Error(`Invalid parameter count for translate() in '${match[0]}'. Expected 1 or 2.`);
+      }
+      const tx = args[0];
+      const ty = args.length > 1 ? args[1] : 0;
+      opMatrix = [1, 0, 0, 1, tx, ty];
     } else if (op === 'scale') {
-      funcs.push((pt) => ({ x: pt.x * arg1, y: pt.y * arg2 }));
+      if (args.length < 1 || args.length > 2) {
+        throw new Error(`Invalid parameter count for scale() in '${match[0]}'. Expected 1 or 2.`);
+      }
+      const sx = args[0];
+      const sy = args.length > 1 ? args[1] : sx;
+      opMatrix = [sx, 0, 0, sy, 0, 0];
+    } else if (op === 'rotate') {
+      if (args.length !== 1 && args.length !== 3) {
+        throw new Error(`Invalid parameter count for rotate() in '${match[0]}'. Expected 1 or 3.`);
+      }
+      const angle = args[0];
+      const rad = (angle * Math.PI) / 180;
+      const cos = Math.cos(rad);
+      const sin = Math.sin(rad);
+      if (args.length === 3) {
+        const cx = args[1], cy = args[2];
+        const toOrigin = [1, 0, 0, 1, cx, cy];
+        const rot = [cos, sin, -sin, cos, 0, 0];
+        const fromOrigin = [1, 0, 0, 1, -cx, -cy];
+        opMatrix = multiplyMatrices(multiplyMatrices(toOrigin, rot), fromOrigin);
+      } else {
+        opMatrix = [cos, sin, -sin, cos, 0, 0];
+      }
+    } else if (op === 'matrix') {
+      if (args.length !== 6) {
+        throw new Error(`Invalid parameter count for matrix() in '${match[0]}'. Expected 6 numeric values.`);
+      }
+      opMatrix = args;
     }
+
+    curMatrix = multiplyMatrices(curMatrix, opMatrix);
   }
 
   const trailing = str.slice(lastIndex).trim();
@@ -108,7 +167,9 @@ export function parseTransform(transformStr) {
     throw new Error(`Malformed or unsupported SVG transform: '${trailing}'.`);
   }
 
-  return (pt) => funcs.reduceRight((acc, fn) => fn(acc), pt);
+  const fn = (pt) => applyMatrix(curMatrix, pt);
+  fn.matrix = curMatrix;
+  return fn;
 }
 
 const SUPPORTED_COMMANDS = new Set(['M', 'L', 'H', 'V', 'C', 'Q', 'Z']);
@@ -263,64 +324,173 @@ export function parsePathCommands(d) {
   return contours;
 }
 
+function parseAttributes(attrStr) {
+  const attrs = {};
+  if (!attrStr) return attrs;
+  const regex = /([a-zA-Z0-9:-]+)\s*=\s*(?:'([^']*)'|"([^"]*)"|([^\s>]+))/gi;
+  let m;
+  while ((m = regex.exec(attrStr)) !== null) {
+    attrs[m[1].toLowerCase()] = m[2] !== undefined ? m[2] : (m[3] !== undefined ? m[3] : m[4]);
+  }
+  return attrs;
+}
+
 /**
- * Extracts 2D contours from safe SVG elements.
+ * Extracts 2D contours from safe SVG elements, applying nested group transforms and viewBox mapping.
  */
 export function parseSvgToContours(svgText) {
   const clean = sanitizeSvg(svgText);
-  validateViewBox(clean);
+  const vb = validateViewBox(clean);
   const contours = [];
 
-  // Match <path ... />
-  const pathTagRegex = /<path\b([^>]*)\/?>/gi;
-  let match;
-  while ((match = pathTagRegex.exec(clean)) !== null) {
-    const attrs = match[1];
-    const dMatch = /\bd=['"]([^'"]+)['"]/i.exec(attrs);
-    if (!dMatch) continue;
-    const transformMatch = /\btransform=['"]([^'"]+)['"]/i.exec(attrs);
-    const xform = parseTransform(transformMatch ? transformMatch[1] : null);
-
-    const sub = parsePathCommands(dMatch[1]);
-    for (const pts of sub) {
-      if (pts.length >= 2) {
-        contours.push(pts.map(xform));
-      }
-    }
-  }
-
   // Match raw path string if no XML tag
-  if (contours.length === 0 && (clean.trim().startsWith('M') || clean.trim().startsWith('m'))) {
+  if (clean.trim().startsWith('M') || clean.trim().startsWith('m')) {
     const sub = parsePathCommands(clean.trim());
     for (const pts of sub) {
       if (pts.length >= 2) contours.push(pts);
     }
+    if (contours.length === 0) {
+      throw new Error('SVG contains no valid drawable paths or polygons.');
+    }
+    return contours;
   }
 
-  // Match <polygon ... /> and <polyline ... />
-  const polyTagRegex = /<(polygon|polyline)\b([^>]*)\/?>/gi;
-  while ((match = polyTagRegex.exec(clean)) !== null) {
-    const attrs = match[2];
-    const pointsMatch = /\bpoints=['"]([^'"]+)['"]/i.exec(attrs);
-    if (!pointsMatch) continue;
-    const transformMatch = /\btransform=['"]([^'"]+)['"]/i.exec(attrs);
-    const xform = parseTransform(transformMatch ? transformMatch[1] : null);
+  // Parse root <svg> attributes for width, height, preserveAspectRatio
+  const svgOpenMatch = /<svg\b([^>]*)>/i.exec(clean);
+  let svgW = null, svgH = null, preserveAspectRatio = 'xmidymid meet';
+  if (svgOpenMatch) {
+    const svgAttrs = parseAttributes(svgOpenMatch[1]);
+    if (svgAttrs.width) {
+      const w = parseFloat(svgAttrs.width);
+      if (!isNaN(w) && w > 0) svgW = w;
+    }
+    if (svgAttrs.height) {
+      const h = parseFloat(svgAttrs.height);
+      if (!isNaN(h) && h > 0) svgH = h;
+    }
+    if (svgAttrs.preserveaspectratio) {
+      preserveAspectRatio = svgAttrs.preserveaspectratio.trim().toLowerCase();
+    }
+  }
 
-    const nums = pointsMatch[1].trim().split(/[\s,]+/).map(Number);
-    if (nums.some((n) => isNaN(n)) || nums.length < 4 || nums.length % 2 !== 0) {
-      throw new Error('Malformed SVG polygon/polyline points data.');
+  // Validate preserveAspectRatio
+  if (preserveAspectRatio.includes('slice')) {
+    throw new Error("Unsupported SVG preserveAspectRatio: 'slice' is not supported.");
+  }
+  if (preserveAspectRatio !== 'none' && !preserveAspectRatio.startsWith('xmidymid')) {
+    throw new Error(`Unsupported SVG preserveAspectRatio: '${preserveAspectRatio}'.`);
+  }
+
+  // Build viewBox coordinate mapper: maps user coordinates into viewport
+  const mapCoordinate = (pt) => {
+    if (!vb) return pt;
+    if (svgW && svgH && (vb.width > 0 && vb.height > 0)) {
+      if (preserveAspectRatio === 'none') {
+        const sx = svgW / vb.width;
+        const sy = svgH / vb.height;
+        return {
+          x: (pt.x - vb.minX) * sx,
+          y: (pt.y - vb.minY) * sy,
+        };
+      } else {
+        const scale = Math.min(svgW / vb.width, svgH / vb.height);
+        const offX = (svgW - vb.width * scale) / 2;
+        const offY = (svgH - vb.height * scale) / 2;
+        return {
+          x: offX + (pt.x - vb.minX) * scale,
+          y: offY + (pt.y - vb.minY) * scale,
+        };
+      }
     }
-    const pts = [];
-    for (let k = 0; k < nums.length - 1; k += 2) {
-      pts.push(xform({ x: nums[k], y: nums[k + 1] }));
+    return {
+      x: pt.x - vb.minX,
+      y: pt.y - vb.minY,
+    };
+  };
+
+  // Tag regex to iterate hierarchically over elements and maintain transform stack
+  const textWithoutComments = clean.replace(/<!--[\s\S]*?-->/g, '');
+  const tagRegex = /<(\/)?([a-zA-Z0-9:-]+)((?:\s+[^>]*?)?)(\/?)>/g;
+  const transformStack = [[...IDENTITY_MATRIX]];
+  const currentMatrix = () => transformStack[transformStack.length - 1];
+
+  const SUPPORTED_DRAWABLE = new Set(['path', 'polygon', 'polyline']);
+  const UNSUPPORTED_GEOMETRY = new Set(['rect', 'circle', 'ellipse', 'line', 'text', 'mesh']);
+  const STRUCTURAL = new Set(['svg', 'g', 'defs', 'title', 'desc', 'metadata']);
+
+  let match;
+  while ((match = tagRegex.exec(textWithoutComments)) !== null) {
+    const isClosing = match[1] === '/';
+    const tagName = match[2].toLowerCase();
+    const attrsStr = match[3] || '';
+    const isSelfClosing = match[4] === '/';
+
+    if (isClosing) {
+      if (tagName === 'g' || tagName === 'svg') {
+        if (transformStack.length > 1) {
+          transformStack.pop();
+        } else if (tagName === 'g') {
+          throw new Error('Malformed SVG: mismatched closing </g> tag.');
+        }
+      }
+      continue;
     }
-    if (pts.length >= 2) contours.push(pts);
+
+    if (UNSUPPORTED_GEOMETRY.has(tagName)) {
+      throw new Error(`Unsupported SVG element '<${tagName}>'. Supported drawable elements are <path>, <polygon>, and <polyline>.`);
+    }
+
+    if (!SUPPORTED_DRAWABLE.has(tagName) && !STRUCTURAL.has(tagName)) {
+      throw new Error(`Unsupported SVG element '<${tagName}>'.`);
+    }
+
+    const attrs = parseAttributes(attrsStr);
+    let elemMatrix = [...IDENTITY_MATRIX];
+    if (attrs.transform) {
+      const parsedFn = parseTransform(attrs.transform);
+      elemMatrix = parsedFn.matrix;
+    }
+
+    if (tagName === 'g') {
+      const nextMatrix = multiplyMatrices(currentMatrix(), elemMatrix);
+      if (!isSelfClosing) {
+        transformStack.push(nextMatrix);
+      }
+    } else if (tagName === 'svg') {
+      if (attrs.transform) {
+        transformStack[0] = multiplyMatrices(transformStack[0], elemMatrix);
+      }
+    } else if (tagName === 'path') {
+      if (!attrs.d || !attrs.d.trim()) continue;
+      const effectiveMatrix = multiplyMatrices(currentMatrix(), elemMatrix);
+      const sub = parsePathCommands(attrs.d);
+      for (const pts of sub) {
+        if (pts.length >= 2) {
+          const transformed = pts.map((p) => mapCoordinate(applyMatrix(effectiveMatrix, p)));
+          contours.push(transformed);
+        }
+      }
+    } else if (tagName === 'polygon' || tagName === 'polyline') {
+      if (!attrs.points || !attrs.points.trim()) continue;
+      const effectiveMatrix = multiplyMatrices(currentMatrix(), elemMatrix);
+      const nums = attrs.points.trim().split(/[\s,]+/).map(Number);
+      if (nums.some((n) => isNaN(n)) || nums.length < 4 || nums.length % 2 !== 0) {
+        throw new Error('Malformed SVG polygon/polyline points data.');
+      }
+      const pts = [];
+      for (let k = 0; k < nums.length - 1; k += 2) {
+        const rawPt = { x: nums[k], y: nums[k + 1] };
+        pts.push(mapCoordinate(applyMatrix(effectiveMatrix, rawPt)));
+      }
+      if (pts.length >= 2) contours.push(pts);
+    }
   }
 
   if (contours.length === 0) {
     throw new Error('SVG contains no valid drawable paths or polygons.');
   }
 
+  contours.viewBox = vb;
   return contours;
 }
 
@@ -438,6 +608,9 @@ export function svgToFormation(svgTextOrKey, n, { scale = 20.0, altitude = 15.0,
       totalLen += Math.hypot(c[j + 1].x - c[j].x, c[j + 1].y - c[j].y);
     }
   }
+  if (totalLen <= 1e-6) {
+    throw new Error('Degenerate SVG geometry (zero path length).');
+  }
   const normalizedPerimeter = totalLen / extent;
   const minRequiredScale = ((n * MIN_DESIGN_SPACING_M) / normalizedPerimeter) * 1.05;
 
@@ -528,8 +701,11 @@ export function svgToFormation(svgTextOrKey, n, { scale = 20.0, altitude = 15.0,
     }
   }
 
-  // Authoritative post-checks: site boundary, altitude ceiling, and design spacing
+  // Authoritative post-checks: finite coordinates, site boundary, altitude ceiling, and design spacing
   for (const p of pts3d) {
+    if (!Number.isFinite(p.x) || !Number.isFinite(p.y) || !Number.isFinite(p.z)) {
+      throw new Error('SVG formation produced non-finite coordinates.');
+    }
     const reach = Math.hypot(p.x, p.y);
     if (reach > SITE_RADIUS_M + 1e-6) {
       throw new Error(`SVG formation point exceeds site radius (${reach.toFixed(2)}m > ${SITE_RADIUS_M}m).`);
@@ -537,6 +713,21 @@ export function svgToFormation(svgTextOrKey, n, { scale = 20.0, altitude = 15.0,
     const alt = -p.z; // NED: -z is height above ground
     if (alt < 0 || alt > MAX_ALTITUDE_M) {
       throw new Error(`SVG formation altitude (${alt.toFixed(2)}m) exceeds bounds (0 - ${MAX_ALTITUDE_M}m).`);
+    }
+  }
+
+  if (n > 1) {
+    let finalDist = Infinity;
+    for (let i = 0; i < pts3d.length; i++) {
+      for (let j = i + 1; j < pts3d.length; j++) {
+        const d = Math.hypot(pts3d[i].x - pts3d[j].x, pts3d[i].y - pts3d[j].y, pts3d[i].z - pts3d[j].z);
+        if (d < finalDist) finalDist = d;
+      }
+    }
+    if (finalDist < MIN_DESIGN_SPACING_M - 1e-4) {
+      throw new Error(
+        `SVG formation violates minimum design spacing: ${finalDist.toFixed(2)}m < ${MIN_DESIGN_SPACING_M}m.`
+      );
     }
   }
 

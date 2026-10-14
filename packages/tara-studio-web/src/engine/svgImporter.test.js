@@ -11,6 +11,7 @@ import {
   MAX_ALTITUDE_M,
   MIN_DESIGN_SPACING_M,
 } from './svgImporter.js';
+import { buildFormation } from './formations.js';
 import {
   buildSequencedShow,
   makeScene,
@@ -77,7 +78,7 @@ describe('svgImporter: viewBox and coordinate transform parsing', () => {
     expect(() => validateViewBox('<svg viewBox="0 0 100"></svg>')).toThrow(/expected 4/i);
   });
 
-  it('parses valid translate and scale transforms', () => {
+  it('parses valid translate, scale, rotate, and matrix transforms', () => {
     const fn1 = parseTransform('translate(10, 20)');
     expect(fn1({ x: 5, y: 5 })).toEqual({ x: 15, y: 25 });
 
@@ -86,12 +87,26 @@ describe('svgImporter: viewBox and coordinate transform parsing', () => {
 
     const fn3 = parseTransform('translate(10, -5) scale(2)');
     expect(fn3({ x: 1, y: 2 })).toEqual({ x: 12, y: -1 });
+
+    const fnRot = parseTransform('rotate(90)');
+    const pRot = fnRot({ x: 10, y: 0 });
+    expect(pRot.x).toBeCloseTo(0);
+    expect(pRot.y).toBeCloseTo(10);
+
+    const fnRotOrigin = parseTransform('rotate(90, 5, 5)');
+    const pRotO = fnRotOrigin({ x: 10, y: 5 });
+    expect(pRotO.x).toBeCloseTo(5);
+    expect(pRotO.y).toBeCloseTo(10);
+
+    const fnMat = parseTransform('matrix(2, 0, 0, 3, 10, 20)');
+    expect(fnMat({ x: 1, y: 2 })).toEqual({ x: 12, y: 26 });
   });
 
   it('rejects unsupported transforms explicitly', () => {
-    expect(() => parseTransform('rotate(45)')).toThrow(/unsupported/i);
-    expect(() => parseTransform('matrix(1, 0, 0, 1, 0, 0)')).toThrow(/unsupported/i);
     expect(() => parseTransform('skewX(10)')).toThrow(/unsupported/i);
+    expect(() => parseTransform('skewY(20)')).toThrow(/unsupported/i);
+    expect(() => parseTransform('matrix(1, 2, 3)')).toThrow(/parameter count|invalid/i);
+    expect(() => parseTransform('translate()')).toThrow(/parameter count|malformed/i);
   });
 });
 
@@ -297,5 +312,121 @@ describe('svgImporter: deterministic integration with normal editable scenes and
         }
       }
     }
+  });
+});
+
+describe('svgImporter: strict semantics, nested group transforms and viewBox mapping (PR #146)', () => {
+  it('correctly inherits nested group transforms (<g transform="...">)', () => {
+    const svg = `
+      <svg viewBox="0 0 100 100">
+        <g transform="translate(10, 20)">
+          <g transform="scale(2)">
+            <path d="M 0 0 L 10 10" />
+          </g>
+        </g>
+      </svg>
+    `;
+    const contours = parseSvgToContours(svg);
+    expect(contours).toHaveLength(1);
+    expect(contours[0][0]).toEqual({ x: 10, y: 20 });
+    expect(contours[0][1]).toEqual({ x: 30, y: 40 });
+  });
+
+  it('correctly applies group rotation and scaling', () => {
+    const svg = `
+      <svg viewBox="0 0 100 100">
+        <g transform="rotate(90) scale(2)">
+          <path d="M 10 0 L 20 0" />
+        </g>
+      </svg>
+    `;
+    const contours = parseSvgToContours(svg);
+    expect(contours).toHaveLength(1);
+    expect(contours[0][0].x).toBeCloseTo(0);
+    expect(contours[0][0].y).toBeCloseTo(20);
+    expect(contours[0][1].x).toBeCloseTo(0);
+    expect(contours[0][1].y).toBeCloseTo(40);
+  });
+
+  it('evaluates chained transform combinations in correct order', () => {
+    const svg = `
+      <svg viewBox="0 0 100 100">
+        <path d="M 0 0 L 10 0" transform="translate(10, 20) rotate(90) scale(2)" />
+      </svg>
+    `;
+    const contours = parseSvgToContours(svg);
+    expect(contours[0][0]).toEqual({ x: 10, y: 20 });
+    expect(contours[0][1].x).toBeCloseTo(10);
+    expect(contours[0][1].y).toBeCloseTo(40);
+  });
+
+  it('correctly maps nonzero viewBox origins into viewport space', () => {
+    const svg = `
+      <svg viewBox="50 100 200 200">
+        <path d="M 50 100 L 150 200" />
+      </svg>
+    `;
+    const contours = parseSvgToContours(svg);
+    expect(contours[0][0]).toEqual({ x: 0, y: 0 });
+    expect(contours[0][1]).toEqual({ x: 100, y: 100 });
+  });
+
+  it('handles preserveAspectRatio="none" with non-uniform stretching', () => {
+    const svg = `
+      <svg viewBox="0 0 100 100" width="200" height="100" preserveAspectRatio="none">
+        <path d="M 0 0 L 50 50" />
+      </svg>
+    `;
+    const contours = parseSvgToContours(svg);
+    expect(contours[0][0]).toEqual({ x: 0, y: 0 });
+    expect(contours[0][1]).toEqual({ x: 100, y: 50 });
+  });
+
+  it('rejects unsupported preserveAspectRatio="slice"', () => {
+    const svg = '<svg viewBox="0 0 100 100" preserveAspectRatio="xMidYMid slice"><path d="M 0 0 L 10 10" /></svg>';
+    expect(() => parseSvgToContours(svg)).toThrow(/slice/i);
+  });
+
+  it('rejects unsupported geometry-producing tags explicitly', () => {
+    expect(() => parseSvgToContours('<svg><rect x="0" y="0" width="10" height="10"/></svg>')).toThrow(/unsupported svg element '<rect>'/i);
+    expect(() => parseSvgToContours('<svg><circle cx="5" cy="5" r="5"/></svg>')).toThrow(/unsupported svg element '<circle>'/i);
+    expect(() => parseSvgToContours('<svg><ellipse cx="5" cy="5" rx="5" ry="3"/></svg>')).toThrow(/unsupported svg element '<ellipse>'/i);
+    expect(() => parseSvgToContours('<svg><line x1="0" y1="0" x2="10" y2="10"/></svg>')).toThrow(/unsupported svg element '<line>'/i);
+  });
+
+  it('buildFormation rejects invalid SVG input fail-closed and never converts to a circle', () => {
+    // Malformed SVG
+    expect(() => buildFormation('svg', '<svg><invalid_syntax>', 10)).toThrow();
+    // Unsupported element
+    expect(() => buildFormation('svg', '<svg><rect width="10" height="10"/></svg>', 10)).toThrow(/unsupported svg element/i);
+    // Degenerate geometry
+    expect(() => buildFormation('svg', '<svg><path d="M 0 0 L 0 0"/></svg>', 10)).toThrow(/degenerate/i);
+  });
+
+  it('scales Dandiya assets to representative fleet sizes (N=24, 40) within site radius and spacing limits', () => {
+    for (const n of [24, 40]) {
+      const pts = svgToFormation('dandiya_sticks', n);
+      expect(pts).toHaveLength(n);
+      for (const p of pts) {
+        expect(Number.isFinite(p.x)).toBe(true);
+        expect(Number.isFinite(p.y)).toBe(true);
+        expect(Number.isFinite(p.z)).toBe(true);
+        expect(Math.hypot(p.x, p.y)).toBeLessThanOrEqual(SITE_RADIUS_M + 1e-4);
+        expect(-p.z).toBeGreaterThan(0);
+        expect(-p.z).toBeLessThanOrEqual(MAX_ALTITUDE_M);
+      }
+      let minD = Infinity;
+      for (let i = 0; i < pts.length; i++) {
+        for (let j = i + 1; j < pts.length; j++) {
+          const d = Math.hypot(pts[i].x - pts[j].x, pts[i].y - pts[j].y, pts[i].z - pts[j].z);
+          if (d < minD) minD = d;
+        }
+      }
+      expect(minD, `Spacing at N=${n}`).toBeGreaterThanOrEqual(MIN_DESIGN_SPACING_M - 1e-4);
+    }
+  });
+
+  it('rejects Dandiya assets when drone count exceeds site boundary constraints', () => {
+    expect(() => svgToFormation('dandiya_sticks', 100)).toThrow(/exceeding site limits/i);
   });
 });
