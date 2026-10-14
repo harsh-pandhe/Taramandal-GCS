@@ -331,8 +331,55 @@ describe('interpolateWaypoint', () => {
   });
 });
 
+// Exact minimum separation over the whole built trajectory, not only at the
+// samples: between two samples every drone moves in a straight line at constant
+// speed, so the closed-form check on each consecutive pair of samples covers
+// every instant of the show.
+const exactMinSeparation = (show) => {
+  const w = show.drones.map((d) => d.waypoints);
+  let m = Infinity;
+  for (let k = 0; k + 1 < w[0].length; k++) {
+    m = Math.min(m, minMorphSeparation(w.map((d) => d[k]), w.map((d) => d[k + 1])));
+  }
+  return m;
+};
+
+// Vertical columns: drones directly above each other, as in a text formation.
+const column = (x, y, zs) => zs.map((z) => ({ x, y, z }));
+
 describe('intermediate morph separation (Fix B / issue #137)', () => {
   const DESIGN_SEPARATION = 2.0;
+  // The pad grid is exactly 2.0 m, so an exact check lands a hair under it.
+  const atLeastDesign = (d) => expect(d).toBeGreaterThanOrEqual(DESIGN_SEPARATION - 1e-6);
+
+  it('flies the e2e demo show (5 then 4, identity mapping) without any pair inside 2.0 m', () => {
+    // The e2e backend stub answers assign-chain with the identity, so the climb
+    // out crosses paths and is layered. With the first version of the layering
+    // two drones in one glyph column swapped order on the way down: 0.02 m.
+    const scenes = [
+      scene({ name: '5', shapeType: 'text', shapePayload: '5', holdDurationSeconds: 6, transitionDurationSeconds: 0 }),
+      scene({ name: '4', shapeType: 'text', shapePayload: '4', holdDurationSeconds: 6, transitionDurationSeconds: 4 }),
+    ];
+    const identityChain = [0, 1, 2].map(() => [0, 1, 2, 3, 4, 5]);
+    atLeastDesign(exactMinSeparation(buildSequencedShow(scenes, 6, 4, identityChain)));
+  });
+
+  it('keeps drones that share a column in order through the lift and the descent', () => {
+    // Two columns trade places; inside each, the lower drone stays lower.
+    const from = [...column(0, 0, [-10, -13]), ...column(0, 6, [-10, -13])];
+    const to = [...column(0, 6, [-11, -14]), ...column(0, 0, [-11, -14])];
+    const layer = computeMorphLayers(from, to);
+    expect(layer[1]).toBeGreaterThan(layer[0]);
+    expect(layer[3]).toBeGreaterThan(layer[2]);
+  });
+
+  it('refuses a layering in which two drones of one column would swap order', () => {
+    // Drone 0 starts below drone 1 in a column and must end above it: a lift
+    // and descent in place cannot do that without them passing through each other.
+    const from = [...column(0, 0, [-10, -13]), { x: 0, y: 1, z: -20 }];
+    const to = [...column(5, 0, [-13, -10]), { x: 0, y: -1, z: -20 }];
+    expect(computeMorphLayers(from, to)).toBeNull();
+  });
 
   it('maintains >= 2.0 m separation during the 24-drone Grid -> Line scale 2.0 morph', () => {
     // S0 defect report: Grid -> Line, 24 drones, scale 2.0 dipped to 1.94 m during the return morph.
@@ -344,9 +391,7 @@ describe('intermediate morph separation (Fix B / issue #137)', () => {
     const chain = computeAssignmentChainLocal(scenes, n);
     const show = buildSequencedShow(scenes, n, 10, chain);
 
-    // Swept-sample check: test all pairs across every 10 Hz time step
-    const minD = minSeparation(show);
-    expect(minD, 'Swept minimum separation across entire 24-drone show').toBeGreaterThanOrEqual(DESIGN_SEPARATION);
+    atLeastDesign(exactMinSeparation(show));
   });
 
   it('maintains >= 2.0 m separation for single-scene Line scale 2.0 (n=24)', () => {
@@ -357,8 +402,7 @@ describe('intermediate morph separation (Fix B / issue #137)', () => {
     const chain = computeAssignmentChainLocal(scenes, n);
     const show = buildSequencedShow(scenes, n, 10, chain);
 
-    const minD = minSeparation(show);
-    expect(minD, 'Swept minimum separation for Line alone').toBeGreaterThanOrEqual(DESIGN_SEPARATION);
+    atLeastDesign(exactMinSeparation(show));
   });
 
   it('analytical minMorphSeparation accurately matches dense time-swept sampling', () => {
@@ -419,8 +463,8 @@ describe('intermediate morph separation (Fix B / issue #137)', () => {
       );
       const chain = computeAssignmentChainLocal(scenes, tc.n);
       const show = buildSequencedShow(scenes, tc.n, 4, chain);
-      const minD = minSeparation(show);
-      expect(minD, `Fleet n=${tc.n} shapes=${tc.shapes.join('->')}`).toBeGreaterThanOrEqual(DESIGN_SEPARATION);
+      expect(exactMinSeparation(show), `Fleet n=${tc.n} shapes=${tc.shapes.join('->')}`)
+        .toBeGreaterThanOrEqual(DESIGN_SEPARATION - 1e-6);
     }
   });
 });
