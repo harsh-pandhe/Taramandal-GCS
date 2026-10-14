@@ -8,6 +8,7 @@ from jsonschema import Draft202012Validator
 from pydantic import ValidationError
 
 from tara_core import SHOW_FORMAT_VERSION, SHOW_SCHEMA_PATH, Show
+from tara_core.geometry import quintic_segment
 from tara_studio import generator
 from tara_studio.exporter import export_json
 from tara_studio.led_engine import apply_track_to_choreo
@@ -27,6 +28,21 @@ def lit_circle() -> dict:
     return apply_track_to_choreo(
         choreo, [{"pattern": "SOLID", "start_time": 0, "duration": 999, "color": "#FF8000"}]
     )
+
+
+def _quintic_smoothed_choreo() -> dict:
+    """A densely-sampled, jerk-continuous single-drone trajectory."""
+    p0, p1 = (0.0, 0.0, -2.0), (5.0, 0.0, -2.0)
+    half = 6.0
+    dt = 1.0 / 20.0
+    waypoints = []
+    t = 0.0
+    while t <= 2 * half + 1e-9:
+        state = quintic_segment(p0, p1, half, t) if t <= half else quintic_segment(p1, p0, half, t - half)
+        x, y, z = state["position"]
+        waypoints.append({"time": round(t, 4), "x": x, "y": y, "z": z, "yaw": 0.0})
+        t += dt
+    return {"drones": [{"id": 0, "waypoints": waypoints}]}
 
 
 class TestRealExports:
@@ -97,17 +113,34 @@ class TestExportEndpoint:
         return TestClient(app)
 
     def test_schema_violation_is_a_400_with_field_paths(self, client):
-        choreo = lit_circle()
+        choreo = _quintic_smoothed_choreo()
         choreo["drones"][0]["waypoints"][2]["r"] = 300
         res = client.post("/api/export", json={"choreo": choreo, "format": "json"})
         assert res.status_code == 400
         [err] = res.json()["detail"]["errors"]
         assert err["loc"] == ["drones", 0, "waypoints", 2, "r"]
 
-    def test_valid_show_exports(self, client):
-        res = client.post("/api/export", json={"choreo": lit_circle(), "format": "json"})
+    def test_valid_certified_show_exports(self, client):
+        res = client.post("/api/export", json={"choreo": _quintic_smoothed_choreo(), "format": "json"})
         assert res.status_code == 200
         assert json.loads(res.json()["content"])["version"] == SHOW_FORMAT_VERSION
+
+    def test_core_passed_but_jerk_failed_blocks_flight_export(self, client):
+        # lit_circle() passes core safety (proximity, velocity, accel, yaw),
+        # but fails jerk feasibility (44 jerk violations). Flight export MUST fail closed (412).
+        res = client.post("/api/export", json={"choreo": lit_circle(), "format": "json"})
+        assert res.status_code == 412
+        detail = res.json()["detail"]
+        assert "Flight export blocked" in str(detail)
+        assert "jerk violation" in str(detail).lower()
+
+    def test_core_passed_but_jerk_failed_succeeds_in_preview_mode(self, client):
+        # Explicit preview_only mode allows non-flight export with clear labelling.
+        res = client.post("/api/export", json={"choreo": lit_circle(), "format": "json", "preview_only": True})
+        assert res.status_code == 200
+        body = res.json()
+        assert body["preview_only"] is True
+        assert body["filename"].startswith("PREVIEW_ONLY_")
 
     def test_unsafe_show_fails_closed_with_412_across_formats(self, client):
         # Create an unsafe colliding show: two drones sitting on the exact same waypoints (0m distance)

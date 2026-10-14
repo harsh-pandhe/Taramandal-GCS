@@ -91,15 +91,20 @@ export default function TransmitPanel({
   homeLat, homeLon, onHomeLat, onHomeLon,
   onExport, onSendToGCS, sending, hasShow, validation,
 }) {
-  const isPassed = validation?.status === 'PASSED';
-  const isFailed = validation?.status === 'FAILED';
-  const isUnverified = hasShow && !isPassed && !isFailed;
-  const canExport = hasShow && isPassed;
+  const isCertified = validation?.status === 'PASSED'
+    && validation?.feasibility_certified !== false
+    && !(validation?.violations?.jerk?.length > 0);
+  const isFailed = validation?.status === 'FAILED'
+    || (validation?.violations?.jerk?.length > 0)
+    || (validation?.status === 'PASSED' && validation?.feasibility_certified === false);
+  const isUnverified = hasShow && !isCertified && !isFailed;
+  const canExport = hasShow && isCertified;
 
   const totalViolations = (validation?.violations?.proximity?.length || 0)
     + (validation?.violations?.velocity?.length || 0)
     + (validation?.violations?.acceleration?.length || 0)
-    + (validation?.violations?.yaw_rate?.length || 0);
+    + (validation?.violations?.yaw_rate?.length || 0)
+    + (validation?.violations?.jerk?.length || 0);
 
   return (
     <div className="glass-panel-inner">
@@ -113,13 +118,13 @@ export default function TransmitPanel({
 
       {hasShow && (
         <div
-          className={`safety-gate-badge ${isPassed ? 'passed' : isFailed ? 'failed' : 'unverified'}`}
+          className={`safety-gate-badge ${isCertified ? 'passed' : isFailed ? 'failed' : 'unverified'}`}
           data-testid="safety-gate-status"
           role={isFailed ? 'alert' : 'status'}
         >
-          {isPassed ? <CheckCircle size={15} /> : <AlertTriangle size={15} />}
+          {isCertified ? <CheckCircle size={15} /> : <AlertTriangle size={15} />}
           <span>
-            {isPassed && 'Safety Certified — Verified 0 safety violations. Ready to export.'}
+            {isCertified && 'Safety Certified — Verified 0 safety violations. Ready to export.'}
             {isFailed && `Safety Gate Locked — ${totalViolations} violation${totalViolations === 1 ? '' : 's'} detected. Fix violations before exporting.`}
             {isUnverified && 'Unverified Trajectory — Pre-flight safety validation required before export.'}
           </span>

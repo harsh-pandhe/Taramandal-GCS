@@ -22,6 +22,7 @@ from tara_studio.generator import (
 from tara_studio.validator import (
     DEFAULT_DYNAMIC_LIMITS,
     DynamicLimits,
+    certify_feasibility_report,
     validate_choreography,
     validate_dynamics,
 )
@@ -154,24 +155,10 @@ def api_generate(req: GenerateRequest):
         # from inside the shape's waypoint loop and surfaced as a blank 500.
         raise HTTPException(status_code=400, detail=str(e))
 
-    # Perform safety validation check automatically. validate_choreography
-    # covers the shared airframe/abort envelope (proximity, velocity, accel,
-    # yaw rate); validate_dynamics adds the tighter choreography-quality
-    # bounds, including jerk (issue #60) — folded into the same `violations`
-    # dict so the frontend's existing per-category rendering (SafetyPanel)
-    # picks up a "jerk" category the same way it already does for the other
-    # three, without needing a second report shape wired through the UI.
-    validation = validate_choreography(choreo)
-    dynamics = validate_dynamics(choreo)
-    validation["violations"]["jerk"] = dynamics["violations"]["jerk"]
-    validation["metrics"]["max_jerk_m_s3"] = dynamics["metrics"]["max_jerk_m_s3"]
-    # Deliberately not `dynamics["status"]` — see certify_feasibility's
-    # docstring for why the rest of validate_dynamics (velocity/centripetal)
-    # is a separate, stricter advisory check that real shows routinely don't
-    # clear, and isn't part of this gate.
-    validation["feasibility_certified"] = (
-        validation["status"] == "PASSED" and not dynamics["violations"]["jerk"]
-    )
+    # Perform safety validation check automatically. Canonical feasibility certification:
+    # validate_choreography covers the shared airframe/abort envelope (proximity, velocity,
+    # accel, yaw rate); validate_dynamics adds bounded jerk (issue #60).
+    _is_certified, validation = certify_feasibility_report(choreo)
     validation = _with_limits(validation)
 
     # Report the pacing the generator chose. The show's length is no longer
@@ -515,37 +502,13 @@ def api_export(req: ExportRequest):
         raise HTTPException(status_code=400, detail=f"Only {', '.join(sorted(SIGNABLE_FORMATS))} exports can be signed.")
     rate_hz = req.rate_hz or 0.0
 
-    # Hard backend safety gate (issue #128 / #139)
-    # Direct /api/export calls must validate the choreography. FAILED, UNVERIFIED, or malformed
-    # validation results fail closed (HTTP 412). Non-flight preview exports must be explicitly
-    # flagged (preview_only=True), are labeled preview-only, and can never be signed.
-    if req.preview_only:
-        if req.sign:
-            raise HTTPException(status_code=400, detail="Preview-only exports cannot be signed for flight.")
-    else:
-        try:
-            val = validate_choreography(choreo)
-        except Exception as e:
-            raise HTTPException(
-                status_code=412,
-                detail=f"Flight export blocked: validator error or malformed show: {e}",
-            )
-        if not isinstance(val, dict) or val.get("status") != "PASSED":
-            summary = val.get("summary", "Validation did not pass") if isinstance(val, dict) else "Unknown validation status"
-            raise HTTPException(
-                status_code=412,
-                detail={
-                    "message": f"Flight export blocked: choreography failed safety validation ({summary}).",
-                    "validation": val,
-                },
-            )
-
     # Bake the LED track server-side when one is supplied, so a .tara compiled
     # here matches what the Studio preview showed rather than depending on the
     # client having already written r/g/b/w onto every waypoint. Colours only
     # exist at waypoint times, so first add frames until every strobe has
     # samples in both its on- and off-phase - otherwise a strobe at or above
     # half the show's rate aliases into solid light.
+    # Trace the complete path: validate the final artifact that will actually be exported.
     if req.led_track:
         try:
             factor = upsample_factor(choreo, led_sample_rate_hz(req.led_track))
@@ -554,6 +517,32 @@ def api_export(req: ExportRequest):
             choreo = apply_track_to_choreo(choreo, req.led_track)
         except (ValueError, KeyError) as e:
             raise HTTPException(status_code=400, detail=f"Bad LED track: {e}")
+
+    # Canonical backend safety gate (issue #128 / #139)
+    # Direct /api/export calls must pass canonical flight certification (core safety PASSED
+    # and 0 jerk violations). FAILED, UNVERIFIED, malformed, or core-passed but jerk-violating
+    # shows fail closed (HTTP 412). Non-flight preview exports must be explicitly flagged
+    # (preview_only=True), are labeled preview-only, and can never be signed.
+    if req.preview_only:
+        if req.sign:
+            raise HTTPException(status_code=400, detail="Preview-only exports cannot be signed for flight.")
+    else:
+        try:
+            is_certified, val = certify_feasibility_report(choreo)
+        except Exception as e:
+            raise HTTPException(
+                status_code=412,
+                detail=f"Flight export blocked: validator error or malformed show: {e}",
+            )
+        if not is_certified or not isinstance(val, dict) or val.get("status") != "PASSED":
+            summary = val.get("summary", "Validation did not pass") if isinstance(val, dict) else "Unknown validation status"
+            raise HTTPException(
+                status_code=412,
+                detail={
+                    "message": f"Flight export blocked: choreography failed safety validation ({summary}).",
+                    "validation": val,
+                },
+            )
 
     if fmt == "json":
         try:

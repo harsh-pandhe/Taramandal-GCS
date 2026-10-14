@@ -94,6 +94,49 @@ describe('TransmitPanel Hard Safety Gate (Issue #139)', () => {
     expect(disabledCount).toBeGreaterThanOrEqual(5);
   });
 
+  it('locks all export and transmit buttons when core validation passed but jerk violations exist', () => {
+    const html = render({
+      hasShow: true,
+      validation: {
+        status: 'PASSED',
+        feasibility_certified: false,
+        violations: {
+          proximity: [],
+          velocity: [],
+          acceleration: [],
+          yaw_rate: [],
+          jerk: [{ time: 1.5, drone: 0, jerk: 35.0, limit: 20.0 }],
+        },
+      },
+    });
+
+    expect(html).toContain('safety-gate-badge failed');
+    expect(html).toContain('Safety Gate Locked');
+    expect(html).toContain('1 violation detected');
+
+    const exportSection = html.slice(html.indexOf('Export &amp; Transmit'));
+    const disabledCount = count(exportSection, /<button[^>]*disabled/g);
+    expect(disabledCount).toBeGreaterThanOrEqual(5);
+  });
+
+  it('locks all export and transmit buttons when core validation passed but feasibility_certified is false', () => {
+    const html = render({
+      hasShow: true,
+      validation: {
+        status: 'PASSED',
+        feasibility_certified: false,
+        violations: { proximity: [], velocity: [], acceleration: [], yaw_rate: [] },
+      },
+    });
+
+    expect(html).toContain('safety-gate-badge failed');
+    expect(html).toContain('Safety Gate Locked');
+
+    const exportSection = html.slice(html.indexOf('Export &amp; Transmit'));
+    const disabledCount = count(exportSection, /<button[^>]*disabled/g);
+    expect(disabledCount).toBeGreaterThanOrEqual(5);
+  });
+
   it('disables buttons when there is no built show', () => {
     const html = render({
       hasShow: false,
