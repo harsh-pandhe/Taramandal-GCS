@@ -22,6 +22,28 @@ from .show import Show
 
 #: Violations retained per category, to keep API responses a sane size.
 _MAX_REPORTED = 50
+#: Of those, how many are the most severe; the rest sample the timeline evenly.
+_MOST_SEVERE = _MAX_REPORTED // 2
+
+
+def _report_subset(found: list[tuple[float, dict]]) -> list[dict]:
+    """Pick at most ``_MAX_REPORTED`` violations of one kind to return, in time order.
+
+    ``found`` is every violation of that kind in time order, each paired with
+    how far past its limit it went. Keeping only the earliest ones hid a show's
+    worst moment whenever it came late (issue #138), so the most severe half is
+    always kept, the global worst among them, and the other half samples the
+    rest of the timeline evenly.
+    """
+    if len(found) <= _MAX_REPORTED:
+        return [entry for _, entry in found]
+    # sorted() is stable, so equally severe violations keep their time order.
+    by_severity = sorted(range(len(found)), key=lambda i: found[i][0], reverse=True)
+    severe = set(by_severity[:_MOST_SEVERE])
+    rest = [i for i in range(len(found)) if i not in severe]
+    step = max(1, len(rest) // (_MAX_REPORTED - _MOST_SEVERE))
+    sample = rest[::step][: _MAX_REPORTED - _MOST_SEVERE]
+    return [found[i][1] for i in sorted(severe.union(sample))]
 
 
 def _positions_at(show: Show, t: float) -> tuple[dict, dict]:
@@ -52,7 +74,9 @@ def validate_show(
 
     Returns:
         A report dict with ``status`` (``"PASSED"``/``"FAILED"``), ``summary``,
-        ``metrics`` and ``violations``.
+        ``metrics``, ``violations`` (at most ``_MAX_REPORTED`` per kind, see
+        :func:`_report_subset`) and ``worst_violations`` (the single worst of
+        each kind, or ``None``). Each violation carries the limit it broke.
     """
     show = Show.from_any(data)
     threshold = limits.design_separation_m if separation is None else separation
@@ -75,14 +99,12 @@ def validate_show(
                 "max_yaw_rate_deg_s": 0.0,
             },
             "violations": violations,
-            "worst_violations": {
-                "proximity": None,
-                "velocity": None,
-                "acceleration": None,
-                "yaw_rate": None,
-            },
+            "worst_violations": {key: None for key in violations},
         }
 
+    # Every violation, in time order, paired with how far past its limit it
+    # went: unrounded and in its own check's units, so ranking them is exact.
+    found: dict[str, list[tuple[float, dict]]] = {key: [] for key in violations}
     min_dist = float("inf")
     max_vel = max_acc = max_yaw_rate = 0.0
     prev: dict[int, dict] = {}
@@ -91,17 +113,16 @@ def validate_show(
         xyz, states = _positions_at(show, t)
 
         for a, b, dist in close_pairs(xyz, threshold):
-            violations["proximity"].append(
-                {
-                    "time": round(t, 2),
-                    "drones": [a, b],
-                    "distance": round(dist, 2),
-                    "positions": {
-                        str(a): [round(c, 2) for c in xyz[a]],
-                        str(b): [round(c, 2) for c in xyz[b]],
-                    },
-                }
-            )
+            found["proximity"].append((threshold - dist, {
+                "time": round(t, 2),
+                "drones": [a, b],
+                "distance": round(dist, 2),
+                "limit": round(threshold, 2),
+                "positions": {
+                    str(a): [round(c, 2) for c in xyz[a]],
+                    str(b): [round(c, 2) for c in xyz[b]],
+                },
+            }))
         min_dist = min(min_dist, min_separation(xyz))
 
         for drone_id, wp in states.items():
@@ -133,32 +154,26 @@ def validate_show(
             max_yaw_rate = max(max_yaw_rate, yaw_rate)
 
             if speed > limits.max_velocity_ms:
-                violations["velocity"].append(
-                    {
-                        "time": round(t, 2),
-                        "drone": drone_id,
-                        "velocity": round(speed, 2),
-                        "limit": round(limits.max_velocity_ms, 2),
-                    }
-                )
+                found["velocity"].append((speed - limits.max_velocity_ms, {
+                    "time": round(t, 2),
+                    "drone": drone_id,
+                    "velocity": round(speed, 2),
+                    "limit": round(limits.max_velocity_ms, 2),
+                }))
             if accel > limits.max_accel_ms2:
-                violations["acceleration"].append(
-                    {
-                        "time": round(t, 2),
-                        "drone": drone_id,
-                        "acceleration": round(accel, 2),
-                        "limit": round(limits.max_accel_ms2, 2),
-                    }
-                )
+                found["acceleration"].append((accel - limits.max_accel_ms2, {
+                    "time": round(t, 2),
+                    "drone": drone_id,
+                    "acceleration": round(accel, 2),
+                    "limit": round(limits.max_accel_ms2, 2),
+                }))
             if yaw_rate > limits.max_yaw_rate_dps:
-                violations["yaw_rate"].append(
-                    {
-                        "time": round(t, 2),
-                        "drone": drone_id,
-                        "yaw_rate": round(yaw_rate, 2),
-                        "limit": round(limits.max_yaw_rate_dps, 2),
-                    }
-                )
+                found["yaw_rate"].append((yaw_rate - limits.max_yaw_rate_dps, {
+                    "time": round(t, 2),
+                    "drone": drone_id,
+                    "yaw_rate": round(yaw_rate, 2),
+                    "limit": round(limits.max_yaw_rate_dps, 2),
+                }))
 
             prev[drone_id] = {
                 "pos": (wp["x"], wp["y"], wp["z"]),
@@ -166,48 +181,12 @@ def validate_show(
                 "yaw": wp.get("yaw", 0.0),
             }
 
-    worst_violations: dict[str, dict | None] = {
-        "proximity": None,
-        "velocity": None,
-        "acceleration": None,
-        "yaw_rate": None,
-    }
-
-    def _severity_key(cat: str):
-        if cat == "proximity":
-            return lambda v: v["distance"]
-        if cat == "velocity":
-            return lambda v: -v["velocity"]
-        if cat == "acceleration":
-            return lambda v: -v["acceleration"]
-        return lambda v: -v["yaw_rate"]
-
-    for key, items in violations.items():
+    worst_violations: dict[str, dict | None] = {key: None for key in violations}
+    for key, items in found.items():
         if items:
-            key_fn = _severity_key(key)
-            worst_violations[key] = min(items, key=key_fn)
-
-    # Truncate violations to _MAX_REPORTED while strictly guaranteeing the worst violations are surfaced
-    for key in violations:
-        items = violations[key]
-        if len(items) <= _MAX_REPORTED:
-            violations[key] = sorted(items, key=lambda v: v["time"])
-        else:
-            key_fn = _severity_key(key)
-            severe = sorted(items, key=key_fn)[:25]
-            severe_ids = {id(v) for v in severe}
-
-            remaining = [v for v in items if id(v) not in severe_ids]
-            step = max(1, len(remaining) // 25)
-            timeline_sample = remaining[::step][:25]
-
-            combined = severe + timeline_sample
-            res = sorted(combined, key=lambda v: v["time"])[:_MAX_REPORTED]
-            worst = worst_violations[key]
-            if worst is not None and not any(v is worst for v in res):
-                res[-1] = worst
-                res.sort(key=lambda v: v["time"])
-            violations[key] = res
+            # max() keeps the first of equal maxima: a tie goes to the earliest.
+            worst_violations[key] = max(items, key=lambda item: item[0])[1]
+        violations[key] = _report_subset(items)
 
     failed = any(violations[k] for k in violations)
     return {
