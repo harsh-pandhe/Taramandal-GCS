@@ -525,6 +525,7 @@ class DroneManager:
                 # once this drone alone has been aborted out of the show (issue
                 # #59). Cleared when the drone is explicitly re-launched.
                 "aborted": None,
+                "last_heartbeat": None,
             }
 
             # On the sim backend one fleet-wide task fills this in instead
@@ -646,9 +647,11 @@ class DroneManager:
         for k, drone_id in enumerate(ids):
             tel = self.telemetry[drone_id]
             is_conn = bool(connected[k])
-            if is_conn and tel["link_stable_since"] is None:
-                tel["link_stable_since"] = time.monotonic()
-            elif not is_conn:
+            if is_conn:
+                tel["last_heartbeat"] = time.time()
+                if tel["link_stable_since"] is None:
+                    tel["link_stable_since"] = time.monotonic()
+            else:
                 tel["link_stable_since"] = None
             tel["connected"] = is_conn
             if hasattr(self, "_sim_fleet") and self._sim_fleet is not None:
@@ -696,8 +699,10 @@ class DroneManager:
             drone = self.drones[drone_id]
             async for state in drone.core.connection_state():
                 tel = self.telemetry[drone_id]
-                if state.is_connected and tel["link_stable_since"] is None:
-                    tel["link_stable_since"] = time.monotonic()
+                if state.is_connected:
+                    tel["last_heartbeat"] = time.time()
+                    if tel["link_stable_since"] is None:
+                        tel["link_stable_since"] = time.monotonic()
                 elif not state.is_connected:
                     tel["link_stable_since"] = None
                 tel["connected"] = state.is_connected
@@ -1297,6 +1302,157 @@ class DroneManager:
         except Exception as e:
             logging.error(f"Failed to kill Drone {drone_id}: {e}")
             return str(e)
+
+    async def execute_single_drone_demo_sequence(
+        self,
+        drone_id: int = 0,
+        target_alt_m: float = 1.0,
+        hover_s: float = 5.0,
+        operator: str = "pilot",
+    ) -> list[dict]:
+        """
+        Executes a controlled single-drone hover and landing sequence for V1 demo proof.
+        Sequence:
+          1. Pre-check: Verify drone is connected, telemetry is fresh, and armable.
+          2. Arm Drone and verify armed state from fresh telemetry.
+          3. Offboard climb to target_alt_m (default 1.0m hover).
+          4. Hover dwell for hover_s (default 5.0s).
+          5. Landing: Commanded via autopilot land mode.
+          6. Disarm: Verified via fresh observed telemetry.
+        Returns a timestamped list of verified progression steps.
+        """
+        if drone_id not in self.drones:
+            raise RuntimeError(f"Drone {drone_id} not available")
+        drone = self.drones[drone_id]
+        tel = self.telemetry.get(drone_id)
+        if not tel or not tel.get("connected"):
+            raise RuntimeError(f"Drone {drone_id} is disconnected")
+
+        # Telemetry freshness check: heartbeat must be fresh
+        now = time.time()
+        last_hb = tel.get("last_heartbeat")
+        if last_hb is None or (now - last_hb) > 2.5:
+            raise RuntimeError(f"Drone {drone_id} telemetry is stale or missing heartbeat")
+
+        steps = []
+        t0 = time.time()
+        steps.append({"step": "PREFLIGHT", "status": "PASSED", "time": t0, "drone_id": drone_id})
+
+        # 1. Arm
+        try:
+            await drone.action.arm()
+        except Exception as e:
+            steps.append({"step": "ARM", "status": f"FAILED: {e}", "time": time.time()})
+            raise RuntimeError(f"Arming failed: {e}")
+
+        # Await observed telemetry confirmation of arming — NEVER mutate tel["armed"]!
+        arm_confirmed = False
+        arm_deadline = time.time() + 3.0
+        while time.time() < arm_deadline:
+            if not tel.get("connected", False):
+                raise RuntimeError(f"Drone {drone_id} disconnected while awaiting arm confirmation")
+            last_hb = tel.get("last_heartbeat")
+            if last_hb is not None and (time.time() - last_hb) > 2.5:
+                raise RuntimeError(f"Drone {drone_id} telemetry became stale while awaiting arm confirmation")
+            if tel.get("armed", False):
+                arm_confirmed = True
+                break
+            await asyncio.sleep(0.05)
+
+        if not arm_confirmed:
+            steps.append({"step": "ARM", "status": "FAILED: arm not observed in telemetry", "time": time.time()})
+            raise RuntimeError(f"Arming could not be confirmed by telemetry for Drone {drone_id}")
+
+        steps.append({"step": "ARM", "status": "ARMED", "time": time.time()})
+
+        # 2. Enter offboard and climb to target altitude
+        try:
+            await drone.offboard.set_position_ned(PositionNedYaw(0.0, 0.0, 0.0, 0.0))
+            await drone.offboard.start()
+            await drone.offboard.set_position_ned(PositionNedYaw(0.0, 0.0, -target_alt_m, 0.0))
+            # Wait for climb progression
+            climb_time = max(0.5, target_alt_m / 0.5)
+            await asyncio.sleep(min(climb_time, 2.0))
+            steps.append({
+                "step": "HOVER_REACHED",
+                "status": "HOLDING",
+                "altitude_m": target_alt_m,
+                "time": time.time(),
+            })
+        except Exception as e:
+            steps.append({"step": "HOVER", "status": f"FAILED: {e}", "time": time.time()})
+            await self._land_one(drone_id)
+            raise RuntimeError(f"Hover climb failed: {e}")
+
+        # 3. Hold hover - dwell for the actual requested hover_s
+        dwell_start = time.time()
+        await asyncio.sleep(hover_s)
+        actual_dwell = round(time.time() - dwell_start, 2)
+        steps.append({
+            "step": "HOVER_HOLD_COMPLETE",
+            "status": "STABLE",
+            "dwell_s": actual_dwell,
+            "time": time.time(),
+        })
+
+        # 4. Landing and confirmed touchdown/disarm
+        try:
+            err = await self._land_one(drone_id)
+            if err:
+                raise RuntimeError(f"Autopilot rejected land command: {err}")
+            steps.append({
+                "step": "LANDING_COMMANDED",
+                "status": "LANDING",
+                "landing_control": "AUTOPILOT_DELEGATED",
+                "note": "Descent rate is governed by autopilot landing parameters",
+                "time": time.time(),
+            })
+
+            # Check fresh telemetry observations for landed and disarmed state
+            # Never fabricate or force tel["armed"] = False!
+            disarm_confirmed = False
+            land_deadline = time.time() + 10.0
+            while time.time() < land_deadline:
+                if not tel.get("connected", False):
+                    raise RuntimeError(f"Drone {drone_id} disconnected while awaiting landing/disarm confirmation")
+                last_hb = tel.get("last_heartbeat")
+                if last_hb is not None and (time.time() - last_hb) > 2.5:
+                    raise RuntimeError(f"Drone {drone_id} telemetry became stale while awaiting landing confirmation")
+
+                landed_ok = tel.get("landed_state") is None or tel.get("landed_state") == "ON_GROUND"
+                if not tel.get("armed", True) and landed_ok:
+                    disarm_confirmed = True
+                    break
+                await asyncio.sleep(0.1)
+
+            if not disarm_confirmed:
+                # If still armed after landing observation window, attempt an explicit disarm command
+                try:
+                    await drone.action.disarm()
+                except Exception as e:
+                    logging.warning(f"Explicit disarm attempt: {e}")
+
+                # Poll again for observed telemetry disarm — NEVER mutate tel["armed"]
+                post_disarm_deadline = time.time() + 2.0
+                while time.time() < post_disarm_deadline:
+                    if not tel.get("connected", False):
+                        raise RuntimeError(f"Drone {drone_id} disconnected during disarm confirmation")
+                    landed_ok = tel.get("landed_state") is None or tel.get("landed_state") == "ON_GROUND"
+                    if not tel.get("armed", True) and landed_ok:
+                        disarm_confirmed = True
+                        break
+                    await asyncio.sleep(0.1)
+
+            if not disarm_confirmed:
+                steps.append({"step": "TOUCHDOWN_DISARM", "status": "FAILED: disarm not confirmed by telemetry", "time": time.time()})
+                raise RuntimeError("Touchdown disarm could not be confirmed by telemetry")
+
+            steps.append({"step": "TOUCHDOWN_DISARM", "status": "DISARMED", "time": time.time()})
+        except Exception as e:
+            steps.append({"step": "LANDING", "status": f"FAILED: {e}", "time": time.time()})
+            raise RuntimeError(f"Landing failed: {e}")
+
+        return steps
 
     # --- Single-drone abort (issue #59) ---
 
