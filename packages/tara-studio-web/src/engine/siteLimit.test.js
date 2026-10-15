@@ -58,14 +58,27 @@ describe('Studio 30m site limit', () => {
     }
   });
 
-  it('text formations (including multi-character strings) stay within SITE_RADIUS_M', () => {
+  it('text formations (including multi-character strings) stay within SITE_RADIUS_M at the design spacing, or are refused', () => {
+    // A long string at a large N cannot fit the 30 m site at 2.0 m spacing.
+    // Before, it was shrunk to fit anyway: GANPATI at N=100 built with drones
+    // 0.57 m apart. Now it is refused, never built tighter than the spacing.
+    let refused = 0;
     for (const payload of ['5', 'TARA', 'GANPATI', '00000000']) {
       for (const n of REPRESENTATIVE_N) {
-        const pts = buildFormation('text', payload, n, 1.0);
+        let pts;
+        try {
+          pts = buildFormation('text', payload, n, 1.0);
+        } catch (e) {
+          expect(e.message, `${payload}@N=${n}`).toMatch(/minimum spacing/);
+          refused++;
+          continue;
+        }
         expect(pts, `${payload}@N=${n}`).toHaveLength(n);
         expect(horizontalReach(pts), `${payload}@N=${n} reach`).toBeLessThanOrEqual(SITE_RADIUS_M + 1e-6);
+        expect(minPairwiseDist3D(pts), `${payload}@N=${n} spacing`).toBeGreaterThanOrEqual(MIN_SEPARATION_M - 1e-6);
       }
     }
+    expect(refused, 'the long strings at large N must be refused').toBeGreaterThan(0);
   });
 
   it('flat shapes at small N stay on a single altitude — no needless layering', () => {
