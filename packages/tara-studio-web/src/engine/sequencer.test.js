@@ -469,3 +469,36 @@ describe('intermediate morph separation (Fix B / issue #137)', () => {
   });
 });
 
+
+// 500 drones, the Dandiya Nights target. The built-in shapes stack upward at
+// this size (the heart reaches 84.8 m), so a morph that misses 2.0 m by a few
+// centimetres needs more layers than fit under the 120 m ceiling. These six are
+// refused rather than flown: on main each built a show that failed
+// /api/validate at 1.97 m.
+describe('500-drone transitions at the 120 m ceiling (issue #137)', () => {
+  const n = 500;
+  const shape = (spec, transitionDurationSeconds) => {
+    const [shapeType, shapePayload] = spec === '8' ? ['text', '8'] : ['parametric', spec];
+    return scene({ shapeType, shapePayload, holdDurationSeconds: 4, transitionDurationSeconds });
+  };
+  const build = (...specs) => {
+    const scenes = specs.map((spec, i) => shape(spec, i === 0 ? 4 : 6));
+    return buildSequencedShow(scenes, n, 4, computeAssignmentChainLocal(scenes, n));
+  };
+
+  it.each([
+    ['heart', 'grid'], ['grid', 'heart'],
+    ['circle', '8'], ['8', 'circle'],
+    ['heart', '8'], ['8', 'heart'],
+  ])('refuses %s -> %s instead of building it', (a, b) => {
+    expect(() => build(a, b)).toThrow(/required altitude layering exceeds 120m ceiling/);
+  }, 60_000);
+
+  it('builds heart -> grid by way of a sphere, never inside 2.0 m', () => {
+    // The choreography workaround: both legs avoid layering above the heart.
+    // The full validator also passes it (minimum 2.0 m, 3.6 m/s, 2.83 m/s^2).
+    const show = build('heart', 'sphere', 'grid');
+    expect(show.drones).toHaveLength(n);
+    expect(exactMinSeparation(show)).toBeGreaterThanOrEqual(2.0 - 1e-6);
+  }, 60_000);
+});
