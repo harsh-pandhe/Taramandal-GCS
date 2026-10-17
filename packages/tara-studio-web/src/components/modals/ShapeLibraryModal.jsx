@@ -15,11 +15,19 @@ const TILE_SAMPLE_POINTS = 34;
 // featureless horizontal line. So the preview picks whichever pair of axes the
 // shape actually varies in, and shows it face-on.
 const PreviewBox = ({ shapeType, shapePayload, scale, n }) => {
-  const pts = useMemo(
-    () => buildFormation(shapeType, shapePayload, n, scale),
-    [shapeType, shapePayload, scale, n],
-  );
+  // A formation refused at this fleet size has no preview; say so rather than
+  // throwing out of render and taking the whole Studio down.
+  const pts = useMemo(() => {
+    try {
+      return buildFormation(shapeType, shapePayload, n, scale);
+    } catch {
+      return null;
+    }
+  }, [shapeType, shapePayload, scale, n]);
 
+  if (pts === null) {
+    return <div className="shape-preview empty" title={`Not possible at ${n} drones`}>Not possible at {n} drones</div>;
+  }
   if (!pts.length) return <div className="shape-preview empty" />;
 
   const extent = (vals) => Math.max(...vals) - Math.min(...vals);

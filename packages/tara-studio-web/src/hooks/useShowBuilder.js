@@ -29,16 +29,17 @@ export default function useShowBuilder() {
     // The morphs are only collision-free under an optimal assignment, so a
     // backend that's down falls back to solving it in the browser rather than
     // to the naive drone i → point i mapping.
-    let targetIdx;
-    try {
-      targetIdx = await computeAssignmentChain(scenes, numDrones, API_BASE);
-    } catch (e) {
-      console.warn('Backend assignment unavailable, solving locally:', e.message);
-      targetIdx = computeAssignmentChainLocal(scenes, numDrones);
-    }
-
+    // Both the local solve and the build construct the formations, and either
+    // throws when one is refused; that is reported, never left unhandled.
     let show;
     try {
+      let targetIdx;
+      try {
+        targetIdx = await computeAssignmentChain(scenes, numDrones, API_BASE);
+      } catch (e) {
+        console.warn('Backend assignment unavailable, solving locally:', e.message);
+        targetIdx = computeAssignmentChainLocal(scenes, numDrones);
+      }
       show = buildSequencedShow(scenes, numDrones, Number(rate), targetIdx);
       setChoreoData(show);
       setValidation(null);

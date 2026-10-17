@@ -1,8 +1,9 @@
 import { describe, it, expect } from 'vitest';
 import {
-  buildFormation, SHAPE_LIBRARY, FORMATION_LABELS, SHOW_ALT, FORMATION_SPACING,
+  buildFormation, SHAPE_LIBRARY, FORMATION_LABELS, SHOW_ALT, FORMATION_SPACING, MIN_SEPARATION_M,
 } from './formations.js';
 import { fleetCenter } from './layout.js';
+import { makeScene, buildSequencedShow } from './sequencer.js';
 
 const SHAPES = Object.keys(FORMATION_LABELS);
 
@@ -235,5 +236,56 @@ describe('formation minimum spacing at scale > 1 (#136)', () => {
     // When an extreme scale would push stacked layers beyond the altitude ceiling
     expect(() => buildFormation('parametric', 'line', 100, 20.0)).toThrow(/exceeds maximum altitude ceiling/);
     expect(() => buildFormation('parametric', 'heart', 75, 3.0)).toThrow(/exceeds maximum altitude ceiling/);
+  });
+});
+
+describe('text formations keep the design spacing or are refused', () => {
+  // #136 guaranteed the spacing for parametric shapes only, so lettering at a
+  // large fleet was shrunk to fit the site and built without any complaint:
+  // NAVRATRI at 500 drones came out 0.11 m apart, HAPPY NAVRATRI at 40 at 1.86 m.
+  const minSpacing = (pts) => {
+    let m = Infinity;
+    for (let i = 0; i < pts.length; i++) {
+      for (let j = i + 1; j < pts.length; j++) {
+        m = Math.min(m, Math.hypot(pts[i].x - pts[j].x, pts[i].y - pts[j].y, pts[i].z - pts[j].z));
+      }
+    }
+    return m;
+  };
+
+  it.each([
+    ['NAVRATRI', 500],
+    ['NAVRATRI', 50],
+    ['HAPPY NAVRATRI', 40],
+    ['GANPATI', 100],
+    ['0', 500],
+  ])('refuses %s at %i drones instead of building it under 2.0 m', (text, n) => {
+    expect(() => buildFormation('text', text, n)).toThrow(/minimum spacing/);
+  });
+
+  it('never returns lettering closer than the design spacing', () => {
+    for (const text of ['5', '42', 'TARA', 'NAVRATRI', 'HAPPY NAVRATRI']) {
+      for (const n of [2, 12, 30, 40, 60, 100, 200]) {
+        let pts;
+        try {
+          pts = buildFormation('text', text, n);
+        } catch (e) {
+          expect(e.message, `${text}@${n}`).toMatch(/minimum spacing/);
+          continue;
+        }
+        expect(minSpacing(pts), `${text}@${n}`).toBeGreaterThanOrEqual(MIN_SEPARATION_M - 1e-6);
+      }
+    }
+  });
+
+  it('still builds the lettering that fits: NAVRATRI up to 40 drones, HAPPY NAVRATRI up to 30', () => {
+    for (const [text, n] of [['NAVRATRI', 40], ['HAPPY NAVRATRI', 30], ['5', 100]]) {
+      expect(minSpacing(buildFormation('text', text, n)), `${text}@${n}`).toBeGreaterThanOrEqual(MIN_SEPARATION_M - 1e-6);
+    }
+  });
+
+  it('fails the whole show build, so Studio reports it instead of previewing it', () => {
+    const scenes = [makeScene({ shapeType: 'text', shapePayload: 'NAVRATRI', holdDurationSeconds: 4, transitionDurationSeconds: 4 })];
+    expect(() => buildSequencedShow(scenes, 500, 4)).toThrow(/minimum spacing/);
   });
 });

@@ -67,14 +67,25 @@ export default function App() {
   // the built show's assignment — for an unchanged scene list that makes the
   // prediction match the build exactly, and any edit shows up as stale.
   const builtAssignment = choreoData?._targetIdx ?? null;
-  const predictedDuration = useMemo(
-    () => computeShowDuration(scenes, numDrones, rate, builtAssignment),
-    [scenes, numDrones, rate, builtAssignment],
-  );
-  const segments = useMemo(
-    () => buildTimelineSegments(scenes, numDrones, rate, builtAssignment),
-    [scenes, numDrones, rate, builtAssignment],
-  );
+  // A scene that cannot be built at this fleet size (a formation refused for
+  // its spacing, site or ceiling) makes the planner throw. That must show as
+  // an error, not take the whole Studio down, so the timeline falls back to
+  // the requested times and the reason is shown on the stage.
+  const { predictedDuration, segments, planError } = useMemo(() => {
+    try {
+      return {
+        predictedDuration: computeShowDuration(scenes, numDrones, rate, builtAssignment),
+        segments: buildTimelineSegments(scenes, numDrones, rate, builtAssignment),
+        planError: null,
+      };
+    } catch (e) {
+      return {
+        predictedDuration: computeShowDuration(scenes),
+        segments: buildTimelineSegments(scenes),
+        planError: e.message,
+      };
+    }
+  }, [scenes, numDrones, rate, builtAssignment]);
   const builtDuration = choreoData?._duration ?? 0;
   // Scrub against what's actually rendered, so the playhead can never point past
   // the built trajectory.
@@ -226,7 +237,7 @@ export default function App() {
               dronesList={fleet.dronesList}
               rate={rate}
               loading={loading}
-              error={error}
+              error={error || planError}
               playback={playback}
               audioPeaks={audio.peaks}
               zoom={zoom}
