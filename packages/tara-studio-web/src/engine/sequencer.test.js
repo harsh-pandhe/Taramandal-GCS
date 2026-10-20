@@ -8,6 +8,7 @@ import {
   makeScene,
   minMorphSeparation,
   computeMorphLayers,
+  morphNeedsLayering,
   TAKEOFF_SECONDS,
   LAND_SECONDS,
 } from './sequencer.js';
@@ -220,12 +221,18 @@ describe('collision avoidance at fleet scale', () => {
   it('does not stack a large fleet into a tall altitude column', () => {
     // Giving every drone its own transit band put 100 drones up to ~107 m and
     // slowed each morph to ~275 s to climb there.
+    //
+    // The bound here is looser than it once was: widening the direct-vs-
+    // layered trigger to LAYER_CLEARANCE (issue #141/#153, so a hairline
+    // analytic margin can't be erased by cm export-rounding) now layers a few
+    // morphs that used to fly direct, adding a modest amount of time — nowhere
+    // near the ~275 s this guards against.
     const scenes = acceptanceScenes();
     const show = buildSequencedShow(scenes, 100, 4, computeAssignmentChainLocal(scenes, 100));
     let peak = 0;
     for (const d of show.drones) for (const w of d.waypoints) peak = Math.max(peak, -w.z);
     expect(peak).toBeLessThan(50);
-    expect(show._duration).toBeLessThan(150);
+    expect(show._duration).toBeLessThan(180);
   });
 
   it('predicts the built duration exactly for a real assignment', () => {
@@ -501,4 +508,49 @@ describe('500-drone transitions at the 120 m ceiling (issue #137)', () => {
     expect(show.drones).toHaveLength(n);
     expect(exactMinSeparation(show)).toBeGreaterThanOrEqual(2.0 - 1e-6);
   }, 60_000);
+});
+
+// Vishal's repro (issue #141/#153): a pair whose analytic separation clears
+// the 2.0 m design limit comfortably enough to have flown direct under the
+// old `sep < DESIGN_SEPARATION` trigger, but whose cm-rounded export position
+// (round2 below, matching tara_studio.exporter's int16-centimetre packing)
+// lands under it. Found by numeric search, not hand-picked: it's an existence
+// proof that the gap between "safe before rounding" and "safe after rounding"
+// is real, not that these two exact points are special.
+describe('the direct-vs-layered trigger absorbs export rounding (issue #141/#153)', () => {
+  const A = { x: -0.7649384176267587, y: -0.6145833536300834, z: -1.7546073069192394 };
+  const B = { x: -0.006217378944141877, y: -0.00870860593605212, z: -0.0059681580638111555 };
+  const round2 = (v) => parseFloat(v.toFixed(2));
+  const roundedDist = (p, q) => Math.hypot(
+    round2(p.x) - round2(q.x), round2(p.y) - round2(q.y), round2(p.z) - round2(q.z),
+  );
+
+  it('is a real rounding erosion case: safe analytically, unsafe once rounded', () => {
+    const trueSep = minMorphSeparation([A, B], [A, B]);
+    // >= 2.0: did not need layering under the old, design-limit-only trigger.
+    expect(trueSep).toBeGreaterThanOrEqual(2.0);
+    // < 2.05 (LAYER_CLEARANCE): does need it under the fixed one.
+    expect(trueSep).toBeLessThan(2.05);
+    expect(roundedDist(A, B)).toBeLessThan(2.0);
+  });
+
+  it('is flagged as needing layering by the fixed trigger', () => {
+    expect(morphNeedsLayering([A, B], [A, B])).toBe(true);
+  });
+
+  it('gets an actual layering plan rather than a refusal', () => {
+    // Not merely "refused": a valid plan exists that puts the two drones in
+    // different layers, so the show still flies this transition, just not
+    // direct through the same altitude band.
+    const layer = computeMorphLayers([A, B], [A, B]);
+    expect(layer).not.toBeNull();
+    expect(layer[0]).not.toBe(layer[1]);
+  });
+
+  it('disabling the wider trigger reproduces the bug (sanity check on the test itself)', () => {
+    // If the trigger were reverted to the old `sep < DESIGN_SEPARATION`, this
+    // pair would not be flagged, proving the first two assertions above
+    // actually depend on the fix and are not vacuously true.
+    expect(minMorphSeparation([A, B], [A, B]) < 2.0).toBe(false);
+  });
 });
