@@ -58,9 +58,13 @@ export const exportShow = async ({ choreo, format, homeLat, homeLon, ledTrack, r
     ...(rateHz ? { rate_hz: Number(rateHz) } : {}),
   });
   if (!res.ok) {
-    // e.g. a 409 explaining that the signing key is missing or unreadable.
+    // e.g. a 409 explaining that the signing key is missing or unreadable, or
+    // a 400 refusing the show — `detail` is a plain string for some of these
+    // and a {message, errors} object for others (schema violations, the
+    // separation gate), so only the former can be used as-is.
     const details = await res.json().catch(() => ({}));
-    throw new Error(details.detail || 'File export failed.');
+    const detail = typeof details.detail === 'string' ? details.detail : details.detail?.message;
+    throw new Error(detail || 'File export failed.');
   }
   return res.json();
 };

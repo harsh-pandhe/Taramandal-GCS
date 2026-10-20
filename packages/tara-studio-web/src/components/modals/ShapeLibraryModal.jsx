@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import { X, Check } from 'lucide-react';
 import { SHAPE_LIBRARY, buildFormation } from '../../engine/formations.js';
+import { ShowRefusalError } from '../../engine/showErrors.js';
 import { Slider } from '../common/index.jsx';
 
 // Point count used for the library tiles, independent of the real fleet size —
@@ -15,11 +16,22 @@ const TILE_SAMPLE_POINTS = 34;
 // featureless horizontal line. So the preview picks whichever pair of axes the
 // shape actually varies in, and shows it face-on.
 const PreviewBox = ({ shapeType, shapePayload, scale, n }) => {
-  const pts = useMemo(
-    () => buildFormation(shapeType, shapePayload, n, scale),
-    [shapeType, shapePayload, scale, n],
-  );
+  // A shape/scale/fleet-size combination can be geometrically infeasible (too
+  // many drones for the site radius, below minimum spacing, above the
+  // altitude ceiling) — expected input the slider can reach any time it
+  // moves, not a bug. This runs inside render, so only that specific refusal
+  // is swallowed into an inline message; anything else still crashes loudly
+  // rather than silently showing an empty preview (issue #141).
+  const { pts, refusal } = useMemo(() => {
+    try {
+      return { pts: buildFormation(shapeType, shapePayload, n, scale), refusal: null };
+    } catch (e) {
+      if (e instanceof ShowRefusalError) return { pts: [], refusal: e.message };
+      throw e;
+    }
+  }, [shapeType, shapePayload, scale, n]);
 
+  if (refusal) return <div className="shape-preview empty" title={refusal} />;
   if (!pts.length) return <div className="shape-preview empty" />;
 
   const extent = (vals) => Math.max(...vals) - Math.min(...vals);

@@ -43,6 +43,7 @@
 import { buildFormation } from './formations.js';
 import { SHOW_ALT, padAt, hoverAt } from './layout.js';
 import { optimalAssignment } from './assignment.js';
+import { ShowRefusalError } from './showErrors.js';
 
 export const TAKEOFF_SECONDS = 5.0;
 export const LAND_SECONDS = 5.0;
@@ -157,6 +158,22 @@ export const minMorphSeparation = (from, to) => {
 };
 
 /**
+ * Whether a morph's analytic (unrounded) separation is close enough to the
+ * design limit that cm-rounding on export could erode it below that limit,
+ * and the morph should therefore be flown layered rather than direct.
+ *
+ * The trigger is LAYER_CLEARANCE, not DESIGN_SEPARATION: a pair exactly on
+ * the design limit is geometrically safe before rounding, but every waypoint
+ * is rounded to the centimetre on export (round2 below, matching
+ * tara_studio.exporter's int16-centimetre packing), and each drone's
+ * independent rounding can erode a hairline margin — a pair analytically
+ * 2.0001 m apart has rounded to as little as 1.99 m in practice. The 0.05 m
+ * margin absorbs that: two independently-rounded 3D points move by at most
+ * sqrt(3)*0.005 m each, ~0.0173 m combined, well inside the margin (#141).
+ */
+export const morphNeedsLayering = (from, to) => minMorphSeparation(from, to) < LAYER_CLEARANCE;
+
+/**
  * Layer index per drone for a layered morph (lift, transit at layer height,
  * descent), or null when no layering keeps every pair apart.
  *
@@ -268,16 +285,15 @@ const planShow = (scenes, n, targetIdx) => {
   const legs = [];
   const move = (kind, label, sceneId, group, from, to, requested) => {
     if (kind === 'morph') {
-      const sep = minMorphSeparation(from, to);
-      if (sep < DESIGN_SEPARATION) {
+      if (morphNeedsLayering(from, to)) {
         const minFrom = minPairDist(from);
         const minTo = minPairDist(to);
         if (minFrom < DESIGN_SEPARATION - 1e-4 || minTo < DESIGN_SEPARATION - 1e-4) {
-          throw new Error(`Morph "${label}" cannot be made collision-free: endpoint spacing is below minimum separation (${Math.min(minFrom, minTo).toFixed(2)}m < ${DESIGN_SEPARATION}m).`);
+          throw new ShowRefusalError(`Morph "${label}" cannot be made collision-free: endpoint spacing is below minimum separation (${Math.min(minFrom, minTo).toFixed(2)}m < ${DESIGN_SEPARATION}m).`);
         }
         const layer = computeMorphLayers(from, to);
         if (!layer) {
-          throw new Error(`Morph "${label}" cannot be made collision-free: two drones would have to swap their vertical order in the same column.`);
+          throw new ShowRefusalError(`Morph "${label}" cannot be made collision-free: two drones would have to swap their vertical order in the same column.`);
         }
         // A little over the design limit, so sampling and rounding cannot
         // shave a layered pair under it.
@@ -286,7 +302,7 @@ const planShow = (scenes, n, targetIdx) => {
         const highestAlt = Math.min(...from.map((p) => p.z), ...to.map((p) => p.z));
         const ceilingZ = -(120.0);
         if (highestAlt - (maxLayer + 1) * gap < ceilingZ) {
-          throw new Error(`Morph "${label}" cannot be made collision-free: required altitude layering exceeds 120m ceiling.`);
+          throw new ShowRefusalError(`Morph "${label}" cannot be made collision-free: required altitude layering exceeds 120m ceiling.`);
         }
         const fromUp = from.map((p, i) => ({ x: p.x, y: p.y, z: highestAlt - (layer[i] + 1) * gap }));
         const toUp = to.map((p, i) => ({ x: p.x, y: p.y, z: highestAlt - (layer[i] + 1) * gap }));
@@ -296,7 +312,7 @@ const planShow = (scenes, n, targetIdx) => {
         for (const [a, b] of [[from, fromUp], [fromUp, toUp], [toUp, to]]) {
           const legSep = minMorphSeparation(a, b);
           if (legSep < DESIGN_SEPARATION - 1e-6) { // pads sit exactly 2.0 m apart
-            throw new Error(`Morph "${label}" cannot be made collision-free: a layered leg comes within ${legSep.toFixed(2)}m.`);
+            throw new ShowRefusalError(`Morph "${label}" cannot be made collision-free: a layered leg comes within ${legSep.toFixed(2)}m.`);
           }
         }
 
