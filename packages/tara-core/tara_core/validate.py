@@ -57,6 +57,62 @@ def _positions_at(show: Show, t: float) -> tuple[dict, dict]:
     return xyz, states
 
 
+def _altitude_extremes(show: Show, limits: SafetyLimits) -> tuple[dict, float, float]:
+    """Scan every drone's raw waypoints (not a time sweep) for ceiling and ground breaches.
+
+    Altitude (``-z`` in NED) is linearly interpolated between consecutive
+    waypoints, so on any one segment it is a linear function of time — and a
+    linear function's extreme values over an interval are always at the
+    interval's own endpoints, never strictly between them. The true peak and
+    trough altitude of the whole show are therefore always achieved exactly
+    at a waypoint, so checking every waypoint once is exact: it cannot miss a
+    peak between two waypoints (there is no such peak to miss), and unlike
+    the velocity/acceleration/yaw-rate checks above it needs no ``dt`` sweep
+    and cannot be weakened by picking a coarser one. A sweep sampled at a
+    fixed ``dt`` can still miss a peak that falls between two *sweep*
+    instants without landing on one, if that peak is itself a waypoint —
+    exactly the gap this function closes.
+
+    Args:
+        show: The show to scan.
+        limits: Supplies ``max_altitude_m``.
+
+    Returns:
+        ``(found, max_altitude_m, min_altitude_m)`` — ``found`` has keys
+        ``"altitude"`` (above ``limits.max_altitude_m``) and ``"ground"``
+        (below 0.0 m, i.e. ``z > 0``), each a list of
+        ``(excess_metres, violation_dict)`` in the same shape every other
+        check in this module uses. The two metres are the true global
+        extremes, for the ``metrics`` dict, ``0.0``/``0.0`` if the show has
+        no waypoints at all.
+    """
+    found: dict[str, list[tuple[float, dict]]] = {"altitude": [], "ground": []}
+    max_alt, min_alt = -float("inf"), float("inf")
+    for drone_id, wps in show.drones.items():
+        for wp in wps:
+            alt = -wp["z"]
+            max_alt = max(max_alt, alt)
+            min_alt = min(min_alt, alt)
+            # Strict: exactly at the ceiling (120.00 m) passes, no tolerance.
+            if alt > limits.max_altitude_m:
+                found["altitude"].append((alt - limits.max_altitude_m, {
+                    "time": round(wp["time"], 2),
+                    "drone": drone_id,
+                    "altitude": round(alt, 2),
+                    "limit": round(limits.max_altitude_m, 2),
+                }))
+            elif alt < 0.0:
+                found["ground"].append((-alt, {
+                    "time": round(wp["time"], 2),
+                    "drone": drone_id,
+                    "altitude": round(alt, 2),
+                    "limit": 0.0,
+                }))
+    if max_alt == -float("inf"):  # no waypoints at all
+        max_alt = min_alt = 0.0
+    return found, round(max_alt, 2), round(min_alt, 2)
+
+
 def validate_show(
     data,
     limits: SafetyLimits = DEFAULT_LIMITS,
@@ -77,6 +133,14 @@ def validate_show(
         ``metrics``, ``violations`` (at most ``_MAX_REPORTED`` per kind, see
         :func:`_report_subset`) and ``worst_violations`` (the single worst of
         each kind, or ``None``). Each violation carries the limit it broke.
+
+        ``violations`` includes ``altitude`` (above ``limits.max_altitude_m``)
+        and ``ground`` (below ground, ``z > 0`` in NED) alongside the four
+        motion categories. Unlike separation there is only one
+        ``max_altitude_m``, not a stricter design value and a looser runtime
+        one: issue #148 found the backend enforced no altitude ceiling at
+        all, so there is no existing runtime number to stay stricter than —
+        this is the first and only gate.
     """
     show = Show.from_any(data)
     threshold = limits.design_separation_m if separation is None else separation
@@ -86,6 +150,8 @@ def validate_show(
         "velocity": [],
         "acceleration": [],
         "yaw_rate": [],
+        "altitude": [],
+        "ground": [],
     }
 
     if not show.drones:
@@ -97,6 +163,8 @@ def validate_show(
                 "max_velocity_m_s": 0.0,
                 "max_acceleration_m_s2": 0.0,
                 "max_yaw_rate_deg_s": 0.0,
+                "max_altitude_m": 0.0,
+                "min_altitude_m": 0.0,
             },
             "violations": violations,
             "worst_violations": {key: None for key in violations},
@@ -108,6 +176,18 @@ def validate_show(
     min_dist = float("inf")
     max_vel = max_acc = max_yaw_rate = 0.0
     prev: dict[int, dict] = {}
+
+    # Altitude is checked once, directly on the raw waypoints (see
+    # _altitude_extremes), not by the dt sweep below. The sweep exists to find
+    # extrema that can genuinely occur strictly inside a segment — that is
+    # why proximity (a quadratic in time between two moving drones) and
+    # velocity/acceleration need the fine time resolution — but a single
+    # drone's altitude is linear in time on each segment, whose extremum is
+    # always at a waypoint, so sweeping it would only add sampling-rate risk
+    # with no exactness to gain.
+    altitude_found, max_alt, min_alt = _altitude_extremes(show, limits)
+    found["altitude"] = altitude_found["altitude"]
+    found["ground"] = altitude_found["ground"]
 
     for t in sweep_times(show.duration, dt):
         xyz, states = _positions_at(show, t)
@@ -201,6 +281,8 @@ def validate_show(
             "max_velocity_m_s": round(max_vel, 2),
             "max_acceleration_m_s2": round(max_acc, 2),
             "max_yaw_rate_deg_s": round(max_yaw_rate, 2),
+            "max_altitude_m": max_alt,
+            "min_altitude_m": min_alt,
         },
         "violations": violations,
         "worst_violations": worst_violations,
@@ -241,4 +323,51 @@ def collision_errors(
             )
             if len(errors) >= max_errors:
                 return errors
+    return errors
+
+
+def altitude_errors(
+    data,
+    limits: SafetyLimits = DEFAULT_LIMITS,
+    max_errors: int = 3,
+) -> list[str]:
+    """Return human-readable altitude/ground errors, or an empty list if the show is safe.
+
+    The gate that closes issue #148: before this function existed, no backend
+    code path enforced the 120 m ceiling at all (it was a Studio-frontend-only
+    guard — see ``packages/tara-studio-web/src/engine/formations.js`` and
+    issue #141's planner), so any client that did not go through the Studio
+    UI could upload or export a show flying arbitrarily high.
+
+    Args:
+        data: A :class:`~tara_core.show.Show` or either supported dict shape.
+        limits: Safety limits to enforce.
+        max_errors: Stop after this many errors.
+
+    Returns:
+        Formatted error strings, at most ``max_errors`` of them. Checks every
+        waypoint directly, not a time sweep — see :func:`_altitude_extremes`
+        for why that is exact rather than an approximation.
+    """
+    show = Show.from_any(data)
+    found, _, _ = _altitude_extremes(show, limits)
+
+    errors: list[str] = []
+    # Both categories merged and re-sorted by time, so a show that breaches
+    # both the ceiling and the ground reports them in the order they happen,
+    # not all of one kind before any of the other.
+    combined = sorted(found["altitude"] + found["ground"], key=lambda item: item[1]["time"])
+    for _, v in combined:
+        if v["limit"] == 0.0:
+            errors.append(
+                f"Ground violation at {v['time']:.1f}s: Drone {v['drone']} is "
+                f"{-v['altitude']:.2f}m below ground level."
+            )
+        else:
+            errors.append(
+                f"Altitude violation at {v['time']:.1f}s: Drone {v['drone']} is "
+                f"{v['altitude']:.2f}m above ground (limit: {v['limit']}m)."
+            )
+        if len(errors) >= max_errors:
+            return errors
     return errors

@@ -31,7 +31,7 @@ from .mission import (
 from .proximity import close_pairs, min_separation
 from .safety import DEFAULT_LIMITS, SafetyLimits
 from .show import SHOW_FORMAT_VERSION, SHOW_SCHEMA_PATH, Show, ShowContainer, Waypoint
-from .validate import collision_errors, validate_show
+from .validate import altitude_errors, collision_errors, validate_show
 
 __all__ = [
     "BASE_HOVER_ALT_M",
@@ -46,6 +46,7 @@ __all__ = [
     "Show",
     "ShowContainer",
     "Waypoint",
+    "altitude_errors",
     "altitude_layers",
     "close_pairs",
     "collision_errors",

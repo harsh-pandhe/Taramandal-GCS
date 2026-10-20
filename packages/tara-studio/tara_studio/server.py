@@ -57,6 +57,7 @@ from tara_studio.voxelizer import (
     voxelize,
 )
 from tara_core import DEFAULT_LIMITS, MAX_FLEET_SIZE
+from tara_core.validate import altitude_errors
 from tara_core.assignment import optimal_assignment
 
 app = FastAPI(title="Taramandal Studio Choreography Engine", version="1.0.0")
@@ -520,6 +521,22 @@ def api_export(req: ExportRequest):
     # generator's default output currently clears the jerk bound, unrelated
     # to what #60 asked for. Hard-blocking here would break every real export
     # the moment this merges. Revisit once those are fixed.
+    #
+    # The 120 m ceiling (issue #148) is a different kind of bound, not a
+    # choreography-quality one like jerk: it is an absolute physical/airspace
+    # limit, the client-side formation builder has always refused to generate
+    # anything above it (see formations.js and the #141 morph planner), and
+    # nothing about it is close to unreachable the way a clean jerk bound
+    # currently is. So, unlike jerk, this one blocks: before this check, no
+    # backend code path enforced it at all, so a client bypassing the Studio
+    # UI (or a show built before #140/#141 existed) could export and fly
+    # arbitrarily high.
+    altitude_issues = altitude_errors(choreo, limits=DEFAULT_LIMITS)
+    if altitude_issues:
+        raise HTTPException(
+            status_code=400,
+            detail={"message": "Show exceeds the altitude ceiling or ground level.", "errors": altitude_issues},
+        )
 
     # Bake the LED track server-side when one is supplied, so a .tara compiled
     # here matches what the Studio preview showed rather than depending on the

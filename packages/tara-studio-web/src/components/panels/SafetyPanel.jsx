@@ -31,7 +31,12 @@ export default function SafetyPanel({ validation, choreoData }) {
   const m = validation.metrics;
   const v = validation.violations || { proximity: [], velocity: [], acceleration: [], jerk: [] };
   const jerkViolations = v.jerk || [];
-  const total = v.proximity.length + v.velocity.length + v.acceleration.length + jerkViolations.length;
+  // Issue #148: altitude/ground are new backend categories, so a cached or
+  // pre-#148 report simply has neither key.
+  const altitudeViolations = v.altitude || [];
+  const groundViolations = v.ground || [];
+  const total = v.proximity.length + v.velocity.length + v.acceleration.length + jerkViolations.length
+    + altitudeViolations.length + groundViolations.length;
   const passed = validation.status === 'PASSED';
 
   return (
@@ -84,6 +89,18 @@ export default function SafetyPanel({ validation, choreoData }) {
           <div key={`j-${i}`} className="violation-item">
             <span>Jerk · Drone {x.drone}</span>
             <span className="v-warn">{x.jerk}m/s³ @ {x.time}s</span>
+          </div>
+        ))}
+        {altitudeViolations.map((x, i) => (
+          <div key={`alt-${i}`} className="violation-item">
+            <span>Altitude · Drone {x.drone}</span>
+            <span className="v-danger">{x.altitude}m @ {x.time}s</span>
+          </div>
+        ))}
+        {groundViolations.map((x, i) => (
+          <div key={`gnd-${i}`} className="violation-item">
+            <span>Below ground · Drone {x.drone}</span>
+            <span className="v-danger">{x.altitude}m @ {x.time}s</span>
           </div>
         ))}
         {total === 0 && <div className="violations-none">Zero failsafe exceptions raised.</div>}
