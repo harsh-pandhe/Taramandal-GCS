@@ -287,6 +287,71 @@ async def test_single_drone_fails_closed_on_disarm_timeout(commander, patched_ma
 
 
 @pytest.mark.asyncio
+async def test_single_drone_fails_closed_on_mid_air_disarm(commander, patched_manager, monkeypatch):
+    """issue #145: a drone that disarms mid-air (fault, failsafe, a bug) must
+    never be reported as a normal landing. Before this fix, landed_state was
+    never populated, so the touchdown check read it as vacuously "landed" and
+    this exact scenario would have reported DISARMED/success."""
+    manager = patched_manager(DroneManager(ports=[14540], backend="sim"))
+    try:
+        await manager.connect_all()
+        await asyncio.sleep(0.3)
+
+        # Let arming happen for real (it's confirmed within ~0.05-0.1s - see
+        # test_single_drone_sim_reports_on_ground_after_a_real_landing, which
+        # doesn't patch anything), then force every subsequent telemetry sync
+        # to report drone 0 as disarmed but still airborne - faking a
+        # fault/failsafe mid-air disarm. Overriding the sync itself (rather
+        # than the value between syncs) means the sim's own background loop
+        # can't race this by converging to a real landed state in between.
+        # Gated on elapsed wall-clock time, not an "armed observed" flag:
+        # that flag would race the production arm-confirmation poll for the
+        # same tick's value and could flip it back before that poll ever
+        # observes True.
+        original_ingest = manager._ingest_bulk_telemetry
+        start = time.monotonic()
+        def faking_ingest(snap, include_slow):
+            original_ingest(snap, include_slow)
+            if time.monotonic() - start > 1.0:
+                tel = manager.telemetry[0]
+                tel["armed"] = False
+                tel["landed_state"] = "IN_AIR"
+        monkeypatch.setattr(manager, "_ingest_bulk_telemetry", faking_ingest)
+
+        with pytest.raises(HTTPException) as exc:
+            await gcs_main.run_single_drone_sequence(
+                gcs_main.SingleDroneSequenceRequest(target_altitude_m=0.5, hover_duration_s=1.0),
+                operator=commander,
+            )
+        assert exc.value.status_code == 500
+        assert "Touchdown disarm could not be confirmed" in exc.value.detail
+    finally:
+        await manager.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_single_drone_sim_reports_on_ground_after_a_real_landing(commander, patched_manager):
+    """issue #145: landed_state is populated from real sim physics (altitude
+    and vertical speed), not merely inferred from disarm - a genuine landing
+    reports ON_GROUND independently of the disarm check."""
+    manager = patched_manager(DroneManager(ports=[14540], backend="sim"))
+    try:
+        await manager.connect_all()
+        await asyncio.sleep(0.3)
+        assert manager.telemetry[0]["landed_state"] == "ON_GROUND"
+
+        result = await gcs_main.run_single_drone_sequence(
+            gcs_main.SingleDroneSequenceRequest(target_altitude_m=0.5, hover_duration_s=1.0),
+            operator=commander,
+        )
+        assert result["steps"][-1]["step"] == "TOUCHDOWN_DISARM"
+        assert result["steps"][-1]["status"] == "DISARMED"
+        assert manager.telemetry[0]["landed_state"] == "ON_GROUND"
+    finally:
+        await manager.shutdown()
+
+
+@pytest.mark.asyncio
 async def test_single_drone_fails_closed_when_disconnected(commander, patched_manager):
     manager = patched_manager(DroneManager(ports=[14540], backend="sim"))
     try:
