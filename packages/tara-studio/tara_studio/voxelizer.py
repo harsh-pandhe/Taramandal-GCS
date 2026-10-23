@@ -554,7 +554,9 @@ def sample_mesh_point_cloud(
     elif isinstance(mesh_data, str) and file_type:
         loaded = trimesh.load(io.BytesIO(mesh_data.encode("utf-8")), file_type=file_type)
     else:
-        loaded = trimesh.load(mesh_data, force="mesh")
+        raise ValueError(
+            "file_type is required ('obj' or 'stl') for mesh data; direct server file paths are not permitted"
+        )
 
     # A .obj with several objects loads as a Scene; flatten it to one surface.
     if isinstance(loaded, trimesh.Scene):

@@ -265,11 +265,13 @@ class TestSvgAndMeshSampling:
         # The apex end is narrow, the base is wide: fewer points up top.
         assert top_half.sum() < (~top_half).sum()
 
-    def test_mesh_loads_from_path_bytes_and_obj(self, stl_file, stl_bytes, obj_bytes):
-        from_path = voxelize("mesh", stl_file, 50)
+    def test_mesh_loads_from_bytes_and_obj_and_rejects_paths(self, stl_file, stl_bytes, obj_bytes):
+        # Direct server file paths are rejected for security
+        with pytest.raises(ValueError, match="direct server file paths are not permitted"):
+            voxelize("mesh", stl_file, 50)
         from_bytes = voxelize("mesh", stl_bytes, 50, file_type="stl")
         from_obj = voxelize("mesh", obj_bytes, 50, file_type="obj")
-        for result in (from_path, from_bytes, from_obj):
+        for result in (from_bytes, from_obj):
             assert len(result["coordinates"]) == 50
             assert np.all(np.isfinite(coords_array(result)))
 
@@ -508,10 +510,20 @@ class TestVoxelizeEndpoint:
         assert response.status_code == 200
         assert len(response.json()["coordinates"]) == 80
 
-    def test_endpoint_mesh_source_from_path(self, client, stl_file):
-        response = client.post(
+    def test_endpoint_mesh_rejects_paths_and_accepts_raw_content(self, client, stl_file, obj_bytes):
+        # Direct server filesystem paths must be rejected for security
+        path_resp = client.post(
             "/api/voxelize",
             json={"source_type": "mesh", "content": stl_file, "drone_count": 80},
+        )
+        assert path_resp.status_code == 400
+        assert "direct server file paths are not permitted" in path_resp.json()["detail"]
+
+        # Raw OBJ text/bytes with file_type="obj" is accepted and bounded
+        obj_text = obj_bytes if isinstance(obj_bytes, str) else obj_bytes.decode("utf-8")
+        response = client.post(
+            "/api/voxelize",
+            json={"source_type": "mesh", "content": obj_text, "drone_count": 80, "file_type": "obj"},
         )
         assert response.status_code == 200
         body = response.json()
