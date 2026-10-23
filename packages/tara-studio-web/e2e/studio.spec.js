@@ -837,3 +837,20 @@ test.describe('stage camera', () => {
     await expect(resetButton).toBeDisabled();
   });
 });
+
+// A formation refused at the current fleet size (here the demo show's digits,
+// which cannot hold 2.0 m at 500 drones) must be reported, not crash the Studio.
+test('a fleet too large for a scene shows the reason instead of crashing', async ({ page }) => {
+  await openStudio(page);
+  await page.getByRole('button', { name: 'Swarm Fleet' }).click();
+  await page.getByLabel(/Fleet size/).fill('500');
+  await expect(page.getByTestId('fleet-count')).toContainText('500 vehicles');
+  await expect(page.getByText('Studio hit a rendering error')).toHaveCount(0);
+
+  await page.getByRole('button', { name: 'Sequencer', exact: true }).click();
+  await expect(page.locator('.viewport-error')).toContainText(/minimum spacing/);
+
+  await page.getByRole('button', { name: 'Generate Sequence' }).click();
+  await expect(page.locator('.viewport-error')).toContainText(/Sequence build failed: .*minimum spacing/);
+  await expect(page.getByText('Studio hit a rendering error')).toHaveCount(0);
+});
