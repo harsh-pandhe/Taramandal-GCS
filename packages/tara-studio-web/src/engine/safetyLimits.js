@@ -33,7 +33,7 @@ export function judgeMetrics(metrics, limits) {
     return value <= limits[key] ? 'passed' : 'danger';
   };
 
-  return [
+  const cards = [
     {
       key: 'separation',
       title: 'Min Sep',
@@ -69,4 +69,21 @@ export function judgeMetrics(metrics, limits) {
       limitLabel: has('max_yaw_rate_dps') ? `≤ ${fmt(limits.max_yaw_rate_dps)} °/s` : 'limit unknown',
     },
   ];
+
+  // Issue #148: before the backend enforced the ceiling at all, there was no
+  // altitude metric to show. A report from before that change (an older
+  // backend, or a cached result) simply has no `max_altitude_m` key — the
+  // card is left out entirely rather than shown with an undefined value.
+  if (typeof metrics.max_altitude_m === 'number') {
+    cards.push({
+      key: 'altitude',
+      title: 'Max Altitude',
+      value: metrics.max_altitude_m,
+      unit: 'm',
+      status: ceiling(metrics.max_altitude_m, 'max_altitude_m'),
+      limitLabel: has('max_altitude_m') ? `≤ ${fmt(limits.max_altitude_m)} m` : 'limit unknown',
+    });
+  }
+
+  return cards;
 }

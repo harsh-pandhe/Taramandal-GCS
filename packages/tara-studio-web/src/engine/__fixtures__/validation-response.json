@@ -5,7 +5,9 @@
     "min_distance_m": 1.8,
     "max_velocity_m_s": 0.0,
     "max_acceleration_m_s2": 0.0,
-    "max_yaw_rate_deg_s": 0.0
+    "max_yaw_rate_deg_s": 0.0,
+    "max_altitude_m": 5.0,
+    "min_altitude_m": 5.0
   },
   "violations": {
     "proximity": [
@@ -15,7 +17,20 @@
           0,
           1
         ],
-        "distance": 1.8
+        "distance": 1.8,
+        "limit": 2.0,
+        "positions": {
+          "0": [
+            0.0,
+            0.0,
+            -5.0
+          ],
+          "1": [
+            0.0,
+            1.8,
+            -5.0
+          ]
+        }
       },
       {
         "time": 0.1,
@@ -23,7 +38,20 @@
           0,
           1
         ],
-        "distance": 1.8
+        "distance": 1.8,
+        "limit": 2.0,
+        "positions": {
+          "0": [
+            0.0,
+            0.0,
+            -5.0
+          ],
+          "1": [
+            0.0,
+            1.8,
+            -5.0
+          ]
+        }
       },
       {
         "time": 0.2,
@@ -31,12 +59,55 @@
           0,
           1
         ],
-        "distance": 1.8
+        "distance": 1.8,
+        "limit": 2.0,
+        "positions": {
+          "0": [
+            0.0,
+            0.0,
+            -5.0
+          ],
+          "1": [
+            0.0,
+            1.8,
+            -5.0
+          ]
+        }
       }
     ],
     "velocity": [],
     "acceleration": [],
-    "yaw_rate": []
+    "yaw_rate": [],
+    "altitude": [],
+    "ground": []
+  },
+  "worst_violations": {
+    "proximity": {
+      "time": 0.0,
+      "drones": [
+        0,
+        1
+      ],
+      "distance": 1.8,
+      "limit": 2.0,
+      "positions": {
+        "0": [
+          0.0,
+          0.0,
+          -5.0
+        ],
+        "1": [
+          0.0,
+          1.8,
+          -5.0
+        ]
+      }
+    },
+    "velocity": null,
+    "acceleration": null,
+    "yaw_rate": null,
+    "altitude": null,
+    "ground": null
   },
   "limits": {
     "min_separation_m": 1.5,

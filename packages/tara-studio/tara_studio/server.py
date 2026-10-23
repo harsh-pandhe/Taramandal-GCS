@@ -4,6 +4,7 @@ Exposes API endpoints for generating, validating, and exporting drone shows.
 """
 
 import base64
+import os
 from dataclasses import asdict
 
 from fastapi import FastAPI, HTTPException
@@ -58,14 +59,35 @@ from tara_studio.voxelizer import (
     voxelize,
 )
 from tara_core import DEFAULT_LIMITS, MAX_FLEET_SIZE
+from tara_core.validate import altitude_errors
 from tara_core.assignment import optimal_assignment
 
 app = FastAPI(title="Taramandal Studio Choreography Engine", version="1.0.0")
 
+DEFAULT_STUDIO_ORIGINS = [
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
+    "http://localhost:8001",
+    "http://127.0.0.1:8001",
+    "http://localhost:8090",
+    "http://127.0.0.1:8090",
+]
+
+raw_origins = os.environ.get("STUDIO_ALLOWED_ORIGINS")
+if raw_origins:
+    allowed_origins = [o.strip() for o in raw_origins.split(",") if o.strip()]
+else:
+    allowed_origins = DEFAULT_STUDIO_ORIGINS
+
+allow_creds = True
+if "*" in allowed_origins:
+    # Security: wildcard origin cannot be combined with allow_credentials=True
+    allow_creds = False
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Open API access for local dashboard utility
-    allow_credentials=True,
+    allow_origins=allowed_origins,
+    allow_credentials=allow_creds,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -198,8 +220,9 @@ class VoxelizeRequest(BaseModel):
     source_type: str = Field("text", description="Geometry source: text, svg, mesh")
     content: str = Field(
         ...,
+        max_length=500_000,
         description=(
-            "Text to form, SVG path/document markup, or a path to an .obj/.stl file"
+            "Text to form, SVG path/document markup, or raw .obj/.stl data"
         ),
     )
     drone_count: int = Field(
@@ -502,6 +525,18 @@ def api_export(req: ExportRequest):
         raise HTTPException(status_code=400, detail=f"Only {', '.join(sorted(SIGNABLE_FORMATS))} exports can be signed.")
     rate_hz = req.rate_hz or 0.0
 
+    # The 120 m ceiling (issue #148) is checked unconditionally, before any
+    # certification branching below: it's an absolute physical/airspace limit,
+    # not a choreography-quality one, and the canonical gate below only runs
+    # for non-preview exports. This way the ceiling holds even for
+    # preview_only exports, regardless of how that branch evolves.
+    altitude_issues = altitude_errors(choreo, limits=DEFAULT_LIMITS)
+    if altitude_issues:
+        raise HTTPException(
+            status_code=400,
+            detail={"message": "Show exceeds the altitude ceiling or ground level.", "errors": altitude_issues},
+        )
+
     # Bake the LED track server-side when one is supplied, so a .tara compiled
     # here matches what the Studio preview showed rather than depending on the
     # client having already written r/g/b/w onto every waypoint. Colours only
@@ -518,31 +553,56 @@ def api_export(req: ExportRequest):
         except (ValueError, KeyError) as e:
             raise HTTPException(status_code=400, detail=f"Bad LED track: {e}")
 
-    # Canonical backend safety gate (issue #128 / #139)
-    # Direct /api/export calls must pass canonical flight certification (core safety PASSED
-    # and 0 jerk violations). FAILED, UNVERIFIED, malformed, or core-passed but jerk-violating
-    # shows fail closed (HTTP 412). Non-flight preview exports must be explicitly flagged
-    # (preview_only=True), are labeled preview-only, and can never be signed.
+    # Canonical backend safety gate (issue #128 / #139 / #143 / #157)
+    # One certification sweep covers both branches. Flight exports require
+    # full certification: core safety PASSED and 0 jerk violations.
+    #
+    # Preview-only exports (issue #143) still require core safety - proximity,
+    # velocity, acceleration, yaw rate, and the altitude ceiling checked
+    # above: an unsafe or colliding show must never be exportable in any
+    # form, preview or not. They're exempt only from the jerk bound, which is
+    # a choreography-quality metric (issue #60), not a safety one; the two
+    # generator gaps behind it are tracked separately (issue #157), and
+    # letting an operator preview a jerk-failing show is this feature's whole
+    # point. Preview exports also can never be signed.
+    if req.preview_only and req.sign:
+        raise HTTPException(status_code=400, detail="Preview-only exports cannot be signed for flight.")
+    try:
+        is_certified, val = certify_feasibility_report(choreo)
+    except Exception as e:
+        raise HTTPException(
+            status_code=412,
+            detail=f"Export blocked: validator error or malformed show: {e}",
+        )
+    if not isinstance(val, dict):
+        raise HTTPException(
+            status_code=412,
+            detail={"message": "Export blocked: unknown validation status.", "validation": val},
+        )
+    # jerk is the one category preview is exempt from; status gets forced to
+    # FAILED above whenever is_certified is False, even on a jerk-only
+    # failure, so core safety has to be read from the violation categories
+    # directly rather than from `val["status"]`.
+    core_violations = {k: v for k, v in val.get("violations", {}).items() if k != "jerk"}
+    core_passed = not any(core_violations.values())
     if req.preview_only:
-        if req.sign:
-            raise HTTPException(status_code=400, detail="Preview-only exports cannot be signed for flight.")
-    else:
-        try:
-            is_certified, val = certify_feasibility_report(choreo)
-        except Exception as e:
-            raise HTTPException(
-                status_code=412,
-                detail=f"Flight export blocked: validator error or malformed show: {e}",
-            )
-        if not is_certified or not isinstance(val, dict) or val.get("status") != "PASSED":
-            summary = val.get("summary", "Validation did not pass") if isinstance(val, dict) else "Unknown validation status"
+        if not core_passed:
             raise HTTPException(
                 status_code=412,
                 detail={
-                    "message": f"Flight export blocked: choreography failed safety validation ({summary}).",
+                    "message": "Preview blocked: choreography failed core safety validation (proximity, velocity, acceleration, or yaw rate).",
                     "validation": val,
                 },
             )
+    elif not is_certified:
+        summary = val.get("summary", "Validation did not pass")
+        raise HTTPException(
+            status_code=412,
+            detail={
+                "message": f"Flight export blocked: choreography failed safety validation ({summary}).",
+                "validation": val,
+            },
+        )
 
     if fmt == "json":
         try:

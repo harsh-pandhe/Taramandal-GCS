@@ -83,3 +83,30 @@ describe('judgeMetrics follows whatever limits it is given', () => {
     }
   });
 });
+
+describe('the altitude card (issue #148)', () => {
+  it('is left out entirely for a report from before the backend sent it', () => {
+    // metrics() never sets max_altitude_m, standing in for a cached or
+    // older-backend report: no card, not a card showing "undefined".
+    const cards = judgeMetrics(metrics(), LIVE);
+    expect(cards.map((c) => c.key)).not.toContain('altitude');
+    expect(cards).toHaveLength(4);
+  });
+
+  it('passes up to and including the ceiling, fails just above it', () => {
+    const statusAt = (v) => statusOf(judgeMetrics(metrics({ max_altitude_m: v }), LIVE), 'altitude');
+    expect(statusAt(LIVE.max_altitude_m)).toBe('passed');
+    expect(statusAt(LIVE.max_altitude_m + 0.01)).toBe('danger');
+  });
+
+  it('labels the card with the supplied limit, not a built-in one', () => {
+    const cards = judgeMetrics(metrics({ max_altitude_m: 10 }), { max_altitude_m: 50 });
+    expect(statusOf(cards, 'altitude')).toBe('passed');
+    expect(cards.find((c) => c.key === 'altitude').limitLabel).toBe('≤ 50 m');
+  });
+
+  it('is unknown, not a false danger, with no limits supplied', () => {
+    const cards = judgeMetrics(metrics({ max_altitude_m: 500 }), undefined);
+    expect(statusOf(cards, 'altitude')).toBe('unknown');
+  });
+});

@@ -3,7 +3,10 @@ import json
 from tara_gcs.trajectory_parser import (
     _parse_json,
     _parse_csv,
-    validate_trajectory_collisions
+    gate_show,
+    parse_trajectory_bytes,
+    validate_trajectory_altitude,
+    validate_trajectory_collisions,
 )
 from tara_gcs.drone_manager import DroneManager
 
@@ -133,6 +136,71 @@ def test_validate_collisions_unsafe():
     errors = validate_trajectory_collisions(traj, safety_distance=1.5)
     assert len(errors) > 0
     assert "Collision risk" in errors[0]
+
+
+def test_validate_altitude_safe():
+    traj = {0: [{"time": 0.0, "x": 0.0, "y": 0.0, "z": -30.0, "yaw": 0.0}]}
+    assert validate_trajectory_altitude(traj) == []
+
+
+@pytest.mark.parametrize("z,should_fail", [(-119.99, False), (-120.00, False), (-120.01, True), (-150.0, True)])
+def test_validate_altitude_boundary_is_strict(z, should_fail):
+    traj = {0: [{"time": 0.0, "x": 0.0, "y": 0.0, "z": z, "yaw": 0.0}]}
+    errors = validate_trajectory_altitude(traj)
+    assert bool(errors) == should_fail
+
+
+def test_validate_altitude_catches_ground_penetration_too():
+    traj = {0: [{"time": 0.0, "x": 0.0, "y": 0.0, "z": 2.0, "yaw": 0.0}]}
+    errors = validate_trajectory_altitude(traj)
+    assert len(errors) == 1
+    assert "Ground violation" in errors[0]
+
+
+def test_gate_show_rejects_a_show_above_the_ceiling():
+    """Issue #148: before this gate existed, this exact repro (two static
+    drones at z=-150, 150m up) was accepted -- validate_show read PASSED, and
+    the GCS parser returned the show unchanged. gate_show is what every
+    upload (parse_trajectory_bytes -> parse_trajectory_file -> _parse_json)
+    actually runs through."""
+    canonical = {
+        "drones": [
+            {"id": 0, "waypoints": [{"time": 0.0, "x": 0.0, "y": 0.0, "z": -150.0, "yaw": 0.0},
+                                     {"time": 5.0, "x": 0.0, "y": 0.0, "z": -150.0, "yaw": 0.0}]},
+            {"id": 1, "waypoints": [{"time": 0.0, "x": 5.0, "y": 0.0, "z": -150.0, "yaw": 0.0},
+                                     {"time": 5.0, "x": 5.0, "y": 0.0, "z": -150.0, "yaw": 0.0}]},
+        ]
+    }
+    with pytest.raises(ValueError, match="Altitude violation"):
+        gate_show(canonical)
+
+
+def test_gate_show_accepts_the_same_shape_show_under_the_ceiling():
+    # Same two drones, same spacing, legal altitude: must still be accepted,
+    # proving the new check is about altitude specifically, not a regression
+    # that rejects every two-drone show.
+    canonical = {
+        "drones": [
+            {"id": 0, "waypoints": [{"time": 0.0, "x": 0.0, "y": 0.0, "z": -30.0, "yaw": 0.0},
+                                     {"time": 5.0, "x": 0.0, "y": 0.0, "z": -30.0, "yaw": 0.0}]},
+            {"id": 1, "waypoints": [{"time": 0.0, "x": 5.0, "y": 0.0, "z": -30.0, "yaw": 0.0},
+                                     {"time": 5.0, "x": 5.0, "y": 0.0, "z": -30.0, "yaw": 0.0}]},
+        ]
+    }
+    trajectory = gate_show(canonical)
+    assert len(trajectory) == 2
+
+
+def test_the_148_repro_is_rejected_through_the_full_upload_path():
+    """The exact end-to-end path /api/upload-trajectory calls."""
+    canonical = {
+        "drones": [
+            {"id": 0, "waypoints": [{"time": 0.0, "x": 0.0, "y": 0.0, "z": -150.0, "yaw": 0.0}]},
+        ]
+    }
+    with pytest.raises(ValueError, match="Altitude violation"):
+        parse_trajectory_bytes(json.dumps(canonical).encode(), "repro.json")
+
 
 def test_drone_remapper():
     # Instantiate DroneManager without active MAVSDK systems (ports=[])
