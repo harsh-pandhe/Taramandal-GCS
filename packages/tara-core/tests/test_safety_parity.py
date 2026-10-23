@@ -85,18 +85,24 @@ class TestParityInvariant:
             "max_velocity_m_s",
             "max_acceleration_m_s2",
             "max_yaw_rate_deg_s",
+            "max_altitude_m",
+            "min_altitude_m",
         }
         assert set(report["violations"]) == {
             "proximity",
             "velocity",
             "acceleration",
             "yaw_rate",
+            "altitude",
+            "ground",
         }
         assert set(report["worst_violations"]) == {
             "proximity",
             "velocity",
             "acceleration",
             "yaw_rate",
+            "altitude",
+            "ground",
         }
 
     def test_separation_exactly_at_the_limit_is_compliant(self):
@@ -223,6 +229,113 @@ class TestWorstViolationReporting:
         assert few["status"] == many["status"] == "FAILED"
         assert few["metrics"] == many["metrics"]
         assert len(many["violations"]["proximity"]) == 50
+
+
+class TestAltitudeCeiling:
+    """Issue #148: the backend enforced no altitude ceiling at all. Reproduced
+    on origin/main before this fix: two static drones at z=-150 (150 m up)
+    read PASSED, and the GCS uploader accepted the same show unchanged.
+    """
+
+    @pytest.mark.parametrize("altitude_m,expected_status", [
+        (119.99, "PASSED"),
+        (120.00, "PASSED"),  # strict: exactly at the limit must still pass
+        (120.01, "FAILED"),
+        (150.00, "FAILED"),
+    ])
+    def test_the_120m_boundary_is_strict_with_no_tolerance(self, altitude_m, expected_status):
+        report = validate_show(_hovering_at(altitude_m))
+        assert report["status"] == expected_status
+        assert report["metrics"]["max_altitude_m"] == altitude_m
+
+    def test_an_interpolated_segment_peak_between_sweep_samples_is_not_missed(self):
+        # A waypoint peak of 125 m sits at t=0.15s, strictly between the dt=0.1
+        # sweep's instants at 0.1s and 0.2s. The *sweep-interpolated* altitude
+        # at both of those instants happens to land exactly on 120.0 m (passes
+        # on its own) -- a check that only looked at sweep samples, rather
+        # than at the waypoints themselves, would miss this violation
+        # entirely. Altitude is linear between waypoints, so its true extremes
+        # are always exactly at a waypoint; see _altitude_extremes.
+        show = {"drones": [{"id": 0, "waypoints": [
+            {"time": 0.0, "x": 0.0, "y": 0.0, "z": -110.0, "yaw": 0.0},
+            {"time": 0.15, "x": 0.0, "y": 0.0, "z": -125.0, "yaw": 0.0},
+            {"time": 0.3, "x": 0.0, "y": 0.0, "z": -110.0, "yaw": 0.0},
+        ]}]}
+        report = validate_show(show, dt=0.1)
+        assert report["status"] == "FAILED"
+        assert len(report["violations"]["altitude"]) == 1
+        worst = report["worst_violations"]["altitude"]
+        assert worst == {"time": 0.15, "drone": 0, "altitude": 125.0, "limit": 120.0}
+        assert report["metrics"]["max_altitude_m"] == 125.0
+
+    def test_worst_violation_and_metric_are_the_true_global_peak_not_a_sampled_one(self):
+        show = {"drones": [{"id": 0, "waypoints": [
+            {"time": 0.0, "x": 0.0, "y": 0.0, "z": -121.0, "yaw": 0.0},   # just over
+            {"time": 10.0, "x": 0.0, "y": 0.0, "z": -180.0, "yaw": 0.0},  # the true worst
+            {"time": 20.0, "x": 0.0, "y": 0.0, "z": -122.0, "yaw": 0.0},  # also over
+        ]}]}
+        report = validate_show(show)
+        assert report["worst_violations"]["altitude"]["altitude"] == 180.0
+        assert report["worst_violations"]["altitude"]["time"] == 10.0
+        assert report["metrics"]["max_altitude_m"] == 180.0
+
+    def test_does_not_fire_on_a_merely_distant_but_legal_altitude(self):
+        report = validate_show(_hovering_at(30.0))
+        assert report["status"] == "PASSED"
+        assert report["violations"]["altitude"] == []
+        assert report["worst_violations"]["altitude"] is None
+
+    def test_does_not_affect_separation_velocity_or_yaw_rate_checks(self):
+        # A 150 m-high show that is otherwise perfectly formed must still
+        # report its other categories accurately -- the new check does not
+        # short-circuit or mask the existing ones.
+        show = {"drones": [
+            {"id": 0, "waypoints": [{"time": 0.0, "x": 0.0, "y": 0.0, "z": -150.0, "yaw": 0.0}]},
+            {"id": 1, "waypoints": [{"time": 0.0, "x": 10.0, "y": 0.0, "z": -150.0, "yaw": 0.0}]},
+        ]}
+        report = validate_show(show)
+        assert report["violations"]["proximity"] == []
+        assert report["violations"]["velocity"] == []
+        assert report["violations"]["altitude"] != []
+
+
+class TestGroundPenetration:
+    """Tracked as its own category (not folded into 'altitude') per #148:
+    a drone below ground and a drone over the ceiling are different failure
+    modes with different causes, and conflating them would hide which one
+    actually happened.
+    """
+
+    @pytest.mark.parametrize("z,expected_status", [
+        (0.0, "PASSED"),       # exactly at ground level, strict, no tolerance
+        (0.01, "FAILED"),      # NED: positive z is below ground
+        (5.0, "FAILED"),
+    ])
+    def test_the_ground_boundary_is_strict(self, z, expected_status):
+        show = {"drones": [{"id": 0, "waypoints": [{"time": 0.0, "x": 0.0, "y": 0.0, "z": z, "yaw": 0.0}]}]}
+        report = validate_show(show)
+        assert report["status"] == expected_status
+        if expected_status == "FAILED":
+            assert report["violations"]["ground"][0]["altitude"] == pytest.approx(-z)
+            assert report["violations"]["altitude"] == []  # not double-counted as a ceiling breach
+
+    def test_min_altitude_metric_reflects_the_true_trough(self):
+        show = {"drones": [{"id": 0, "waypoints": [
+            {"time": 0.0, "x": 0.0, "y": 0.0, "z": 3.0, "yaw": 0.0},
+            {"time": 5.0, "x": 0.0, "y": 0.0, "z": -10.0, "yaw": 0.0},
+        ]}]}
+        report = validate_show(show)
+        assert report["metrics"]["min_altitude_m"] == -3.0
+
+
+def _hovering_at(altitude_m: float, duration: float = 4.0) -> dict:
+    """One drone holding a fixed altitude (NED: z = -altitude_m)."""
+    times = [i * 0.5 for i in range(int(duration / 0.5) + 1)]
+    return {
+        "drones": [{"id": 0, "waypoints": [
+            {"time": t, "x": 0.0, "y": 0.0, "z": -altitude_m, "yaw": 0.0} for t in times
+        ]}]
+    }
 
 
 def _pair_with_gaps(gaps: list[float], dt: float = 0.1) -> dict:

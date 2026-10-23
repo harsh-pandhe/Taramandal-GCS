@@ -28,7 +28,7 @@ import pandas as pd
 from pydantic import ValidationError
 
 from tara_core import DEFAULT_LIMITS, SHOW_FORMAT_VERSION, Show
-from tara_core.validate import collision_errors
+from tara_core.validate import altitude_errors, collision_errors
 
 logger = logging.getLogger("TaramandalGCS")
 
@@ -99,7 +99,10 @@ def gate_show(canonical: dict) -> dict:
     Raises:
         ValueError: With an operator-readable reason — a newer show format,
             each schema violation by its field path (e.g.
-            ``drones.3.waypoints.12.yaw``), an empty show, or a collision.
+            ``drones.3.waypoints.12.yaw``), an empty show, a collision, or a
+            waypoint above the 120 m ceiling or below ground (issue #148:
+            before this check existed, nothing on the backend enforced the
+            ceiling at all — only the Studio frontend did).
     """
     if not isinstance(canonical, dict):
         raise ValueError("A show file must be a JSON object.")
@@ -138,6 +141,11 @@ def gate_show(canonical: dict) -> dict:
     errors = validate_trajectory_collisions(trajectory)
     if errors:
         raise ValueError("Trajectory safety check failed:\n" + "\n".join(errors))
+
+    altitude_issues = validate_trajectory_altitude(trajectory)
+    if altitude_issues:
+        raise ValueError("Trajectory safety check failed:\n" + "\n".join(altitude_issues))
+
     return trajectory
 
 
@@ -183,6 +191,21 @@ def validate_trajectory_collisions(trajectory_data: dict, safety_distance: float
         limits=DEFAULT_LIMITS,
         separation=safety_distance,
     )
+
+
+def validate_trajectory_altitude(trajectory_data: dict) -> list:
+    """Checks every waypoint against the 120 m ceiling and ground level (issue #148).
+
+    Last gate before a show can fly, alongside :func:`validate_trajectory_collisions`.
+    Before this existed, no backend code path enforced
+    ``SafetyLimits.max_altitude_m`` at all — it was a Studio-frontend-only
+    guard (the formation builder and the #141 morph planner), so any client
+    that uploaded a trajectory without going through the Studio UI could fly
+    arbitrarily high. The check itself lives in tara_core, next to the
+    collision check it mirrors, for the same reason: one place the Studio,
+    this uploader and the live monitor all read from.
+    """
+    return altitude_errors(trajectory_data, limits=DEFAULT_LIMITS)
 
 
 # ---------------------------------------------------------------- adapters

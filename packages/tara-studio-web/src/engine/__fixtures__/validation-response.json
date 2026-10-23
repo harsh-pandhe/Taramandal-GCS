@@ -5,7 +5,9 @@
     "min_distance_m": 1.8,
     "max_velocity_m_s": 0.0,
     "max_acceleration_m_s2": 0.0,
-    "max_yaw_rate_deg_s": 0.0
+    "max_yaw_rate_deg_s": 0.0,
+    "max_altitude_m": 5.0,
+    "min_altitude_m": 5.0
   },
   "violations": {
     "proximity": [
@@ -75,7 +77,9 @@
     ],
     "velocity": [],
     "acceleration": [],
-    "yaw_rate": []
+    "yaw_rate": [],
+    "altitude": [],
+    "ground": []
   },
   "worst_violations": {
     "proximity": {
@@ -101,7 +105,9 @@
     },
     "velocity": null,
     "acceleration": null,
-    "yaw_rate": null
+    "yaw_rate": null,
+    "altitude": null,
+    "ground": null
   },
   "limits": {
     "min_separation_m": 1.5,
