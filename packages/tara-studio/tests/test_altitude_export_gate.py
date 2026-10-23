@@ -1,13 +1,20 @@
 """Issue #148: /api/export rejects a show above the 120 m ceiling or below ground.
 
-Unlike feasibility certification (issue #60, see test_export_feasibility_gate.py's
-module docstring for why that one does NOT block), the altitude ceiling is an
-absolute physical/airspace limit, not a choreography-quality bound, and the
+Unlike feasibility certification (issue #60/#143, see
+test_export_feasibility_gate.py's module docstring), the altitude ceiling is
+an absolute physical/airspace limit, not a choreography-quality bound, and the
 client-side formation builder and morph planner have always refused to produce
 anything above it -- so unlike jerk, no real generator output is expected to be
 affected by hard-blocking this one. Before this gate existed, nothing on the
 backend enforced it at all: a client that bypassed the Studio UI, or a show
 built before the frontend gates existed, could export and fly arbitrarily high.
+
+This gate runs unconditionally, before #143's certification branch, so it
+rejects/accepts identically regardless of preview_only. The one test here that
+exercises a real generator shape uses preview_only=True, though, since a real
+generator's default output fails jerk-only certification today (issue #157) --
+the point being pinned down is specifically that altitude doesn't also reject
+it once jerk's own gate is set aside.
 """
 
 from __future__ import annotations
@@ -52,8 +59,11 @@ def test_export_rejects_ground_penetration():
 def test_export_still_succeeds_for_a_real_generated_shape():
     # The explicit regression #148's acceptance criteria asks for: this gate
     # must not reject ordinary Studio output, only genuine ceiling breaches.
+    # preview_only=True because a real generator's default output fails
+    # jerk-only certification today (issue #157, unrelated to altitude) --
+    # #143's gate would otherwise 412 this for a different reason first.
     choreo = generate_circle(5, 10.0, 2.0)
-    res = client.post("/api/export", json={"choreo": choreo, "format": "json"})
+    res = client.post("/api/export", json={"choreo": choreo, "format": "json", "preview_only": True})
     assert res.status_code == 200
 
 

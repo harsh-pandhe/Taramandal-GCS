@@ -529,8 +529,17 @@ def api_export(req: ExportRequest):
     # certification branching below: it's an absolute physical/airspace limit,
     # not a choreography-quality one, and the canonical gate below only runs
     # for non-preview exports. This way the ceiling holds even for
-    # preview_only exports, regardless of how that branch evolves.
-    altitude_issues = altitude_errors(choreo, limits=DEFAULT_LIMITS)
+    # preview_only exports, regardless of how that branch evolves. A show too
+    # malformed to even interpret (e.g. `drones` not a list) fails closed the
+    # same way the certification gate below does, rather than raising a raw
+    # 500 - this check runs first, so it has to handle that case itself.
+    try:
+        altitude_issues = altitude_errors(choreo, limits=DEFAULT_LIMITS)
+    except Exception as e:
+        raise HTTPException(
+            status_code=412,
+            detail=f"Export blocked: validator error or malformed show: {e}",
+        )
     if altitude_issues:
         raise HTTPException(
             status_code=400,

@@ -154,16 +154,17 @@ class TestExportEndpoint:
             body = res.json()
             assert "Flight export blocked" in str(body["detail"])
 
-    def test_preview_only_allows_export_labeled_and_unsigned(self, client):
+    def test_preview_only_still_blocks_an_unsafe_colliding_show(self, client):
+        # issue #143: preview_only must not be a way to export a genuinely
+        # unsafe show. Core safety (here, 0m separation) is never waived.
         unsafe_choreo = lit_circle()
         unsafe_choreo["drones"][1]["waypoints"] = [dict(wp) for wp in unsafe_choreo["drones"][0]["waypoints"]]
 
         for fmt in ["json", "csv", "kml", "tara"]:
             res = client.post("/api/export", json={"choreo": unsafe_choreo, "format": fmt, "preview_only": True})
-            assert res.status_code == 200, f"Expected 200 for preview_only {fmt}"
+            assert res.status_code == 412, f"Expected 412 for unsafe preview {fmt}, got {res.status_code}"
             body = res.json()
-            assert body["preview_only"] is True
-            assert body["filename"].startswith("PREVIEW_ONLY_")
+            assert "core safety" in str(body["detail"]).lower()
 
     def test_preview_only_cannot_be_signed(self, client):
         unsafe_choreo = lit_circle()
@@ -172,7 +173,13 @@ class TestExportEndpoint:
         assert "Preview-only exports cannot be signed" in res.json()["detail"]
 
     def test_malformed_validator_payload_fails_closed_with_412(self, client):
-        # A payload that crashes validate_choreography
+        # A payload that crashes altitude_errors/validate_show.
         res = client.post("/api/export", json={"choreo": {"drones": "not-a-list"}, "format": "json"})
         assert res.status_code == 412
-        assert "Flight export blocked" in res.json()["detail"]
+        assert "Export blocked" in res.json()["detail"]
+
+    def test_malformed_validator_payload_fails_closed_in_preview_too(self, client):
+        # The same malformed show must not slip through via preview_only.
+        res = client.post("/api/export", json={"choreo": {"drones": "not-a-list"}, "format": "json", "preview_only": True})
+        assert res.status_code == 412
+        assert "Export blocked" in res.json()["detail"]
