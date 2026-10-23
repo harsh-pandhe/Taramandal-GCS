@@ -2,6 +2,7 @@ import { useState, useCallback } from 'react';
 import {
   buildSequencedShow, computeAssignmentChain, computeAssignmentChainLocal,
 } from '../engine/sequencer.js';
+import { ShowRefusalError } from '../engine/showErrors.js';
 import { API_BASE, validateShow } from '../engine/api.js';
 
 /**
@@ -43,11 +44,15 @@ export default function useShowBuilder() {
       setChoreoData(show);
       setValidation(null);
     } catch (e) {
+      // A refusal (unsafe spacing/altitude/layering) is expected input and is
+      // shown as the build error; anything else is a genuine bug and must not
+      // be reported — or swallowed — as if it were the same thing.
+      if (!(e instanceof ShowRefusalError)) throw e;
       setError(`Sequence build failed: ${e.message}`);
-      setLoading(false);
       return null;
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
 
     // Validate in the background — the preview is already usable.
     validateShow(show)

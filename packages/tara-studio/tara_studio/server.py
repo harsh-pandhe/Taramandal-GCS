@@ -60,6 +60,7 @@ from tara_studio.voxelizer import (
 from tara_core import DEFAULT_LIMITS, MAX_FLEET_SIZE
 from tara_core.validate import altitude_errors
 from tara_core.assignment import optimal_assignment
+from tara_core.validate import collision_errors
 
 app = FastAPI(title="Taramandal Studio Choreography Engine", version="1.0.0")
 
@@ -574,6 +575,29 @@ def api_export(req: ExportRequest):
             choreo = apply_track_to_choreo(choreo, req.led_track)
         except (ValueError, KeyError) as e:
             raise HTTPException(status_code=400, detail=f"Bad LED track: {e}")
+
+    # Minimum separation IS enforced here, unlike jerk above (issue #141,
+    # #153): it's a collision risk, not a choreography-quality metric, so it
+    # belongs with the altitude ceiling, not with #60's jerk exception.
+    #
+    # The Studio's morph planner (tara-studio-web's sequencer.js) already
+    # keeps every pair >= design_separation_m apart analytically before this
+    # point. But every waypoint gets rounded to the centimetre on the way out
+    # (round2 in sequencer.js, and again by this process's own int16-centimetre
+    # .tara packing) and a hairline analytic margin can be eroded below the
+    # limit by that rounding alone. This runs the exact sweep the GCS applies
+    # at upload (collision_errors), over the choreography as it will actually
+    # be exported, so a show that would be refused there is refused here
+    # first — against the design threshold, not the looser runtime floor
+    # collision_errors defaults to, since this is a certification gate.
+    separation_issues = collision_errors(
+        choreo, limits=DEFAULT_LIMITS, separation=DEFAULT_LIMITS.design_separation_m,
+    )
+    if separation_issues:
+        raise HTTPException(status_code=400, detail={
+            "message": "Show violates minimum drone separation once rounded for export.",
+            "errors": separation_issues,
+        })
 
     if fmt == "json":
         try:
