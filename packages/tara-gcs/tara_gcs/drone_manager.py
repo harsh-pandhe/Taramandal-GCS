@@ -526,6 +526,12 @@ class DroneManager:
                 # #59). Cleared when the drone is explicitly re-launched.
                 "aborted": None,
                 "last_heartbeat": None,
+                # MAVSDK LandedState as a string ("ON_GROUND", "IN_AIR", ...),
+                # or None until the first sample arrives. Ground-contact
+                # confirmation (issue #145) reads this directly rather than
+                # inferring it from disarm alone (see
+                # execute_single_drone_demo_sequence).
+                "landed_state": None,
             }
 
             # On the sim backend one fleet-wide task fills this in instead
@@ -540,6 +546,7 @@ class DroneManager:
             self._tasks.append(asyncio.create_task(self._monitor_gps(drone_id)))
             self._tasks.append(asyncio.create_task(self._monitor_position(drone_id)))
             self._tasks.append(asyncio.create_task(self._monitor_armed_state(drone_id)))
+            self._tasks.append(asyncio.create_task(self._monitor_landed_state(drone_id)))
             self._tasks.append(asyncio.create_task(self._measure_latency_loop(drone_id)))
             self._tasks.append(asyncio.create_task(self._monitor_home(drone_id)))
             self._tasks.append(asyncio.create_task(self._monitor_health(drone_id)))
@@ -635,11 +642,16 @@ class DroneManager:
         ``round`` gives 0.61), and the two backends should not disagree by a
         centimetre over which function was used.
         """
+        # Deferred like the SimFleet import in connect_all - tara_sim stays an
+        # optional dependency outside the sim backend.
+        from tara_sim.fleet_state import LANDED_ALTITUDE_M
+
         ids = [d for d in self.telemetry if d < len(snap.armed)]
         if not ids:
             return
         idx = np.asarray(ids)
         positions = snap.position[idx].tolist()
+        velocities = snap.velocity[idx].tolist()
         pads = _PAD_ARRAY[idx].tolist()
         connected = snap.connected[idx].tolist()
         armed = snap.armed[idx].tolist()
@@ -664,6 +676,12 @@ class DroneManager:
             tel["fleet_x"] = round(local_x + pads[k][0], 2)
             tel["fleet_y"] = round(local_y + pads[k][1], 2)
             tel["fleet_z"] = local_z
+            # Mirrors FleetState._step's own ON_GROUND condition exactly
+            # (same altitude threshold, same vertical-speed deadband), so
+            # this agrees with when the sim itself would auto-disarm.
+            tel["landed_state"] = (
+                "ON_GROUND" if alt <= LANDED_ALTITUDE_M and abs(velocities[k][2]) < 0.1 else "IN_AIR"
+            )
             prev_armed = tel["armed"]
             tel["armed"] = armed[k]
             # Reset geofence breach tracking when drone disarms (as _monitor_armed_state does)
@@ -783,6 +801,25 @@ class DroneManager:
             pass
         except Exception as e:
             logging.error(f"Error in _monitor_armed_state for Drone {drone_id}: {e}")
+
+    async def _monitor_landed_state(self, drone_id):
+        """Tracks MAVSDK's own ground-contact state (issue #145).
+
+        A prior version of the single-drone demo sequence inferred "landed"
+        from disarm alone, which a mid-air disarm (fault, failsafe, a bug)
+        would misreport as a normal touchdown. ``telemetry.landed_state()``
+        is MAVSDK's actual vehicle-reported state (``ON_GROUND``, ``IN_AIR``,
+        ``TAKING_OFF``, ``LANDING``), independent of the arm/disarm command
+        path, so this is observed state, not an assumption.
+        """
+        try:
+            drone = self.drones[drone_id]
+            async for state in drone.telemetry.landed_state():
+                self.telemetry[drone_id]["landed_state"] = str(state)
+        except asyncio.CancelledError:
+            pass
+        except Exception as e:
+            logging.error(f"Error in _monitor_landed_state for Drone {drone_id}: {e}")
 
     async def _measure_latency_loop(self, drone_id):
         try:
