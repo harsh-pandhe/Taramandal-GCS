@@ -9,10 +9,15 @@ implementation.
 from __future__ import annotations
 
 import math
+from bisect import bisect_left
 
 #: WGS-84 mean Earth radius, metres. Matches the constant the exporter and the
 #: GCS's GLOBAL playback mode already used.
 EARTH_RADIUS_M = 6378137.0
+
+
+def _waypoint_time(w: dict) -> float:
+    return w["time"]
 
 
 def interpolate_waypoint(waypoints: list[dict], t: float) -> dict | None:
@@ -47,27 +52,32 @@ def interpolate_waypoint(waypoints: list[dict], t: float) -> dict | None:
     if t >= waypoints[-1]["time"]:
         return waypoints[-1]
 
-    for w1, w2 in zip(waypoints, waypoints[1:]):
-        if w1["time"] <= t <= w2["time"]:
-            span = w2["time"] - w1["time"]
-            ratio = (t - w1["time"]) / span if span > 0 else 0.0
+    # Binary search for the first waypoint at or after ``t``: the segment is
+    # (i-1, i). It is the same segment the former linear scan picked (the first
+    # with w1.time <= t <= w2.time), including at duplicate timestamps, but costs
+    # O(log n) per call instead of O(n); validation samples every drone at every
+    # step (issue #156).
+    i = bisect_left(waypoints, t, key=_waypoint_time)
+    w1, w2 = waypoints[i - 1], waypoints[i]
+    span = w2["time"] - w1["time"]
+    ratio = (t - w1["time"]) / span if span > 0 else 0.0
 
-            yaw1 = w1.get("yaw", 0.0)
-            yaw2 = w2.get("yaw", 0.0)
-            diff = (yaw2 - yaw1) % 360
-            if diff > 180:
-                diff -= 360
+    yaw1 = w1.get("yaw", 0.0)
+    yaw2 = w2.get("yaw", 0.0)
+    diff = (yaw2 - yaw1) % 360
+    if diff > 180:
+        diff -= 360
 
-            return {
-                "time": t,
-                "x": w1["x"] + ratio * (w2["x"] - w1["x"]),
-                "y": w1["y"] + ratio * (w2["y"] - w1["y"]),
-                "z": w1["z"] + ratio * (w2["z"] - w1["z"]),
-                "yaw": (yaw1 + ratio * diff) % 360,
-                "vx": (w2["x"] - w1["x"]) / span if span > 0 else 0.0,
-                "vy": (w2["y"] - w1["y"]) / span if span > 0 else 0.0,
-                "vz": (w2["z"] - w1["z"]) / span if span > 0 else 0.0,
-            }
+    return {
+        "time": t,
+        "x": w1["x"] + ratio * (w2["x"] - w1["x"]),
+        "y": w1["y"] + ratio * (w2["y"] - w1["y"]),
+        "z": w1["z"] + ratio * (w2["z"] - w1["z"]),
+        "yaw": (yaw1 + ratio * diff) % 360,
+        "vx": (w2["x"] - w1["x"]) / span if span > 0 else 0.0,
+        "vy": (w2["y"] - w1["y"]) / span if span > 0 else 0.0,
+        "vz": (w2["z"] - w1["z"]) / span if span > 0 else 0.0,
+    }
     return waypoints[-1]
 
 

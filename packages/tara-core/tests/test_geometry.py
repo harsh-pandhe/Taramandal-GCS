@@ -106,3 +106,62 @@ class TestJerkFromPositions:
             (0.0, 0.0, 0.0), quintic_segment(p0, p1, duration, t_mid)["jerk"]
         )
         assert numeric_jerk == pytest.approx(analytic_jerk, rel=1e-2)
+
+
+def _linear_reference(waypoints, t):
+    """The pre-#156 linear-scan implementation, kept as an equivalence oracle."""
+    if not waypoints:
+        return None
+    if t <= waypoints[0]["time"]:
+        return waypoints[0]
+    if t >= waypoints[-1]["time"]:
+        return waypoints[-1]
+    for w1, w2 in zip(waypoints, waypoints[1:]):
+        if w1["time"] <= t <= w2["time"]:
+            span = w2["time"] - w1["time"]
+            ratio = (t - w1["time"]) / span if span > 0 else 0.0
+            yaw1, yaw2 = w1.get("yaw", 0.0), w2.get("yaw", 0.0)
+            diff = (yaw2 - yaw1) % 360
+            if diff > 180:
+                diff -= 360
+            return {
+                "time": t,
+                "x": w1["x"] + ratio * (w2["x"] - w1["x"]),
+                "y": w1["y"] + ratio * (w2["y"] - w1["y"]),
+                "z": w1["z"] + ratio * (w2["z"] - w1["z"]),
+                "yaw": (yaw1 + ratio * diff) % 360,
+                "vx": (w2["x"] - w1["x"]) / span if span > 0 else 0.0,
+                "vy": (w2["y"] - w1["y"]) / span if span > 0 else 0.0,
+                "vz": (w2["z"] - w1["z"]) / span if span > 0 else 0.0,
+            }
+    return waypoints[-1]
+
+
+def test_bisect_interpolation_matches_linear_scan_including_duplicate_times():
+    import random
+
+    from tara_core.geometry import interpolate_waypoint
+
+    rng = random.Random(156)
+    for _ in range(200):
+        times = sorted(rng.choice([0.0, 0.5, 1.0, 1.0, 2.0, 3.5, 3.5, 7.0]) + rng.random() * (rng.random() < 0.5) for _ in range(rng.randint(1, 12)))
+        wps = [
+            {"time": tm, "x": rng.uniform(-9, 9), "y": rng.uniform(-9, 9), "z": rng.uniform(0, 100), "yaw": rng.choice([0, 90, 350, 10, 180])}
+            for tm in times
+        ]
+        probes = list(times) + [rng.uniform(-1, times[-1] + 1) for _ in range(30)]
+        for t in probes:
+            assert interpolate_waypoint(wps, t) == _linear_reference(wps, t), (times, t)
+
+
+def test_interpolation_scales_to_long_trajectories():
+    import time
+
+    from tara_core.geometry import interpolate_waypoint
+
+    wps = [{"time": float(i), "x": float(i), "y": 0.0, "z": 10.0, "yaw": 0.0} for i in range(20001)]
+    start = time.perf_counter()
+    for k in range(20000):
+        interpolate_waypoint(wps, k + 0.5)
+    # Linear scan needs ~2e8 comparisons here (tens of seconds); bisect is milliseconds.
+    assert time.perf_counter() - start < 2.0
