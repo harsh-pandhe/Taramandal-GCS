@@ -142,7 +142,17 @@ test.describe('1000-drone viewport performance', () => {
     // suite, so the shape of the leak check is the same but the window is
     // configurable — set NIGHTSKY_SOAK_MS=900000 for the full 15-minute run.
     const soakMs = Number(process.env.NIGHTSKY_SOAK_MS || 20_000);
-    test.setTimeout(soakMs + 60_000);
+    // test.setTimeout() counts from the test's start, i.e. it also has to
+    // cover bootFleet() above, not just the soak below. Issue #150: on a
+    // severely overloaded CI runner (the same incident as #149 — run
+    // 38604187493, one worker, one spec file 16x its normal duration) this
+    // test's own console.log showed the soak itself finishing fine (heap
+    // flat, "51.0MB -> 51.0MB over 27s") well inside an 80000ms budget, yet
+    // the test still hit "Test timeout of 80000ms exceeded" — the arithmetic
+    // only works if bootFleet() itself, normally a couple of seconds, ate
+    // most of the remaining budget under that overload. The old 60s buffer
+    // assumed setup stays cheap; it doesn't under this failure mode.
+    test.setTimeout(soakMs + 180_000);
 
     const heapMb = () =>
       page.evaluate(() => {
