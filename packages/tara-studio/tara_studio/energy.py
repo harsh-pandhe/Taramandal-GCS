@@ -63,6 +63,7 @@ from scipy.ndimage import uniform_filter1d
 
 from tara_core.geometry import sweep_times
 from tara_core.show import Show
+from tara_core.validate import report_subset, worst_of
 
 __all__ = [
     "CHEMISTRIES",
@@ -98,10 +99,6 @@ _DRONE_CHUNK = 128
 
 #: Points per series in the timeline sent to the UI graph.
 _TIMELINE_POINTS = 400
-
-#: Violations retained per category, matching the other validators.
-_MAX_REPORTED = 50
-
 
 @dataclass(frozen=True)
 class AirframeSpec:
@@ -469,8 +466,15 @@ def validate_energy(
 
     Returns:
         A report with the shape the other validators use (``status``,
-        ``summary``, ``metrics``, ``violations``), plus a downsampled
-        ``timeline`` of fleet battery state for the UI graph.
+        ``summary``, ``metrics``, ``violations``, ``worst_violations``), plus a
+        downsampled ``timeline`` of fleet battery state for the UI graph.
+        There is at most one violation per drone per category;
+        ``violations`` keeps at most ``tara_core.validate.MAX_REPORTED`` of
+        them via :func:`tara_core.validate.report_subset` so a late, severe one
+        is never dropped on a large fleet (issue #152). ``worst_violations`` is
+        the single worst of each category (unrounded excess over its limit,
+        ties to the earliest by time then drone), or ``None``. ``status``,
+        ``summary`` and ``metrics`` come from every drone, not the subset.
         ``metrics["required_duration_reduction_s"]`` is how much shorter the
         show must be for its worst drone to stay within the depth-of-discharge
         limit, or 0 if it already does.
@@ -478,6 +482,9 @@ def validate_energy(
     show = Show.from_any(choreo_data)
     drone_ids = sorted(d for d, wps in show.drones.items() if wps)
     violations: dict[str, list] = {"depth_of_discharge": [], "c_rate": [], "voltage": []}
+    # Every violation paired with how far past its limit it went, unrounded and
+    # in its own check's units (fraction, C, volts) so ranking is exact.
+    found: dict[str, list[tuple[float, dict]]] = {key: [] for key in violations}
 
     if not drone_ids:
         return {
@@ -485,6 +492,7 @@ def validate_energy(
             "summary": "No drones found in choreography.",
             "metrics": {},
             "violations": violations,
+            "worst_violations": {key: None for key in violations},
             "timeline": {},
         }
 
@@ -544,36 +552,40 @@ def validate_energy(
                 flying = airborne[row]
                 mean_current = float(current[row][flying].mean()) if flying.any() else float(current[row].mean())
                 excess_ah = (dod - dod_limit) * usable_ah
-                violations["depth_of_discharge"].append({
+                found["depth_of_discharge"].append((dod - dod_limit, {
                     "drone": drone_id,
                     "time": round(cross_t, 2),
                     "depth_of_discharge_pct": round(dod * 100.0, 1),
                     "limit_pct": round(dod_limit * 100.0, 1),
                     "required_reduction_s": math.ceil(excess_ah * 3600.0 / mean_current),
-                })
+                }))
 
             over_c = np.nonzero(c_rate[row] > c_limit)[0]
             if len(over_c):
-                violations["c_rate"].append({
+                found["c_rate"].append((float(c_rate[row].max()) - c_limit, {
                     "drone": drone_id,
                     "time": round(float(times[over_c[0]]), 2),
                     "c_rate": round(float(c_rate[row].max()), 2),
                     "current_a": round(float(current[row].max()), 2),
                     "limit": c_limit,
-                })
+                }))
 
             under_v = np.nonzero(cell_v[row] < chem.min_cell_voltage_v)[0]
             if len(under_v):
-                violations["voltage"].append({
+                found["voltage"].append((chem.min_cell_voltage_v - float(cell_v[row].min()), {
                     "drone": drone_id,
                     "time": round(float(times[under_v[0]]), 2),
                     "cell_voltage_v": round(float(cell_v[row].min()), 3),
                     "limit_v": chem.min_cell_voltage_v,
-                })
+                }))
 
-    required_reduction = max((v["required_reduction_s"] for v in violations["depth_of_discharge"]), default=0)
-    for key in violations:
-        violations[key] = sorted(violations[key], key=lambda v: (v["time"], v["drone"]))[:_MAX_REPORTED]
+    required_reduction = max((v["required_reduction_s"] for _, v in found["depth_of_discharge"]), default=0)
+    worst_violations: dict[str, dict | None] = {}
+    for key, items in found.items():
+        # Time then drone, so a tie for worst goes to the earliest.
+        items.sort(key=lambda item: (item[1]["time"], item[1]["drone"]))
+        worst_violations[key] = worst_of(items)
+        violations[key] = report_subset(items)
 
     worst = max(per_drone, key=lambda d: d[2])
     peak = max(per_drone, key=lambda d: d[3])
@@ -624,6 +636,7 @@ def validate_energy(
             "min_cell_voltage_v": chem.min_cell_voltage_v,
         },
         "violations": violations,
+        "worst_violations": worst_violations,
         "timeline": _downsample(
             times,
             {

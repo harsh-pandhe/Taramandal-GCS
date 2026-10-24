@@ -14,7 +14,8 @@ import time
 import pytest
 from fastapi import HTTPException
 
-from tara_studio import server
+from tara_core.validate import MAX_REPORTED, report_subset
+from tara_studio import energy, server
 from tara_studio.energy import (
     DEFAULT_AIRFRAME,
     DEFAULT_BATTERY,
@@ -233,3 +234,124 @@ class TestEndpoint:
         with pytest.raises(HTTPException) as exc:
             server.api_validate_energy(server.EnergyRequest(choreo=_hover_show(60.0), chemistry="nicd"))
         assert exc.value.status_code == 400
+
+
+# --- Issue #152: a late worst violation must not be cut by the report cap ---------------------------------------
+
+
+def _fleet(n: int, sprint_step: float = 0.0, hover_step: float = 0.0) -> dict:
+    """``n`` drones that fly identically for the first 10 s, then differ by drone id.
+
+    Every drone climbs and hovers the same way, so each one's first crossing of
+    a limit lands at the same instant and the report orders them by drone id.
+    After that, drone ``i`` sprints ``sprint_step * i`` m/s faster, or hovers
+    ``hover_step * i`` seconds longer: the higher the id, the worse the
+    violation, so the worst one is always the *last* in the report's order.
+    """
+    drones = []
+    for i in range(n):
+        y = 5.0 * i
+        sprint_x = 5.0 * (1.0 + sprint_step * i)
+        hover = 10.0 + hover_step * i
+        drones.append({"id": i, "waypoints": [
+            {"time": 0.0, "x": 0.0, "y": y, "z": 0.0},
+            {"time": 5.0, "x": 0.0, "y": y, "z": -10.0},
+            {"time": 10.0, "x": 0.0, "y": y, "z": -10.0},
+            {"time": 15.0, "x": sprint_x, "y": y, "z": -10.0},
+            {"time": 15.0 + hover, "x": sprint_x, "y": y, "z": -10.0},
+            {"time": 20.0 + hover, "x": sprint_x, "y": y, "z": 0.0},
+        ]})
+    return {"drones": drones}
+
+
+N_DRONES = MAX_REPORTED + 10
+
+#: category -> (fleet, pack, field holding the measured value)
+LATE_WORST_FLEETS = {
+    "depth_of_discharge": (
+        lambda: _fleet(N_DRONES, hover_step=0.5), BatterySpec(capacity_mah=100), "depth_of_discharge_pct",
+    ),
+    "c_rate": (
+        lambda: _fleet(N_DRONES, sprint_step=0.05), BatterySpec(capacity_mah=550), "c_rate",
+    ),
+    "voltage": (
+        lambda: _fleet(N_DRONES, sprint_step=0.05), BatterySpec(internal_resistance_ohm=0.05), "cell_voltage_v",
+    ),
+}
+
+
+@pytest.fixture
+def report_cap(monkeypatch):
+    """Run validate_energy with a different report cap than the default."""
+    def set_cap(cap: int) -> None:
+        monkeypatch.setattr(energy, "report_subset", lambda found: report_subset(found, cap=cap))
+    return set_cap
+
+
+class TestWorstViolationSurvivesTruncation:
+    @pytest.mark.parametrize("category", sorted(LATE_WORST_FLEETS))
+    def test_a_late_worst_violation_is_reported(self, category):
+        build, pack, field = LATE_WORST_FLEETS[category]
+        report = validate_energy(build(), battery=pack)
+
+        reported = report["violations"][category]
+        worst = report["worst_violations"][category]
+        assert len(reported) == MAX_REPORTED
+        assert worst in reported
+        # Every drone first crosses at the same time, so the old keep-the-first-50
+        # sort-by-(time, drone) cut would have kept drones 0-49 and dropped this one.
+        assert worst["drone"] == N_DRONES - 1
+        assert worst["drone"] > MAX_REPORTED - 1
+        values = [v[field] for v in reported]
+        assert worst[field] == (min(values) if category == "voltage" else max(values))
+        assert [(v["time"], v["drone"]) for v in reported] == sorted((v["time"], v["drone"]) for v in reported)
+
+    @pytest.mark.parametrize("category", sorted(LATE_WORST_FLEETS))
+    @pytest.mark.parametrize("cap", [10, 200])
+    def test_the_cap_never_changes_the_verdict(self, category, cap, report_cap):
+        build, pack, _ = LATE_WORST_FLEETS[category]
+        show = build()
+        baseline = validate_energy(show, battery=pack)
+        report_cap(cap)
+        capped = validate_energy(show, battery=pack)
+
+        for key in ("status", "metrics", "summary", "limits", "timeline"):
+            assert capped[key] == baseline[key]
+        for key, entries in capped["violations"].items():
+            assert len(entries) <= cap
+            assert bool(entries) == bool(baseline["violations"][key])
+        assert capped["worst_violations"] == baseline["worst_violations"]
+        assert capped["worst_violations"][category] in capped["violations"][category]
+
+    def test_the_depth_of_discharge_cut_is_computed_over_every_drone(self, report_cap):
+        """required_duration_reduction_s comes from the full fleet, not the reported subset."""
+        build, pack, _ = LATE_WORST_FLEETS["depth_of_discharge"]
+        report_cap(10)
+        report = validate_energy(build(), battery=pack)
+        worst = report["worst_violations"]["depth_of_discharge"]
+        assert report["metrics"]["required_duration_reduction_s"] == worst["required_reduction_s"]
+        assert worst["drone"] == report["metrics"]["worst_drone"]
+
+    def test_a_clean_fleet_has_no_worst_violations(self):
+        report = validate_energy(_hover_show(120.0, n=3))
+        assert report["status"] == "PASSED"
+        assert report["worst_violations"] == {"depth_of_discharge": None, "c_rate": None, "voltage": None}
+
+    def test_an_empty_show_has_no_worst_violations(self):
+        report = validate_energy({"drones": []})
+        assert report["worst_violations"] == {"depth_of_discharge": None, "c_rate": None, "voltage": None}
+
+    def test_worst_is_ranked_on_unrounded_c_rate(self):
+        """Two drones whose peak C-rate displays identically: the truly higher one is the worst."""
+        fleet = _fleet(2)
+        # Both sprint hard enough that the sprint, not the hover, sets the peak;
+        # drone 1 is a hair faster (15.000 m vs 15.004 m in 5 s).
+        for drone, extra in zip(fleet["drones"], (0.0, 0.004)):
+            for wp in drone["waypoints"][3:]:
+                wp["x"] = 15.0 + extra
+        report = validate_energy(fleet, battery=BatterySpec(capacity_mah=550))
+
+        first, second = report["violations"]["c_rate"]
+        assert first["drone"] == 0 and second["drone"] == 1
+        assert first["c_rate"] == second["c_rate"], "precondition: both display the same rounded value"
+        assert report["worst_violations"]["c_rate"]["drone"] == 1

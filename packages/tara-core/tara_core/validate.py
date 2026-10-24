@@ -21,29 +21,45 @@ from .safety import DEFAULT_LIMITS, SafetyLimits
 from .show import Show
 
 #: Violations retained per category, to keep API responses a sane size.
-_MAX_REPORTED = 50
-#: Of those, how many are the most severe; the rest sample the timeline evenly.
-_MOST_SEVERE = _MAX_REPORTED // 2
+MAX_REPORTED = 50
 
 
-def _report_subset(found: list[tuple[float, dict]]) -> list[dict]:
-    """Pick at most ``_MAX_REPORTED`` violations of one kind to return, in time order.
+def report_subset(found: list[tuple[float, dict]], cap: int = MAX_REPORTED) -> list[dict]:
+    """Pick at most ``cap`` violations of one kind to return, in time order.
 
     ``found`` is every violation of that kind in time order, each paired with
     how far past its limit it went. Keeping only the earliest ones hid a show's
-    worst moment whenever it came late (issue #138), so the most severe half is
-    always kept, the global worst among them, and the other half samples the
-    rest of the timeline evenly.
+    worst moment whenever it came late (issues #138, #152), so the most severe
+    half (``cap // 2``) is always kept, the global worst among them, and the
+    other half samples the rest of the timeline evenly. Never returns an empty
+    list for a non-empty ``found`` while ``cap >= 1``.
     """
-    if len(found) <= _MAX_REPORTED:
+    if len(found) <= cap:
         return [entry for _, entry in found]
+    most_severe = cap // 2
     # sorted() is stable, so equally severe violations keep their time order.
     by_severity = sorted(range(len(found)), key=lambda i: found[i][0], reverse=True)
-    severe = set(by_severity[:_MOST_SEVERE])
+    severe = set(by_severity[:most_severe])
     rest = [i for i in range(len(found)) if i not in severe]
-    step = max(1, len(rest) // (_MAX_REPORTED - _MOST_SEVERE))
-    sample = rest[::step][: _MAX_REPORTED - _MOST_SEVERE]
+    step = max(1, len(rest) // (cap - most_severe))
+    sample = rest[::step][: cap - most_severe]
     return [found[i][1] for i in sorted(severe.union(sample))]
+
+
+def worst_of(found: list[tuple[float, dict]]) -> dict | None:
+    """The single most severe violation in ``found``, or ``None`` if it is empty.
+
+    ``max()`` keeps the first of equal maxima: a tie goes to the earliest.
+    """
+    if not found:
+        return None
+    return max(found, key=lambda item: item[0])[1]
+
+
+# Private aliases kept for existing importers.
+_MAX_REPORTED = MAX_REPORTED
+_MOST_SEVERE = MAX_REPORTED // 2
+_report_subset = report_subset
 
 
 def _positions_at(show: Show, t: float) -> tuple[dict, dict]:
@@ -130,8 +146,8 @@ def validate_show(
 
     Returns:
         A report dict with ``status`` (``"PASSED"``/``"FAILED"``), ``summary``,
-        ``metrics``, ``violations`` (at most ``_MAX_REPORTED`` per kind, see
-        :func:`_report_subset`) and ``worst_violations`` (the single worst of
+        ``metrics``, ``violations`` (at most ``MAX_REPORTED`` per kind, see
+        :func:`report_subset`) and ``worst_violations`` (the single worst of
         each kind, or ``None``). Each violation carries the limit it broke.
 
         ``violations`` includes ``altitude`` (above ``limits.max_altitude_m``)
@@ -263,10 +279,8 @@ def validate_show(
 
     worst_violations: dict[str, dict | None] = {key: None for key in violations}
     for key, items in found.items():
-        if items:
-            # max() keeps the first of equal maxima: a tie goes to the earliest.
-            worst_violations[key] = max(items, key=lambda item: item[0])[1]
-        violations[key] = _report_subset(items)
+        worst_violations[key] = worst_of(items)
+        violations[key] = report_subset(items)
 
     failed = any(violations[k] for k in violations)
     return {

@@ -31,11 +31,12 @@ from .mission import (
 from .proximity import close_pairs, min_separation
 from .safety import DEFAULT_LIMITS, SafetyLimits
 from .show import SHOW_FORMAT_VERSION, SHOW_SCHEMA_PATH, Show, ShowContainer, Waypoint
-from .validate import altitude_errors, collision_errors, validate_show
+from .validate import MAX_REPORTED, altitude_errors, collision_errors, report_subset, validate_show
 
 __all__ = [
     "BASE_HOVER_ALT_M",
     "MAX_FLEET_SIZE",
+    "MAX_REPORTED",
     "DEFAULT_LIMITS",
     "EARTH_RADIUS_M",
     "MissionHeader",
@@ -65,6 +66,7 @@ __all__ = [
     "optimal_assignment",
     "quintic_profile",
     "quintic_segment",
+    "report_subset",
     "sweep_times",
     "total_cost",
     "validate_show",

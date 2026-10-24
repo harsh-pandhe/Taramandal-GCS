@@ -19,7 +19,7 @@ from tara_core import DEFAULT_LIMITS, SafetyLimits
 from tara_core.geometry import interpolate_waypoint, jerk_from_positions, sweep_times  # re-exported
 from tara_core.proximity import min_separation
 from tara_core.show import Show
-from tara_core.validate import validate_show
+from tara_core.validate import report_subset, validate_show, worst_of
 
 __all__ = [
     "DEFAULT_DYNAMIC_LIMITS",
@@ -116,11 +116,6 @@ class DynamicLimits:
 #: The bounds specified for choreography dynamic feasibility.
 DEFAULT_DYNAMIC_LIMITS = DynamicLimits()
 
-#: Violations retained per category, matching tara_core.validate's cap so an
-#: API response stays a sane size on a badly-broken show.
-_MAX_REPORTED = 50
-
-
 def _curvature(p_prev, p_curr, p_next, dt: float) -> tuple[float, float]:
     """Discrete curvature ``kappa`` and speed at ``p_curr``, from three samples.
 
@@ -192,9 +187,16 @@ def validate_dynamics(
 
     Returns:
         A report dict with ``status`` (``"PASSED"``/``"FAILED"``), ``summary``,
-        ``metrics`` and ``violations`` — the same shape
+        ``metrics``, ``violations`` and ``worst_violations`` — the same shape
         :func:`validate_choreography` returns, so the two can be presented
-        interchangeably.
+        interchangeably — plus ``feasibility_certified``.
+
+        ``violations`` holds at most ``tara_core.validate.MAX_REPORTED`` per
+        category, chosen by :func:`tara_core.validate.report_subset` so the
+        most severe ones are never dropped for being late (issue #152);
+        ``worst_violations`` is the single worst of each category (excess over
+        that category's own limit), or ``None``. ``status``, ``metrics`` and
+        ``feasibility_certified`` come from the full sweep, not the subset.
     """
     show = Show.from_any(choreo_data)
 
@@ -204,6 +206,9 @@ def validate_dynamics(
         "jerk": [],
         "separation": [],
     }
+    # Every violation in time order, paired with how far past its limit it went
+    # (unrounded, in its own check's units) so ranking them is exact.
+    found: dict[str, list[tuple[float, dict]]] = {key: [] for key in violations}
 
     if not show.drones:
         return {
@@ -216,6 +221,7 @@ def validate_dynamics(
                 "min_distance_m": 0.0,
             },
             "violations": violations,
+            "worst_violations": {key: None for key in violations},
             "feasibility_certified": False,
         }
 
@@ -246,11 +252,11 @@ def validate_dynamics(
             dist = min_separation(positions)
             min_dist = min(min_dist, dist)
             if dist < limits.min_separation_m:
-                violations["separation"].append({
+                found["separation"].append((limits.min_separation_m - dist, {
                     "time": round(t, 2),
                     "distance": round(dist, 2),
                     "limit": limits.min_separation_m,
-                })
+                }))
 
         for d_id, track in tracks.items():
             curr = track[idx]
@@ -265,12 +271,12 @@ def validate_dynamics(
                 speed = math.dist(curr, prev) / dt
                 max_vel = max(max_vel, speed)
                 if speed > limits.max_velocity_ms:
-                    violations["velocity"].append({
+                    found["velocity"].append((speed - limits.max_velocity_ms, {
                         "time": round(t, 2),
                         "drone": d_id,
                         "velocity": round(speed, 2),
                         "limit": limits.max_velocity_ms,
-                    })
+                    }))
 
             # Curvature is centred, so it needs a sample on each side.
             if 0 < idx < len(times) - 1 and track[idx - 1] is not None and track[idx + 1] is not None:
@@ -278,14 +284,14 @@ def validate_dynamics(
                 a_c = kappa * centred_speed * centred_speed
                 max_centripetal = max(max_centripetal, a_c)
                 if a_c > limits.max_centripetal_ms2:
-                    violations["centripetal"].append({
+                    found["centripetal"].append((a_c - limits.max_centripetal_ms2, {
                         "time": round(t, 2),
                         "drone": d_id,
                         "centripetal": round(a_c, 2),
                         "curvature": round(kappa, 4),
                         "velocity": round(centred_speed, 2),
                         "limit": limits.max_centripetal_ms2,
-                    })
+                    }))
 
             # Jerk needs two samples on each side (a third-derivative central
             # stencil), same reasoning as curvature needing one on each side
@@ -302,15 +308,18 @@ def validate_dynamics(
                 )
                 max_jerk = max(max_jerk, j)
                 if j > limits.max_jerk_ms3:
-                    violations["jerk"].append({
+                    found["jerk"].append((j - limits.max_jerk_ms3, {
                         "time": round(t, 2),
                         "drone": d_id,
                         "jerk": round(j, 2),
                         "limit": limits.max_jerk_ms3,
-                    })
+                    }))
 
-    for key in violations:
-        violations[key] = sorted(violations[key], key=lambda v: v["time"])[:_MAX_REPORTED]
+    # The sweep visits samples in time order, so each list already is.
+    worst_violations: dict[str, dict | None] = {}
+    for key, items in found.items():
+        worst_violations[key] = worst_of(items)
+        violations[key] = report_subset(items)
 
     failed = any(violations[k] for k in violations)
     return {
@@ -327,6 +336,7 @@ def validate_dynamics(
             "min_distance_m": round(min_dist, 2) if min_dist != float("inf") else 0.0,
         },
         "violations": violations,
+        "worst_violations": worst_violations,
         "feasibility_certified": not failed,
     }
 
