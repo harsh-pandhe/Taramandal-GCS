@@ -16,7 +16,7 @@ import useShowBuilder from './hooks/useShowBuilder.js';
 import useProjects from './hooks/useProjects.js';
 import useAudioTrack from './hooks/useAudioTrack.js';
 
-import { makeScene, computeShowDuration, buildTimelineSegments } from './engine/sequencer.js';
+import { makeScene, predictShow } from './engine/sequencer.js';
 import { buildColoredChoreo } from './engine/lighting.js';
 import { serializeTrack } from './engine/ledPatterns.js';
 import { exportShow, sendShowToGCS, downloadExport } from './engine/api.js';
@@ -67,14 +67,15 @@ export default function App() {
   // the built show's assignment — for an unchanged scene list that makes the
   // prediction match the build exactly, and any edit shows up as stale.
   const builtAssignment = choreoData?._targetIdx ?? null;
-  const predictedDuration = useMemo(
-    () => computeShowDuration(scenes, numDrones, rate, builtAssignment),
+  // predictShow never throws a safety refusal into render: with no built
+  // assignment it reports a nominal estimate, and a refused stale plan comes
+  // back as `prediction.refusal`, shown below next to the build error.
+  const prediction = useMemo(
+    () => predictShow(scenes, numDrones, rate, builtAssignment),
     [scenes, numDrones, rate, builtAssignment],
   );
-  const segments = useMemo(
-    () => buildTimelineSegments(scenes, numDrones, rate, builtAssignment),
-    [scenes, numDrones, rate, builtAssignment],
-  );
+  const predictedDuration = prediction.duration;
+  const segments = prediction.segments;
   const builtDuration = choreoData?._duration ?? 0;
   // Scrub against what's actually rendered, so the playhead can never point past
   // the built trajectory.
@@ -226,7 +227,7 @@ export default function App() {
               dronesList={fleet.dronesList}
               rate={rate}
               loading={loading}
-              error={error}
+              error={error || prediction.refusal}
               playback={playback}
               audioPeaks={audio.peaks}
               zoom={zoom}
