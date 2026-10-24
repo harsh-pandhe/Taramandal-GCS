@@ -112,5 +112,11 @@ test('a reflexive double-click does not count as a confirmation', async ({ page 
   // one extra click and nothing more.
   await page.waitForTimeout(CONFIRM_GUARD_MS);
   await rtl(page).click();
-  await expect.poll(() => calls.rtl).toBe(1);
+  // Default poll timeout (5s) once timed out here on a severely loaded CI
+  // runner (issue #149): the click itself was correct (confirmed by the
+  // dblclick assertion above passing in the same run), but the route handler
+  // hadn't fired yet when the poll gave up — the whole suite ran 5-10x its
+  // normal duration that run (one spec file alone took 8.1m). Give this one
+  // assertion slack a loaded runner needs without weakening what it checks.
+  await expect.poll(() => calls.rtl, { timeout: 15_000 }).toBe(1);
 });
