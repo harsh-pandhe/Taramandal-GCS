@@ -148,7 +148,7 @@ async def test_bulk_ingestion_matches_the_per_drone_monitors():
             for m in (
                 manager._monitor_connection, manager._monitor_battery, manager._monitor_flight_mode,
                 manager._monitor_gps, manager._monitor_position, manager._monitor_armed_state,
-                manager._measure_latency_loop, manager._monitor_home,
+                manager._measure_latency_loop, manager._monitor_home, manager._monitor_landed_state,
             )
         ]
         tasks = [asyncio.create_task(m) for m in monitors]

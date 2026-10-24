@@ -686,9 +686,11 @@ class DroneManager:
             tel["fleet_x"] = round(local_x + pads[k][0], 2)
             tel["fleet_y"] = round(local_y + pads[k][1], 2)
             tel["fleet_z"] = local_z
-            # Mirrors FleetState._step's own ON_GROUND condition exactly
-            # (same altitude threshold, same vertical-speed deadband), so
-            # this agrees with when the sim itself would auto-disarm.
+            # Mirrors FleetState._step's own ON_GROUND threshold (same
+            # altitude cutoff, same vertical-speed deadband) and SimSystem's
+            # per-drone landed_state() stream exactly, applied to the same
+            # noisy position every other field here reports. Only ON_GROUND/
+            # IN_AIR are modelled; the sim has no taking-off/landing phase.
             tel["landed_state"] = (
                 "ON_GROUND" if alt <= LANDED_ALTITUDE_M and abs(velocities[k][2]) < 0.1 else "IN_AIR"
             )
