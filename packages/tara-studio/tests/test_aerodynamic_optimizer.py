@@ -396,7 +396,9 @@ class TestDynamicFeasibility:
         # are what combine with it for an export-time certification).
         show = straight_line_show({0: [(i * 0.1, 0.0, -10.0) for i in range(10)]})
         report = validate_dynamics(show)
-        assert set(report) == {"status", "summary", "metrics", "violations", "feasibility_certified"}
+        assert set(report) == {
+            "status", "summary", "metrics", "violations", "worst_violations", "feasibility_certified",
+        }
         assert set(report["violations"]) == {"velocity", "centripetal", "jerk", "separation"}
         assert set(report["metrics"]) == {
             "max_velocity_m_s",
