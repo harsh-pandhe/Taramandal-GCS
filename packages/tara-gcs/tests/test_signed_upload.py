@@ -356,3 +356,51 @@ def test_a_show_signed_by_studio_export_uploads(gcs, key, tmp_path, monkeypatch)
     resp = _upload(client, exported["content"].encode("utf-8"), exported["signature"]["content"].encode("utf-8"),
                    filename=exported["filename"])
     assert resp.status_code == 403
+
+
+def test_a_preview_only_studio_export_is_rejected_by_the_gcs(gcs, key, tmp_path, monkeypatch):
+    """Issue #143 review (Vishal): preview_only exports can never be signed
+    (enforced in tara_studio's /api/export), so the only thing stopping one
+    from being uploaded and flown is this GCS's own default signed-required
+    policy. Verified manually by running gate_show directly; this is the
+    automated version, end to end through both real apps' HTTP layers, under
+    the GCS's actual default launch policy (no --allow-unsigned).
+    """
+    from tara_core.signing import private_key_to_pem
+    from tara_studio import signing as studio_signing
+    from tara_studio.server import app as studio_app
+
+    key_path = tmp_path / "studio.pem"
+    fd = os.open(key_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    with os.fdopen(fd, "wb") as f:
+        f.write(private_key_to_pem(key))
+    monkeypatch.setattr(studio_signing, "DEFAULT_TOML", tmp_path / "tara.toml")
+    monkeypatch.setenv(studio_signing.SIGNING_KEY_ENV, str(key_path))
+    from tara_core.geometry import quintic_segment
+
+    def _certified_choreo():
+        p0, p1 = (0.0, 0.0, -2.0), (5.0, 0.0, -2.0)
+        half = 6.0
+        dt = 1.0 / 20.0
+        waypoints = []
+        t = 0.0
+        while t <= 2 * half + 1e-9:
+            state = quintic_segment(p0, p1, half, t) if t <= half else quintic_segment(p1, p0, half, t - half)
+            x, y, z = state["position"]
+            waypoints.append({"time": round(t, 4), "x": x, "y": y, "z": z, "yaw": 0.0})
+            t += dt
+        return {"drones": [{"id": 0, "waypoints": waypoints}]}
+
+    # Studio's own export gate refuses to sign a preview export, so this is
+    # the real, only shape a preview export's HTTP response can take.
+    exported = TestClient(studio_app).post(
+        "/api/export", json={"choreo": _certified_choreo(), "format": "json", "preview_only": True},
+    ).json()
+    assert exported.get("signature") is None
+
+    client, _ = gcs
+    resp = _upload(client, exported["content"].encode("utf-8"), filename=exported["filename"])
+
+    assert resp.status_code == 403
+    detail = resp.json()["detail"]
+    assert "unsigned" in detail and "--allow-unsigned" in detail

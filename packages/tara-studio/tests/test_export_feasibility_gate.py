@@ -1,4 +1,4 @@
-"""Issue #60 / #143 / #157: how /api/export treats failed feasibility certification.
+"""Issue #60 / #143: how /api/export treats failed feasibility certification.
 
 #60's original decision was that /api/export is never blocked by
 certification (jerk + the shared safety envelope) at all — surfaced to the
@@ -17,7 +17,7 @@ a safety one, and letting an operator preview a jerk-failing show is what
 preview mode is for.
 
 The generator gaps behind the jerk failures are still open (tracked as
-#157) - investigated directly for this update: raising the sampling rate
+) - investigated directly for this update: raising the sampling rate
 2Hz -> 10Hz barely moves max jerk (129 -> ~65-70 m/s^3, still far over the
 20 m/s^3 limit), so it is not primarily a sampling-coarseness artifact. It is
 a genuine velocity discontinuity at the phase handoff that differentiation

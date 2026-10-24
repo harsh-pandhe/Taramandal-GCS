@@ -37,7 +37,7 @@ from tara_studio.energy import (
     Environment,
     validate_energy,
 )
-from tara_studio.exporter import export_json, export_csv, export_kml, export_tara
+from tara_studio.exporter import export_json, export_csv, export_kml, export_tara, parse_tara
 from tara_studio.signing import SIGNABLE_FORMATS, SigningUnavailable, sign_export, signing_status
 from tara_studio.project_api import router as project_router
 from tara_studio.led_engine import (
@@ -59,7 +59,7 @@ from tara_studio.voxelizer import (
     voxelize,
 )
 from tara_core import DEFAULT_LIMITS, MAX_FLEET_SIZE
-from tara_core.validate import altitude_errors
+from tara_core.validate import altitude_errors, collision_errors
 from tara_core.assignment import optimal_assignment
 
 app = FastAPI(title="Taramandal Studio Choreography Engine", version="1.0.0")
@@ -562,7 +562,7 @@ def api_export(req: ExportRequest):
         except (ValueError, KeyError) as e:
             raise HTTPException(status_code=400, detail=f"Bad LED track: {e}")
 
-    # Canonical backend safety gate (issue #128 / #139 / #143 / #157)
+    # Canonical backend safety gate (issue #128 / #139 / #143)
     # One certification sweep covers both branches. Flight exports require
     # full certification: core safety PASSED and 0 jerk violations.
     #
@@ -571,7 +571,7 @@ def api_export(req: ExportRequest):
     # above: an unsafe or colliding show must never be exportable in any
     # form, preview or not. They're exempt only from the jerk bound, which is
     # a choreography-quality metric (issue #60), not a safety one; the two
-    # generator gaps behind it are tracked separately (issue #157), and
+    # generator gaps behind it are tracked separately, and
     # letting an operator preview a jerk-failing show is this feature's whole
     # point. Preview exports also can never be signed.
     if req.preview_only and req.sign:
@@ -644,6 +644,34 @@ def api_export(req: ExportRequest):
             blob = export_tara(choreo, rate_hz)
         except ValueError as e:
             raise HTTPException(status_code=400, detail=f"Cannot compile .tara: {e}")
+        # Issue #157: the certification above ran on `choreo` as given, before
+        # .tara's own int16-centimetre packing (export_tara's _clamp_i16). That
+        # packing is
+        # a second, independent rounding pass on top of whatever the caller
+        # already applied (or didn't): a pair a hair over 2.0 m pre-encode can
+        # come back under it once actually quantized to the centimetre. Direct
+        # review finding: a real 2.0004 m pair exported and decoded from the
+        # true .tara bytes measured 1.9868 m. So re-check separation on the
+        # exact bytes about to leave the server, not the pre-encode choreo -
+        # separation only (not a full certify_feasibility_report re-run): the
+        # quantization can only move positions, not velocity/accel/yaw/jerk
+        # derived from the unrounded input, and a second full sweep here would
+        # double an already-expensive check.
+        try:
+            exported_show = parse_tara(blob)
+        except ValueError as e:
+            raise HTTPException(status_code=412, detail=f"Export blocked: could not verify compiled .tara: {e}")
+        quantized_issues = collision_errors(
+            exported_show, limits=DEFAULT_LIMITS, separation=DEFAULT_LIMITS.design_separation_m,
+        )
+        if quantized_issues:
+            raise HTTPException(
+                status_code=412,
+                detail={
+                    "message": "Export blocked: centimetre rounding in the compiled .tara brought two drones under the minimum design separation.",
+                    "errors": quantized_issues,
+                },
+            )
         filename = "PREVIEW_ONLY_choreography.tara" if req.preview_only else "choreography.tara"
         return {
             "filename": filename,
@@ -660,8 +688,18 @@ def api_export(req: ExportRequest):
 
     # Signed over exactly the UTF-8 bytes the client will write or upload, so
     # the GCS verifies the file it actually receives (issue #49).
+    #
+    # `sign` is a tri-state (True/False/None, see sign_export's docstring):
+    # None auto-signs whenever a key is configured, independent of
+    # preview_only. The check above only catches an explicit sign=True on a
+    # preview export; forced to False here too so the implicit case can't
+    # silently sign one. A preview export that's actually signed defeats the
+    # one thing standing between it and a real upload (issue #143 review) --
+    # the GCS's default signed-required policy, which a signature trivially
+    # satisfies regardless of what produced it.
+    sign = False if req.preview_only else req.sign
     try:
-        signature = sign_export(content.encode("utf-8"), filename, req.sign)
+        signature = sign_export(content.encode("utf-8"), filename, sign)
     except SigningUnavailable as e:
         raise HTTPException(status_code=409, detail=f"Cannot sign the export: {e}")
 

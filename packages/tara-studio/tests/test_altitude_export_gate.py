@@ -12,7 +12,7 @@ built before the frontend gates existed, could export and fly arbitrarily high.
 This gate runs unconditionally, before #143's certification branch, so it
 rejects/accepts identically regardless of preview_only. The one test here that
 exercises a real generator shape uses preview_only=True, though, since a real
-generator's default output fails jerk-only certification today (issue #157) --
+generator's default output fails jerk-only certification today --
 the point being pinned down is specifically that altitude doesn't also reject
 it once jerk's own gate is set aside.
 """
@@ -60,7 +60,7 @@ def test_export_still_succeeds_for_a_real_generated_shape():
     # The explicit regression #148's acceptance criteria asks for: this gate
     # must not reject ordinary Studio output, only genuine ceiling breaches.
     # preview_only=True because a real generator's default output fails
-    # jerk-only certification today (issue #157, unrelated to altitude) --
+    # jerk-only certification today (a generator gap, unrelated to altitude) --
     # #143's gate would otherwise 412 this for a different reason first.
     choreo = generate_circle(5, 10.0, 2.0)
     res = client.post("/api/export", json={"choreo": choreo, "format": "json", "preview_only": True})
