@@ -29,7 +29,6 @@ from tara_gcs.state_store import load_show_state, save_show_state
 from tara_gcs.trajectory_parser import gate_trajectory, parse_trajectory_bytes
 from tara_studio import signing as studio_signing
 from tara_studio.exporter import export_csv, export_json
-from tara_studio.generator import generate_circle
 from tara_studio.server import app as studio_app
 
 REMOTE_PATH = f"{MISSION_REMOTE_DIR}/{MISSION_FILE_NAME}"
@@ -101,12 +100,31 @@ def _two_drone_show(**wp_extra) -> dict:
 # ------------------------------------------------------------- full pipeline
 
 
+def _smooth_120_drone_show():
+    from tara_core import launch_grid
+    from tara_core.geometry import quintic_segment
+    grid = launch_grid(120)
+    drones = []
+    dt = 0.2
+    half = 6.0
+    for i, (gx, gy) in enumerate(grid):
+        wps = []
+        p0 = (gx, gy, 0.0)
+        p1 = (gx, gy, -10.0)
+        t = 0.0
+        while t <= 2 * half + 1e-9:
+            state = quintic_segment(p0, p1, half, t) if t <= half else quintic_segment(p1, p0, half, t - half)
+            x, y, z = state["position"]
+            wps.append({"time": round(t, 4), "x": x, "y": y, "z": z, "yaw": 0.0})
+            t += dt
+        drones.append({"id": i, "waypoints": wps})
+    return {"drones": drones}
+
+
 async def test_studio_show_of_120_drones_reaches_the_mission_files_intact(gcs, studio_key, tmp_path, monkeypatch):
     """Generate (120 drones) -> bake LED -> export + sign -> GCS upload ->
     active_trajectory -> upload_show -> decode_mission, with nothing lost."""
-    # 0.5 Hz rather than the Studio UI's 1 Hz floor: at 1 Hz this show's
-    # export is ~5.2 MB, past the GCS's 5 MB upload cap (see the PR notes).
-    exported = _studio_export(generate_circle(120, 30.0, 0.5), sign=True, led_track=LED_TRACK)
+    exported = _studio_export(_smooth_120_drone_show(), sign=True, led_track=LED_TRACK)
     signed_bytes = exported["content"].encode("utf-8")
     show_file = json.loads(signed_bytes)
     assert show_file["version"] == SHOW_FORMAT_VERSION

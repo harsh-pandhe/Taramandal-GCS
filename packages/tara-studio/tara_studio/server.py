@@ -23,6 +23,7 @@ from tara_studio.generator import (
 from tara_studio.validator import (
     DEFAULT_DYNAMIC_LIMITS,
     DynamicLimits,
+    certify_feasibility_report,
     validate_choreography,
     validate_dynamics,
 )
@@ -36,7 +37,7 @@ from tara_studio.energy import (
     Environment,
     validate_energy,
 )
-from tara_studio.exporter import export_json, export_csv, export_kml, export_tara
+from tara_studio.exporter import export_json, export_csv, export_kml, export_tara, parse_tara
 from tara_studio.signing import SIGNABLE_FORMATS, SigningUnavailable, sign_export, signing_status
 from tara_studio.project_api import router as project_router
 from tara_studio.led_engine import (
@@ -58,7 +59,7 @@ from tara_studio.voxelizer import (
     voxelize,
 )
 from tara_core import DEFAULT_LIMITS, MAX_FLEET_SIZE
-from tara_core.validate import altitude_errors
+from tara_core.validate import altitude_errors, collision_errors
 from tara_core.assignment import optimal_assignment
 
 app = FastAPI(title="Taramandal Studio Choreography Engine", version="1.0.0")
@@ -120,6 +121,10 @@ class ExportRequest(BaseModel):
         description="Attach a .sig.json manifest (issue #49): true requires one, false never, "
         "null signs whenever a signing key is configured and the format is a GCS upload (json, csv)",
     )
+    preview_only: bool = Field(
+        False,
+        description="Explicitly marks export as non-flight preview artifact; bypasses flight certification but cannot be signed",
+    )
 
 def _with_limits(report: dict) -> dict:
     """Attach the SafetyLimits the report was judged against (issue #97).
@@ -172,24 +177,10 @@ def api_generate(req: GenerateRequest):
         # from inside the shape's waypoint loop and surfaced as a blank 500.
         raise HTTPException(status_code=400, detail=str(e))
 
-    # Perform safety validation check automatically. validate_choreography
-    # covers the shared airframe/abort envelope (proximity, velocity, accel,
-    # yaw rate); validate_dynamics adds the tighter choreography-quality
-    # bounds, including jerk (issue #60) — folded into the same `violations`
-    # dict so the frontend's existing per-category rendering (SafetyPanel)
-    # picks up a "jerk" category the same way it already does for the other
-    # three, without needing a second report shape wired through the UI.
-    validation = validate_choreography(choreo)
-    dynamics = validate_dynamics(choreo)
-    validation["violations"]["jerk"] = dynamics["violations"]["jerk"]
-    validation["metrics"]["max_jerk_m_s3"] = dynamics["metrics"]["max_jerk_m_s3"]
-    # Deliberately not `dynamics["status"]` — see certify_feasibility's
-    # docstring for why the rest of validate_dynamics (velocity/centripetal)
-    # is a separate, stricter advisory check that real shows routinely don't
-    # clear, and isn't part of this gate.
-    validation["feasibility_certified"] = (
-        validation["status"] == "PASSED" and not dynamics["violations"]["jerk"]
-    )
+    # Perform safety validation check automatically. Canonical feasibility certification:
+    # validate_choreography covers the shared airframe/abort envelope (proximity, velocity,
+    # accel, yaw rate); validate_dynamics adds bounded jerk (issue #60).
+    _is_certified, validation = certify_feasibility_report(choreo)
     validation = _with_limits(validation)
 
     # Report the pacing the generator chose. The show's length is no longer
@@ -534,26 +525,21 @@ def api_export(req: ExportRequest):
         raise HTTPException(status_code=400, detail=f"Only {', '.join(sorted(SIGNABLE_FORMATS))} exports can be signed.")
     rate_hz = req.rate_hz or 0.0
 
-    # Feasibility certification (issue #60 — jerk/velocity/acceleration/
-    # separation bounds) is deliberately NOT enforced here. It's surfaced to
-    # the operator via /api/generate's `feasibility_certified` field and
-    # SafetyPanel's jerk category instead: two pre-existing generator gaps
-    # (coarse default waypoint sampling, and a velocity mismatch at the
-    # choreography->land phase handoff — see follow-up issues) mean no shape
-    # generator's default output currently clears the jerk bound, unrelated
-    # to what #60 asked for. Hard-blocking here would break every real export
-    # the moment this merges. Revisit once those are fixed.
-    #
-    # The 120 m ceiling (issue #148) is a different kind of bound, not a
-    # choreography-quality one like jerk: it is an absolute physical/airspace
-    # limit, the client-side formation builder has always refused to generate
-    # anything above it (see formations.js and the #141 morph planner), and
-    # nothing about it is close to unreachable the way a clean jerk bound
-    # currently is. So, unlike jerk, this one blocks: before this check, no
-    # backend code path enforced it at all, so a client bypassing the Studio
-    # UI (or a show built before #140/#141 existed) could export and fly
-    # arbitrarily high.
-    altitude_issues = altitude_errors(choreo, limits=DEFAULT_LIMITS)
+    # The 120 m ceiling (issue #148) is checked unconditionally, before any
+    # certification branching below: it's an absolute physical/airspace limit,
+    # not a choreography-quality one, and the canonical gate below only runs
+    # for non-preview exports. This way the ceiling holds even for
+    # preview_only exports, regardless of how that branch evolves. A show too
+    # malformed to even interpret (e.g. `drones` not a list) fails closed the
+    # same way the certification gate below does, rather than raising a raw
+    # 500 - this check runs first, so it has to handle that case itself.
+    try:
+        altitude_issues = altitude_errors(choreo, limits=DEFAULT_LIMITS)
+    except Exception as e:
+        raise HTTPException(
+            status_code=412,
+            detail=f"Export blocked: validator error or malformed show: {e}",
+        )
     if altitude_issues:
         raise HTTPException(
             status_code=400,
@@ -566,6 +552,7 @@ def api_export(req: ExportRequest):
     # exist at waypoint times, so first add frames until every strobe has
     # samples in both its on- and off-phase - otherwise a strobe at or above
     # half the show's rate aliases into solid light.
+    # Trace the complete path: validate the final artifact that will actually be exported.
     if req.led_track:
         try:
             factor = upsample_factor(choreo, led_sample_rate_hz(req.led_track))
@@ -574,6 +561,57 @@ def api_export(req: ExportRequest):
             choreo = apply_track_to_choreo(choreo, req.led_track)
         except (ValueError, KeyError) as e:
             raise HTTPException(status_code=400, detail=f"Bad LED track: {e}")
+
+    # Canonical backend safety gate (issue #128 / #139 / #143)
+    # One certification sweep covers both branches. Flight exports require
+    # full certification: core safety PASSED and 0 jerk violations.
+    #
+    # Preview-only exports (issue #143) still require core safety - proximity,
+    # velocity, acceleration, yaw rate, and the altitude ceiling checked
+    # above: an unsafe or colliding show must never be exportable in any
+    # form, preview or not. They're exempt only from the jerk bound, which is
+    # a choreography-quality metric (issue #60), not a safety one; the two
+    # generator gaps behind it are tracked separately, and
+    # letting an operator preview a jerk-failing show is this feature's whole
+    # point. Preview exports also can never be signed.
+    if req.preview_only and req.sign:
+        raise HTTPException(status_code=400, detail="Preview-only exports cannot be signed for flight.")
+    try:
+        is_certified, val = certify_feasibility_report(choreo)
+    except Exception as e:
+        raise HTTPException(
+            status_code=412,
+            detail=f"Export blocked: validator error or malformed show: {e}",
+        )
+    if not isinstance(val, dict):
+        raise HTTPException(
+            status_code=412,
+            detail={"message": "Export blocked: unknown validation status.", "validation": val},
+        )
+    # jerk is the one category preview is exempt from; status gets forced to
+    # FAILED above whenever is_certified is False, even on a jerk-only
+    # failure, so core safety has to be read from the violation categories
+    # directly rather than from `val["status"]`.
+    core_violations = {k: v for k, v in val.get("violations", {}).items() if k != "jerk"}
+    core_passed = not any(core_violations.values())
+    if req.preview_only:
+        if not core_passed:
+            raise HTTPException(
+                status_code=412,
+                detail={
+                    "message": "Preview blocked: choreography failed core safety validation (proximity, velocity, acceleration, or yaw rate).",
+                    "validation": val,
+                },
+            )
+    elif not is_certified:
+        summary = val.get("summary", "Validation did not pass")
+        raise HTTPException(
+            status_code=412,
+            detail={
+                "message": f"Flight export blocked: choreography failed safety validation ({summary}).",
+                "validation": val,
+            },
+        )
 
     if fmt == "json":
         try:
@@ -606,19 +644,62 @@ def api_export(req: ExportRequest):
             blob = export_tara(choreo, rate_hz)
         except ValueError as e:
             raise HTTPException(status_code=400, detail=f"Cannot compile .tara: {e}")
+        # Issue #157: the certification above ran on `choreo` as given, before
+        # .tara's own int16-centimetre packing (export_tara's _clamp_i16). That
+        # packing is
+        # a second, independent rounding pass on top of whatever the caller
+        # already applied (or didn't): a pair a hair over 2.0 m pre-encode can
+        # come back under it once actually quantized to the centimetre. Direct
+        # review finding: a real 2.0004 m pair exported and decoded from the
+        # true .tara bytes measured 1.9868 m. So re-check separation on the
+        # exact bytes about to leave the server, not the pre-encode choreo -
+        # separation only (not a full certify_feasibility_report re-run): the
+        # quantization can only move positions, not velocity/accel/yaw/jerk
+        # derived from the unrounded input, and a second full sweep here would
+        # double an already-expensive check.
+        try:
+            exported_show = parse_tara(blob)
+        except ValueError as e:
+            raise HTTPException(status_code=412, detail=f"Export blocked: could not verify compiled .tara: {e}")
+        quantized_issues = collision_errors(
+            exported_show, limits=DEFAULT_LIMITS, separation=DEFAULT_LIMITS.design_separation_m,
+        )
+        if quantized_issues:
+            raise HTTPException(
+                status_code=412,
+                detail={
+                    "message": "Export blocked: centimetre rounding in the compiled .tara brought two drones under the minimum design separation.",
+                    "errors": quantized_issues,
+                },
+            )
+        filename = "PREVIEW_ONLY_choreography.tara" if req.preview_only else "choreography.tara"
         return {
-            "filename": "choreography.tara",
+            "filename": filename,
             "content": base64.b64encode(blob).decode("ascii"),
             "mime_type": "application/octet-stream",
             "encoding": "base64",
+            "preview_only": req.preview_only,
         }
     else:
         raise HTTPException(status_code=400, detail=f"Unsupported export format: {req.format}")
 
+    if req.preview_only:
+        filename = f"PREVIEW_ONLY_{filename}"
+
     # Signed over exactly the UTF-8 bytes the client will write or upload, so
     # the GCS verifies the file it actually receives (issue #49).
+    #
+    # `sign` is a tri-state (True/False/None, see sign_export's docstring):
+    # None auto-signs whenever a key is configured, independent of
+    # preview_only. The check above only catches an explicit sign=True on a
+    # preview export; forced to False here too so the implicit case can't
+    # silently sign one. A preview export that's actually signed defeats the
+    # one thing standing between it and a real upload (issue #143 review) --
+    # the GCS's default signed-required policy, which a signature trivially
+    # satisfies regardless of what produced it.
+    sign = False if req.preview_only else req.sign
     try:
-        signature = sign_export(content.encode("utf-8"), filename, req.sign)
+        signature = sign_export(content.encode("utf-8"), filename, sign)
     except SigningUnavailable as e:
         raise HTTPException(status_code=409, detail=f"Cannot sign the export: {e}")
 
@@ -627,6 +708,7 @@ def api_export(req: ExportRequest):
         "content": content,
         "mime_type": mime_type,
         "encoding": "utf-8",
+        "preview_only": req.preview_only,
         **({"signature": signature} if signature else {}),
     }
 
