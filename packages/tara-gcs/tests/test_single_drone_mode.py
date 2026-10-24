@@ -330,6 +330,71 @@ async def test_single_drone_fails_closed_on_mid_air_disarm(commander, patched_ma
 
 
 @pytest.mark.asyncio
+async def test_single_drone_fails_closed_when_landed_state_is_unknown(commander, patched_manager, monkeypatch):
+    """issue #145 review (Vishal): landed_state == None must not count as
+    landed. The old "is None or == ON_GROUND" fallback meant a drone whose
+    landed-state stream simply hadn't reported yet (not necessarily disarmed
+    mid-air - just unconfirmed) could still pass the touchdown check."""
+    manager = patched_manager(DroneManager(ports=[14540], backend="sim"))
+    try:
+        await manager.connect_all()
+        await asyncio.sleep(0.3)
+
+        original_ingest = manager._ingest_bulk_telemetry
+        start = time.monotonic()
+        def faking_ingest(snap, include_slow):
+            original_ingest(snap, include_slow)
+            if time.monotonic() - start > 1.0:
+                tel = manager.telemetry[0]
+                tel["armed"] = False
+                tel["landed_state"] = None
+                tel["landed_state_at"] = None
+        monkeypatch.setattr(manager, "_ingest_bulk_telemetry", faking_ingest)
+
+        with pytest.raises(HTTPException) as exc:
+            await gcs_main.run_single_drone_sequence(
+                gcs_main.SingleDroneSequenceRequest(target_altitude_m=0.5, hover_duration_s=1.0),
+                operator=commander,
+            )
+        assert exc.value.status_code == 500
+        assert "Touchdown disarm could not be confirmed" in exc.value.detail
+    finally:
+        await manager.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_single_drone_fails_closed_on_stale_landed_state(commander, patched_manager, monkeypatch):
+    """issue #145 review (Vishal): landed_state needs its own freshness check,
+    the same way last_heartbeat already has one - a stream that stops
+    updating while reporting a stale ON_GROUND must not be trusted."""
+    manager = patched_manager(DroneManager(ports=[14540], backend="sim"))
+    try:
+        await manager.connect_all()
+        await asyncio.sleep(0.3)
+
+        original_ingest = manager._ingest_bulk_telemetry
+        start = time.monotonic()
+        def faking_ingest(snap, include_slow):
+            original_ingest(snap, include_slow)
+            if time.monotonic() - start > 1.0:
+                tel = manager.telemetry[0]
+                tel["armed"] = False
+                tel["landed_state"] = "ON_GROUND"
+                tel["landed_state_at"] = time.time() - 10.0  # well past the 2.5s staleness window
+        monkeypatch.setattr(manager, "_ingest_bulk_telemetry", faking_ingest)
+
+        with pytest.raises(HTTPException) as exc:
+            await gcs_main.run_single_drone_sequence(
+                gcs_main.SingleDroneSequenceRequest(target_altitude_m=0.5, hover_duration_s=1.0),
+                operator=commander,
+            )
+        assert exc.value.status_code == 500
+        assert "landed-state telemetry became stale" in exc.value.detail
+    finally:
+        await manager.shutdown()
+
+
+@pytest.mark.asyncio
 async def test_single_drone_sim_reports_on_ground_after_a_real_landing(commander, patched_manager):
     """issue #145: landed_state is populated from real sim physics (altitude
     and vertical speed), not merely inferred from disarm - a genuine landing
