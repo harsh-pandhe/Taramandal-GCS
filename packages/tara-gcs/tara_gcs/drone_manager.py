@@ -530,8 +530,11 @@ class DroneManager:
                 # or None until the first sample arrives. Ground-contact
                 # confirmation (issue #145) reads this directly rather than
                 # inferring it from disarm alone (see
-                # execute_single_drone_demo_sequence).
+                # execute_single_drone_demo_sequence). landed_state_at is
+                # when it was last written, so a stalled stream can be told
+                # apart from a genuinely fresh ON_GROUND (issue #145 review).
                 "landed_state": None,
+                "landed_state_at": None,
             }
 
             # On the sim backend one fleet-wide task fills this in instead
@@ -684,6 +687,7 @@ class DroneManager:
             tel["landed_state"] = (
                 "ON_GROUND" if alt <= LANDED_ALTITUDE_M and abs(velocities[k][2]) < 0.1 else "IN_AIR"
             )
+            tel["landed_state_at"] = time.time()
             prev_armed = tel["armed"]
             tel["armed"] = armed[k]
             # Reset geofence breach tracking when drone disarms (as _monitor_armed_state does)
@@ -818,6 +822,7 @@ class DroneManager:
             drone = self.drones[drone_id]
             async for state in drone.telemetry.landed_state():
                 self.telemetry[drone_id]["landed_state"] = str(state)
+                self.telemetry[drone_id]["landed_state_at"] = time.time()
         except asyncio.CancelledError:
             pass
         except Exception as e:
@@ -1449,17 +1454,29 @@ class DroneManager:
 
             # Check fresh telemetry observations for landed and disarmed state
             # Never fabricate or force tel["armed"] = False!
+            def is_confirmed_on_ground(context: str) -> bool:
+                """Raises if connection/heartbeat/landed-state look stale;
+                else reports whether the vehicle is confirmed ON_GROUND right
+                now. Strict equality, no "unknown counts as landed" fallback
+                (issue #145 review): an unconfirmed landed_state means wait,
+                not assume grounded. A landed_state that stops updating while
+                the heartbeat otherwise looks fine is its own stale-telemetry
+                failure, the same way a stalled heartbeat already is.
+                """
+                if not tel.get("connected", False):
+                    raise RuntimeError(f"Drone {drone_id} disconnected {context}")
+                last_hb = tel.get("last_heartbeat")
+                if last_hb is not None and (time.time() - last_hb) > 2.5:
+                    raise RuntimeError(f"Drone {drone_id} telemetry became stale {context}")
+                landed_at = tel.get("landed_state_at")
+                if landed_at is not None and (time.time() - landed_at) > 2.5:
+                    raise RuntimeError(f"Drone {drone_id} landed-state telemetry became stale {context}")
+                return tel.get("landed_state") == "ON_GROUND"
+
             disarm_confirmed = False
             land_deadline = time.time() + 10.0
             while time.time() < land_deadline:
-                if not tel.get("connected", False):
-                    raise RuntimeError(f"Drone {drone_id} disconnected while awaiting landing/disarm confirmation")
-                last_hb = tel.get("last_heartbeat")
-                if last_hb is not None and (time.time() - last_hb) > 2.5:
-                    raise RuntimeError(f"Drone {drone_id} telemetry became stale while awaiting landing confirmation")
-
-                landed_ok = tel.get("landed_state") is None or tel.get("landed_state") == "ON_GROUND"
-                if not tel.get("armed", True) and landed_ok:
+                if not tel.get("armed", True) and is_confirmed_on_ground("while awaiting landing/disarm confirmation"):
                     disarm_confirmed = True
                     break
                 await asyncio.sleep(0.1)
@@ -1474,10 +1491,7 @@ class DroneManager:
                 # Poll again for observed telemetry disarm — NEVER mutate tel["armed"]
                 post_disarm_deadline = time.time() + 2.0
                 while time.time() < post_disarm_deadline:
-                    if not tel.get("connected", False):
-                        raise RuntimeError(f"Drone {drone_id} disconnected during disarm confirmation")
-                    landed_ok = tel.get("landed_state") is None or tel.get("landed_state") == "ON_GROUND"
-                    if not tel.get("armed", True) and landed_ok:
+                    if not tel.get("armed", True) and is_confirmed_on_ground("during disarm confirmation"):
                         disarm_confirmed = True
                         break
                     await asyncio.sleep(0.1)
