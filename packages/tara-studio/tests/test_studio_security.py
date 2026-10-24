@@ -125,3 +125,81 @@ class TestSigningKeySecrecy:
         if data.get("ready"):
             assert "key_id" in data
             assert "public_key" in data
+
+
+class TestStudioOriginMatchesConfiguredPort:
+    """Issue #155: the default CORS origins must include the Studio web UI's own origin."""
+
+    @staticmethod
+    def _preflight(client, origin):
+        return client.options(
+            "/api/validate",
+            headers={
+                "Origin": origin,
+                "Access-Control-Request-Method": "POST",
+                "Access-Control-Request-Headers": "content-type",
+            },
+        )
+
+    def test_configured_studio_web_origin_is_allowed(self, client):
+        from tara_cli.config import load_config
+
+        port = load_config().studio_web_port  # what `tara up` really serves the UI on
+        for host in ("localhost", "127.0.0.1"):
+            origin = f"http://{host}:{port}"
+            res = self._preflight(client, origin)
+            assert res.status_code == 200, origin
+            assert res.headers.get("access-control-allow-origin") == origin
+
+    @pytest.mark.parametrize(
+        "origin",
+        [
+            "http://evil.example",
+            "http://localhost:5174.evil.example",  # prefix look-alike
+            "https://localhost:5174",  # wrong scheme
+            "http://localhost:5199",  # another local port nobody configured
+            "null",
+        ],
+    )
+    def test_other_origins_stay_refused(self, client, origin):
+        res = self._preflight(client, origin)
+        assert res.headers.get("access-control-allow-origin") is None
+
+    def test_origin_follows_tara_toml_port(self, tmp_path):
+        from tara_studio.server import default_studio_origins, studio_web_port
+
+        toml = tmp_path / "tara.toml"
+        toml.write_text("[ports]\nstudio_web = 5200\n")
+        assert studio_web_port(toml) == 5200
+        origins = default_studio_origins(toml)
+        assert "http://localhost:5200" in origins and "http://127.0.0.1:5200" in origins
+        assert "*" not in origins
+
+    @pytest.mark.parametrize("body", ["", "[ports]\nstudio_web = \"x\"\n", "[ports\n", "[ports]\nstudio_web = 0\n"])
+    def test_missing_or_bad_config_falls_back_to_shipped_default(self, tmp_path, body):
+        from tara_studio.server import studio_web_port
+
+        toml = tmp_path / "tara.toml"
+        toml.write_text(body)
+        assert studio_web_port(toml) == 5174
+        assert studio_web_port(tmp_path / "absent.toml") == 5174
+
+    def test_wildcard_env_still_disables_credentials(self, monkeypatch):
+        import importlib
+
+        from tara_studio import server
+
+        monkeypatch.setenv("STUDIO_ALLOWED_ORIGINS", "*")
+        try:
+            reloaded = importlib.reload(server)
+            assert reloaded.allow_creds is False
+        finally:
+            monkeypatch.delenv("STUDIO_ALLOWED_ORIGINS")
+            importlib.reload(server)
+
+    def test_url_encoded_traversal_ids_fail_closed(self, client):
+        # The threat model cites these payloads; they now have a test of their own.
+        for pid in ("..%2F..", "..%2F..%2Fetc%2Fpasswd", "%2e%2e%2f"):
+            res = client.get(f"/api/projects/{pid}")
+            assert res.status_code in (400, 404, 422), (pid, res.status_code)
+

@@ -63,7 +63,11 @@ from tara_core.assignment import optimal_assignment
 
 app = FastAPI(title="Taramandal Studio Choreography Engine", version="1.0.0")
 
-DEFAULT_STUDIO_ORIGINS = [
+#: Origins the Studio API allows when STUDIO_ALLOWED_ORIGINS is not set. The
+#: Studio web UI's own origin is added below from tara.toml ([ports].studio_web),
+#: so the documented `tara up` setup works without extra configuration while any
+#: other origin stays refused (issue #155).
+_BASE_STUDIO_ORIGINS = [
     "http://localhost:5173",
     "http://127.0.0.1:5173",
     "http://localhost:8001",
@@ -71,6 +75,38 @@ DEFAULT_STUDIO_ORIGINS = [
     "http://localhost:8090",
     "http://127.0.0.1:8090",
 ]
+_FALLBACK_STUDIO_WEB_PORT = 5174  # tara.toml's shipped default
+
+
+def studio_web_port(toml_path=None) -> int:
+    """The Studio web UI's port from tara.toml ``[ports].studio_web`` (default 5174).
+
+    An unreadable or malformed file falls back to the shipped default rather than
+    stopping the API from starting; STUDIO_ALLOWED_ORIGINS can always override.
+    """
+    import logging
+    import tomllib
+    from pathlib import Path
+
+    path = Path(toml_path) if toml_path is not None else Path(__file__).resolve().parents[3] / "tara.toml"
+    try:
+        port = tomllib.loads(path.read_text()).get("ports", {}).get("studio_web", _FALLBACK_STUDIO_WEB_PORT)
+        if isinstance(port, int) and not isinstance(port, bool) and 0 < port < 65536:
+            return port
+        logging.getLogger(__name__).warning("ignoring invalid [ports].studio_web in %s", path)
+    except (OSError, ValueError):  # missing file, TOMLDecodeError (a ValueError)
+        pass
+    return _FALLBACK_STUDIO_WEB_PORT
+
+
+def default_studio_origins(toml_path=None) -> list[str]:
+    """Base origins plus exactly the Studio web UI's localhost / 127.0.0.1 origins."""
+    port = studio_web_port(toml_path)
+    ui = [f"http://localhost:{port}", f"http://127.0.0.1:{port}"]
+    return list(dict.fromkeys(_BASE_STUDIO_ORIGINS + ui))
+
+
+DEFAULT_STUDIO_ORIGINS = default_studio_origins()
 
 raw_origins = os.environ.get("STUDIO_ALLOWED_ORIGINS")
 if raw_origins:

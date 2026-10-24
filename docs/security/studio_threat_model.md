@@ -30,7 +30,7 @@ Taramandal Studio is an authoring tool and choreography compiler for drone light
    - **Remote Access (Optional):** If bound to a non-loopback interface (`0.0.0.0`), it MUST sit behind an authenticated reverse proxy or SSH/VPN tunnel.
 
 2. **Browser / Web Origin Boundary (CORS):**
-   - The Studio web UI runs on a development origin (e.g. `http://localhost:5173`) or served statically.
+   - The Studio web UI runs on the port configured in `tara.toml` (`[ports].studio_web`, default `5174`; `tara up` serves it there) or is served statically.
    - Cross-Origin Resource Sharing (CORS) must never allow wildcard `*` with credentials enabled (`allow_credentials=True`), preventing unauthorized cross-origin sites from querying or tampering with the local Project Vault.
 
 3. **Filesystem / Vault Boundary:**
@@ -50,7 +50,7 @@ Taramandal Studio is an authoring tool and choreography compiler for drone light
 
 - **Threat:** If an operator visits an untrusted website in the same browser, that site could make cross-origin requests to `http://localhost:8001/api/projects` to exfiltrate proprietary choreography or overwrite projects if CORS allows `*` with credentials.
 - **Mitigation:**
-  - Enforce explicit allowed origins via `STUDIO_ALLOWED_ORIGINS` (defaulting to `http://localhost:5173`, `http://127.0.0.1:5173`, `http://localhost:8001`, `http://127.0.0.1:8001`).
+  - Enforce explicit allowed origins via `STUDIO_ALLOWED_ORIGINS` (defaulting to the Studio web UI's own `localhost`/`127.0.0.1` origin from `tara.toml`'s `[ports].studio_web`, plus `localhost`/`127.0.0.1` on ports 5173, 8001 and 8090).
   - If wildcard `*` is explicitly set by an operator, disable `allow_credentials` to prevent authenticated credential sharing per W3C CORS standards.
 
 ### 3.2 Path Traversal in Project Vault
@@ -94,7 +94,7 @@ Taramandal Studio is an authoring tool and choreography compiler for drone light
    ```
 2. **Origins Configuration:**
    ```bash
-   STUDIO_ALLOWED_ORIGINS="http://localhost:5173,http://127.0.0.1:5173"
+   STUDIO_ALLOWED_ORIGINS="http://localhost:5174,http://127.0.0.1:5174"
    ```
 3. **Key Generation & Permissions:**
    ```bash
