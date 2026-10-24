@@ -536,6 +536,16 @@ input[type="number"] { font-family: var(--mono); font-variant-numeric: tabular-n
 .validation-summary.passed { background: var(--success-tint); border-color: var(--success); color: var(--success); }
 .validation-summary.failed { background: var(--danger-tint); border-color: var(--danger); color: var(--danger); }
 
+.safety-gate-badge {
+  display: flex; align-items: center; gap: 0.6rem; padding: 0.65rem 0.8rem;
+  border-radius: var(--r-sm); margin-bottom: 0.9rem; font-size: 0.78rem; font-weight: 600;
+  border: 1px solid var(--border); line-height: 1.35;
+}
+.safety-gate-badge.passed { background: var(--success-tint); border-color: var(--success); color: var(--success); }
+.safety-gate-badge.failed { background: var(--danger-tint); border-color: var(--danger); color: var(--danger); }
+.safety-gate-badge.unverified { background: var(--warning-tint); border-color: var(--warning); color: var(--warning); }
+
+
 .metric-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0.65rem; margin-bottom: 1rem; }
 .metric-card {
   background: var(--bg-sunken); border: 1px solid var(--border);

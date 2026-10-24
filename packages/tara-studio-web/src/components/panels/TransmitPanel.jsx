@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Download, Globe, Activity, ShieldCheck, ShieldAlert, LogIn, LogOut } from 'lucide-react';
+import { Download, Globe, Activity, ShieldCheck, ShieldAlert, LogIn, LogOut, CheckCircle, AlertTriangle } from 'lucide-react';
 import { NumberField } from '../common/index.jsx';
 import {
   getSigningStatus, getGcsSession, gcsLogin, gcsLogout, onGcsSessionChange,
@@ -89,8 +89,23 @@ function GcsSignIn() {
 /** Venue georeference plus export / GCS upload actions. */
 export default function TransmitPanel({
   homeLat, homeLon, onHomeLat, onHomeLon,
-  onExport, onSendToGCS, sending, hasShow,
+  onExport, onSendToGCS, sending, hasShow, validation,
 }) {
+  const isCertified = validation?.status === 'PASSED'
+    && validation?.feasibility_certified !== false
+    && !(validation?.violations?.jerk?.length > 0);
+  const isFailed = validation?.status === 'FAILED'
+    || (validation?.violations?.jerk?.length > 0)
+    || (validation?.status === 'PASSED' && validation?.feasibility_certified === false);
+  const isUnverified = hasShow && !isCertified && !isFailed;
+  const canExport = hasShow && isCertified;
+
+  const totalViolations = (validation?.violations?.proximity?.length || 0)
+    + (validation?.violations?.velocity?.length || 0)
+    + (validation?.violations?.acceleration?.length || 0)
+    + (validation?.violations?.yaw_rate?.length || 0)
+    + (validation?.violations?.jerk?.length || 0);
+
   return (
     <div className="glass-panel-inner">
       <h4 className="section-subtitle">Venue Calibration</h4>
@@ -100,26 +115,42 @@ export default function TransmitPanel({
       </div>
 
       <h4 className="section-subtitle">Export &amp; Transmit</h4>
+
+      {hasShow && (
+        <div
+          className={`safety-gate-badge ${isCertified ? 'passed' : isFailed ? 'failed' : 'unverified'}`}
+          data-testid="safety-gate-status"
+          role={isFailed ? 'alert' : 'status'}
+        >
+          {isCertified ? <CheckCircle size={15} /> : <AlertTriangle size={15} />}
+          <span>
+            {isCertified && 'Safety Certified — Verified 0 safety violations. Ready to export.'}
+            {isFailed && `Safety Gate Locked — ${totalViolations} violation${totalViolations === 1 ? '' : 's'} detected. Fix violations before exporting.`}
+            {isUnverified && 'Unverified Trajectory — Pre-flight safety validation required before export.'}
+          </span>
+        </div>
+      )}
+
       <SigningStatus />
       <div className="form-row">
-        <button type="button" className="btn-secondary btn-inline" onClick={() => onExport('json')} disabled={!hasShow}>
+        <button type="button" className="btn-secondary btn-inline" onClick={() => onExport('json')} disabled={!canExport}>
           <Download size={14} /> JSON
         </button>
-        <button type="button" className="btn-secondary btn-inline" onClick={() => onExport('csv')} disabled={!hasShow}>
+        <button type="button" className="btn-secondary btn-inline" onClick={() => onExport('csv')} disabled={!canExport}>
           <Download size={14} /> CSV
         </button>
       </div>
 
-      <button type="button" className="btn-secondary btn-inline" onClick={() => onExport('tara')} disabled={!hasShow}>
+      <button type="button" className="btn-secondary btn-inline" onClick={() => onExport('tara')} disabled={!canExport}>
         Compile .tara (binary)
       </button>
 
-      <button type="button" className="btn-primary btn-inline" onClick={() => onExport('kml')} disabled={!hasShow}>
+      <button type="button" className="btn-primary btn-inline" onClick={() => onExport('kml')} disabled={!canExport}>
         <Globe size={15} /> Export Google Earth KML
       </button>
 
       <GcsSignIn />
-      <button type="button" className="btn-primary btn-inline btn-gcs" onClick={onSendToGCS} disabled={sending || !hasShow}>
+      <button type="button" className="btn-primary btn-inline btn-gcs" onClick={onSendToGCS} disabled={sending || !canExport}>
         <Activity size={15} /> {sending ? 'Sending…' : 'Transmit to GCS Fleet'}
       </button>
 

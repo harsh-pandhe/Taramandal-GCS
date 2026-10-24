@@ -25,6 +25,7 @@ __all__ = [
     "DEFAULT_DYNAMIC_LIMITS",
     "DynamicLimits",
     "certify_feasibility",
+    "certify_feasibility_report",
     "interpolate_waypoint",
     "validate_choreography",
     "validate_dynamics",
@@ -377,3 +378,47 @@ def certify_feasibility(
     safety = validate_show(choreo_data, limits=safety_limits)
     dynamics = validate_dynamics(choreo_data, limits=dynamic_limits)
     return safety["status"] == "PASSED" and not dynamics["violations"]["jerk"]
+
+
+def certify_feasibility_report(
+    choreo_data,
+    safety_limits: SafetyLimits = DEFAULT_LIMITS,
+    dynamic_limits: DynamicLimits = DEFAULT_DYNAMIC_LIMITS,
+) -> tuple[bool, dict]:
+    """Canonical certification decision and complete report for flight-capable export.
+
+    Enforces the single canonical flight-certification contract:
+      1. Core safety limits (proximity, velocity, acceleration, yaw rate) must PASS.
+      2. Dynamic feasibility jerk bound (|p_dddot| <= 20 m/s^3) must have 0 violations.
+
+    Returns:
+      (is_certified, report)
+      where report is a dict containing status, summary, metrics, and violations
+      (including jerk violations and max_jerk_m_s3).
+    """
+    safety = validate_show(choreo_data, limits=safety_limits)
+    dynamics = validate_dynamics(choreo_data, limits=dynamic_limits)
+
+    jerk_violations = dynamics.get("violations", {}).get("jerk", [])
+    max_jerk = dynamics.get("metrics", {}).get("max_jerk_m_s3", 0.0)
+
+    report = dict(safety)
+    report["violations"] = dict(safety.get("violations", {}))
+    report["violations"]["jerk"] = jerk_violations
+    report["metrics"] = dict(safety.get("metrics", {}))
+    report["metrics"]["max_jerk_m_s3"] = max_jerk
+
+    core_passed = safety.get("status") == "PASSED"
+    has_no_jerk = len(jerk_violations) == 0
+    is_certified = core_passed and has_no_jerk
+    report["feasibility_certified"] = is_certified
+
+    if not is_certified:
+        report["status"] = "FAILED"
+        if core_passed and not has_no_jerk:
+            report["summary"] = (
+                f"Choreography failed feasibility certification: {len(jerk_violations)} jerk violation(s) "
+                f"(peak {max_jerk:.1f} m/s^3 exceeds limit {dynamic_limits.max_jerk_ms3:.1f} m/s^3)."
+            )
+
+    return is_certified, report

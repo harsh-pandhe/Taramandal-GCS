@@ -300,7 +300,7 @@ def _export_tara(choreo, led_track, rate_hz):
     """Compiles through the real /api/export endpoint, as the Studio does."""
     resp = TestClient(app).post(
         "/api/export",
-        json={"choreo": choreo, "format": "tara", "led_track": led_track, "rate_hz": rate_hz},
+        json={"choreo": choreo, "format": "tara", "led_track": led_track, "rate_hz": rate_hz, "preview_only": True},
     )
     assert resp.status_code == 200, resp.text
     return parse_tara(base64.b64decode(resp.json()["content"]))
