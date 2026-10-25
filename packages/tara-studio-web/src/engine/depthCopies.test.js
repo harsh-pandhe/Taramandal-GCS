@@ -110,9 +110,15 @@ describe('buildDepthCopies', () => {
       .toEqual(buildDepthCopies(shapeType, payload, perCopy, perCopy * 3 + 2));
   });
 
-  it('centres the combined X-extent at 0', () => {
-    const [shapeType, payload, perCopy] = WALL;
-    const result = buildDepthCopies(shapeType, payload, perCopy, perCopy * 3);
+  it('centres the combined X-extent at 0, even when the front copy on its own would not be (issue #169 review)', () => {
+    // perCopyCount=5 (WALL) happens to have its own fleetCenter(5).x === 0
+    // (the pad grid fits in one row, <=15), which let an earlier version
+    // of this test pass while the underlying centring math was still
+    // wrong for any count that spans more than one row. 100 does span
+    // more than one row, so fleetCenter(100).x is 6, not 0 - this is the
+    // case that actually exercises the fix.
+    const perCopy = 30;
+    const result = buildDepthCopies('text', '1', perCopy, perCopy * 2);
     const xs = result.map((p) => p.x);
     expect((Math.min(...xs) + Math.max(...xs)) / 2).toBeCloseTo(0, 6);
   });
@@ -145,10 +151,39 @@ describe('buildDepthCopies', () => {
     expect(() => buildDepthCopies('parametric', 'grid', 20, 40, 1.0, 1.0)).toThrow(/depthSpacing/);
   });
 
-  it('a single copy (totalCount <= perCopyCount) is just buildFormation, unchanged', () => {
+  it('totalCount === perCopyCount is exactly one copy, equal to buildFormation itself', () => {
     const [shapeType, payload, perCopy] = WALL;
-    const result = buildDepthCopies(shapeType, payload, perCopy + 10, perCopy);
+    const result = buildDepthCopies(shapeType, payload, perCopy, perCopy);
     expect(result).toHaveLength(perCopy);
+    for (const p of result) {
+      expect(Math.hypot(p.x, p.y)).toBeLessThanOrEqual(SITE_RADIUS_M + 1e-6);
+    }
+  });
+
+  it('rejects totalCount < perCopyCount rather than silently returning a fragment of one copy (issue #169 review)', () => {
+    // Before this fix, buildDepthCopies('text', '1', 15, 5) returned 5
+    // points of a 15-point shape - a fragment of the outline, not a
+    // smaller version of it. A caller wanting fewer drones than one copy
+    // holds wants buildFormation directly.
+    const [shapeType, payload, perCopy] = WALL;
+    expect(() => buildDepthCopies(shapeType, payload, perCopy + 10, perCopy))
+      .toThrow(/totalCount.*less than perCopyCount/);
+  });
+
+  it('a realistic figure at a scale the built-in generators can actually represent fairly', () => {
+    // Most of this file deliberately uses a tiny 5-drone wall so the
+    // combined arrangement comfortably clears the site radius; this one
+    // checks the mechanism still holds together at a size closer to what
+    // M1's real use (once #146 lands) will actually need. 80/copy, not
+    // literally the 100+ the review asked for: even text('1', 100) alone
+    // already reaches ~23m from origin (checked directly), leaving no
+    // room for a second copy at any depthSpacing within the 30m site -
+    // the same "built-in generators aren't thin enough at this scale"
+    // finding already noted in the PR body, not a new gap.
+    const perCopy = 80;
+    const result = buildDepthCopies('text', '1', perCopy, perCopy * 2);
+    expect(result).toHaveLength(perCopy * 2);
+    expect(minPairDist(result)).toBeGreaterThanOrEqual(MIN_SEPARATION_M - 1e-6);
     for (const p of result) {
       expect(Math.hypot(p.x, p.y)).toBeLessThanOrEqual(SITE_RADIUS_M + 1e-6);
     }

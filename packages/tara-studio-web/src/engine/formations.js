@@ -571,6 +571,15 @@ export const buildSplitFormation = (parts) => {
 
 // ------------------------------------------------------------- depth copies
 
+// Release review on #141 found the same defect in its own direct-vs-layered
+// trigger: a search (or, here, a floor) that stops exactly at
+// MIN_SEPARATION_M places a pair at ~2.000m by construction, and export
+// rounds every waypoint to the centimetre (round2 in sequencer.js, then
+// again by export_tara's own int16-centimetre packing) - enough to erode a
+// hairline margin below the limit (2*sqrt(3)*0.005 = 0.0173m bound; #141
+// uses 0.05m for its own margin, LAYER_CLEARANCE). Same margin here.
+const EXPORT_ROUNDING_MARGIN_M = 0.05;
+
 /**
  * Repeats a formation identically at depth offsets along fleet-frame X -
  * the audience-facing axis (see audienceView.test.js: a flat formation
@@ -595,17 +604,34 @@ export const buildSplitFormation = (parts) => {
  * every copy, full or partial, matches the front copy's outline exactly
  * when viewed from the audience (0 m deviation, not merely within 0.5 m).
  *
+ * Every refusal below is a plain Error, not ShowRefusalError (#141) -
+ * explicit dependency, not an oversight (review on #169): #141 isn't on
+ * main yet, so showErrors.js isn't available to this branch. Once it
+ * lands, every throw here should switch to ShowRefusalError, the same way
+ * formations.js's and sequencer.js's own refusals will, so a refused
+ * depth-copy build reaching a render-phase useMemo/preview doesn't crash
+ * the page the way #141/#153 originally found for other refusals.
+ *
  * @param {'parametric'|'text'|'svg'|'mesh'} shapeType
  * @param {string} shapePayload
  * @param {number} perCopyCount drones in one copy - the outline's own natural resolution
- * @param {number} totalCount drones across every copy combined
+ * @param {number} totalCount drones across every copy combined; must be >= perCopyCount (a single, smaller formation is just buildFormation, not this)
  * @param {number} scale
- * @param {number} depthSpacing metres between consecutive copies (must clear MIN_SEPARATION_M; the 500-drone plan measured 2.2m for the Dandiya figures)
+ * @param {number} depthSpacing metres between consecutive copies (must clear MIN_SEPARATION_M with margin for export rounding; the 500-drone plan measured 2.2m for the Dandiya figures)
  * @returns {{x:number,y:number,z:number}[]} exactly totalCount points
  */
 export const buildDepthCopies = (shapeType, shapePayload, perCopyCount, totalCount, scale = 1.0, depthSpacing = 2.2) => {
-  if (!(depthSpacing >= MIN_SEPARATION_M)) {
-    throw new Error(`depthSpacing (${depthSpacing}m) must be at least MIN_SEPARATION_M (${MIN_SEPARATION_M}m)`);
+  // Same margin as buildSplitFormation (release review on #166, applied
+  // here too per #169's review): a copy pitched at exactly
+  // MIN_SEPARATION_M lands two drones ~2.000m apart by construction, and
+  // export rounds every waypoint to the centimetre (round2 in
+  // sequencer.js, then again by export_tara's own int16-centimetre
+  // packing) - enough to erode that down below the limit.
+  if (!(depthSpacing >= MIN_SEPARATION_M + EXPORT_ROUNDING_MARGIN_M)) {
+    throw new Error(
+      `depthSpacing (${depthSpacing}m) must be at least MIN_SEPARATION_M + a margin for export rounding `
+      + `(${(MIN_SEPARATION_M + EXPORT_ROUNDING_MARGIN_M).toFixed(2)}m)`
+    );
   }
   if (!Number.isInteger(perCopyCount) || perCopyCount < 1) {
     throw new Error(`perCopyCount must be an integer >= 1 (got ${perCopyCount})`);
@@ -613,17 +639,38 @@ export const buildDepthCopies = (shapeType, shapePayload, perCopyCount, totalCou
   if (!Number.isInteger(totalCount) || totalCount < 1) {
     throw new Error(`totalCount must be an integer >= 1 (got ${totalCount})`);
   }
+  // issue #169 review: totalCount < perCopyCount used to silently return a
+  // *fragment* of one copy (the first totalCount points of a perCopyCount-
+  // sized shape) rather than a smaller version of the real outline - e.g.
+  // buildDepthCopies('text', '1', 15, 5) returned 5 points of a 15-point
+  // shape, not a 5-point '1'. A caller that wants fewer drones than one
+  // copy holds wants buildFormation directly, not this.
+  if (totalCount < perCopyCount) {
+    throw new Error(
+      `totalCount (${totalCount}) is less than perCopyCount (${perCopyCount}) - call buildFormation directly `
+      + `for a single, smaller formation instead of buildDepthCopies.`
+    );
+  }
 
   const front = buildFormation(shapeType, shapePayload, perCopyCount, scale);
+  if (front.length !== perCopyCount) {
+    throw new Error(`Formation "${shapePayload}" returned ${front.length} points, not the requested ${perCopyCount}`);
+  }
   const frontXs = front.map((p) => p.x);
-  const frontSpanX = Math.max(...frontXs) - Math.min(...frontXs);
+  const frontMinX = Math.min(...frontXs), frontMaxX = Math.max(...frontXs);
+  const frontSpanX = frontMaxX - frontMinX;
   const pitch = depthSpacing + frontSpanX;
   const copiesNeeded = Math.ceil(totalCount / perCopyCount);
 
   // Centre the combined cloud's X-extent at 0 up front, like every other
   // formation's own bbox-centring, so the site-radius check below runs
-  // against exactly the positions returned.
-  const shiftX = -((copiesNeeded - 1) * pitch) / 2;
+  // against exactly the positions returned. Has to subtract the front
+  // copy's own X-centre too (review on #169): buildFormation places a
+  // formation at fleetCenter(perCopyCount), whose X is 0 only when the pad
+  // grid fits in one row (<=15 drones) - every other count centres it
+  // somewhere off 0, which the original version of this line ignored.
+  const frontCentreX = (frontMinX + frontMaxX) / 2;
+  const shiftX = -frontCentreX - ((copiesNeeded - 1) * pitch) / 2;
 
   const points = [];
   for (let c = 0; c < copiesNeeded; c++) {
