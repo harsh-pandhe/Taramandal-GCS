@@ -344,7 +344,14 @@ async def test_single_drone_fails_closed_when_landed_state_is_unknown(commander,
     """issue #145 review (Vishal): landed_state == None must not count as
     landed. The old "is None or == ON_GROUND" fallback meant a drone whose
     landed-state stream simply hadn't reported yet (not necessarily disarmed
-    mid-air - just unconfirmed) could still pass the touchdown check."""
+    mid-air - just unconfirmed) could still pass the touchdown check.
+
+    Fails closed faster now than it used to (a stale-telemetry error instead
+    of waiting out the full disarm-confirmation deadline): a review follow-up
+    made landed_state_at == None itself count as stale, same as a heartbeat
+    that was never set, rather than only timing out once it goes stale with
+    age. Either way this must still fail closed, never report DISARMED.
+    """
     manager = patched_manager(DroneManager(ports=[14540], backend="sim"))
     try:
         await manager.connect_all()
@@ -370,7 +377,7 @@ async def test_single_drone_fails_closed_when_landed_state_is_unknown(commander,
                 operator=commander,
             )
         assert exc.value.status_code == 500
-        assert "Touchdown disarm could not be confirmed" in exc.value.detail
+        assert "landed-state telemetry became stale" in exc.value.detail
     finally:
         await manager.shutdown()
 
@@ -683,6 +690,138 @@ async def test_safe_recover_lands_and_disarms_only_when_armed(commander, patched
         assert land_calls == [0, 0]
         assert disarm_calls == [True]
     finally:
+        await manager.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_safe_recover_does_not_disarm_while_still_airborne(commander, patched_manager, monkeypatch):
+    """issue #145 review follow-up: _land_one only *sends* the land command,
+    it never waits for touchdown - disarming right after it (the first
+    version of _safe_recover) could disarm a drone that is still airborne.
+    Forces landed_state to stay IN_AIR for the whole 10s deadline and
+    asserts no disarm is ever sent."""
+    manager = patched_manager(DroneManager(ports=[14540], backend="sim"))
+    try:
+        await manager.connect_all()
+        await asyncio.sleep(0.5)
+        drone = manager.drones[0]
+        tel = manager.telemetry[0]
+
+        original_ingest = manager._ingest_bulk_telemetry
+        def still_airborne(snap, include_slow):
+            original_ingest(snap, include_slow)
+            t = manager.telemetry[0]
+            t["landed_state"] = "IN_AIR"
+            t["landed_state_at"] = time.time()
+            # This drone was never actually flown/armed via the real arm()
+            # flow, so the sim's own ground truth keeps reporting disarmed -
+            # every real tick would otherwise overwrite the fake "still
+            # armed" state this test needs below right back to False.
+            t["armed"] = True
+        monkeypatch.setattr(manager, "_ingest_bulk_telemetry", still_airborne)
+        # Set the initial values too - whatever the real sim last reported
+        # (likely a fresh ON_GROUND, parked and never flown) would otherwise
+        # satisfy the ground check on the very first poll, before the patch
+        # above ever gets a tick in.
+        tel["landed_state"] = "IN_AIR"
+        tel["landed_state_at"] = time.time()
+
+        disarm_calls = []
+        original_disarm = drone.action.disarm
+        async def tracking_disarm():
+            disarm_calls.append(True)
+            return await original_disarm()
+        drone.action.disarm = tracking_disarm
+
+        tel["armed"] = True
+        await manager._safe_recover(0, drone, tel, context="test, stays airborne")
+
+        assert disarm_calls == []
+        assert tel["armed"] is True  # never fabricated to False either
+    finally:
+        await manager.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_safe_recover_disarms_only_after_ground_is_confirmed(commander, patched_manager, monkeypatch):
+    """issue #145 review follow-up: once landed_state genuinely reports
+    ON_GROUND, _safe_recover must disarm - not stay stuck waiting, and not
+    have disarmed before that confirmation existed."""
+    manager = patched_manager(DroneManager(ports=[14540], backend="sim"))
+    try:
+        await manager.connect_all()
+        await asyncio.sleep(0.5)
+        drone = manager.drones[0]
+        tel = manager.telemetry[0]
+
+        start = time.monotonic()
+        original_ingest = manager._ingest_bulk_telemetry
+        def airborne_then_grounded(snap, include_slow):
+            original_ingest(snap, include_slow)
+            t = manager.telemetry[0]
+            t["landed_state"] = "IN_AIR" if time.monotonic() - start < 0.5 else "ON_GROUND"
+            t["landed_state_at"] = time.time()
+            # Same reasoning as the test above: force "still armed" every
+            # tick, since this drone's real sim state was never armed.
+            t["armed"] = True
+        monkeypatch.setattr(manager, "_ingest_bulk_telemetry", airborne_then_grounded)
+        # Same race as the test above: set the initial value explicitly so
+        # a pre-existing fresh ON_GROUND can't satisfy the check before the
+        # patch's own first tick runs.
+        tel["landed_state"] = "IN_AIR"
+        tel["landed_state_at"] = time.time()
+
+        disarm_calls = []
+        original_disarm = drone.action.disarm
+        async def tracking_disarm():
+            disarm_calls.append(time.monotonic() - start)
+            return await original_disarm()
+        drone.action.disarm = tracking_disarm
+
+        tel["armed"] = True
+        await manager._safe_recover(0, drone, tel, context="test, grounds after a delay")
+
+        assert len(disarm_calls) == 1
+        assert disarm_calls[0] >= 0.5
+    finally:
+        await manager.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_fleet_commands_refused_while_single_drone_sequence_is_active(commander, patched_manager):
+    """issue #145 review, item 2: the fleet FSM alone doesn't catch this -
+    SINGLE_DRONE_HOVER deliberately never changes the fleet's own lifecycle
+    state, so without an explicit guard a launch or upload could start
+    mid-hover. Covers launch, upload-mission, resume-show and discard-show
+    directly; upload-trajectory shares the exact same guard call, checked
+    separately in its own test module."""
+    manager = patched_manager(DroneManager(ports=[14540], backend="sim"))
+    try:
+        await manager.connect_all()
+        await asyncio.sleep(0.5)
+        manager.single_drone_sequence_active.add(0)
+
+        with pytest.raises(HTTPException) as exc1:
+            await gcs_main.launch_fleet(operator=commander)
+        assert exc1.value.status_code == 409
+        assert "single-drone sequence is active" in exc1.value.detail
+
+        with pytest.raises(HTTPException) as exc2:
+            await gcs_main.upload_mission(operator=commander)
+        assert exc2.value.status_code == 409
+        assert "single-drone sequence is active" in exc2.value.detail
+
+        with pytest.raises(HTTPException) as exc3:
+            await gcs_main.resume_show(operator=commander)
+        assert exc3.value.status_code == 409
+        assert "single-drone sequence is active" in exc3.value.detail
+
+        with pytest.raises(HTTPException) as exc4:
+            await gcs_main.discard_show(operator=commander)
+        assert exc4.value.status_code == 409
+        assert "single-drone sequence is active" in exc4.value.detail
+    finally:
+        manager.single_drone_sequence_active.discard(0)
         await manager.shutdown()
 
 

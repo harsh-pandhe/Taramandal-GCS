@@ -1375,14 +1375,70 @@ class DroneManager:
             logging.error(f"Failed to kill Drone {drone_id}: {e}")
             return str(e)
 
+    def _is_confirmed_on_ground(self, drone_id: int, tel: dict, context: str) -> bool:
+        """Raises if connection/heartbeat/landed-state look stale; else
+        reports whether the vehicle is confirmed ON_GROUND right now.
+        Strict equality, no "unknown counts as landed" fallback (issue
+        #145 review): an unconfirmed landed_state means wait, not assume
+        grounded. A landed_state (or heartbeat) that stops updating while
+        otherwise looking fine is its own stale-telemetry failure. A
+        heartbeat or landed-state timestamp that was never set at all
+        (None) is treated the same as stale, not as "no data yet, so
+        don't flag it" - review follow-up: the old `is not None and ...`
+        form let a telemetry field that had simply never been written
+        pass silently.
+        """
+        if not tel.get("connected", False):
+            raise RuntimeError(f"Drone {drone_id} disconnected {context}")
+        last_hb = tel.get("last_heartbeat")
+        if last_hb is None or (time.time() - last_hb) > 2.5:
+            raise RuntimeError(f"Drone {drone_id} telemetry became stale {context}")
+        landed_at = tel.get("landed_state_at")
+        if landed_at is None or (time.time() - landed_at) > 2.5:
+            raise RuntimeError(f"Drone {drone_id} landed-state telemetry became stale {context}")
+        return tel.get("landed_state") == "ON_GROUND"
+
     async def _safe_recover(self, drone_id: int, drone, tel: dict, context: str) -> None:
         """Best-effort land+disarm after a mid-sequence failure (issue #145
-        review, item 5): once arm() has succeeded, a later step failing must
-        not just raise and leave the vehicle armed and uncommanded. Swallows
-        its own errors - the caller's original failure is what gets raised;
-        this is a safety backstop, not the primary error path.
+        review, item 5 - and its own follow-up finding): once arm() has
+        succeeded, a later step failing must not just raise and leave the
+        vehicle armed and uncommanded. _land_one only *sends* the land
+        command; it never waits for touchdown, so disarming right after it
+        (the first version of this method) could disarm a drone that is
+        still airborne. Waits for a fresh, confirmed ON_GROUND - the same
+        confirmation the normal touchdown path uses - before disarming; if
+        the deadline passes, leaves the land in progress and does not
+        disarm. Swallows its own errors (and confirmed non-raising
+        _land_one is still wrapped, on the same belt-and-suspenders
+        reasoning the rest of this sequence uses) - the caller's original
+        failure is what gets raised; this is a safety backstop, not the
+        primary error path.
         """
-        await self._land_one(drone_id)
+        try:
+            await self._land_one(drone_id)
+        except Exception as e:
+            logging.warning(f"Safe-recovery land attempt {context} for drone {drone_id}: {e}")
+            return
+
+        grounded = False
+        deadline = time.time() + 10.0
+        while time.time() < deadline:
+            try:
+                if self._is_confirmed_on_ground(drone_id, tel, f"during safe recovery ({context})"):
+                    grounded = True
+                    break
+            except RuntimeError as e:
+                logging.warning(f"Safe-recovery ground confirmation {context} for drone {drone_id}: {e}")
+                return
+            await asyncio.sleep(0.1)
+
+        if not grounded:
+            logging.warning(
+                f"Safe-recovery {context} for drone {drone_id}: landing not confirmed within 10s "
+                f"- leaving the land in progress, not disarming in flight."
+            )
+            return
+
         try:
             if tel.get("armed", False):
                 await drone.action.disarm()
@@ -1438,7 +1494,7 @@ class DroneManager:
             if not tel.get("connected", False):
                 raise RuntimeError(f"Drone {drone_id} disconnected while awaiting arm confirmation")
             last_hb = tel.get("last_heartbeat")
-            if last_hb is not None and (time.time() - last_hb) > 2.5:
+            if last_hb is None or (time.time() - last_hb) > 2.5:
                 raise RuntimeError(f"Drone {drone_id} telemetry became stale while awaiting arm confirmation")
             if tel.get("armed", False):
                 arm_confirmed = True
@@ -1471,7 +1527,7 @@ class DroneManager:
                 if not tel.get("connected", False):
                     raise RuntimeError(f"Drone {drone_id} disconnected during climb")
                 last_hb = tel.get("last_heartbeat")
-                if last_hb is not None and (time.time() - last_hb) > 2.5:
+                if last_hb is None or (time.time() - last_hb) > 2.5:
                     raise RuntimeError(f"Drone {drone_id} telemetry became stale during climb")
                 if abs(tel.get("local_z", 0.0) - target_alt_m) <= alt_tolerance_m:
                     hover_reached = True
@@ -1498,14 +1554,30 @@ class DroneManager:
         # sleeping through it (issue #145 review, item 4): a drone that
         # dropped link mid-dwell was previously indistinguishable from one
         # holding steady.
+        #
+        # The altitude band here is deliberately looser than HOVER_REACHED's
+        # alt_tolerance_m: that one judges a single instant right after an
+        # active climb, this one has to tolerate ordinary hover noise over
+        # the whole dwell without false-failing a real hold. It still catches
+        # the actual failure mode (drifting or sinking away from the target),
+        # just not fine positional noise.
+        dwell_alt_tolerance_m = max(0.4, 0.3 * target_alt_m)
         dwell_start = time.time()
         try:
             while time.time() - dwell_start < hover_s:
                 if not tel.get("connected", False):
                     raise RuntimeError(f"Drone {drone_id} disconnected during hover dwell")
                 last_hb = tel.get("last_heartbeat")
-                if last_hb is not None and (time.time() - last_hb) > 2.5:
+                if last_hb is None or (time.time() - last_hb) > 2.5:
                     raise RuntimeError(f"Drone {drone_id} telemetry became stale during hover dwell")
+                # Re-checked every tick, not just once at HOVER_REACHED
+                # (issue #145 review): drift or a slow sink mid-hover would
+                # otherwise go unnoticed for the whole dwell.
+                if abs(tel.get("local_z", 0.0) - target_alt_m) > dwell_alt_tolerance_m:
+                    raise RuntimeError(
+                        f"Drone {drone_id} drifted outside the hover altitude band during dwell "
+                        f"(observed {tel.get('local_z', 0.0):.2f} m, target {target_alt_m} m)"
+                    )
                 await asyncio.sleep(0.1)
         except Exception as e:
             steps.append({"step": "HOVER_HOLD", "status": f"FAILED: {e}", "time": time.time()})
@@ -1534,29 +1606,12 @@ class DroneManager:
 
             # Check fresh telemetry observations for landed and disarmed state
             # Never fabricate or force tel["armed"] = False!
-            def is_confirmed_on_ground(context: str) -> bool:
-                """Raises if connection/heartbeat/landed-state look stale;
-                else reports whether the vehicle is confirmed ON_GROUND right
-                now. Strict equality, no "unknown counts as landed" fallback
-                (issue #145 review): an unconfirmed landed_state means wait,
-                not assume grounded. A landed_state that stops updating while
-                the heartbeat otherwise looks fine is its own stale-telemetry
-                failure, the same way a stalled heartbeat already is.
-                """
-                if not tel.get("connected", False):
-                    raise RuntimeError(f"Drone {drone_id} disconnected {context}")
-                last_hb = tel.get("last_heartbeat")
-                if last_hb is not None and (time.time() - last_hb) > 2.5:
-                    raise RuntimeError(f"Drone {drone_id} telemetry became stale {context}")
-                landed_at = tel.get("landed_state_at")
-                if landed_at is not None and (time.time() - landed_at) > 2.5:
-                    raise RuntimeError(f"Drone {drone_id} landed-state telemetry became stale {context}")
-                return tel.get("landed_state") == "ON_GROUND"
-
             disarm_confirmed = False
             land_deadline = time.time() + 10.0
             while time.time() < land_deadline:
-                if not tel.get("armed", True) and is_confirmed_on_ground("while awaiting landing/disarm confirmation"):
+                if not tel.get("armed", True) and self._is_confirmed_on_ground(
+                    drone_id, tel, "while awaiting landing/disarm confirmation"
+                ):
                     disarm_confirmed = True
                     break
                 await asyncio.sleep(0.1)
@@ -1571,7 +1626,9 @@ class DroneManager:
                 # Poll again for observed telemetry disarm — NEVER mutate tel["armed"]
                 post_disarm_deadline = time.time() + 2.0
                 while time.time() < post_disarm_deadline:
-                    if not tel.get("armed", True) and is_confirmed_on_ground("during disarm confirmation"):
+                    if not tel.get("armed", True) and self._is_confirmed_on_ground(
+                        drone_id, tel, "during disarm confirmation"
+                    ):
                         disarm_confirmed = True
                         break
                     await asyncio.sleep(0.1)

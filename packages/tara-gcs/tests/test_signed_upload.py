@@ -75,6 +75,23 @@ def test_signed_trajectory_uploads_and_reports_signer(gcs, key):
     assert gcs_main.drone_manager.active_trajectory is not None
 
 
+def test_upload_refused_while_a_single_drone_sequence_is_active(gcs, key):
+    """issue #145 review, item 2: upload-trajectory shares the same
+    single_drone_sequence_active guard as launch/upload-mission/resume/
+    discard (tested directly in test_single_drone_mode.py) - checked here
+    specifically because it needs the real multipart-upload path, not a
+    bare function call."""
+    client, _ = gcs
+    gcs_main.drone_manager.single_drone_sequence_active.add(0)
+    try:
+        resp = _upload(client, SHOW, sign_show(SHOW, "show.json", key))
+        assert resp.status_code == 409
+        assert "single-drone sequence is active" in resp.json()["detail"]
+        assert gcs_main.drone_manager.active_trajectory is None
+    finally:
+        gcs_main.drone_manager.single_drone_sequence_active.discard(0)
+
+
 def test_one_modified_byte_is_forbidden_and_not_loaded(gcs, key):
     client, _ = gcs
     manifest = sign_show(SHOW, "show.json", key)

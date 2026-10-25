@@ -301,6 +301,22 @@ def _apply_command(command: Command, operator: str, trigger: str) -> None:
     except IllegalTransitionError as e:
         raise HTTPException(status_code=409, detail=e.detail())
 
+
+def _check_no_active_single_drone_sequence(action_name: str) -> None:
+    """Refuses a fleet-wide command while a single-drone bench sequence
+    (issue #131/#135) is in flight - issue #145 review, item 2. The fleet
+    FSM alone doesn't catch this: `Command.SINGLE_DRONE_HOVER` deliberately
+    never changes the fleet's own lifecycle state (it stays STAGED while the
+    bench drone flies), so without this check a launch or upload could
+    start mid-hover.
+    """
+    if drone_manager.single_drone_sequence_active:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Cannot {action_name} while a single-drone sequence is active on drone(s) "
+            f"{sorted(drone_manager.single_drone_sequence_active)}.",
+        )
+
 @app.on_event("startup")
 async def startup_event():
     logger.info("Initializing Ground Control Station...")
@@ -641,6 +657,7 @@ async def get_fleet_state(operator: Viewer):
 async def launch_fleet(operator: Commander):
     logger.info("API: Launching fleet...")
     check_flight_mode_and_hardware_gate("launch")
+    _check_no_active_single_drone_sequence("launch the fleet")
     _check_command(Command.LAUNCH, operator.id, "POST /api/launch")
     decision = preflight_engine.authorize_launch(drone_manager, operator=operator.id)
     if not decision.permitted:
@@ -790,6 +807,7 @@ async def upload_trajectory(
     runs with --allow-unsigned and no manifest was sent. A failed check is a
     403 and never touches the active trajectory."""
     logger.info(f"API: Uploading trajectory file: {file.filename}")
+    _check_no_active_single_drone_sequence("upload a trajectory")
     _check_command(Command.UPLOAD_TRAJECTORY, operator.id, "POST /api/upload-trajectory")
     
     # Check file size limit (5 MB max) to prevent OOM
@@ -865,6 +883,7 @@ async def upload_mission(operator: Commander):
     over MAVLink FTP, and verify every copy's CRC-32 (issue #47). Arming is
     refused until this has succeeded for the whole fleet."""
     logger.info("API: Uploading show missions to the fleet...")
+    _check_no_active_single_drone_sequence("upload show missions")
     _check_command(Command.UPLOAD_MISSION, operator.id, "POST /api/upload-mission")
     if not drone_manager.active_trajectory:
         raise HTTPException(status_code=400, detail="No active trajectory loaded. Please upload a trajectory first.")
@@ -956,6 +975,7 @@ async def resume_show(operator: Commander):
     """
     logger.info("API: Resuming saved show state...")
     check_flight_mode_and_hardware_gate("resume-show")
+    _check_no_active_single_drone_sequence("resume a saved show")
     _check_command(Command.RESUME_SHOW, operator.id, "POST /api/resume-show")
     try:
         elapsed = drone_manager.resume_pending_show()
@@ -974,6 +994,7 @@ async def resume_show(operator: Commander):
 async def discard_show(operator: Commander):
     """Discards a saved show from a previous run without resuming it."""
     logger.info("API: Discarding saved show state...")
+    _check_no_active_single_drone_sequence("discard a saved show")
     _check_command(Command.DISCARD_SHOW, operator.id, "POST /api/discard-show")
     drone_manager.discard_pending_show()
     return {"status": "success", "message": "Saved show state discarded."}
