@@ -29,15 +29,24 @@ export default function SafetyPanel({ validation, choreoData }) {
   }
 
   const m = validation.metrics;
-  const v = validation.violations || { proximity: [], velocity: [], acceleration: [], jerk: [] };
+  const v = validation.violations || {};
+  // /api/validate (validate_show) never includes a "jerk" key at all - only
+  // /api/generate adds one, from a separate validate_dynamics call (issue
+  // #151). Defaulting every category the same way means a plain re-validate
+  // never silently drops a category that happened to come from the other
+  // endpoint last time, rather than genuinely having zero violations. Same
+  // reasoning already applied to altitude/ground (issue #148) below.
+  const proximityViolations = v.proximity || [];
+  const velocityViolations = v.velocity || [];
+  const accelerationViolations = v.acceleration || [];
+  const yawRateViolations = v.yaw_rate || [];
   const jerkViolations = v.jerk || [];
-  // Issue #148: altitude/ground are new backend categories, so a cached or
-  // pre-#148 report simply has neither key.
   const altitudeViolations = v.altitude || [];
   const groundViolations = v.ground || [];
-  const total = v.proximity.length + v.velocity.length + v.acceleration.length + jerkViolations.length
-    + altitudeViolations.length + groundViolations.length;
+  const total = proximityViolations.length + velocityViolations.length + accelerationViolations.length
+    + yawRateViolations.length + jerkViolations.length + altitudeViolations.length + groundViolations.length;
   const passed = validation.status === 'PASSED';
+  const hasJerkMetric = m && m.max_jerk_m_s3 !== undefined;
 
   return (
     <div className="glass-panel-inner">
@@ -52,37 +61,48 @@ export default function SafetyPanel({ validation, choreoData }) {
         <div className="metric-grid">
           {/* Thresholds are the backend's live SafetyLimits (validation.limits), never local constants. */}
           {judgeMetrics(m, validation.limits).map(({ key, ...card }) => <Metric key={key} {...card} />)}
-          {m.max_jerk_m_s3 !== undefined && (
-            <Metric
-              key="jerk"
-              title="Max Jerk"
-              value={m.max_jerk_m_s3}
-              unit="m/s³"
-              status={m.max_jerk_m_s3 <= (validation.limits?.max_jerk_ms3 ?? 20) ? 'passed' : 'danger'}
-              limitLabel={`≤ ${validation.limits?.max_jerk_ms3 ?? 20} m/s³`}
-            />
-          )}
+          {/* Always rendered, like every other metric card (issue #151): a
+              plain /api/validate response never ran validate_dynamics, so
+              hiding this card instead of marking it unknown could read as
+              "no jerk problem" when it's really "not checked this time". */}
+          <Metric
+            key="jerk"
+            title="Max Jerk"
+            value={hasJerkMetric ? m.max_jerk_m_s3 : '—'}
+            unit={hasJerkMetric ? 'm/s³' : ''}
+            status={
+              !hasJerkMetric ? 'unknown'
+                : m.max_jerk_m_s3 <= (validation.limits?.max_jerk_ms3 ?? 20) ? 'passed' : 'danger'
+            }
+            limitLabel={hasJerkMetric ? `≤ ${validation.limits?.max_jerk_ms3 ?? 20} m/s³` : 'not checked by this request'}
+          />
         </div>
       )}
 
       <span className="telemetry-label">Violations ({total})</span>
       <div className="violations-list">
-        {v.proximity.map((x, i) => (
+        {proximityViolations.map((x, i) => (
           <div key={`p-${i}`} className="violation-item">
             <span>Proximity breach (D{x.drones[0]} &amp; D{x.drones[1]})</span>
             <span className="v-danger">{x.distance}m @ {x.time}s</span>
           </div>
         ))}
-        {v.velocity.map((x, i) => (
+        {velocityViolations.map((x, i) => (
           <div key={`v-${i}`} className="violation-item">
             <span>Speed · Drone {x.drone}</span>
             <span className="v-warn">{x.velocity}m/s @ {x.time}s</span>
           </div>
         ))}
-        {v.acceleration.map((x, i) => (
+        {accelerationViolations.map((x, i) => (
           <div key={`a-${i}`} className="violation-item">
             <span>Accel · Drone {x.drone}</span>
             <span className="v-warn">{x.acceleration}m/s² @ {x.time}s</span>
+          </div>
+        ))}
+        {yawRateViolations.map((x, i) => (
+          <div key={`y-${i}`} className="violation-item">
+            <span>Yaw rate · Drone {x.drone}</span>
+            <span className="v-warn">{x.yaw_rate}°/s @ {x.time}s</span>
           </div>
         ))}
         {jerkViolations.map((x, i) => (
