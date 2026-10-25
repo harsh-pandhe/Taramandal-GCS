@@ -7,7 +7,8 @@
     "max_acceleration_m_s2": 0.0,
     "max_yaw_rate_deg_s": 0.0,
     "max_altitude_m": 5.0,
-    "min_altitude_m": 5.0
+    "min_altitude_m": 5.0,
+    "max_jerk_m_s3": 0.0
   },
   "violations": {
     "proximity": [
@@ -79,7 +80,8 @@
     "acceleration": [],
     "yaw_rate": [],
     "altitude": [],
-    "ground": []
+    "ground": [],
+    "jerk": []
   },
   "worst_violations": {
     "proximity": {
@@ -109,6 +111,7 @@
     "altitude": null,
     "ground": null
   },
+  "feasibility_certified": false,
   "limits": {
     "min_separation_m": 1.5,
     "design_separation_m": 2.0,
@@ -118,6 +121,7 @@
     "geofence_radius_m": 30.0,
     "max_altitude_m": 120.0,
     "geofence_soft_warning_buffer_m": 10.0,
-    "geofence_hard_buffer_m": 15.0
+    "geofence_hard_buffer_m": 15.0,
+    "max_jerk_ms3": 20.0
   }
 }

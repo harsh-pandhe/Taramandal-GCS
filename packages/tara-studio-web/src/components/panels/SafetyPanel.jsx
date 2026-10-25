@@ -46,7 +46,12 @@ export default function SafetyPanel({ validation, choreoData }) {
   const total = proximityViolations.length + velocityViolations.length + accelerationViolations.length
     + yawRateViolations.length + jerkViolations.length + altitudeViolations.length + groundViolations.length;
   const passed = validation.status === 'PASSED';
-  const hasJerkMetric = m && m.max_jerk_m_s3 !== undefined;
+  // Issue #151: a fresh /api/validate or /api/generate call always carries a
+  // jerk metric and its limit now (certify_feasibility_report), so "unknown"
+  // is reserved for a response from before that - either the metric itself
+  // is missing (legacy /api/validate), or validation.limits wasn't attached
+  // at all (a response from before issue #97).
+  const hasJerkMetric = m && m.max_jerk_m_s3 !== undefined && validation.limits?.max_jerk_ms3 !== undefined;
 
   return (
     <div className="glass-panel-inner">
@@ -72,9 +77,9 @@ export default function SafetyPanel({ validation, choreoData }) {
             unit={hasJerkMetric ? 'm/s³' : ''}
             status={
               !hasJerkMetric ? 'unknown'
-                : m.max_jerk_m_s3 <= (validation.limits?.max_jerk_ms3 ?? 20) ? 'passed' : 'danger'
+                : m.max_jerk_m_s3 <= validation.limits.max_jerk_ms3 ? 'passed' : 'danger'
             }
-            limitLabel={hasJerkMetric ? `≤ ${validation.limits?.max_jerk_ms3 ?? 20} m/s³` : 'not checked by this request'}
+            limitLabel={hasJerkMetric ? `≤ ${validation.limits.max_jerk_ms3} m/s³` : 'not checked by this request'}
           />
         </div>
       )}
