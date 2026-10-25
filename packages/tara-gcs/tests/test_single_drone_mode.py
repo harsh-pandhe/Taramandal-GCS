@@ -21,6 +21,7 @@ from pydantic import ValidationError
 from tara_gcs import main as gcs_main
 from tara_gcs.auth import Operator, Role
 from tara_gcs.drone_manager import DroneManager
+from tara_gcs.fleet_fsm import LifecycleState
 
 
 @pytest.fixture
@@ -229,7 +230,10 @@ async def test_single_drone_hover_progression_in_simulation(commander, patched_m
     manager = patched_manager(DroneManager(ports=[14540], backend="sim"))
     try:
         await manager.connect_all()
-        await asyncio.sleep(0.3)
+        # 0.3s is tara_sim's own DEFAULT_ARMABLE_DELAY_S; 0.5s clears it with
+        # margin so the new pre-arm gate check (issue #145 review, item 2)
+        # doesn't race the sim's own settle timer.
+        await asyncio.sleep(0.5)
 
         result = await gcs_main.run_single_drone_sequence(
             gcs_main.SingleDroneSequenceRequest(target_altitude_m=1.0, hover_duration_s=1.0),
@@ -264,7 +268,10 @@ async def test_single_drone_fails_closed_on_disarm_timeout(commander, patched_ma
     manager = patched_manager(DroneManager(ports=[14540], backend="sim"))
     try:
         await manager.connect_all()
-        await asyncio.sleep(0.3)
+        # 0.3s is tara_sim's own DEFAULT_ARMABLE_DELAY_S; 0.5s clears it with
+        # margin so the new pre-arm gate check (issue #145 review, item 2)
+        # doesn't race the sim's own settle timer.
+        await asyncio.sleep(0.5)
 
         # Intercept armed check during landing so disarm is never confirmed by telemetry
         original_sleep = asyncio.sleep
@@ -295,7 +302,10 @@ async def test_single_drone_fails_closed_on_mid_air_disarm(commander, patched_ma
     manager = patched_manager(DroneManager(ports=[14540], backend="sim"))
     try:
         await manager.connect_all()
-        await asyncio.sleep(0.3)
+        # 0.3s is tara_sim's own DEFAULT_ARMABLE_DELAY_S; 0.5s clears it with
+        # margin so the new pre-arm gate check (issue #145 review, item 2)
+        # doesn't race the sim's own settle timer.
+        await asyncio.sleep(0.5)
 
         # Let arming happen for real (it's confirmed within ~0.05-0.1s - see
         # test_single_drone_sim_reports_on_ground_after_a_real_landing, which
@@ -338,7 +348,10 @@ async def test_single_drone_fails_closed_when_landed_state_is_unknown(commander,
     manager = patched_manager(DroneManager(ports=[14540], backend="sim"))
     try:
         await manager.connect_all()
-        await asyncio.sleep(0.3)
+        # 0.3s is tara_sim's own DEFAULT_ARMABLE_DELAY_S; 0.5s clears it with
+        # margin so the new pre-arm gate check (issue #145 review, item 2)
+        # doesn't race the sim's own settle timer.
+        await asyncio.sleep(0.5)
 
         original_ingest = manager._ingest_bulk_telemetry
         start = time.monotonic()
@@ -370,7 +383,10 @@ async def test_single_drone_fails_closed_on_stale_landed_state(commander, patche
     manager = patched_manager(DroneManager(ports=[14540], backend="sim"))
     try:
         await manager.connect_all()
-        await asyncio.sleep(0.3)
+        # 0.3s is tara_sim's own DEFAULT_ARMABLE_DELAY_S; 0.5s clears it with
+        # margin so the new pre-arm gate check (issue #145 review, item 2)
+        # doesn't race the sim's own settle timer.
+        await asyncio.sleep(0.5)
 
         original_ingest = manager._ingest_bulk_telemetry
         start = time.monotonic()
@@ -395,6 +411,282 @@ async def test_single_drone_fails_closed_on_stale_landed_state(commander, patche
 
 
 @pytest.mark.asyncio
+async def test_single_drone_hover_refused_when_fleet_not_parked(commander, patched_manager):
+    """issue #145 review (Vishal), item 2: the endpoint used to have no
+    fleet-FSM legality check at all - it could be invoked while the fleet
+    FSM was mid-show (RUNNING etc.), not just when the fleet happened to be
+    STAGED/DISARMED."""
+    manager = patched_manager(DroneManager(ports=[14540], backend="sim"))
+    try:
+        await manager.connect_all()
+        await asyncio.sleep(0.5)
+        manager.fleet_fsm._state = LifecycleState.RUNNING
+
+        with pytest.raises(HTTPException) as exc:
+            await gcs_main.run_single_drone_sequence(
+                gcs_main.SingleDroneSequenceRequest(target_altitude_m=0.5, hover_duration_s=1.0),
+                operator=commander,
+            )
+        assert exc.value.status_code == 409
+        assert exc.value.detail["command"] == "single_drone_hover"
+    finally:
+        await manager.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_single_drone_hover_refused_while_fleet_show_flag_is_set(commander, patched_manager):
+    """issue #145 review (Vishal), item 2: defense-in-depth alongside the FSM
+    check, the same way /api/launch double-checks is_running_trajectory /
+    active_trajectory rather than trusting the FSM alone - the FSM can be
+    stale (e.g. right after a restart) while a show is genuinely active."""
+    manager = patched_manager(DroneManager(ports=[14540], backend="sim"))
+    try:
+        await manager.connect_all()
+        await asyncio.sleep(0.5)
+        manager.is_running_trajectory = True
+
+        with pytest.raises(HTTPException) as exc:
+            await gcs_main.run_single_drone_sequence(
+                gcs_main.SingleDroneSequenceRequest(target_altitude_m=0.5, hover_duration_s=1.0),
+                operator=commander,
+            )
+        assert exc.value.status_code == 409
+        assert "fleet show is active" in exc.value.detail
+    finally:
+        manager.is_running_trajectory = False
+        await manager.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_single_drone_hover_refused_when_already_running(commander, patched_manager):
+    """issue #145 review (Vishal), item 2: concurrency guard - two overlapping
+    requests on the same drone must not both try to drive it."""
+    manager = patched_manager(DroneManager(ports=[14540], backend="sim"))
+    try:
+        await manager.connect_all()
+        await asyncio.sleep(0.5)
+        manager.single_drone_sequence_active.add(0)
+
+        with pytest.raises(HTTPException) as exc:
+            await gcs_main.run_single_drone_sequence(
+                gcs_main.SingleDroneSequenceRequest(target_altitude_m=0.5, hover_duration_s=1.0),
+                operator=commander,
+            )
+        assert exc.value.status_code == 409
+        assert "already running" in exc.value.detail
+    finally:
+        manager.single_drone_sequence_active.discard(0)
+        await manager.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_single_drone_hover_refused_when_preflight_gate_red(commander, patched_manager, monkeypatch):
+    """issue #145 review (Vishal), item 2: no pre-arm gate (GPS/EKF/battery)
+    was ever checked before this endpoint armed and flew the drone. A red
+    gate (here: EKF/home lock never settling) must refuse before anything
+    moves, with the failing gate named in the response."""
+    manager = patched_manager(DroneManager(ports=[14540], backend="sim"))
+    try:
+        await manager.connect_all()
+        await asyncio.sleep(0.5)
+
+        original_ingest = manager._ingest_bulk_telemetry
+        def never_armable(snap, include_slow):
+            original_ingest(snap, include_slow)
+            manager.telemetry[0]["health_armable"] = False
+            manager.telemetry[0]["health_home_ok"] = False
+        monkeypatch.setattr(manager, "_ingest_bulk_telemetry", never_armable)
+        await asyncio.sleep(0.2)
+
+        with pytest.raises(HTTPException) as exc:
+            await gcs_main.run_single_drone_sequence(
+                gcs_main.SingleDroneSequenceRequest(target_altitude_m=0.5, hover_duration_s=1.0),
+                operator=commander,
+            )
+        assert exc.value.status_code == 412
+        assert "pre-arm gates are red" in exc.value.detail["message"]
+        assert any("home lock" in reason for reason in exc.value.detail["blocking_reasons"])
+    finally:
+        await manager.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_single_drone_hover_records_audit_entries(commander, patched_manager):
+    """issue #145 review (Vishal), item 2: no command_audit.record at all
+    before - a real flight command with nothing in the operator-facing
+    audit trail (/api/audit/commands)."""
+    manager = patched_manager(DroneManager(ports=[14540], backend="sim"))
+    try:
+        await manager.connect_all()
+        await asyncio.sleep(0.5)
+        before = len(gcs_main.command_audit.recent)
+
+        await gcs_main.run_single_drone_sequence(
+            gcs_main.SingleDroneSequenceRequest(target_altitude_m=0.5, hover_duration_s=1.0),
+            operator=commander,
+        )
+
+        new_entries = list(gcs_main.command_audit.recent)[before:]
+        events = [e["event"] for e in new_entries]
+        assert "single_drone_hover_requested" in events
+        assert "single_drone_hover_completed" in events
+        requested = next(e for e in new_entries if e["event"] == "single_drone_hover_requested")
+        assert requested["drone_id"] == 0
+        assert requested["operator"] == commander.id
+    finally:
+        await manager.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_single_drone_climb_reports_the_altitude_actually_reached(commander, patched_manager):
+    """issue #145 review (Vishal), item 3: HOVER_REACHED used to fire from a
+    fixed sleep, which says nothing about whether the climb actually reached
+    (or stalled short of) the target. It must now report the altitude
+    telemetry actually observed, within tolerance of the request."""
+    manager = patched_manager(DroneManager(ports=[14540], backend="sim"))
+    try:
+        await manager.connect_all()
+        # 0.3s is tara_sim's own DEFAULT_ARMABLE_DELAY_S; 0.5s clears it with
+        # margin so the new pre-arm gate check (issue #145 review, item 2)
+        # doesn't race the sim's own settle timer.
+        await asyncio.sleep(0.5)
+
+        result = await gcs_main.run_single_drone_sequence(
+            gcs_main.SingleDroneSequenceRequest(target_altitude_m=0.8, hover_duration_s=1.0),
+            operator=commander,
+        )
+        hover_reached = next(s for s in result["steps"] if s["step"] == "HOVER_REACHED")
+        assert abs(hover_reached["altitude_m"] - 0.8) <= 0.15
+    finally:
+        await manager.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_single_drone_climb_stall_fails_closed_and_recovers(commander, patched_manager, monkeypatch):
+    """issue #145 review (Vishal), item 3 and item 5 together: a climb that
+    never reaches the target altitude (offboard silently rejected, stuck
+    vehicle) must be detected and fail closed, rather than a fixed sleep
+    reporting HOVER_REACHED regardless. Since arm() already succeeded by
+    this point, the failure must also attempt a safe recovery rather than
+    leaving the vehicle armed."""
+    manager = patched_manager(DroneManager(ports=[14540], backend="sim"))
+    try:
+        await manager.connect_all()
+        # 0.3s is tara_sim's own DEFAULT_ARMABLE_DELAY_S; 0.5s clears it with
+        # margin so the new pre-arm gate check (issue #145 review, item 2)
+        # doesn't race the sim's own settle timer.
+        await asyncio.sleep(0.5)
+
+        # Pin the reported altitude at ground level regardless of what the
+        # real sim physics underneath does, faking a climb that never
+        # progresses.
+        original_ingest = manager._ingest_bulk_telemetry
+        def freeze_altitude(snap, include_slow):
+            original_ingest(snap, include_slow)
+            manager.telemetry[0]["local_z"] = 0.0
+        monkeypatch.setattr(manager, "_ingest_bulk_telemetry", freeze_altitude)
+
+        recover_calls = []
+        original_recover = manager._safe_recover
+        async def tracking_recover(drone_id, drone, tel, context):
+            recover_calls.append(context)
+            await original_recover(drone_id, drone, tel, context)
+        monkeypatch.setattr(manager, "_safe_recover", tracking_recover)
+
+        with pytest.raises(HTTPException) as exc:
+            await gcs_main.run_single_drone_sequence(
+                gcs_main.SingleDroneSequenceRequest(target_altitude_m=0.5, hover_duration_s=1.0),
+                operator=commander,
+            )
+        assert exc.value.status_code == 500
+        assert "did not reach" in exc.value.detail
+        assert recover_calls == ["after a failed climb"]
+    finally:
+        await manager.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_single_drone_hover_dwell_fails_closed_on_disconnect(commander, patched_manager, monkeypatch):
+    """issue #145 review (Vishal), item 4: the hover dwell used to be a blind
+    sleep with no disconnect/staleness check - a drone that dropped link
+    mid-dwell was indistinguishable from one holding steady. Disconnects it
+    only once the climb has clearly finished, so the climb phase (item 3)
+    isn't what trips this assertion."""
+    manager = patched_manager(DroneManager(ports=[14540], backend="sim"))
+    try:
+        await manager.connect_all()
+        # 0.3s is tara_sim's own DEFAULT_ARMABLE_DELAY_S; 0.5s clears it with
+        # margin so the new pre-arm gate check (issue #145 review, item 2)
+        # doesn't race the sim's own settle timer.
+        await asyncio.sleep(0.5)
+
+        target_alt = 0.3
+        original_ingest = manager._ingest_bulk_telemetry
+        state = {"first_reached_at": None}
+        def disconnect_after_climb(snap, include_slow):
+            original_ingest(snap, include_slow)
+            tel = manager.telemetry[0]
+            if abs(tel.get("local_z", 0.0) - target_alt) <= 0.2:
+                if state["first_reached_at"] is None:
+                    state["first_reached_at"] = time.monotonic()
+                elif time.monotonic() - state["first_reached_at"] > 0.3:
+                    tel["connected"] = False
+        monkeypatch.setattr(manager, "_ingest_bulk_telemetry", disconnect_after_climb)
+
+        with pytest.raises(HTTPException) as exc:
+            await gcs_main.run_single_drone_sequence(
+                gcs_main.SingleDroneSequenceRequest(target_altitude_m=target_alt, hover_duration_s=3.0),
+                operator=commander,
+            )
+        assert exc.value.status_code == 500
+        assert "disconnected during hover dwell" in exc.value.detail
+    finally:
+        await manager.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_safe_recover_lands_and_disarms_only_when_armed(commander, patched_manager):
+    """issue #145 review (Vishal), item 5, as a focused unit test of the
+    recovery helper itself: it must always attempt a land, but only attempt
+    a disarm when telemetry actually reports the vehicle armed."""
+    manager = patched_manager(DroneManager(ports=[14540], backend="sim"))
+    try:
+        await manager.connect_all()
+        # 0.3s is tara_sim's own DEFAULT_ARMABLE_DELAY_S; 0.5s clears it with
+        # margin so the new pre-arm gate check (issue #145 review, item 2)
+        # doesn't race the sim's own settle timer.
+        await asyncio.sleep(0.5)
+        drone = manager.drones[0]
+        tel = manager.telemetry[0]
+
+        land_calls = []
+        original_land_one = manager._land_one
+        async def tracking_land_one(drone_id):
+            land_calls.append(drone_id)
+            return await original_land_one(drone_id)
+        manager._land_one = tracking_land_one
+
+        disarm_calls = []
+        original_disarm = drone.action.disarm
+        async def tracking_disarm():
+            disarm_calls.append(True)
+            return await original_disarm()
+        drone.action.disarm = tracking_disarm
+
+        tel["armed"] = False
+        await manager._safe_recover(0, drone, tel, context="test, not armed")
+        assert land_calls == [0]
+        assert disarm_calls == []
+
+        tel["armed"] = True
+        await manager._safe_recover(0, drone, tel, context="test, armed")
+        assert land_calls == [0, 0]
+        assert disarm_calls == [True]
+    finally:
+        await manager.shutdown()
+
+
+@pytest.mark.asyncio
 async def test_single_drone_sim_reports_on_ground_after_a_real_landing(commander, patched_manager):
     """issue #145: landed_state is populated from real sim physics (altitude
     and vertical speed), not merely inferred from disarm - a genuine landing
@@ -402,7 +694,10 @@ async def test_single_drone_sim_reports_on_ground_after_a_real_landing(commander
     manager = patched_manager(DroneManager(ports=[14540], backend="sim"))
     try:
         await manager.connect_all()
-        await asyncio.sleep(0.3)
+        # 0.3s is tara_sim's own DEFAULT_ARMABLE_DELAY_S; 0.5s clears it with
+        # margin so the new pre-arm gate check (issue #145 review, item 2)
+        # doesn't race the sim's own settle timer.
+        await asyncio.sleep(0.5)
         assert manager.telemetry[0]["landed_state"] == "ON_GROUND"
 
         result = await gcs_main.run_single_drone_sequence(
@@ -439,7 +734,10 @@ async def test_single_drone_fails_closed_on_stale_telemetry(commander, patched_m
     manager = patched_manager(DroneManager(ports=[14540], backend="sim"))
     try:
         await manager.connect_all()
-        await asyncio.sleep(0.3)
+        # 0.3s is tara_sim's own DEFAULT_ARMABLE_DELAY_S; 0.5s clears it with
+        # margin so the new pre-arm gate check (issue #145 review, item 2)
+        # doesn't race the sim's own settle timer.
+        await asyncio.sleep(0.5)
         # Advance heartbeat to simulate stale link
         manager.telemetry[0]["last_heartbeat"] = time.time() - 10.0
 
@@ -459,7 +757,10 @@ async def test_telemetry_freshness_tracking(viewer, patched_manager):
     manager = patched_manager(DroneManager(ports=[14540], backend="sim"))
     try:
         await manager.connect_all()
-        await asyncio.sleep(0.3)
+        # 0.3s is tara_sim's own DEFAULT_ARMABLE_DELAY_S; 0.5s clears it with
+        # margin so the new pre-arm gate check (issue #145 review, item 2)
+        # doesn't race the sim's own settle timer.
+        await asyncio.sleep(0.5)
 
         mode_info = await gcs_main.get_mode(operator=viewer)
         assert mode_info["telemetry_status"] == "FRESH"

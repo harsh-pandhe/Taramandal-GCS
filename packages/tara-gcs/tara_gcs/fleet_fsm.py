@@ -130,6 +130,7 @@ class Command(str, Enum):
     UPLOAD_MISSION = "upload_mission"
     RESUME_SHOW = "resume_show"
     DISCARD_SHOW = "discard_show"
+    SINGLE_DRONE_HOVER = "single_drone_hover"
 
 
 @dataclass(frozen=True)
@@ -165,6 +166,13 @@ COMMAND_RULES: dict[Command, CommandRule] = {
     Command.UPLOAD_MISSION: CommandRule(_NOT_RUNNING, None, "upload show missions"),
     Command.RESUME_SHOW: CommandRule(_NOT_RUNNING, None, "resume a saved show"),
     Command.DISCARD_SHOW: CommandRule(_NOT_RUNNING, None, "discard a saved show"),
+    # Bench/demo path (issue #131, #135): a single engineering drone, kept
+    # segregated from the fleet show. Same allowed states as LAUNCH - the
+    # fleet must be parked, not mid-show - but it never changes the fleet's
+    # own lifecycle state (target=None), since it isn't the fleet launching.
+    Command.SINGLE_DRONE_HOVER: CommandRule(
+        frozenset({S.STAGED, S.DISARMED}), None, "run the single-drone hover sequence",
+    ),
 }
 
 #: Stable ordering for listing states in messages and the API.

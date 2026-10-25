@@ -24,7 +24,7 @@ from tara_gcs.auth import (
 )
 from tara_core.signing import MAX_MANIFEST_BYTES, SignatureError
 from tara_gcs.preflight import (
-    DEFAULT_AUDIT_PATH, AuditLog, ConfirmationError, PreArmChecklistEngine, load_safety_config,
+    DEFAULT_AUDIT_PATH, AuditLog, ConfirmationError, GateState, PreArmChecklistEngine, load_safety_config,
 )
 
 # Set up logging
@@ -468,6 +468,14 @@ async def run_single_drone_sequence(
     """
     Supervised low-altitude 1m hover and slow landing demo progression.
     Requires SIMULATION mode or certified hardware acceptance gate (#135).
+
+    Issue #145 review (Vishal), item 2: this used to be gated only by the
+    mode/hardware check and "is drone 0 connected" — no fleet-FSM legality
+    check, no pre-arm gate (GPS/EKF/battery), no audit entry, and no guard
+    against a fleet show running concurrently or two overlapping hover
+    requests on the same drone. Drone 0 stays hard-coded: this is the one
+    engineering drone single-drone mode (#131) is defined around, not a
+    missing parameter.
     """
     if operator.role < Role.FLIGHT_COMMANDER:
         raise HTTPException(
@@ -475,21 +483,77 @@ async def run_single_drone_sequence(
             detail=f"{operator.id} is a {operator.role.name}; this needs FLIGHT_COMMANDER.",
         )
     check_flight_mode_and_hardware_gate("hover-sequence")
-    if 0 not in drone_manager.drones or not drone_manager.telemetry.get(0, {}).get("connected"):
+    _check_command(Command.SINGLE_DRONE_HOVER, operator.id, "POST /api/single-drone/hover-sequence")
+
+    drone_id = 0
+    if drone_id not in drone_manager.drones or not drone_manager.telemetry.get(drone_id, {}).get("connected"):
         raise HTTPException(
             status_code=400,
-            detail="Drone 0 is not connected.",
+            detail=f"Drone {drone_id} is not connected.",
         )
+    # The FSM check above already refuses outside STAGED/DISARMED, but a
+    # fleet show can be mid-flight without having moved the FSM yet (e.g. a
+    # restart), so check the running-show flags directly too — the same
+    # defense-in-depth /api/launch already applies.
+    if drone_manager.is_running_trajectory or drone_manager.active_trajectory is not None:
+        raise HTTPException(
+            status_code=409,
+            detail="Cannot run the single-drone sequence while a fleet show is active.",
+        )
+    if drone_id in drone_manager.single_drone_sequence_active:
+        raise HTTPException(
+            status_code=409,
+            detail=f"A single-drone sequence is already running on drone {drone_id}.",
+        )
+
+    # This drone's own gates only (GPS, EKF, battery, link stability, ...) -
+    # not the whole-fleet evaluate()/authorize_launch() path, which also
+    # requires a confirmed launch latch and every configured port connected.
+    # Those are about authorizing a *fleet* launch; a lone bench drone never
+    # goes through that flow.
+    report = preflight_engine.evaluate(
+        {drone_id: drone_manager.telemetry[drone_id]},
+        expected_drones=1,
+        trajectory=None,
+        geofence_radius_m=drone_manager.geofence_radius,
+    )
+    drone_report = report["drones"].get(str(drone_id))
+    if drone_report is None or not drone_report["ready"]:
+        failed_gates = [g for g in (drone_report or {}).get("gates", []) if g["state"] == GateState.FAIL.value]
+        raise HTTPException(
+            status_code=412,
+            detail={
+                "message": "Single-drone sequence refused: pre-arm gates are red.",
+                "profile": report["profile"],
+                "blocking_reasons": [f"{g['title']} — {g['detail']}" for g in failed_gates],
+            },
+        )
+
+    command_audit.record(
+        "single_drone_hover_requested",
+        operator=operator.id,
+        drone_id=drone_id,
+        target_altitude_m=req.target_altitude_m,
+        hover_duration_s=req.hover_duration_s,
+    )
+    drone_manager.single_drone_sequence_active.add(drone_id)
     try:
         steps_log = await drone_manager.execute_single_drone_demo_sequence(
-            drone_id=0,
+            drone_id=drone_id,
             target_alt_m=req.target_altitude_m,
             hover_s=req.hover_duration_s,
             operator=operator.id,
         )
     except Exception as e:
         logger.error(f"Single drone sequence failed: {e}")
+        command_audit.record(
+            "single_drone_hover_failed", operator=operator.id, drone_id=drone_id, error=str(e),
+        )
         raise HTTPException(status_code=500, detail=str(e))
+    else:
+        command_audit.record("single_drone_hover_completed", operator=operator.id, drone_id=drone_id)
+    finally:
+        drone_manager.single_drone_sequence_active.discard(drone_id)
     return {
         "status": "COMPLETED",
         "mode": current_operating_mode,
