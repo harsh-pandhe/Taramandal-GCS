@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import {
   buildSequencedShow,
   computeShowDuration,
@@ -9,10 +9,13 @@ import {
   minMorphSeparation,
   computeMorphLayers,
   morphNeedsLayering,
+  normalizeAssignment,
   TAKEOFF_SECONDS,
   LAND_SECONDS,
 } from './sequencer.js';
-import { buildFormation } from './formations.js';
+import { buildFormation, SHAPE_LIBRARY } from './formations.js';
+import * as formationsModule from './formations.js';
+import { ShowRefusalError } from './showErrors.js';
 
 const scene = (patch) => makeScene(patch);
 
@@ -439,23 +442,28 @@ describe('intermediate morph separation (Fix B / issue #137)', () => {
   });
 
   it('rejects a transition whose endpoint formations violate minimum separation', () => {
-    // Malformed/tight formation with points only 1.0 m apart
-    const tightFrom = [
+    // issue #141 review (Vishal): this test's name promised a rejection but
+    // its body only checked minMorphSeparation/computeMorphLayers directly,
+    // neither of which throws - it never actually exercised the real
+    // rejection path in planShow's own endpoint check. buildFormation
+    // itself can't produce a tight formation through the public API (its
+    // own spacing floor always holds for any registered shape), so this
+    // mocks it to inject one, through the real computeShowDuration/
+    // planShow pipeline instead of calling the internals directly.
+    const tightFormation = [
       { x: 0, y: 0, z: -8 },
       { x: 1.0, y: 0, z: -8 },
     ];
-    const normalTo = [
-      { x: 0, y: 0, z: -8 },
-      { x: 4.0, y: 0, z: -8 },
-    ];
-    expect(() => {
-      // Direct call or build show with forced tight points
-      minMorphSeparation(tightFrom, normalTo);
-    }).not.toThrow();
-
-    // Verify computeMorphLayers assigns layers correctly
-    const layers = computeMorphLayers(tightFrom, normalTo);
-    expect(layers.length).toBe(2);
+    const spy = vi.spyOn(formationsModule, 'buildFormation').mockReturnValue(tightFormation);
+    try {
+      const scenes = [scene({
+        shapeType: 'parametric', shapePayload: 'circle', holdDurationSeconds: 2, transitionDurationSeconds: 4,
+      })];
+      expect(() => computeShowDuration(scenes, 2, 4, null))
+        .toThrow(/endpoint spacing is below minimum separation/);
+    } finally {
+      spy.mockRestore();
+    }
   });
 
   it('maintains >= 2.0 m across representative counts and shapes (n=10, 24, 60)', () => {
@@ -552,5 +560,108 @@ describe('the direct-vs-layered trigger absorbs export rounding (issue #141/#153
     // pair would not be flagged, proving the first two assertions above
     // actually depend on the fix and are not vacuously true.
     expect(minMorphSeparation([A, B], [A, B]) < 2.0).toBe(false);
+  });
+});
+
+describe('normalizeAssignment (issue #141 review: assignment handling)', () => {
+  const identity = (n) => Array.from({ length: n }, (_, i) => i);
+
+  it('falls back to identity when targetIdx is absent (null/undefined)', () => {
+    expect(normalizeAssignment(null, 2, 3)).toEqual({ scenes: [identity(3), identity(3)], ret: identity(3) });
+    expect(normalizeAssignment(undefined, 2, 3)).toEqual({ scenes: [identity(3), identity(3)], ret: identity(3) });
+  });
+
+  it('treats a 0 entry as a valid index, not as missing', () => {
+    // Drone 2 goes to point 0 here - 0 must come through unchanged, not be
+    // read as falsy and replaced.
+    const result = normalizeAssignment([[1, 2, 0]], 1, 3);
+    expect(result.scenes[0]).toEqual([1, 2, 0]);
+  });
+
+  it('uses a real, non-identity permutation as given', () => {
+    const swapped = [[1, 0, 2]];
+    expect(normalizeAssignment(swapped, 1, 3).scenes[0]).toEqual([1, 0, 2]);
+  });
+
+  it('rejects a same-length array with a duplicate index, falling back to identity', () => {
+    // Right length, but not a permutation: drone slots 0 and 2 both point at
+    // target 1, and nothing points at target 2. A corrupt or stale
+    // assignment like this must never be used as-is (it would send two
+    // drones to the same point) - it has to fall back the same way an
+    // absent assignment does, not be silently trusted because the shape
+    // happens to match.
+    const corrupt = [[1, 1, 0]];
+    expect(normalizeAssignment(corrupt, 1, 3).scenes[0]).toEqual(identity(3));
+  });
+
+  it('rejects a same-length array with an out-of-range index, falling back to identity', () => {
+    const corrupt = [[0, 1, 5]];
+    expect(normalizeAssignment(corrupt, 1, 3).scenes[0]).toEqual(identity(3));
+  });
+
+  it('rejects a wrong-length entry, falling back to identity', () => {
+    const wrongLength = [[0, 1]];
+    expect(normalizeAssignment(wrongLength, 1, 3).scenes[0]).toEqual(identity(3));
+  });
+
+  it('applies the same validation to the return-leg entry', () => {
+    const valid = [[0, 1, 2], [2, 0, 1]];
+    expect(normalizeAssignment(valid, 1, 3).ret).toEqual([2, 0, 1]);
+
+    const corruptRet = [[0, 1, 2], [1, 1, 0]];
+    expect(normalizeAssignment(corruptRet, 1, 3).ret).toEqual(identity(3));
+  });
+
+  it('a show built from a corrupt assignment matches one built with none at all', () => {
+    // End-to-end check, not just the helper in isolation: a corrupt
+    // targetIdx (right shape - one entry per scene, matching acceptanceScenes'
+    // 2 - but not an actual permutation) must produce the exact same show as
+    // not passing one at all, proving the fallback really engages rather
+    // than silently using the corrupt array because its shape passed.
+    const scenes = acceptanceScenes();
+    const corrupt = [[1, 1, 0], [1, 1, 0]];
+    const withCorrupt = computeShowDuration(scenes, 3, 4, corrupt);
+    const withNone = computeShowDuration(scenes, 3, 4, null);
+    expect(withCorrupt).toBeCloseTo(withNone, 9);
+  });
+});
+
+describe('500-drone render-path crash repro (issue #141/#153)', () => {
+  // The original bug report: computeShowDuration([heart], 500, 4, null)
+  // threw a plain, uncaught Error when called render-phase (App.jsx's
+  // useMemo, before this issue's fix), taking the whole Studio page down -
+  // because it was a real refusal (the shape can't fit at this count), not
+  // a bug, but nothing distinguished the two. Swept over the whole shape
+  // library, not just heart, at the exact fleet size (500) and assignment
+  // (null, i.e. absent - the render-phase case, before any build/assign
+  // chain has run) the original crash used.
+  const n = 500;
+
+  it.each(SHAPE_LIBRARY.map(({ shapeType, shapePayload, label }) => [label, shapeType, shapePayload]))(
+    'never crashes for %s at 500 drones with no assignment - builds, or refuses with ShowRefusalError',
+    (_label, shapeType, shapePayload) => {
+      const scenes = [scene({ shapeType, shapePayload, holdDurationSeconds: 4, transitionDurationSeconds: 4 })];
+      let threw = null;
+      try {
+        computeShowDuration(scenes, n, 4, null);
+      } catch (e) {
+        threw = e;
+      }
+      if (threw) expect(threw).toBeInstanceOf(ShowRefusalError);
+      // buildTimelineSegments walks the same plan; must agree on crash vs not.
+      let segThrew = null;
+      try {
+        buildTimelineSegments(scenes, n, 4, null);
+      } catch (e) {
+        segThrew = e;
+      }
+      if (segThrew) expect(segThrew).toBeInstanceOf(ShowRefusalError);
+    },
+    30_000,
+  );
+
+  it('the exact original repro (heart, 500 drones, no assignment) is a ShowRefusalError, not a crash', () => {
+    const heart = [scene({ shapeType: 'parametric', shapePayload: 'heart', holdDurationSeconds: 4, transitionDurationSeconds: 4 })];
+    expect(() => computeShowDuration(heart, 500, 4, null)).toThrow(ShowRefusalError);
   });
 });

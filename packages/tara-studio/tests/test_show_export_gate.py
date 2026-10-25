@@ -118,14 +118,27 @@ class TestSeparationGate:
     """Issue #141/#153: /api/export refuses a show whose waypoints — as it
     will actually export them — put two drones closer than design_separation_m.
 
-    Unlike #60's jerk exception just above this gate in server.py, minimum
-    separation IS enforced here: it's a collision risk, not a choreography-
-    quality metric. The repro is two waypoints already rounded to the
-    centimetre exactly as tara-studio-web's sequencer.js rounds every waypoint
-    on build (round2) and tara_studio.exporter.export_tara rounds again on its
-    own int16-centimetre packing — 1.9875 m apart, inside the 2.0 m limit,
-    even though the two points this was derived from were 2.00012 m apart
-    before rounding (sequencer.test.js pins that derivation on the JS side).
+    The repro is two waypoints already rounded to the centimetre exactly as
+    tara-studio-web's sequencer.js rounds every waypoint on build (round2)
+    and tara_studio.exporter.export_tara rounds again on its own
+    int16-centimetre packing — 1.9875 m apart, inside the 2.0 m limit, even
+    though the two points this was derived from were 2.00012 m apart before
+    rounding (sequencer.test.js pins that derivation on the JS side).
+
+    Release review on #141 (2026-10-26): an earlier version of this gate ran
+    its own collision_errors sweep directly in server.py, on the pre-encode
+    choreo. That duplicated, and for .tara was actually weaker than, what
+    #143 already added to the canonical gate: certify_feasibility_report's
+    own proximity check (which, same as here, operates on choreo before
+    format-specific rounding) plus #143/#157's own post-quantization
+    .tara-bytes re-check (see TestQuantizationGate below). This fixture
+    doesn't need that second, .tara-specific re-check to be caught - the
+    input is already at the "already-eroded" 1.9875m value, so the
+    canonical gate's own proximity check catches it directly, as a 412
+    "Flight export blocked", the same way any other proximity violation is
+    - so the duplicate gate was removed from server.py rather than kept
+    alongside it. This test asserts that refusal; it would fail if the
+    canonical gate's proximity check were ever disabled or weakened.
     """
 
     _TOO_CLOSE = {
@@ -162,10 +175,9 @@ class TestSeparationGate:
     @pytest.mark.parametrize("fmt", ["json", "tara"])
     def test_export_refuses_the_repro(self, client, fmt):
         res = client.post("/api/export", json={"choreo": self._TOO_CLOSE, "format": fmt})
-        assert res.status_code == 400
+        assert res.status_code == 412
         detail = res.json()["detail"]
-        assert "separation" in detail["message"].lower()
-        assert detail["errors"]
+        assert "flight export blocked" in str(detail).lower()
 
     @pytest.mark.parametrize("fmt", ["json", "tara"])
     def test_export_still_succeeds_once_comfortably_clear(self, client, fmt):

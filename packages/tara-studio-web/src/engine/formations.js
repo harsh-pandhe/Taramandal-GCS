@@ -39,7 +39,7 @@ export const SITE_RADIUS_M = 30.0;
 // Mirrors tara_core.safety.DEFAULT_LIMITS.design_separation_m.
 export const MIN_SEPARATION_M = 2.0;
 
-const _MAX_ALTITUDE_M = 120.0;
+export const MAX_ALTITUDE_M = 120.0;
 
 const minPairDist = (pts) => {
   let m = Infinity;
@@ -368,9 +368,9 @@ export const buildFormation = (shapeType, shapePayload, n, scale = 1.0) => {
   }
 
   const maxAlt = Math.max(...current.map((p) => -p.z));
-  if (maxAlt > _MAX_ALTITUDE_M + 1e-6) {
+  if (maxAlt > MAX_ALTITUDE_M + 1e-6) {
     throw new ShowRefusalError(
-      `Formation "${shapePayload}" (n=${n}, scale=${scale}) exceeds maximum altitude ceiling: ${maxAlt.toFixed(1)}m > ${_MAX_ALTITUDE_M}m`
+      `Formation "${shapePayload}" (n=${n}, scale=${scale}) exceeds maximum altitude ceiling: ${maxAlt.toFixed(1)}m > ${MAX_ALTITUDE_M}m`
     );
   }
   const finalMin = minPairDist(current);

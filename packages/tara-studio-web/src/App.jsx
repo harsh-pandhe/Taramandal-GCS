@@ -74,14 +74,19 @@ export default function App() {
   // button surfaces the real message — but anything else is a genuine bug,
   // and must not be swallowed: this runs inside render, so an uncaught throw
   // here used to take the whole page down (issue #141).
-  const predictedDuration = useMemo(() => {
+  // issue #141 review: a refused prediction returning 0 is indistinguishable
+  // in the UI from a real, tiny show - predictionRefused (and the message)
+  // let SequencerHeader say "refused", not "0.0s", for exactly the
+  // "no prediction yet" case this comment already described above.
+  const prediction = useMemo(() => {
     try {
-      return computeShowDuration(scenes, numDrones, rate, builtAssignment);
+      return { duration: computeShowDuration(scenes, numDrones, rate, builtAssignment), refused: false, message: null };
     } catch (e) {
-      if (e instanceof ShowRefusalError) return 0;
+      if (e instanceof ShowRefusalError) return { duration: 0, refused: true, message: e.message };
       throw e;
     }
   }, [scenes, numDrones, rate, builtAssignment]);
+  const predictedDuration = prediction.duration;
   const segments = useMemo(() => {
     try {
       return buildTimelineSegments(scenes, numDrones, rate, builtAssignment);
@@ -240,6 +245,7 @@ export default function App() {
               header={{
                 sceneCount: scenes.length, numDrones, rate,
                 predictedDuration, builtDuration, stale,
+                predictionRefused: prediction.refused, refusalMessage: prediction.message,
               }}
               viewMode={viewMode}
               onViewMode={setViewMode}

@@ -40,7 +40,7 @@
 // that layer, and descending. Only drones whose crossing paths conflict get
 // different layers, so a handful of layers are needed rather than one per drone.
 
-import { buildFormation } from './formations.js';
+import { buildFormation, MAX_ALTITUDE_M } from './formations.js';
 import { SHOW_ALT, padAt, hoverAt } from './layout.js';
 import { optimalAssignment } from './assignment.js';
 import { ShowRefusalError } from './showErrors.js';
@@ -98,16 +98,35 @@ export const makeScene = (patch = {}) => ({
 const identity = (n) => Array.from({ length: n }, (_, i) => i);
 
 /**
+ * True iff `a` is an actual permutation of 0..n-1: every index present,
+ * each exactly once. 0 is a perfectly valid entry here, same as any other -
+ * nothing in this check (or in normalizeAssignment below) treats it as
+ * falsy or missing.
+ */
+const isPermutation = (a, n) => {
+  if (a.length !== n) return false;
+  const seen = new Set();
+  for (const v of a) {
+    if (!Number.isInteger(v) || v < 0 || v >= n || seen.has(v)) return false;
+    seen.add(v);
+  }
+  return true;
+};
+
+/**
  * targetIdx is `scenes.length` permutations (scene s: drone i occupies point
  * targetIdx[s][i]), optionally followed by one more for the return: the hover
- * spot each drone flies back to. Anything that doesn't fit this shape — e.g. an
- * assignment left over from a different scene list or fleet size — falls back
- * to identity rather than being misread.
+ * spot each drone flies back to. Anything that doesn't fit this shape — absent
+ * (null/undefined, the default), an assignment left over from a different
+ * scene list or fleet size, or (issue #141 review) a same-length array that
+ * isn't actually a permutation (a duplicate or out-of-range index, e.g. from
+ * corruption or a stale/mismatched chain) — falls back to identity rather
+ * than being misread or used as a silent collision risk.
  */
-const normalizeAssignment = (targetIdx, sceneCount, n) => {
+export const normalizeAssignment = (targetIdx, sceneCount, n) => {
   const t = Array.isArray(targetIdx) ? targetIdx : [];
   const shaped = t.length === sceneCount || t.length === sceneCount + 1;
-  const ok = (a) => shaped && Array.isArray(a) && a.length === n;
+  const ok = (a) => shaped && Array.isArray(a) && isPermutation(a, n);
   return {
     scenes: Array.from({ length: sceneCount }, (_, s) => (ok(t[s]) ? t[s] : identity(n))),
     ret: t.length === sceneCount + 1 && ok(t[sceneCount]) ? t[sceneCount] : identity(n),
@@ -288,7 +307,14 @@ const planShow = (scenes, n, targetIdx) => {
       if (morphNeedsLayering(from, to)) {
         const minFrom = minPairDist(from);
         const minTo = minPairDist(to);
-        if (minFrom < DESIGN_SEPARATION - 1e-4 || minTo < DESIGN_SEPARATION - 1e-4) {
+        // Same tolerance as the per-leg check a few lines below (issue
+        // #141 review, Vishal): a looser 1e-4 here was dead in practice -
+        // for a pure-vertical lift leg, minMorphSeparation(from, fromUp)
+        // is the same as minPairDist(from), so anything that cleared this
+        // check at 1e-4 but not 1e-6 would just get caught by the leg
+        // check a few lines later anyway. One tolerance, not two that
+        // silently agreed on every real input.
+        if (minFrom < DESIGN_SEPARATION - 1e-6 || minTo < DESIGN_SEPARATION - 1e-6) {
           throw new ShowRefusalError(`Morph "${label}" cannot be made collision-free: endpoint spacing is below minimum separation (${Math.min(minFrom, minTo).toFixed(2)}m < ${DESIGN_SEPARATION}m).`);
         }
         const layer = computeMorphLayers(from, to);
@@ -300,7 +326,10 @@ const planShow = (scenes, n, targetIdx) => {
         const gap = LAYER_CLEARANCE;
         const maxLayer = Math.max(...layer);
         const highestAlt = Math.min(...from.map((p) => p.z), ...to.map((p) => p.z));
-        const ceilingZ = -(120.0);
+        // Shared with formations.js's own altitude check (issue #141
+        // review, Vishal): this used to be a second, independent copy of
+        // the same 120m number, which could drift out of sync with it.
+        const ceilingZ = -MAX_ALTITUDE_M;
         if (highestAlt - (maxLayer + 1) * gap < ceilingZ) {
           throw new ShowRefusalError(`Morph "${label}" cannot be made collision-free: required altitude layering exceeds 120m ceiling.`);
         }
