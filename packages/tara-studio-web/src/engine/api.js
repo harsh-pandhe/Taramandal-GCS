@@ -49,13 +49,22 @@ export const generateShow = async (payload) => {
   return res.json();
 };
 
-/** Renders a show to a downloadable file in the requested format. */
-export const exportShow = async ({ choreo, format, homeLat, homeLon, ledTrack, rateHz }) => {
+/**
+ * Renders a show to a downloadable file in the requested format.
+ *
+ * `previewOnly` (issue #161): bypasses jerk certification only - every hard
+ * limit (altitude, ground, separation, velocity, acceleration, yaw rate)
+ * still applies server-side, and the result is never signed regardless of
+ * a configured signing key (issue #143). Only for a show that can't meet
+ * the jerk smoothness bound; never a path to signing or a GCS upload.
+ */
+export const exportShow = async ({ choreo, format, homeLat, homeLon, ledTrack, rateHz, previewOnly }) => {
   const res = await postJson(`${API_BASE}/api/export`, {
     choreo, format, home_lat: Number(homeLat), home_lon: Number(homeLon),
     // Only sent when a track exists, so existing callers keep their payload.
     ...(ledTrack ? { led_track: ledTrack } : {}),
     ...(rateHz ? { rate_hz: Number(rateHz) } : {}),
+    ...(previewOnly ? { preview_only: true } : {}),
   });
   if (!res.ok) {
     // e.g. a 409 explaining that the signing key is missing or unreadable.

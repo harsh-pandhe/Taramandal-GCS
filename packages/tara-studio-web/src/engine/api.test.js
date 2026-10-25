@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { API_BASE, GCS_BASE, sendShowToGCS } from './api.js';
+import { API_BASE, GCS_BASE, exportShow, sendShowToGCS } from './api.js';
 
 const CHOREO = { drones: [{ id: 0, waypoints: [{ time: 0, x: 0, y: 0, z: 0, yaw: 0 }] }] };
 const TRACK = [{ pattern: 'STROBE', start_time: 0, duration: 10, color: '#ffffff', frequency_hz: 8 }];
@@ -37,5 +37,26 @@ describe('sendShowToGCS (issue #55: transmit == download)', () => {
     const sent = JSON.parse(calls[0].init.body);
     expect(sent).not.toHaveProperty('led_track');
     expect(sent).not.toHaveProperty('rate_hz');
+  });
+});
+
+describe('exportShow preview_only (issue #161)', () => {
+  it('sends preview_only: true when requested', async () => {
+    const calls = stubBackends();
+    await exportShow({ choreo: CHOREO, format: 'json', homeLat: 1, homeLon: 2 });
+    const sentNormal = JSON.parse(calls[0].init.body);
+    expect(sentNormal).not.toHaveProperty('preview_only');
+
+    await exportShow({ choreo: CHOREO, format: 'json', homeLat: 1, homeLon: 2, previewOnly: true });
+    const sentPreview = JSON.parse(calls[1].init.body);
+    expect(sentPreview).toMatchObject({ preview_only: true });
+  });
+
+  it('surfaces the backend detail message on a refused preview export', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(
+      JSON.stringify({ detail: 'Export blocked: altitude ceiling exceeded.' }), { status: 412 },
+    )));
+    await expect(exportShow({ choreo: CHOREO, format: 'json', homeLat: 1, homeLon: 2, previewOnly: true }))
+      .rejects.toThrow('Export blocked: altitude ceiling exceeded.');
   });
 });

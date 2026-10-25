@@ -89,7 +89,7 @@ function GcsSignIn() {
 /** Venue georeference plus export / GCS upload actions. */
 export default function TransmitPanel({
   homeLat, homeLon, onHomeLat, onHomeLon,
-  onExport, onSendToGCS, sending, hasShow, validation,
+  onExport, onExportPreview, onSendToGCS, sending, hasShow, validation,
 }) {
   const isCertified = validation?.status === 'PASSED'
     && validation?.feasibility_certified !== false
@@ -100,11 +100,30 @@ export default function TransmitPanel({
   const isUnverified = hasShow && !isCertified && !isFailed;
   const canExport = hasShow && isCertified;
 
+  const jerkCount = validation?.violations?.jerk?.length || 0;
   const totalViolations = (validation?.violations?.proximity?.length || 0)
     + (validation?.violations?.velocity?.length || 0)
     + (validation?.violations?.acceleration?.length || 0)
     + (validation?.violations?.yaw_rate?.length || 0)
-    + (validation?.violations?.jerk?.length || 0);
+    + jerkCount;
+  // Issue #161: the UI never sent preview_only, so a show that clears every
+  // hard limit but not the jerk smoothness bound couldn't be exported at
+  // all. Only offered when jerk is the *sole* reason export is refused -
+  // preview_only still enforces every other category server-side, and a
+  // button that would just trade one refusal reason for another isn't
+  // useful here.
+  const jerkOnlyFailure = hasShow && isFailed && jerkCount > 0 && totalViolations === jerkCount;
+  const [previewStatus, setPreviewStatus] = useState(null);
+
+  const handlePreviewExport = async (format) => {
+    setPreviewStatus(null);
+    try {
+      await onExportPreview(format);
+      setPreviewStatus({ kind: 'success', message: `Preview exported (${format}) — unsigned, not flight-certified.` });
+    } catch (e) {
+      setPreviewStatus({ kind: 'error', message: e.message });
+    }
+  };
 
   return (
     <div className="glass-panel-inner">
@@ -128,6 +147,48 @@ export default function TransmitPanel({
             {isFailed && `Safety Gate Locked — ${totalViolations} violation${totalViolations === 1 ? '' : 's'} detected. Fix violations before exporting.`}
             {isUnverified && 'Unverified Trajectory — Pre-flight safety validation required before export.'}
           </span>
+        </div>
+      )}
+
+      {jerkOnlyFailure && (
+        <div className="preview-export-section">
+          <div className="preview-export-notice" role="status" data-testid="preview-export-notice">
+            <AlertTriangle size={14} />
+            <span>
+              Jerk exceeds the smoothness limit. Export an unsigned preview instead — every other
+              safety limit still applies, but it is <strong>never flight-certified, never signed,
+              and never accepted by the GCS</strong>.
+            </span>
+          </div>
+          <div className="form-row">
+            <button
+              type="button" className="btn-secondary btn-inline btn-preview"
+              onClick={() => handlePreviewExport('json')}
+            >
+              <Download size={14} /> Preview JSON
+            </button>
+            <button
+              type="button" className="btn-secondary btn-inline btn-preview"
+              onClick={() => handlePreviewExport('csv')}
+            >
+              <Download size={14} /> Preview CSV
+            </button>
+          </div>
+          <button
+            type="button" className="btn-secondary btn-inline btn-preview"
+            onClick={() => handlePreviewExport('tara')}
+          >
+            Preview .tara (binary)
+          </button>
+          {previewStatus && (
+            <div
+              className={`preview-export-status ${previewStatus.kind}`}
+              role={previewStatus.kind === 'error' ? 'alert' : 'status'}
+              data-testid="preview-export-status"
+            >
+              {previewStatus.message}
+            </div>
+          )}
         </div>
       )}
 
