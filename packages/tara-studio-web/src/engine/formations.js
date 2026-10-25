@@ -419,9 +419,27 @@ export const buildFormation = (shapeType, shapePayload, n, scale = 1.0) => {
  * like any other shape, which is a visually different but still safe
  * outcome, not a crash.
  *
+ * Every refusal below is a plain Error, not ShowRefusalError (#141) -
+ * explicit dependency, not an oversight (review on #166): #141 isn't on
+ * main yet, so showErrors.js isn't available to this branch. Once it
+ * lands, every throw here should switch to ShowRefusalError, the same way
+ * formations.js's and sequencer.js's own refusals will, so a refused split
+ * reaching a render-phase useMemo/preview doesn't crash the page the way
+ * #141/#153 originally found for other refusals.
+ *
  * @param {{shapeType: string, shapePayload: string, scale?: number, count: number}[]} parts
  * @returns {{x:number,y:number,z:number}[]} the parts' combined point count, figure first then each support group in order
  */
+// Release review on #141 found the same defect in its own direct-vs-layered
+// trigger: a search that stops exactly at MIN_SEPARATION_M builds a pair at
+// ~2.000m by construction, and export rounds every waypoint to the
+// centimetre (round2 in sequencer.js, then again by export_tara's own
+// int16-centimetre packing) - enough to erode a hairline margin below the
+// limit (2*sqrt(3)*0.005 = 0.0173m bound; #141 uses 0.05m for its own
+// margin, LAYER_CLEARANCE). Same fix here: search for this much clearance
+// above the limit, not the limit itself.
+const EXPORT_ROUNDING_MARGIN_M = 0.05;
+
 export const buildSplitFormation = (parts) => {
   if (!Array.isArray(parts) || parts.length < 2) {
     throw new Error('buildSplitFormation needs a figure and at least one support group');
@@ -435,6 +453,12 @@ export const buildSplitFormation = (parts) => {
 
   const [figure, ...supports] = parts;
   const figureRaw = rawFormation(figure.shapeType, figure.shapePayload, figure.count, figure.scale ?? 1.0);
+  // Defensive (release review on #141/#166): if a generator ever returned
+  // the wrong count, the rest of this function would silently misalign
+  // every group's slice boundaries rather than fail closed.
+  if (figureRaw.length !== figure.count) {
+    throw new Error(`Figure "${figure.shapePayload}" returned ${figureRaw.length} points, not the requested ${figure.count}`);
+  }
   const figureCentre = bboxCentre(figureRaw);
   const centredFigure = figureRaw.map((p) => ({ x: p.x - figureCentre.x, y: p.y - figureCentre.y, z: p.z }));
 
@@ -443,13 +467,17 @@ export const buildSplitFormation = (parts) => {
 
   supports.forEach((support, idx) => {
     const raw = rawFormation(support.shapeType, support.shapePayload, support.count, support.scale ?? 1.0);
+    if (raw.length !== support.count) {
+      throw new Error(`Support "${support.shapePayload}" returned ${raw.length} points, not the requested ${support.count}`);
+    }
     const centre = bboxCentre(raw);
     const centred = raw.map((p) => ({ x: p.x - centre.x, y: p.y - centre.y, z: p.z }));
     const ownReach = horizontalReach(centred);
 
     const ringClearance = Math.min(...centred.map((p) => Math.hypot(p.x, p.y))) - envelopeReach;
     let placedSupport;
-    if (support.shapePayload === 'circle' && ringClearance >= MIN_SEPARATION_M) {
+    if (support.shapeType === 'parametric' && support.shapePayload === 'circle'
+      && ringClearance >= MIN_SEPARATION_M + EXPORT_ROUNDING_MARGIN_M) {
       placedSupport = centred;
     } else {
       // envelopeReach + ownReach + MIN_SEPARATION_M (the docstring's
@@ -476,10 +504,10 @@ export const buildSplitFormation = (parts) => {
         }
         return m;
       };
-      let lo = 0, hi = envelopeReach + ownReach + MIN_SEPARATION_M;
+      let lo = 0, hi = envelopeReach + ownReach + MIN_SEPARATION_M + EXPORT_ROUNDING_MARGIN_M;
       for (let iter = 0; iter < 40 && hi - lo > 1e-3; iter++) {
         const mid = (lo + hi) / 2;
-        if (minDistAtRadius(mid) >= MIN_SEPARATION_M - 1e-6) hi = mid;
+        if (minDistAtRadius(mid) >= MIN_SEPARATION_M + EXPORT_ROUNDING_MARGIN_M) hi = mid;
         else lo = mid;
       }
       const dx = hi * cos, dy = hi * sin;
@@ -503,30 +531,24 @@ export const buildSplitFormation = (parts) => {
   const centre = bboxCentre(combined);
   const lowest = Math.min(...combined.map((p) => -p.z));
   const dz = lowest < MIN_FORMATION_ALT ? MIN_FORMATION_ALT - lowest : 0;
-  let current = combined.map((p) => ({
+  const current = combined.map((p) => ({
     x: p.x - centre.x,
     y: p.y - centre.y,
     z: p.z - dz,
   }));
 
-  // Site radius: shift toward origin if it fits; otherwise refuse rather
-  // than silently shrinking (and so undoing) a carefully built clearance.
+  // Site radius: refuse rather than silently shrinking (and so undoing) a
+  // carefully built clearance. No shift-toward-origin step here, unlike
+  // buildFormation's own: `current` is already bbox-centred a few lines up,
+  // so a per-axis shift could never actually move anything (review on
+  // #166: for any span within the site diameter, bbox-centring alone
+  // already puts maxX/minX at exactly +-span/2, which is already within
+  // the radius whenever the span is).
   const maxReach = current.reduce((m, p) => Math.max(m, Math.hypot(p.x, p.y)), 0);
   if (maxReach > SITE_RADIUS_M + 1e-6) {
-    const xs = current.map((p) => p.x), ys = current.map((p) => p.y);
-    const maxX = Math.max(...xs), minX = Math.min(...xs);
-    const maxY = Math.max(...ys), minY = Math.min(...ys);
-    if (maxX - minX <= 2 * (SITE_RADIUS_M - 0.5) && maxY - minY <= 2 * (SITE_RADIUS_M - 0.5)) {
-      const shiftX = maxX > 29.5 ? 29.5 - maxX : (minX < -29.5 ? -29.5 - minX : 0);
-      const shiftY = maxY > 29.5 ? 29.5 - maxY : (minY < -29.5 ? -29.5 - minY : 0);
-      current = current.map((p) => ({ ...p, x: p.x + shiftX, y: p.y + shiftY }));
-    }
-    const postShiftReach = current.reduce((m, p) => Math.max(m, Math.hypot(p.x, p.y)), 0);
-    if (postShiftReach > SITE_RADIUS_M + 1e-6) {
-      throw new Error(
-        `Split formation (figure + ${supports.length} support group(s), ${totalN} drones) cannot fit within the site radius (${SITE_RADIUS_M}m) even after centring; refused rather than scaled down, which would undo the clearance already built between groups.`
-      );
-    }
+    throw new Error(
+      `Split formation (figure + ${supports.length} support group(s), ${totalN} drones) cannot fit within the site radius (${SITE_RADIUS_M}m) even centred; refused rather than scaled down, which would undo the clearance already built between groups.`
+    );
   }
 
   const maxAlt = Math.max(...current.map((p) => -p.z));

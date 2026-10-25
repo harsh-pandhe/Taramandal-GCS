@@ -156,4 +156,67 @@ describe('buildSplitFormation', () => {
     ];
     expect(() => buildSplitFormation(parts)).toThrow(/site radius/);
   });
+
+  it('refuses rather than silently shrinks when a support group is too large for its own count', () => {
+    // A heart this oversized gets stacked into altitude layers by its own
+    // generator (stackIfOversized) rather than overflowing the site radius -
+    // still a refusal, just the altitude ceiling catching it instead.
+    const parts = [
+      { shapeType: 'parametric', shapePayload: 'grid', count: 10 },
+      { shapeType: 'parametric', shapePayload: 'heart', count: 100, scale: 3.0 },
+    ];
+    expect(() => buildSplitFormation(parts)).toThrow(/altitude ceiling/);
+  });
+
+  it('survives export rounding to the centimetre - cross-group separation stays >= MIN_SEPARATION_M (release review on #166)', () => {
+    // The margin search targets MIN_SEPARATION_M + EXPORT_ROUNDING_MARGIN_M,
+    // not the bare limit - because every waypoint gets rounded to the
+    // centimetre on the way out (round2 in sequencer.js, then again by
+    // export_tara's own int16-centimetre packing), and a pair placed
+    // exactly at the limit can erode below it once actually quantised.
+    // This is the same defect #141 found and fixed in its own
+    // direct-vs-layered trigger.
+    const round2 = (v) => Math.round(v * 100) / 100;
+    const configs = [
+      [{ shapeType: 'parametric', shapePayload: 'grid', count: 12 }, { shapeType: 'parametric', shapePayload: 'line', count: 6 }],
+      [{ shapeType: 'parametric', shapePayload: 'heart', count: 20 }, { shapeType: 'parametric', shapePayload: 'circle', count: 30 }],
+    ];
+    for (const parts of configs) {
+      const result = buildSplitFormation(parts);
+      let offset = 0;
+      const groups = parts.map((p) => {
+        const g = result.slice(offset, offset + p.count).map((pt) => ({ x: round2(pt.x), y: round2(pt.y), z: round2(pt.z) }));
+        offset += p.count;
+        return g;
+      });
+      for (let i = 0; i < groups.length; i++) {
+        for (let j = i + 1; j < groups.length; j++) {
+          expect(minCrossGroupDist(groups[i], groups[j]), `groups ${i} vs ${j}`).toBeGreaterThanOrEqual(MIN_SEPARATION_M - 1e-6);
+        }
+      }
+    }
+  });
+
+  // Committed version of the manual 500-drone stress test from the PR body
+  // (release review on #166: "commit them as tests").
+  describe('500-drone scale (release review on #166)', () => {
+    it('a realistic figure-plus-ring split fits, fast', () => {
+      const t0 = Date.now();
+      const result = buildSplitFormation([
+        { shapeType: 'parametric', shapePayload: 'grid', count: 440 },
+        { shapeType: 'parametric', shapePayload: 'circle', count: 60 },
+      ]);
+      expect(result).toHaveLength(500);
+      expect(minPairDist(result)).toBeGreaterThanOrEqual(MIN_SEPARATION_M - 1e-6);
+      expect(Date.now() - t0).toBeLessThan(5_000);
+    });
+
+    it('an overly ambitious 3-group split correctly refuses rather than compromise clearance', () => {
+      expect(() => buildSplitFormation([
+        { shapeType: 'parametric', shapePayload: 'heart', count: 200 },
+        { shapeType: 'parametric', shapePayload: 'grid', count: 150 },
+        { shapeType: 'parametric', shapePayload: 'grid', count: 150 },
+      ])).toThrow(/site radius/);
+    });
+  });
 });
