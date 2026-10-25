@@ -59,4 +59,23 @@ describe('exportShow preview_only (issue #161)', () => {
     await expect(exportShow({ choreo: CHOREO, format: 'json', homeLat: 1, homeLon: 2, previewOnly: true }))
       .rejects.toThrow('Export blocked: altitude ceiling exceeded.');
   });
+
+  it('unwraps an object detail instead of surfacing "[object Object]"', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(
+      JSON.stringify({ detail: { message: 'Export blocked: unknown validation status.', validation: {} } }),
+      { status: 412 },
+    )));
+    await expect(exportShow({ choreo: CHOREO, format: 'json', homeLat: 1, homeLon: 2, previewOnly: true }))
+      .rejects.toThrow('Export blocked: unknown validation status.');
+  });
+
+  it('passes the backend\'s PREVIEW_ONLY_-prefixed filename straight through', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (url, init) => {
+      const { preview_only } = JSON.parse(init.body);
+      const filename = preview_only ? 'PREVIEW_ONLY_choreography.json' : 'choreography.json';
+      return new Response(JSON.stringify({ filename, content: '{}', mime_type: 'application/json' }), { status: 200 });
+    }));
+    const data = await exportShow({ choreo: CHOREO, format: 'json', homeLat: 1, homeLon: 2, previewOnly: true });
+    expect(data.filename).toBe('PREVIEW_ONLY_choreography.json');
+  });
 });

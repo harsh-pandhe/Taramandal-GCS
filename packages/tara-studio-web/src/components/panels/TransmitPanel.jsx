@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { Download, Globe, Activity, ShieldCheck, ShieldAlert, LogIn, LogOut, CheckCircle, AlertTriangle } from 'lucide-react';
 import { NumberField } from '../common/index.jsx';
 import {
-  getSigningStatus, getGcsSession, gcsLogin, gcsLogout, onGcsSessionChange,
+  getSigningStatus, getGcsSession, gcsLogin, gcsLogout, onGcsSessionChange, previewExportSuccessMessage,
 } from '../../engine/api.js';
 
 /** Which key signs exports (issue #49); the private key never leaves the backend. */
@@ -101,25 +101,29 @@ export default function TransmitPanel({
   const canExport = hasShow && isCertified;
 
   const jerkCount = validation?.violations?.jerk?.length || 0;
-  const totalViolations = (validation?.violations?.proximity?.length || 0)
+  const nonJerkViolations = (validation?.violations?.proximity?.length || 0)
     + (validation?.violations?.velocity?.length || 0)
     + (validation?.violations?.acceleration?.length || 0)
     + (validation?.violations?.yaw_rate?.length || 0)
-    + jerkCount;
+    + (validation?.violations?.altitude?.length || 0)
+    + (validation?.violations?.ground?.length || 0);
+  const totalViolations = nonJerkViolations + jerkCount;
   // Issue #161: the UI never sent preview_only, so a show that clears every
   // hard limit but not the jerk smoothness bound couldn't be exported at
-  // all. Only offered when jerk is the *sole* reason export is refused -
-  // preview_only still enforces every other category server-side, and a
-  // button that would just trade one refusal reason for another isn't
-  // useful here.
-  const jerkOnlyFailure = hasShow && isFailed && jerkCount > 0 && totalViolations === jerkCount;
+  // all. Gated on feasibility_certified===false (the canonical "jerk is why
+  // this isn't flight-certified" signal, issue #151/#165) with zero non-jerk
+  // violations - altitude and ground count here too (issue #148), since
+  // preview_only still enforces both server-side and a button that would
+  // just trade one refusal reason for another isn't useful.
+  const jerkOnlyFailure = hasShow && validation?.feasibility_certified === false
+    && jerkCount > 0 && nonJerkViolations === 0;
   const [previewStatus, setPreviewStatus] = useState(null);
 
   const handlePreviewExport = async (format) => {
     setPreviewStatus(null);
     try {
       await onExportPreview(format);
-      setPreviewStatus({ kind: 'success', message: `Preview exported (${format}) — unsigned, not flight-certified.` });
+      setPreviewStatus({ kind: 'success', message: previewExportSuccessMessage(format) });
     } catch (e) {
       setPreviewStatus({ kind: 'error', message: e.message });
     }

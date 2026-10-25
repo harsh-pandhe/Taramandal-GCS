@@ -68,8 +68,12 @@ export const exportShow = async ({ choreo, format, homeLat, homeLon, ledTrack, r
   });
   if (!res.ok) {
     // e.g. a 409 explaining that the signing key is missing or unreadable.
+    // `detail` is sometimes an object (e.g. {message, validation} on a 412 -
+    // see server.py's export gate), which `new Error(obj)` would stringify
+    // as "[object Object]" instead of the actual message.
     const details = await res.json().catch(() => ({}));
-    throw new Error(details.detail || 'File export failed.');
+    const message = typeof details.detail === 'string' ? details.detail : details.detail?.message;
+    throw new Error(message || 'File export failed.');
   }
   return res.json();
 };
@@ -174,6 +178,9 @@ export const sendShowToGCS = async ({ choreo, homeLat, homeLon, ledTrack, rateHz
   }
   return gcsRes.json().catch(() => ({}));
 };
+
+/** The message TransmitPanel shows after a preview export (issue #161) resolves. */
+export const previewExportSuccessMessage = (format) => `Preview exported (${format}) — unsigned, not flight-certified.`;
 
 /** Triggers a browser download of an exported file payload. */
 export const downloadExport = (data) => {

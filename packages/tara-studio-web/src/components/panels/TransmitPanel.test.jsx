@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { renderToStaticMarkup } from 'react-dom/server';
 import TransmitPanel from './TransmitPanel.jsx';
+import { previewExportSuccessMessage } from '../../engine/api.js';
 
 const noop = () => {};
 
@@ -213,5 +214,29 @@ describe('Unsigned preview export (issue #161)', () => {
   it('does not offer a preview export when there is no built show', () => {
     const html = render({ hasShow: false, validation: null });
     expect(html).not.toContain('preview-export-notice');
+  });
+
+  it('still offers a preview export when the only extra violations are altitude or ground', () => {
+    const html = render({
+      hasShow: true,
+      validation: {
+        status: 'FAILED',
+        feasibility_certified: false,
+        violations: {
+          proximity: [], velocity: [], acceleration: [], yaw_rate: [],
+          jerk: [{ time: 1.5, drone: 0, jerk: 35.0, limit: 20.0 }],
+          altitude: [{ time: 2.0, drone: 0, altitude: 150.0, limit: 120.0 }],
+        },
+      },
+    });
+    // An altitude (or ground) breach is a hard limit preview_only still
+    // enforces server-side, so it must count the same as proximity/velocity
+    // in deciding whether jerk is really the *sole* reason export is refused.
+    expect(html).not.toContain('preview-export-notice');
+  });
+
+  it('formats the preview-export success message per format (issue #161 review)', () => {
+    expect(previewExportSuccessMessage('json')).toBe('Preview exported (json) — unsigned, not flight-certified.');
+    expect(previewExportSuccessMessage('tara')).toBe('Preview exported (tara) — unsigned, not flight-certified.');
   });
 });
