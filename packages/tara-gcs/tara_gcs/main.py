@@ -80,10 +80,22 @@ trust_policy = load_trust_policy(
 # so nothing a browser sends can relax the gate a GCS was started with.
 safety_config = load_safety_config(_tara_toml_path)
 audit_kwargs = {"path": os.environ["GCS_AUDIT_PATH"]} if os.environ.get("GCS_AUDIT_PATH") else {}
+
+
+def _backend_audit_context() -> dict:
+    """Backend and fidelity tier stamped on every audit entry (issue #170).
+
+    Read lazily at record time, so the entry reflects the backend the GCS is
+    running now, and a log or video from a kinematic run can never be mistaken
+    for PX4 SITL (or the other way round) once it is quoted as evidence.
+    """
+    return {"backend": drone_manager.backend, "fidelity": drone_manager.fidelity}
+
+
 preflight_engine = PreArmChecklistEngine(
     profile=safety_config.profile,
     battery_cells=safety_config.battery_cells,
-    audit_log=AuditLog(**audit_kwargs),
+    audit_log=AuditLog(**audit_kwargs, context=_backend_audit_context),
 )
 logger.info(f"Pre-arm safety profile: {safety_config.profile.value}")
 
@@ -105,7 +117,8 @@ logger.info(f"Pre-arm safety profile: {safety_config.profile.value}")
 #: HUD's recent entries are not crowded out by routine commands.
 command_audit = AuditLog(
     path=os.environ.get("GCS_COMMAND_AUDIT_PATH")
-    or os.path.join(os.path.dirname(DEFAULT_AUDIT_PATH), "command_audit.jsonl")
+    or os.path.join(os.path.dirname(DEFAULT_AUDIT_PATH), "command_audit.jsonl"),
+    context=_backend_audit_context,
 )
 
 auth_config = load_auth_config(_tara_toml_path)
@@ -301,6 +314,9 @@ async def get_status():
     telemetry = drone_manager.telemetry
     return {
         "backend": drone_manager.backend,
+        # Evidence tier of that backend (issue #170): "kinematic" (tara_sim,
+        # scale only) or "px4-sitl" (PX4 + Gazebo, real flight dynamics).
+        "fidelity": drone_manager.fidelity,
         "num_drones": len(drone_manager.ports),
         "connected": sum(1 for t in telemetry.values() if t.get("connected")),
         "armed": sum(1 for t in telemetry.values() if t.get("armed")),
