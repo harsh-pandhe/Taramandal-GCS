@@ -553,9 +553,9 @@ export const buildSplitFormation = (parts) => {
   }
 
   const maxAlt = Math.max(...current.map((p) => -p.z));
-  if (maxAlt > _MAX_ALTITUDE_M + 1e-6) {
+  if (maxAlt > MAX_ALTITUDE_M + 1e-6) {
     throw new Error(
-      `Split formation (${totalN} drones) exceeds the maximum altitude ceiling: ${maxAlt.toFixed(1)}m > ${_MAX_ALTITUDE_M}m`
+      `Split formation (${totalN} drones) exceeds the maximum altitude ceiling: ${maxAlt.toFixed(1)}m > ${MAX_ALTITUDE_M}m`
     );
   }
 
