@@ -75,7 +75,19 @@ export const exportShow = async ({ choreo, format, homeLat, homeLon, ledTrack, r
     const message = typeof details.detail === 'string' ? details.detail : details.detail?.message;
     throw new Error(message || 'File export failed.');
   }
-  return res.json();
+  const data = await res.json();
+  // Issue #161 review: FastAPI ignores unknown request fields, so an older
+  // or misconfigured backend could silently run a normal export and return
+  // a filename with no PREVIEW_ONLY_ prefix - the one thing standing between
+  // a button labelled "preview" and a flight-certified-looking download.
+  // Refuse before the caller can download it, rather than trusting the
+  // backend did what was asked.
+  if (previewOnly && !data.filename?.startsWith('PREVIEW_ONLY_')) {
+    throw new Error(
+      `Preview export refused: backend returned "${data.filename}", not a PREVIEW_ONLY_ file.`
+    );
+  }
+  return data;
 };
 
 /**
