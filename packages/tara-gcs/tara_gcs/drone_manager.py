@@ -1485,6 +1485,10 @@ class DroneManager:
             await drone.action.arm()
         except Exception as e:
             steps.append({"step": "ARM", "status": f"FAILED: {e}", "time": time.time()})
+            # arm() raising doesn't rule out a partial arm (the command could
+            # have been accepted with the ack lost) - _safe_recover is a
+            # harmless no-op if it wasn't (issue #145 review follow-up).
+            await self._safe_recover(drone_id, drone, tel, context="after arm() raised")
             raise RuntimeError(f"Arming failed: {e}")
 
         # Await observed telemetry confirmation of arming — NEVER mutate tel["armed"]!
@@ -1511,6 +1515,38 @@ class DroneManager:
 
         steps.append({"step": "ARM", "status": "ARMED", "time": time.time()})
 
+        # From here on the vehicle is armed and may be flying: every exit path
+        # below must either yield to an already-in-progress fleet emergency
+        # (issue #145 review, B3 - EMERGENCY_STATES checks inside each phase)
+        # or attempt a safe recovery, never just raise and leave it
+        # uncommanded. This outer wrapper covers cancellation specifically
+        # (B4): CancelledError is a BaseException, not an Exception, so none
+        # of the `except Exception` blocks inside this method ever see it -
+        # without this, cancelling mid-sequence left the vehicle flying with
+        # no recovery attempt at all, in whatever state it was in when the
+        # task stopped.
+        try:
+            await self._run_single_drone_flight_phase(drone_id, drone, tel, target_alt_m, hover_s, steps)
+        except asyncio.CancelledError:
+            if not self._emergency_in_progress():
+                await self._safe_recover(drone_id, drone, tel, context="after the sequence was cancelled")
+            raise
+
+        return steps
+
+    def _emergency_in_progress(self) -> bool:
+        """True once the fleet FSM has already moved to an emergency state
+        (RTL/LAND/ESTOP) - issue #145 review, B3: something else is already
+        commanding this drone by then, so the single-drone sequence must stop
+        issuing its own commands rather than racing or duplicating them."""
+        return self.fleet_fsm.state in EMERGENCY_STATES
+
+    async def _run_single_drone_flight_phase(
+        self, drone_id: int, drone, tel: dict, target_alt_m: float, hover_s: float, steps: list[dict],
+    ) -> None:
+        """Climb, hold and land - split out of execute_single_drone_demo_sequence
+        so its caller can wrap just this part (everything after a confirmed
+        arm) in one CancelledError handler. See that method's docstring."""
         # 2. Enter offboard and climb to target altitude, confirmed by
         # observed altitude rather than a fixed sleep (issue #145 review,
         # item 3): a fixed delay says nothing about whether the climb
@@ -1524,6 +1560,11 @@ class DroneManager:
             hover_reached = False
             climb_deadline = time.time() + climb_time + 5.0
             while time.time() < climb_deadline:
+                if self._emergency_in_progress():
+                    raise RuntimeError(
+                        f"Drone {drone_id}: yielding to fleet emergency state "
+                        f"{self.fleet_fsm.state.value} instead of continuing the climb"
+                    )
                 if not tel.get("connected", False):
                     raise RuntimeError(f"Drone {drone_id} disconnected during climb")
                 last_hb = tel.get("last_heartbeat")
@@ -1546,7 +1587,11 @@ class DroneManager:
             })
         except Exception as e:
             steps.append({"step": "HOVER", "status": f"FAILED: {e}", "time": time.time()})
-            await self._safe_recover(drone_id, drone, tel, context="after a failed climb")
+            # issue #145 review, B3: an emergency handler (RTL/LAND/ESTOP) is
+            # already commanding this drone by now - recovering here too
+            # would race or duplicate its commands.
+            if not self._emergency_in_progress():
+                await self._safe_recover(drone_id, drone, tel, context="after a failed climb")
             raise RuntimeError(f"Hover climb failed: {e}")
 
         # 3. Hold hover - dwell for the actual requested hover_s, watching for
@@ -1565,6 +1610,11 @@ class DroneManager:
         dwell_start = time.time()
         try:
             while time.time() - dwell_start < hover_s:
+                if self._emergency_in_progress():
+                    raise RuntimeError(
+                        f"Drone {drone_id}: yielding to fleet emergency state "
+                        f"{self.fleet_fsm.state.value} instead of continuing the hover dwell"
+                    )
                 if not tel.get("connected", False):
                     raise RuntimeError(f"Drone {drone_id} disconnected during hover dwell")
                 last_hb = tel.get("last_heartbeat")
@@ -1581,7 +1631,10 @@ class DroneManager:
                 await asyncio.sleep(0.1)
         except Exception as e:
             steps.append({"step": "HOVER_HOLD", "status": f"FAILED: {e}", "time": time.time()})
-            await self._safe_recover(drone_id, drone, tel, context="after a failed hover dwell")
+            # issue #145 review, B3: same reasoning as the climb phase above -
+            # don't race or duplicate an emergency handler's own commands.
+            if not self._emergency_in_progress():
+                await self._safe_recover(drone_id, drone, tel, context="after a failed hover dwell")
             raise RuntimeError(f"Hover dwell failed: {e}")
         actual_dwell = round(time.time() - dwell_start, 2)
         steps.append({
@@ -1593,8 +1646,17 @@ class DroneManager:
 
         # 4. Landing and confirmed touchdown/disarm
         try:
+            if self._emergency_in_progress():
+                raise RuntimeError(
+                    f"Drone {drone_id}: yielding to fleet emergency state "
+                    f"{self.fleet_fsm.state.value} instead of commanding its own landing"
+                )
             err = await self._land_one(drone_id)
             if err:
+                # issue #145 review, B2: offboard.stop() has already run
+                # inside _land_one by this point, so a rejected land leaves
+                # the vehicle neither in offboard nor landing - raising here
+                # reaches the except below, which now attempts recovery.
                 raise RuntimeError(f"Autopilot rejected land command: {err}")
             steps.append({
                 "step": "LANDING_COMMANDED",
@@ -1616,8 +1678,14 @@ class DroneManager:
                     break
                 await asyncio.sleep(0.1)
 
-            if not disarm_confirmed:
-                # If still armed after landing observation window, attempt an explicit disarm command
+            # issue #145 review, B1: this fallback used to call disarm()
+            # unconditionally once the window above ran out - the same
+            # in-flight-disarm risk _safe_recover was already fixed for, left
+            # in this separate path. Only attempt it once the vehicle is
+            # actually confirmed on the ground.
+            if not disarm_confirmed and self._is_confirmed_on_ground(
+                drone_id, tel, "before the fallback disarm attempt"
+            ):
                 try:
                     await drone.action.disarm()
                 except Exception as e:
@@ -1640,9 +1708,11 @@ class DroneManager:
             steps.append({"step": "TOUCHDOWN_DISARM", "status": "DISARMED", "time": time.time()})
         except Exception as e:
             steps.append({"step": "LANDING", "status": f"FAILED: {e}", "time": time.time()})
+            # issue #145 review, B2: a rejected land (or any other failure in
+            # this block) used to just raise with no recovery attempt at all.
+            if not self._emergency_in_progress():
+                await self._safe_recover(drone_id, drone, tel, context="after a failed landing")
             raise RuntimeError(f"Landing failed: {e}")
-
-        return steps
 
     # --- Single-drone abort (issue #59) ---
 

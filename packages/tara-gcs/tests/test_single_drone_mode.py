@@ -914,3 +914,291 @@ async def test_telemetry_freshness_tracking(viewer, patched_manager):
     finally:
         await manager.shutdown()
 
+
+# --- issue #145 re-review (Vishal, head 93d9b63): B1-B4 and the missing tests ---
+
+@pytest.mark.asyncio
+async def test_single_drone_fallback_disarm_waits_for_ground_not_a_timeout(commander, patched_manager, monkeypatch):
+    """B1: the main landing path's fallback used to call disarm()
+    unconditionally once the 10s observation window ran out - the same
+    in-flight-disarm risk _safe_recover was already fixed for, left in this
+    separate path. Pins landed_state at IN_AIR for the whole window and
+    asserts disarm() is never sent."""
+    manager = patched_manager(DroneManager(ports=[14540], backend="sim"))
+    try:
+        await manager.connect_all()
+        await asyncio.sleep(0.5)
+        drone = manager.drones[0]
+
+        original_ingest = manager._ingest_bulk_telemetry
+        def never_grounded(snap, include_slow):
+            original_ingest(snap, include_slow)
+            t = manager.telemetry[0]
+            t["landed_state"] = "IN_AIR"
+            t["landed_state_at"] = time.time()
+        monkeypatch.setattr(manager, "_ingest_bulk_telemetry", never_grounded)
+
+        disarm_calls = []
+        original_disarm = drone.action.disarm
+        async def tracking_disarm():
+            disarm_calls.append(True)
+            return await original_disarm()
+        drone.action.disarm = tracking_disarm
+
+        with pytest.raises(HTTPException) as exc:
+            await gcs_main.run_single_drone_sequence(
+                gcs_main.SingleDroneSequenceRequest(target_altitude_m=0.3, hover_duration_s=1.0),
+                operator=commander,
+            )
+        assert exc.value.status_code == 500
+        assert "Touchdown disarm could not be confirmed" in exc.value.detail
+        assert disarm_calls == []
+    finally:
+        await manager.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_single_drone_land_rejected_attempts_recovery(commander, patched_manager, monkeypatch):
+    """B2: offboard.stop() has already run inside _land_one by the time
+    action.land() can be rejected (e.g. COMMAND_DENIED) - the vehicle is then
+    neither in offboard nor landing, with no recovery attempt at all. Must
+    now call _safe_recover before re-raising."""
+    manager = patched_manager(DroneManager(ports=[14540], backend="sim"))
+    try:
+        await manager.connect_all()
+        await asyncio.sleep(0.5)
+        drone = manager.drones[0]
+        tel = manager.telemetry[0]
+
+        async def rejected_land():
+            raise RuntimeError("COMMAND_DENIED")
+        drone.action.land = rejected_land
+
+        recover_calls = []
+        original_recover = manager._safe_recover
+        async def tracking_recover(drone_id, drone_, tel_, context):
+            recover_calls.append(context)
+            await original_recover(drone_id, drone_, tel_, context)
+        monkeypatch.setattr(manager, "_safe_recover", tracking_recover)
+
+        with pytest.raises(HTTPException) as exc:
+            await gcs_main.run_single_drone_sequence(
+                gcs_main.SingleDroneSequenceRequest(target_altitude_m=0.3, hover_duration_s=1.0),
+                operator=commander,
+            )
+        assert exc.value.status_code == 500
+        assert "Autopilot rejected land command" in exc.value.detail
+        assert recover_calls == ["after a failed landing"]
+        assert tel["connected"] is True  # sim still alive, just not grounded yet - sanity check
+    finally:
+        await manager.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_single_drone_hover_yields_to_fleet_emergency_state(commander, patched_manager, monkeypatch):
+    """B3: the hover previously wasn't emergency-aware at all - an operator
+    RTL/LAND/ESTOP issued mid-sequence got raced or duplicated by this
+    sequence's own land command once it reached that point. Flips the fleet
+    FSM to RTL partway through the dwell and asserts the sequence backs off
+    without ever calling _land_one or _safe_recover itself - something else
+    is already commanding this drone by then."""
+    manager = patched_manager(DroneManager(ports=[14540], backend="sim"))
+    try:
+        await manager.connect_all()
+        await asyncio.sleep(0.5)
+
+        land_calls = []
+        original_land_one = manager._land_one
+        async def tracking_land_one(drone_id):
+            land_calls.append(drone_id)
+            return await original_land_one(drone_id)
+        manager._land_one = tracking_land_one
+
+        recover_calls = []
+        original_recover = manager._safe_recover
+        async def tracking_recover(drone_id, drone_, tel_, context):
+            recover_calls.append(context)
+            await original_recover(drone_id, drone_, tel_, context)
+        monkeypatch.setattr(manager, "_safe_recover", tracking_recover)
+
+        target_alt = 0.3
+        original_ingest = manager._ingest_bulk_telemetry
+        state = {"first_reached_at": None}
+        def declare_emergency_after_climb(snap, include_slow):
+            original_ingest(snap, include_slow)
+            tel = manager.telemetry[0]
+            if abs(tel.get("local_z", 0.0) - target_alt) <= 0.2:
+                if state["first_reached_at"] is None:
+                    state["first_reached_at"] = time.monotonic()
+                elif time.monotonic() - state["first_reached_at"] > 0.3:
+                    manager.fleet_fsm._state = LifecycleState.RTL
+        monkeypatch.setattr(manager, "_ingest_bulk_telemetry", declare_emergency_after_climb)
+
+        with pytest.raises(HTTPException) as exc:
+            await gcs_main.run_single_drone_sequence(
+                gcs_main.SingleDroneSequenceRequest(target_altitude_m=target_alt, hover_duration_s=3.0),
+                operator=commander,
+            )
+        assert exc.value.status_code == 500
+        assert "yielding to fleet emergency state" in exc.value.detail
+        assert land_calls == []  # never commanded its own landing
+        assert recover_calls == []  # never raced the emergency handler's own recovery
+    finally:
+        manager.fleet_fsm._state = LifecycleState.STAGED
+        await manager.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_single_drone_sequence_cancellation_attempts_recovery(commander, patched_manager, monkeypatch):
+    """B4: CancelledError is a BaseException, not an Exception, so cancelling
+    the sequence used to skip every recovery attempt entirely and leave the
+    vehicle flying. Cancels mid-dwell and asserts _safe_recover ran before
+    the cancellation propagated."""
+    manager = patched_manager(DroneManager(ports=[14540], backend="sim"))
+    try:
+        await manager.connect_all()
+        await asyncio.sleep(0.5)
+
+        recover_calls = []
+        original_recover = manager._safe_recover
+        async def tracking_recover(drone_id, drone_, tel_, context):
+            recover_calls.append(context)
+            await original_recover(drone_id, drone_, tel_, context)
+        monkeypatch.setattr(manager, "_safe_recover", tracking_recover)
+
+        target_alt = 0.3
+        original_ingest = manager._ingest_bulk_telemetry
+        state = {"first_reached_at": None}
+        def cancel_after_climb(snap, include_slow):
+            original_ingest(snap, include_slow)
+            tel = manager.telemetry[0]
+            if abs(tel.get("local_z", 0.0) - target_alt) <= 0.2 and state["first_reached_at"] is None:
+                state["first_reached_at"] = time.monotonic()
+        monkeypatch.setattr(manager, "_ingest_bulk_telemetry", cancel_after_climb)
+
+        task = asyncio.create_task(gcs_main.run_single_drone_sequence(
+            gcs_main.SingleDroneSequenceRequest(target_altitude_m=target_alt, hover_duration_s=5.0),
+            operator=commander,
+        ))
+        # Give it time to arm, climb and reach the dwell, then cancel mid-hold.
+        while state["first_reached_at"] is None:
+            await asyncio.sleep(0.05)
+        await asyncio.sleep(0.2)
+        task.cancel()
+
+        with pytest.raises(asyncio.CancelledError):
+            await task
+
+        assert recover_calls == ["after the sequence was cancelled"]
+        assert 0 not in manager.single_drone_sequence_active  # guard released, as before
+    finally:
+        await manager.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_single_drone_unconfirmed_arm_attempts_recovery(commander, patched_manager, monkeypatch):
+    """Missing-test item from the re-review: arm() can succeed without the
+    vehicle ever being observed armed in telemetry (ack lost, etc.) - the
+    sequence must still attempt a safe recovery rather than assuming nothing
+    happened."""
+    manager = patched_manager(DroneManager(ports=[14540], backend="sim"))
+    try:
+        await manager.connect_all()
+        await asyncio.sleep(0.5)
+
+        original_ingest = manager._ingest_bulk_telemetry
+        def never_armed(snap, include_slow):
+            original_ingest(snap, include_slow)
+            manager.telemetry[0]["armed"] = False
+        monkeypatch.setattr(manager, "_ingest_bulk_telemetry", never_armed)
+
+        recover_calls = []
+        original_recover = manager._safe_recover
+        async def tracking_recover(drone_id, drone_, tel_, context):
+            recover_calls.append(context)
+            await original_recover(drone_id, drone_, tel_, context)
+        monkeypatch.setattr(manager, "_safe_recover", tracking_recover)
+
+        with pytest.raises(HTTPException) as exc:
+            await gcs_main.run_single_drone_sequence(
+                gcs_main.SingleDroneSequenceRequest(target_altitude_m=0.3, hover_duration_s=1.0),
+                operator=commander,
+            )
+        assert exc.value.status_code == 500
+        assert "could not be confirmed" in exc.value.detail
+        assert recover_calls == ["after an unconfirmed arm"]
+    finally:
+        await manager.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_single_drone_arm_raising_attempts_recovery(commander, patched_manager, monkeypatch):
+    """Missing-test item: arm() itself can raise without ruling out a
+    partial arm (the command accepted but the ack lost). The sequence must
+    still attempt a safe recovery rather than assuming it never armed."""
+    manager = patched_manager(DroneManager(ports=[14540], backend="sim"))
+    try:
+        await manager.connect_all()
+        await asyncio.sleep(0.5)
+        drone = manager.drones[0]
+
+        async def rejected_arm():
+            raise RuntimeError("ARM_DENIED")
+        drone.action.arm = rejected_arm
+
+        recover_calls = []
+        original_recover = manager._safe_recover
+        async def tracking_recover(drone_id, drone_, tel_, context):
+            recover_calls.append(context)
+            await original_recover(drone_id, drone_, tel_, context)
+        monkeypatch.setattr(manager, "_safe_recover", tracking_recover)
+
+        with pytest.raises(HTTPException) as exc:
+            await gcs_main.run_single_drone_sequence(
+                gcs_main.SingleDroneSequenceRequest(target_altitude_m=0.3, hover_duration_s=1.0),
+                operator=commander,
+            )
+        assert exc.value.status_code == 500
+        assert "Arming failed" in exc.value.detail
+        assert recover_calls == ["after arm() raised"]
+    finally:
+        await manager.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_single_drone_real_concurrent_invocation_is_refused(commander, patched_manager):
+    """Missing-test item: the existing concurrency-guard test pre-populates
+    single_drone_sequence_active by hand, which only proves the check exists,
+    not that two real overlapping requests actually race correctly. Starts a
+    genuine first request, lets it progress into its dwell, then fires a
+    second real request concurrently and asserts it is refused while the
+    first completes normally."""
+    manager = patched_manager(DroneManager(ports=[14540], backend="sim"))
+    try:
+        await manager.connect_all()
+        await asyncio.sleep(0.5)
+
+        first = asyncio.create_task(gcs_main.run_single_drone_sequence(
+            gcs_main.SingleDroneSequenceRequest(target_altitude_m=0.3, hover_duration_s=1.0),
+            operator=commander,
+        ))
+        # Let the first request actually add itself to the active set before
+        # firing the second - the race this test exists to prove is real
+        # concurrent overlap, not just "the set happens to be pre-populated".
+        while 0 not in manager.single_drone_sequence_active:
+            await asyncio.sleep(0.02)
+
+        with pytest.raises(HTTPException) as exc:
+            await gcs_main.run_single_drone_sequence(
+                gcs_main.SingleDroneSequenceRequest(target_altitude_m=0.3, hover_duration_s=1.0),
+                operator=commander,
+            )
+        assert exc.value.status_code == 409
+        assert "already running" in exc.value.detail
+
+        result = await first
+        assert result["status"] == "COMPLETED"
+        assert 0 not in manager.single_drone_sequence_active
+    finally:
+        await manager.shutdown()
+
