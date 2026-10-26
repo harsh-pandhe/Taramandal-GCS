@@ -309,6 +309,21 @@ export const SHAPE_LIBRARY = [
   })),
 ];
 
+// The raw, spacing-floor-enforced point cloud for one formation, before it
+// is centred over the pad grid or clamped to the site radius. Factored out
+// of buildFormation so buildSplitFormation (below) can combine several of
+// these before running placement/clamping across the whole combined set.
+const rawFormation = (shapeType, shapePayload, n, scale) => {
+  const s = Number.isFinite(scale) && scale > 0 ? scale : 1.0;
+  const gen = PARAMETRIC[shapePayload] || fmtCircle;
+  let raw;
+  if (shapeType === 'text') raw = fmtText(n, s, shapePayload);
+  else if (gen === fmtSphere) raw = gen(n, s);
+  else raw = stackIfOversized(gen, n, s);
+  if (n > 1 && !(minPairDist(raw) > 1e-6)) raw = fmtCircle(n, s);
+  return raw;
+};
+
 /**
  * Builds a formation's point cloud.
  *
@@ -320,13 +335,7 @@ export const SHAPE_LIBRARY = [
  */
 export const buildFormation = (shapeType, shapePayload, n, scale = 1.0) => {
   if (n < 1) return [];
-  const s = Number.isFinite(scale) && scale > 0 ? scale : 1.0;
-  const gen = PARAMETRIC[shapePayload] || fmtCircle;
-  let raw;
-  if (shapeType === 'text') raw = fmtText(n, s, shapePayload);
-  else if (gen === fmtSphere) raw = gen(n, s);
-  else raw = stackIfOversized(gen, n, s);
-  if (n > 1 && !(minPairDist(raw) > 1e-6)) raw = fmtCircle(n, s);
+  const raw = rawFormation(shapeType, shapePayload, n, scale);
   const placed = place(raw, n);
 
   // Enforce SITE_RADIUS_M: if pad-grid offset or large span pushes any point
@@ -379,5 +388,183 @@ export const buildFormation = (shapeType, shapePayload, n, scale = 1.0) => {
       `Formation "${shapePayload}" (n=${n}, scale=${scale}) violates minimum spacing: ${finalMin.toFixed(2)}m < ${MIN_SEPARATION_M}m`
     );
   }
+  return current;
+};
+
+// --------------------------------------------------------------- split fleet
+
+/**
+ * Builds a combined point cloud for a figure plus one or more support
+ * groups around it (500-drone plan, milestone M3).
+ *
+ * `parts[0]` is the figure; every `parts[1:]` is a support group. A support
+ * group is translated outward from the figure (and from every earlier
+ * support group) by whatever distance guarantees MIN_SEPARATION_M between
+ * every pair of points from *different* groups — on top of each group's own
+ * internal spacing, which buildFormation's generators already guarantee on
+ * their own. The proof is a reverse-triangle-inequality argument: pushing a
+ * group's centre to `envelopeReach + ownReach + MIN_SEPARATION_M` from the
+ * shared origin means the closest its points can ever get to the origin is
+ * `envelopeReach + MIN_SEPARATION_M`, while nothing placed so far is farther
+ * than `envelopeReach` from it — so no pair of points from the two sets can
+ * end up closer than MIN_SEPARATION_M, regardless of their exact positions.
+ *
+ * With more than one support group, each is spread at its own evenly-stepped
+ * angle around the figure rather than stacked in one direction, so the
+ * arrangement reads as "surrounded" once there are enough of them — this is
+ * a first-pass geometry, not a literal ring wrap for every support shape. A
+ * support group whose own shape is already a parametric ring (`circle`)
+ * large enough to clear everything placed so far on its own radius is left
+ * concentric instead of translated, so it wraps fully around in one piece;
+ * a ring too small for that falls back to the generic translated placement
+ * like any other shape, which is a visually different but still safe
+ * outcome, not a crash.
+ *
+ * Every refusal below is a plain Error, not ShowRefusalError (#141) -
+ * explicit dependency, not an oversight (review on #166): #141 isn't on
+ * main yet, so showErrors.js isn't available to this branch. Once it
+ * lands, every throw here should switch to ShowRefusalError, the same way
+ * formations.js's and sequencer.js's own refusals will, so a refused split
+ * reaching a render-phase useMemo/preview doesn't crash the page the way
+ * #141/#153 originally found for other refusals.
+ *
+ * @param {{shapeType: string, shapePayload: string, scale?: number, count: number}[]} parts
+ * @returns {{x:number,y:number,z:number}[]} the parts' combined point count, figure first then each support group in order
+ */
+// Release review on #141 found the same defect in its own direct-vs-layered
+// trigger: a search that stops exactly at MIN_SEPARATION_M builds a pair at
+// ~2.000m by construction, and export rounds every waypoint to the
+// centimetre (round2 in sequencer.js, then again by export_tara's own
+// int16-centimetre packing) - enough to erode a hairline margin below the
+// limit (2*sqrt(3)*0.005 = 0.0173m bound; #141 uses 0.05m for its own
+// margin, LAYER_CLEARANCE). Same fix here: search for this much clearance
+// above the limit, not the limit itself.
+const EXPORT_ROUNDING_MARGIN_M = 0.05;
+
+export const buildSplitFormation = (parts) => {
+  if (!Array.isArray(parts) || parts.length < 2) {
+    throw new Error('buildSplitFormation needs a figure and at least one support group');
+  }
+  for (const p of parts) {
+    if (!Number.isInteger(p.count) || p.count < 1) {
+      throw new Error(`Every split-formation part needs an integer count >= 1 (got ${p.count})`);
+    }
+  }
+  const totalN = parts.reduce((sum, p) => sum + p.count, 0);
+
+  const [figure, ...supports] = parts;
+  const figureRaw = rawFormation(figure.shapeType, figure.shapePayload, figure.count, figure.scale ?? 1.0);
+  // Defensive (release review on #141/#166): if a generator ever returned
+  // the wrong count, the rest of this function would silently misalign
+  // every group's slice boundaries rather than fail closed.
+  if (figureRaw.length !== figure.count) {
+    throw new Error(`Figure "${figure.shapePayload}" returned ${figureRaw.length} points, not the requested ${figure.count}`);
+  }
+  const figureCentre = bboxCentre(figureRaw);
+  const centredFigure = figureRaw.map((p) => ({ x: p.x - figureCentre.x, y: p.y - figureCentre.y, z: p.z }));
+
+  const groups = [centredFigure];
+  let envelopeReach = horizontalReach(centredFigure);
+
+  supports.forEach((support, idx) => {
+    const raw = rawFormation(support.shapeType, support.shapePayload, support.count, support.scale ?? 1.0);
+    if (raw.length !== support.count) {
+      throw new Error(`Support "${support.shapePayload}" returned ${raw.length} points, not the requested ${support.count}`);
+    }
+    const centre = bboxCentre(raw);
+    const centred = raw.map((p) => ({ x: p.x - centre.x, y: p.y - centre.y, z: p.z }));
+    const ownReach = horizontalReach(centred);
+
+    const ringClearance = Math.min(...centred.map((p) => Math.hypot(p.x, p.y))) - envelopeReach;
+    let placedSupport;
+    if (support.shapeType === 'parametric' && support.shapePayload === 'circle'
+      && ringClearance >= MIN_SEPARATION_M + EXPORT_ROUNDING_MARGIN_M) {
+      placedSupport = centred;
+    } else {
+      // envelopeReach + ownReach + MIN_SEPARATION_M (the docstring's
+      // bounding-circle proof) is always safe, but for anything other than
+      // two circles it is also far more than necessary - a grid or heart's
+      // actual nearest point to the rest of the fleet is usually well
+      // inside its bounding circle. Binary-search down from that provably
+      // safe radius to the smallest one whose *real* point-to-point minimum
+      // (checked against the real groups already placed, not their
+      // bounding circles) still clears MIN_SEPARATION_M, so realistic fleet
+      // sizes don't get pushed outside the site radius for no reason.
+      const angle = (2 * Math.PI * idx) / supports.length;
+      const cos = Math.cos(angle), sin = Math.sin(angle);
+      const placedSoFar = groups.flat();
+      const minDistAtRadius = (r) => {
+        const dx = r * cos, dy = r * sin;
+        let m = Infinity;
+        for (const p of centred) {
+          const px = p.x + dx, py = p.y + dy;
+          for (const q of placedSoFar) {
+            const d = Math.hypot(px - q.x, py - q.y, p.z - q.z);
+            if (d < m) m = d;
+          }
+        }
+        return m;
+      };
+      let lo = 0, hi = envelopeReach + ownReach + MIN_SEPARATION_M + EXPORT_ROUNDING_MARGIN_M;
+      for (let iter = 0; iter < 40 && hi - lo > 1e-3; iter++) {
+        const mid = (lo + hi) / 2;
+        if (minDistAtRadius(mid) >= MIN_SEPARATION_M + EXPORT_ROUNDING_MARGIN_M) hi = mid;
+        else lo = mid;
+      }
+      const dx = hi * cos, dy = hi * sin;
+      placedSupport = centred.map((p) => ({ x: p.x + dx, y: p.y + dy, z: p.z }));
+    }
+    groups.push(placedSupport);
+    envelopeReach = Math.max(envelopeReach, ...placedSupport.map((p) => Math.hypot(p.x, p.y)));
+  });
+
+  const combined = groups.flat();
+
+  // Centred on its own combined footprint, not buildFormation's usual
+  // fleetCenter(n) pad-grid convention: a split arrangement's natural
+  // footprint (figure plus however many support groups, spread however
+  // many directions) has no reason to line up with the single-shape
+  // per-count heuristic the way one ordinary formation does. Bbox-centring
+  // on (0,0) also keeps this step from reintroducing the exact problem the
+  // placement loop above just solved - shifting toward an arbitrary
+  // off-centre pad-grid target can push an already-tight, already-safe
+  // arrangement's farthest point back outside the site radius.
+  const centre = bboxCentre(combined);
+  const lowest = Math.min(...combined.map((p) => -p.z));
+  const dz = lowest < MIN_FORMATION_ALT ? MIN_FORMATION_ALT - lowest : 0;
+  const current = combined.map((p) => ({
+    x: p.x - centre.x,
+    y: p.y - centre.y,
+    z: p.z - dz,
+  }));
+
+  // Site radius: refuse rather than silently shrinking (and so undoing) a
+  // carefully built clearance. No shift-toward-origin step here, unlike
+  // buildFormation's own: `current` is already bbox-centred a few lines up,
+  // so a per-axis shift could never actually move anything (review on
+  // #166: for any span within the site diameter, bbox-centring alone
+  // already puts maxX/minX at exactly +-span/2, which is already within
+  // the radius whenever the span is).
+  const maxReach = current.reduce((m, p) => Math.max(m, Math.hypot(p.x, p.y)), 0);
+  if (maxReach > SITE_RADIUS_M + 1e-6) {
+    throw new Error(
+      `Split formation (figure + ${supports.length} support group(s), ${totalN} drones) cannot fit within the site radius (${SITE_RADIUS_M}m) even centred; refused rather than scaled down, which would undo the clearance already built between groups.`
+    );
+  }
+
+  const maxAlt = Math.max(...current.map((p) => -p.z));
+  if (maxAlt > _MAX_ALTITUDE_M + 1e-6) {
+    throw new Error(
+      `Split formation (${totalN} drones) exceeds the maximum altitude ceiling: ${maxAlt.toFixed(1)}m > ${_MAX_ALTITUDE_M}m`
+    );
+  }
+
+  const finalMin = minPairDist(current);
+  if (finalMin < MIN_SEPARATION_M - 1e-6) {
+    throw new Error(
+      `Split formation (${totalN} drones) violates minimum spacing: ${finalMin.toFixed(2)}m < ${MIN_SEPARATION_M}m`
+    );
+  }
+
   return current;
 };
