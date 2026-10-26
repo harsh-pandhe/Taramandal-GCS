@@ -499,6 +499,58 @@ describe('svgImporter: hidden and non-rendered geometry (issue #122/#146 review)
   });
 });
 
+describe('svgImporter: self-closing detection regression (2026-10-26 release review)', () => {
+  // A greedy [^>]* always captures a trailing self-closing '/' as part of
+  // attrsStr - the match already succeeds with a trailing (\/?) group
+  // empty, and a regex only backtracks when the match would otherwise fail.
+  // Reading isSelfClosing off that group was always false, so a self-closing
+  // hidden element or <defs/> suppressed everything after it forever
+  // (nothing ever decremented suppressDepth), and a self-closing <g
+  // transform> stayed pushed on the matrix stack and leaked onto every
+  // sibling. These three cases, plus a non-self-closing control, are the
+  // ones the earlier hidden-geometry tests happened not to exercise: every
+  // decoy there was the LAST element in its SVG, so nothing downstream could
+  // reveal that everything after it had gone missing.
+  const square = (x0) => `M ${x0} 10 L ${x0 + 20} 10 L ${x0 + 20} 30 L ${x0} 30 Z`;
+
+  it('a self-closing hidden element does not swallow every sibling after it', () => {
+    const svg = `<svg viewBox="0 0 100 100">
+      <path d="${square(10)}" />
+      <path d="${square(40)}" display="none" />
+      <path d="${square(70)}" />
+    </svg>`;
+    const contours = parseSvgToContours(svg);
+    expect(contours).toHaveLength(2);
+  });
+
+  it('a non-self-closing hidden element (explicit close tag) is still just itself skipped - control', () => {
+    const svg = `<svg viewBox="0 0 100 100">
+      <path d="${square(10)}" />
+      <g display="none"><path d="${square(40)}" /></g>
+      <path d="${square(70)}" />
+    </svg>`;
+    const contours = parseSvgToContours(svg);
+    expect(contours).toHaveLength(2);
+  });
+
+  it('a self-closing, empty <g transform> does not leak its transform onto later siblings', () => {
+    const svg = `<svg viewBox="0 0 100 100">
+      <g transform="translate(30,0)" />
+      <path d="M 10 10 L 40 10" />
+    </svg>`;
+    const contours = parseSvgToContours(svg);
+    expect(contours[0][0].x).toBe(10);
+    expect(contours[0][1].x).toBe(40);
+  });
+
+  it('a self-closing <defs/> does not suppress every element after it', () => {
+    const svg = '<svg viewBox="0 0 100 100"><defs/><path d="M 10 10 L 40 10" /></svg>';
+    const contours = parseSvgToContours(svg);
+    expect(contours).toHaveLength(1);
+    expect(contours[0][0].x).toBe(10);
+  });
+});
+
 describe('svgImporter: nested <svg> rejection (issue #122/#146 review)', () => {
   it('rejects a nested <svg transform="...">, rather than letting it mutate the base transform', () => {
     const svg = `<svg viewBox="0 0 200 200">

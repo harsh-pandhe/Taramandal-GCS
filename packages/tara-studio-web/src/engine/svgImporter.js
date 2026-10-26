@@ -436,13 +436,17 @@ export function parseSvgToContours(svgText) {
   };
 
   // Tag regex to iterate hierarchically over elements and maintain transform stack.
-  // A single greedy [^>]* (no nested optional \s+ prefix) backtracks by at most
-  // one character for the trailing self-closing '/' - the previous
-  // ((?:\s+[^>]*?)?) shape backtracked the lazy [^>]*? against every length the
-  // greedy \s+ gave up, which is quadratic on a long unterminated tag (issue
-  // #122/#146 review: 50k spaces took 0.57s, 200k took 7.9s on the main thread).
+  // A single greedy [^>]* captures everything up to '>', including any
+  // trailing self-closing '/' - the previous ((?:\s+[^>]*?)?) shape instead
+  // backtracked the lazy [^>]*? against every length the greedy \s+ gave up,
+  // which is quadratic on a long unterminated tag (issue #122/#146 review:
+  // 50k spaces took 0.57s, 200k took 7.9s on the main thread). Self-closing
+  // is read back out of the captured attrsStr below, not out of a trailing
+  // (\/?) capture group: that group could only ever be empty here, since the
+  // match already succeeds with it empty and a regex only backtracks when
+  // the match would otherwise fail.
   const textWithoutComments = clean.replace(/<!--[\s\S]*?-->/g, '');
-  const tagRegex = /<(\/)?([a-zA-Z0-9:-]+)([^>]*)(\/?)>/g;
+  const tagRegex = /<(\/)?([a-zA-Z0-9:-]+)([^>]*)>/g;
   const transformStack = [[...IDENTITY_MATRIX]];
   const currentMatrix = () => transformStack[transformStack.length - 1];
 
@@ -471,8 +475,18 @@ export function parseSvgToContours(svgText) {
   while ((match = tagRegex.exec(textWithoutComments)) !== null) {
     const isClosing = match[1] === '/';
     const tagName = match[2].toLowerCase();
-    const attrsStr = match[3] || '';
-    const isSelfClosing = match[4] === '/';
+    // A greedy [^>]* always consumes a trailing '/' as part of attrsStr
+    // (the match already succeeds with group 4 empty, so the engine never
+    // backtracks to free it up) - self-closing has to be read back out of
+    // the captured text itself, not out of a capture group that can never
+    // be non-empty (2026-10-26 release review: this regression made every
+    // self-closing tag act as if it had a real, never-encountered closing
+    // tag - a self-closing hidden element suppressed everything after it
+    // forever, and a self-closing <g transform> leaked onto every sibling).
+    let attrsStr = match[3] || '';
+    const trimmed = attrsStr.trimEnd();
+    const isSelfClosing = trimmed.endsWith('/');
+    if (isSelfClosing) attrsStr = trimmed.slice(0, -1);
 
     if (suppressDepth > 0) {
       if (isClosing) suppressDepth--;
@@ -507,6 +521,14 @@ export function parseSvgToContours(svgText) {
     const attrs = parseAttributes(attrsStr);
 
     if (tagName === 'defs' || isHiddenAttrs(attrs)) {
+      // Known under-import, documented rather than fixed (2026-10-26 release
+      // review): real SVG lets a descendant set visibility="visible" to
+      // render again inside a visibility:hidden ancestor (display:none and
+      // opacity:0 have no such override). Skipping the whole subtree misses
+      // that one case. Narrower than the "imports geometry that never
+      // renders" defect class this importer exists to close, and visibility
+      // isn't used by either bundled asset; not worth a per-descendant
+      // visibility re-check for a documented-content SVG subset this small.
       if (!isSelfClosing) suppressDepth = 1;
       continue;
     }
