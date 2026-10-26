@@ -169,6 +169,22 @@ export default function App() {
     }
   }, [choreoData, lightingOpts, homeLat, homeLon, builder, ledTrack, rate, validation]);
 
+  // Issue #161: bypasses jerk certification only - no client-side gate on
+  // validation status here, unlike handleExport. The backend still enforces
+  // every hard limit and never signs a preview_only export regardless of a
+  // configured key; TransmitPanel only shows this action when the normal
+  // export is refused for jerk specifically, and reports whatever the
+  // backend decides (including a refusal for an unrelated reason).
+  const handleExportPreview = useCallback(async (format) => {
+    if (!choreoData) return;
+    downloadExport(await exportShow({
+      choreo: buildColoredChoreo(choreoData, lightingOpts), format, homeLat, homeLon,
+      ledTrack: ledTrack.length ? serializeTrack(ledTrack) : null,
+      rateHz: rate,
+      previewOnly: true,
+    }));
+  }, [choreoData, lightingOpts, homeLat, homeLon, ledTrack, rate]);
+
   const handleSendToGCS = useCallback(async () => {
     if (!choreoData) return;
     if (validation?.status !== 'PASSED') {
@@ -232,7 +248,9 @@ export default function App() {
               lightingOpts={lightingOpts}
               validation={validation}
               venue={{ homeLat, homeLon, onHomeLat: setHomeLat, onHomeLon: setHomeLon }}
-              transmit={{ onExport: handleExport, onSendToGCS: handleSendToGCS, sending }}
+              transmit={{
+                onExport: handleExport, onExportPreview: handleExportPreview, onSendToGCS: handleSendToGCS, sending,
+              }}
               audio={{
                 track: audio, zoom, onZoom: setZoom,
                 ledTrack, onLedTrack: setLedTrack,

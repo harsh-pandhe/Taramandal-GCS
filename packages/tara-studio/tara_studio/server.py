@@ -24,7 +24,6 @@ from tara_studio.validator import (
     DEFAULT_DYNAMIC_LIMITS,
     DynamicLimits,
     certify_feasibility_report,
-    validate_choreography,
     validate_dynamics,
 )
 from tara_studio.energy import (
@@ -163,16 +162,24 @@ class ExportRequest(BaseModel):
     )
 
 def _with_limits(report: dict) -> dict:
-    """Attach the SafetyLimits the report was judged against (issue #97).
+    """Attach the SafetyLimits (and, issue #151/#165, the jerk bound) the
+    report was judged against (issue #97).
 
     The Studio UI colours each metric pass/fail. It used to do that against its
     own hardcoded thresholds, which drifted from tara_core (0.8m separation
     against a 1.5m runtime abort). Sending the live limits with every report
-    means the UI has no copy of its own to drift. validate_choreography() with
-    no overrides validates against exactly DEFAULT_LIMITS, so that is what goes
-    out.
+    means the UI has no copy of its own to drift. Every caller of this
+    function validates against exactly DEFAULT_LIMITS and DEFAULT_DYNAMIC_LIMITS
+    (no per-request overrides exist), so those are what goes out.
+
+    max_jerk_ms3 lives in a separate dataclass (DynamicLimits) from the rest
+    of SafetyLimits, because the jerk bound is the #60 choreography-quality
+    contract, not a shared-airframe safety limit - but the UI needs both in
+    the one `limits` object it already reads every other threshold from, so
+    SafetyPanel's jerk card never has to fall back to a hard-coded limit of
+    its own (the `?? 20` this review flagged, now removed).
     """
-    return {**report, "limits": asdict(DEFAULT_LIMITS)}
+    return {**report, "limits": {**asdict(DEFAULT_LIMITS), "max_jerk_ms3": DEFAULT_DYNAMIC_LIMITS.max_jerk_ms3}}
 
 
 @app.get("/api/signing")
@@ -249,7 +256,17 @@ def api_generate(req: GenerateRequest):
 
 @app.post("/api/validate")
 def api_validate(choreo: dict):
-    return _with_limits(validate_choreography(choreo))
+    # Decision on #151/#165 (2026-10-26): returns the same canonical
+    # certification report /api/generate and /api/export already use
+    # (certify_feasibility_report), not the narrower validate_choreography.
+    # The response now carries violations.jerk, metrics.max_jerk_m_s3 and
+    # feasibility_certified, and status is FAILED when jerk alone fails -
+    # surfacing that earlier (at validate time) rather than letting a show
+    # pass validate and only then be refused at export. Studio-built
+    # default shows at 4 Hz fail the jerk bound (#160); this makes that
+    # visible on the Safety tab instead of a surprise at export.
+    _is_certified, validation = certify_feasibility_report(choreo)
+    return _with_limits(validation)
 
 
 class VoxelizeRequest(BaseModel):

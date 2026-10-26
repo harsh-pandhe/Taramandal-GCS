@@ -24,6 +24,9 @@ from pathlib import Path
 
 from tara_core import DEFAULT_LIMITS
 from tara_studio import server
+from tara_studio.validator import DEFAULT_DYNAMIC_LIMITS
+
+LIVE_LIMITS = {**asdict(DEFAULT_LIMITS), "max_jerk_ms3": DEFAULT_DYNAMIC_LIMITS.max_jerk_ms3}
 
 FIXTURE = (
     Path(__file__).resolve().parents[2]
@@ -49,12 +52,12 @@ FIXTURE_SHOW = _pair_show(1.8, duration_s=0.2)
 
 def test_validate_sends_the_live_default_limits():
     report = server.api_validate(FIXTURE_SHOW)
-    assert report["limits"] == asdict(DEFAULT_LIMITS)
+    assert report["limits"] == LIVE_LIMITS
 
 
 def test_generate_sends_the_live_default_limits():
     res = server.api_generate(server.GenerateRequest(shape="circle", num_drones=3, duration=30.0, rate=2.0))
-    assert res["validation"]["limits"] == asdict(DEFAULT_LIMITS)
+    assert res["validation"]["limits"] == LIVE_LIMITS
 
 
 def test_the_design_separation_is_the_line_the_validator_actually_fails_on():

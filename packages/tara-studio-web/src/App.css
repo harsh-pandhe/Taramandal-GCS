@@ -823,6 +823,26 @@ input[type="number"] { font-family: var(--mono); font-variant-numeric: tabular-n
 .btn-danger-outline:disabled { opacity: 0.35; cursor: not-allowed; }
 .btn-gcs { background: linear-gradient(135deg, #06b6d4, #0891b2); border-color: #0891b2; }
 
+/* Unsigned preview export, offered only when jerk is the sole reason the
+   normal export is refused (#161). Warning-toned throughout so it never
+   reads as a certified/safe action the way the regular export buttons do. */
+.preview-export-section {
+  border: 1px solid var(--warning); border-radius: var(--r-sm);
+  padding: 0.6rem 0.7rem; margin-bottom: 0.9rem; background: var(--warning-tint);
+}
+.preview-export-notice {
+  display: flex; gap: 0.45rem; align-items: flex-start; font-size: 0.72rem;
+  line-height: 1.5; color: var(--warning); margin-bottom: 0.6rem;
+}
+.preview-export-notice svg { flex: none; margin-top: 2px; }
+.btn-preview { border-color: var(--warning); color: var(--warning); }
+.preview-export-status {
+  margin-top: 0.5rem; font-size: 0.72rem; border-radius: var(--r-sm);
+  padding: 0.4rem 0.55rem; border: 1px solid var(--border);
+}
+.preview-export-status.success { color: var(--success); border-color: var(--success); background: var(--success-tint); }
+.preview-export-status.error { color: var(--danger); border-color: var(--danger); background: var(--danger-tint); }
+
 /* Signed exports and GCS sign-in in the Transmit tab (#49, #64). */
 .signing-status {
   display: flex; gap: 0.45rem; align-items: flex-start; font-size: 0.7rem; line-height: 1.5;

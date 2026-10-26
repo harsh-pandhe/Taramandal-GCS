@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { renderToStaticMarkup } from 'react-dom/server';
 import TransmitPanel from './TransmitPanel.jsx';
+import { previewExportSuccessMessage } from '../../engine/api.js';
 
 const noop = () => {};
 
@@ -11,6 +12,7 @@ const render = (props = {}) => renderToStaticMarkup(
     onHomeLat={noop}
     onHomeLon={noop}
     onExport={noop}
+    onExportPreview={noop}
     onSendToGCS={noop}
     sending={false}
     hasShow={true}
@@ -146,5 +148,95 @@ describe('TransmitPanel Hard Safety Gate (Issue #139)', () => {
     expect(html).not.toContain('safety-gate-badge');
     const exportSection = html.slice(html.indexOf('Export &amp; Transmit'));
     expect(count(exportSection, /<button[^>]*disabled/g)).toBeGreaterThanOrEqual(5);
+  });
+});
+
+describe('Unsigned preview export (issue #161)', () => {
+  it('offers a preview export when jerk is the sole reason export is refused', () => {
+    const html = render({
+      hasShow: true,
+      validation: {
+        status: 'PASSED',
+        feasibility_certified: false,
+        violations: {
+          proximity: [], velocity: [], acceleration: [], yaw_rate: [],
+          jerk: [{ time: 1.5, drone: 0, jerk: 35.0, limit: 20.0 }],
+        },
+      },
+    });
+    expect(html).toContain('preview-export-notice');
+    expect(html).toContain('Preview JSON');
+    expect(html).toContain('Preview CSV');
+    expect(html).toContain('Preview .tara');
+    // The preview buttons are never disabled by the safety gate - that's the
+    // entire point of offering them when the gate is locked.
+    const previewSection = html.slice(html.indexOf('preview-export-notice'), html.indexOf('Export &amp; Transmit'));
+    expect(previewSection).not.toMatch(/<button[^>]*disabled/);
+  });
+
+  it('does not offer a preview export when a hard safety limit also fails', () => {
+    const html = render({
+      hasShow: true,
+      validation: {
+        status: 'FAILED',
+        violations: {
+          proximity: [{ time: 1.0, drones: [0, 1], distance: 1.5 }],
+          velocity: [], acceleration: [], yaw_rate: [],
+          jerk: [{ time: 1.5, drone: 0, jerk: 35.0, limit: 20.0 }],
+        },
+      },
+    });
+    // preview_only still enforces proximity server-side, so offering it here
+    // would just trade one refusal for another - not useful.
+    expect(html).not.toContain('preview-export-notice');
+  });
+
+  it('does not offer a preview export when the show is certified', () => {
+    const html = render({
+      hasShow: true,
+      validation: { status: 'PASSED', violations: { proximity: [], velocity: [], acceleration: [], yaw_rate: [] } },
+    });
+    expect(html).not.toContain('preview-export-notice');
+  });
+
+  it('does not offer a preview export when there is no jerk evidence at all', () => {
+    const html = render({
+      hasShow: true,
+      validation: {
+        status: 'PASSED',
+        feasibility_certified: false,
+        violations: { proximity: [], velocity: [], acceleration: [], yaw_rate: [] },
+      },
+    });
+    expect(html).not.toContain('preview-export-notice');
+  });
+
+  it('does not offer a preview export when there is no built show', () => {
+    const html = render({ hasShow: false, validation: null });
+    expect(html).not.toContain('preview-export-notice');
+  });
+
+  it('still offers a preview export when the only extra violations are altitude or ground', () => {
+    const html = render({
+      hasShow: true,
+      validation: {
+        status: 'FAILED',
+        feasibility_certified: false,
+        violations: {
+          proximity: [], velocity: [], acceleration: [], yaw_rate: [],
+          jerk: [{ time: 1.5, drone: 0, jerk: 35.0, limit: 20.0 }],
+          altitude: [{ time: 2.0, drone: 0, altitude: 150.0, limit: 120.0 }],
+        },
+      },
+    });
+    // An altitude (or ground) breach is a hard limit preview_only still
+    // enforces server-side, so it must count the same as proximity/velocity
+    // in deciding whether jerk is really the *sole* reason export is refused.
+    expect(html).not.toContain('preview-export-notice');
+  });
+
+  it('formats the preview-export success message per format (issue #161 review)', () => {
+    expect(previewExportSuccessMessage('json')).toBe('Preview exported (json) — unsigned, not flight-certified.');
+    expect(previewExportSuccessMessage('tara')).toBe('Preview exported (tara) — unsigned, not flight-certified.');
   });
 });

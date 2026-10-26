@@ -455,6 +455,27 @@ class TestConfirmations:
         log.record("x", a=1)
         assert log.recent[-1]["event"] == "x" and log.recent[-1]["a"] == 1
 
+    def test_audit_context_is_stamped_on_every_entry_and_read_at_record_time(self):
+        state = {"backend": "sim"}
+        log = AuditLog(path=None, context=lambda: dict(state))
+        assert log.record("a")["backend"] == "sim"
+        state["backend"] = "px4"
+        assert log.record("b")["backend"] == "px4"
+
+    def test_explicit_fields_win_over_the_audit_context(self):
+        log = AuditLog(path=None, context=lambda: {"backend": "sim", "operator": "ctx"})
+        entry = log.record("x", operator="alice")
+        assert entry["operator"] == "alice" and entry["backend"] == "sim"
+
+    def test_a_failing_audit_context_never_loses_the_entry(self):
+        def boom():
+            raise RuntimeError("provider down")
+
+        log = AuditLog(path=None, context=boom)
+        entry = log.record("x", a=1)
+        assert entry["event"] == "x" and entry["a"] == 1
+        assert log.recent[-1] is entry
+
 
 # --- Policies, config, helpers ------------------------------------------------
 

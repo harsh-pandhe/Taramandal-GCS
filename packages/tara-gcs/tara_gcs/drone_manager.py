@@ -320,6 +320,14 @@ def abort_clearance(
     }
 
 
+#: Evidence tier of each vehicle backend (issue #170). "kinematic" is the
+#: vectorized tara_sim fleet: it scales to hundreds of drones but has no flight
+#: dynamics, so it is scale evidence only. "px4-sitl" is real PX4 SITL under
+#: Gazebo: real flight dynamics, but capped near 10 drones on one machine.
+#: Results from the two must never be presented as one another.
+FIDELITY_BY_BACKEND = {"sim": "kinematic", "px4": "px4-sitl"}
+
+
 class DroneManager:
     def __init__(
         self,
@@ -364,6 +372,8 @@ class DroneManager:
             raise ValueError(f"backend must be 'px4' or 'sim', got {backend!r}")
         self.ports = ports
         self.backend = backend
+        # Evidence tier of this backend (issue #170); see FIDELITY_BY_BACKEND.
+        self.fidelity = FIDELITY_BY_BACKEND[backend]
         self._sim_fleet = None  # tara_sim.SimFleet, created in connect_all() when backend == "sim"
         self.drones = {}  # drone_id -> System (real or SimSystem)
         self.telemetry = {}  # drone_id -> status dict

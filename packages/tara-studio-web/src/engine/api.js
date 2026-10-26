@@ -49,24 +49,45 @@ export const generateShow = async (payload) => {
   return res.json();
 };
 
-/** Renders a show to a downloadable file in the requested format. */
-export const exportShow = async ({ choreo, format, homeLat, homeLon, ledTrack, rateHz }) => {
+/**
+ * Renders a show to a downloadable file in the requested format.
+ *
+ * `previewOnly` (issue #161): bypasses jerk certification only - every hard
+ * limit (altitude, ground, separation, velocity, acceleration, yaw rate)
+ * still applies server-side, and the result is never signed regardless of
+ * a configured signing key (issue #143). Only for a show that can't meet
+ * the jerk smoothness bound; never a path to signing or a GCS upload.
+ */
+export const exportShow = async ({ choreo, format, homeLat, homeLon, ledTrack, rateHz, previewOnly }) => {
   const res = await postJson(`${API_BASE}/api/export`, {
     choreo, format, home_lat: Number(homeLat), home_lon: Number(homeLon),
     // Only sent when a track exists, so existing callers keep their payload.
     ...(ledTrack ? { led_track: ledTrack } : {}),
     ...(rateHz ? { rate_hz: Number(rateHz) } : {}),
+    ...(previewOnly ? { preview_only: true } : {}),
   });
   if (!res.ok) {
-    // e.g. a 409 explaining that the signing key is missing or unreadable, or
-    // a 400 refusing the show — `detail` is a plain string for some of these
-    // and a {message, errors} object for others (schema violations, the
-    // separation gate), so only the former can be used as-is.
+    // e.g. a 409 explaining that the signing key is missing or unreadable.
+    // `detail` is sometimes an object (e.g. {message, validation} on a 412 -
+    // see server.py's export gate), which `new Error(obj)` would stringify
+    // as "[object Object]" instead of the actual message.
     const details = await res.json().catch(() => ({}));
-    const detail = typeof details.detail === 'string' ? details.detail : details.detail?.message;
-    throw new Error(detail || 'File export failed.');
+    const message = typeof details.detail === 'string' ? details.detail : details.detail?.message;
+    throw new Error(message || 'File export failed.');
   }
-  return res.json();
+  const data = await res.json();
+  // Issue #161 review: FastAPI ignores unknown request fields, so an older
+  // or misconfigured backend could silently run a normal export and return
+  // a filename with no PREVIEW_ONLY_ prefix - the one thing standing between
+  // a button labelled "preview" and a flight-certified-looking download.
+  // Refuse before the caller can download it, rather than trusting the
+  // backend did what was asked.
+  if (previewOnly && !data.filename?.startsWith('PREVIEW_ONLY_')) {
+    throw new Error(
+      `Preview export refused: backend returned "${data.filename}", not a PREVIEW_ONLY_ file.`
+    );
+  }
+  return data;
 };
 
 /**
@@ -169,6 +190,9 @@ export const sendShowToGCS = async ({ choreo, homeLat, homeLon, ledTrack, rateHz
   }
   return gcsRes.json().catch(() => ({}));
 };
+
+/** The message TransmitPanel shows after a preview export (issue #161) resolves. */
+export const previewExportSuccessMessage = (format) => `Preview exported (${format}) — unsigned, not flight-certified.`;
 
 /** Triggers a browser download of an exported file payload. */
 export const downloadExport = (data) => {
