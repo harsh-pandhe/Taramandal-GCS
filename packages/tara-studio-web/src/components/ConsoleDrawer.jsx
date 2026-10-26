@@ -60,7 +60,7 @@ export default function ConsoleDrawer({
           <TransmitPanel
             homeLat={venue.homeLat} homeLon={venue.homeLon}
             onHomeLat={venue.onHomeLat} onHomeLon={venue.onHomeLon}
-            onExport={transmit.onExport} onSendToGCS={transmit.onSendToGCS}
+            onExport={transmit.onExport} onExportPreview={transmit.onExportPreview} onSendToGCS={transmit.onSendToGCS}
             sending={transmit.sending} hasShow={!!choreoData}
             validation={validation}
           />
