@@ -8,14 +8,20 @@ from fastapi.testclient import TestClient
 from jsonschema import Draft202012Validator
 from pydantic import ValidationError
 
-from tara_core import SHOW_FORMAT_VERSION, SHOW_SCHEMA_PATH, Show
+from tara_core import DEFAULT_LIMITS, SHOW_FORMAT_VERSION, SHOW_SCHEMA_PATH, Show
 from tara_core.geometry import quintic_segment
+from tara_core.validate import collision_errors
 from tara_studio import generator
 from tara_studio.exporter import export_json
 from tara_studio.led_engine import apply_track_to_choreo
 from tara_studio.server import app
 
 SHAPES = ["circle", "helix", "heart", "cube", "spline"]
+
+
+@pytest.fixture(scope="module")
+def client():
+    return TestClient(app)
 
 
 @pytest.fixture(scope="module")
@@ -108,11 +114,78 @@ class TestExportGate:
             export_json({**lit_circle(), "_duration": float("nan")})
 
 
-class TestExportEndpoint:
-    @pytest.fixture(scope="class")
-    def client(self):
-        return TestClient(app)
+class TestSeparationGate:
+    """Issue #141/#153: /api/export refuses a show whose waypoints — as it
+    will actually export them — put two drones closer than design_separation_m.
 
+    The repro is two waypoints already rounded to the centimetre exactly as
+    tara-studio-web's sequencer.js rounds every waypoint on build (round2)
+    and tara_studio.exporter.export_tara rounds again on its own
+    int16-centimetre packing — 1.9875 m apart, inside the 2.0 m limit, even
+    though the two points this was derived from were 2.00012 m apart before
+    rounding (sequencer.test.js pins that derivation on the JS side).
+
+    Release review on #141 (2026-10-26): an earlier version of this gate ran
+    its own collision_errors sweep directly in server.py, on the pre-encode
+    choreo. That duplicated, and for .tara was actually weaker than, what
+    #143 already added to the canonical gate: certify_feasibility_report's
+    own proximity check (which, same as here, operates on choreo before
+    format-specific rounding) plus #143/#157's own post-quantization
+    .tara-bytes re-check (see TestQuantizationGate below). This fixture
+    doesn't need that second, .tara-specific re-check to be caught - the
+    input is already at the "already-eroded" 1.9875m value, so the
+    canonical gate's own proximity check catches it directly, as a 412
+    "Flight export blocked", the same way any other proximity violation is
+    - so the duplicate gate was removed from server.py rather than kept
+    alongside it. This test asserts that refusal; it would fail if the
+    canonical gate's proximity check were ever disabled or weakened.
+    """
+
+    _TOO_CLOSE = {
+        "drones": [
+            {"id": 0, "waypoints": [
+                {"time": 0.0, "x": -0.76, "y": -0.61, "z": -1.75, "yaw": 0.0},
+            ]},
+            {"id": 1, "waypoints": [
+                {"time": 0.0, "x": -0.01, "y": -0.01, "z": -0.01, "yaw": 0.0},
+            ]},
+        ]
+    }
+
+    _COMFORTABLY_CLEAR = {
+        "drones": [
+            {"id": 0, "waypoints": [
+                {"time": 0.0, "x": -0.76, "y": -0.61, "z": -1.75, "yaw": 0.0},
+            ]},
+            {"id": 1, "waypoints": [
+                {"time": 0.0, "x": 5.0, "y": -0.01, "z": -1.75, "yaw": 0.0},
+            ]},
+        ]
+    }
+
+    def test_collision_errors_itself_flags_the_repro(self):
+        # Pins the claim the gate relies on, independent of the endpoint: this
+        # specific pair of rounded waypoints is a real violation of the design
+        # threshold, not just of the looser runtime floor collision_errors
+        # defaults to.
+        errors = collision_errors(self._TOO_CLOSE, limits=DEFAULT_LIMITS, separation=DEFAULT_LIMITS.design_separation_m)
+        assert errors
+        assert "1.99" in errors[0] or "1.98" in errors[0]
+
+    @pytest.mark.parametrize("fmt", ["json", "tara"])
+    def test_export_refuses_the_repro(self, client, fmt):
+        res = client.post("/api/export", json={"choreo": self._TOO_CLOSE, "format": fmt})
+        assert res.status_code == 412
+        detail = res.json()["detail"]
+        assert "flight export blocked" in str(detail).lower()
+
+    @pytest.mark.parametrize("fmt", ["json", "tara"])
+    def test_export_still_succeeds_once_comfortably_clear(self, client, fmt):
+        res = client.post("/api/export", json={"choreo": self._COMFORTABLY_CLEAR, "format": fmt})
+        assert res.status_code == 200
+
+
+class TestExportEndpoint:
     def test_schema_violation_is_a_400_with_field_paths(self, client):
         choreo = _quintic_smoothed_choreo()
         choreo["drones"][0]["waypoints"][2]["r"] = 300

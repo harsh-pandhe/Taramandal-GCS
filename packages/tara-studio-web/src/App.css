@@ -781,6 +781,7 @@ input[type="number"] { font-family: var(--mono); font-variant-numeric: tabular-n
 }
 .ui-badge-ok { color: var(--success); background: var(--success-tint); }
 .ui-badge-warn { color: var(--warning); background: var(--warning-tint); }
+.ui-badge-danger { color: var(--danger); background: var(--danger-tint); }
 .ui-badge-default { color: var(--text-dim); background: transparent; }
 
 .ui-icon-btn {

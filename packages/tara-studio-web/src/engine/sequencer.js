@@ -40,9 +40,10 @@
 // that layer, and descending. Only drones whose crossing paths conflict get
 // different layers, so a handful of layers are needed rather than one per drone.
 
-import { buildFormation } from './formations.js';
+import { buildFormation, MAX_ALTITUDE_M } from './formations.js';
 import { SHOW_ALT, padAt, hoverAt } from './layout.js';
 import { optimalAssignment } from './assignment.js';
+import { ShowRefusalError } from './showErrors.js';
 
 export const TAKEOFF_SECONDS = 5.0;
 export const LAND_SECONDS = 5.0;
@@ -97,20 +98,156 @@ export const makeScene = (patch = {}) => ({
 const identity = (n) => Array.from({ length: n }, (_, i) => i);
 
 /**
+ * True iff `a` is an actual permutation of 0..n-1: every index present,
+ * each exactly once. 0 is a perfectly valid entry here, same as any other -
+ * nothing in this check (or in normalizeAssignment below) treats it as
+ * falsy or missing.
+ */
+const isPermutation = (a, n) => {
+  if (a.length !== n) return false;
+  const seen = new Set();
+  for (const v of a) {
+    if (!Number.isInteger(v) || v < 0 || v >= n || seen.has(v)) return false;
+    seen.add(v);
+  }
+  return true;
+};
+
+/**
  * targetIdx is `scenes.length` permutations (scene s: drone i occupies point
  * targetIdx[s][i]), optionally followed by one more for the return: the hover
- * spot each drone flies back to. Anything that doesn't fit this shape — e.g. an
- * assignment left over from a different scene list or fleet size — falls back
- * to identity rather than being misread.
+ * spot each drone flies back to. Anything that doesn't fit this shape — absent
+ * (null/undefined, the default), an assignment left over from a different
+ * scene list or fleet size, or (issue #141 review) a same-length array that
+ * isn't actually a permutation (a duplicate or out-of-range index, e.g. from
+ * corruption or a stale/mismatched chain) — falls back to identity rather
+ * than being misread or used as a silent collision risk.
  */
-const normalizeAssignment = (targetIdx, sceneCount, n) => {
+export const normalizeAssignment = (targetIdx, sceneCount, n) => {
   const t = Array.isArray(targetIdx) ? targetIdx : [];
   const shaped = t.length === sceneCount || t.length === sceneCount + 1;
-  const ok = (a) => shaped && Array.isArray(a) && a.length === n;
+  const ok = (a) => shaped && Array.isArray(a) && isPermutation(a, n);
   return {
     scenes: Array.from({ length: sceneCount }, (_, s) => (ok(t[s]) ? t[s] : identity(n))),
     ret: t.length === sceneCount + 1 && ok(t[sceneCount]) ? t[sceneCount] : identity(n),
   };
+};
+
+const minPairDist = (pts) => {
+  let m = Infinity;
+  for (let i = 0; i < pts.length; i++) {
+    for (let j = i + 1; j < pts.length; j++) {
+      const d = Math.hypot(pts[i].x - pts[j].x, pts[i].y - pts[j].y, (pts[i].z ?? 0) - (pts[j].z ?? 0));
+      if (d < m) m = d;
+    }
+  }
+  return m;
+};
+
+/**
+ * Analytical minimum continuous pairwise separation over straight-line
+ * interpolation between two point clouds `from` and `to`.
+ * Evaluates the exact quadratic minimum on w in [0, 1] for every pair (i, j).
+ */
+export const minMorphSeparation = (from, to) => {
+  const n = from.length;
+  let minD = Infinity;
+  for (let i = 0; i < n; i++) {
+    for (let j = i + 1; j < n; j++) {
+      const ux = from[i].x - from[j].x, uy = from[i].y - from[j].y, uz = from[i].z - from[j].z;
+      const u2 = ux * ux + uy * uy + uz * uz;
+      const vx = (to[i].x - from[i].x) - (to[j].x - from[j].x);
+      const vy = (to[i].y - from[i].y) - (to[j].y - from[j].y);
+      const vz = (to[i].z - from[i].z) - (to[j].z - from[j].z);
+      const v2 = vx * vx + vy * vy + vz * vz;
+      const uv = ux * vx + uy * vy + uz * vz;
+      let d2 = Math.min(u2, (ux + vx) * (ux + vx) + (uy + vy) * (uy + vy) + (uz + vz) * (uz + vz));
+      if (v2 > 1e-12) {
+        const wStar = -uv / v2;
+        if (wStar > 0 && wStar < 1) {
+          const critD2 = u2 - (uv * uv) / v2;
+          if (critD2 < d2) d2 = critD2;
+        }
+      }
+      const d = Math.sqrt(Math.max(0, d2));
+      if (d < minD) minD = d;
+    }
+  }
+  return minD;
+};
+
+/**
+ * Whether a morph's analytic (unrounded) separation is close enough to the
+ * design limit that cm-rounding on export could erode it below that limit,
+ * and the morph should therefore be flown layered rather than direct.
+ *
+ * The trigger is LAYER_CLEARANCE, not DESIGN_SEPARATION: a pair exactly on
+ * the design limit is geometrically safe before rounding, but every waypoint
+ * is rounded to the centimetre on export (round2 below, matching
+ * tara_studio.exporter's int16-centimetre packing), and each drone's
+ * independent rounding can erode a hairline margin — a pair analytically
+ * 2.0001 m apart has rounded to as little as 1.99 m in practice. The 0.05 m
+ * margin absorbs that: two independently-rounded 3D points move by at most
+ * sqrt(3)*0.005 m each, ~0.0173 m combined, well inside the margin (#141).
+ */
+export const morphNeedsLayering = (from, to) => minMorphSeparation(from, to) < LAYER_CLEARANCE;
+
+/**
+ * Layer index per drone for a layered morph (lift, transit at layer height,
+ * descent), or null when no layering keeps every pair apart.
+ *
+ * - Two drones whose horizontal paths come within `clearance` get different
+ *   layers, so their transit legs are at least a layer apart vertically.
+ * - The lift and the descent are vertical. Two drones less than
+ *   DESIGN_SEPARATION apart horizontally would pass through each other there
+ *   if their up-down order changed, so such a pair keeps its starting order in
+ *   the lift and takes its final order in the descent. A pair that would need
+ *   both orders cannot be layered: null.
+ *
+ * Layers are assigned lowest first, each drone taking the lowest layer above
+ * every drone it must clear and unused by any drone it conflicts with.
+ */
+export const computeMorphLayers = (from, to, clearance = LAYER_CLEARANCE) => {
+  const n = from.length;
+  const conflict = Array.from({ length: n }, () => []);
+  const below = Array.from({ length: n }, () => new Set()); // drones i must be above
+  const above = Array.from({ length: n }, () => []);
+  const order = (pts, i, j) => {
+    if (Math.hypot(pts[i].x - pts[j].x, pts[i].y - pts[j].y) >= DESIGN_SEPARATION) return;
+    const [hi, lo] = pts[i].z < pts[j].z ? [i, j] : [j, i]; // NED: smaller z is higher
+    if (!below[hi].has(lo)) { below[hi].add(lo); above[lo].push(hi); }
+  };
+  for (let i = 0; i < n; i++) {
+    for (let j = i + 1; j < n; j++) {
+      const ax = from[i].x - from[j].x, ay = from[i].y - from[j].y;
+      const dx = to[i].x - to[j].x - ax, dy = to[i].y - to[j].y - ay;
+      const dd = dx * dx + dy * dy;
+      const a = dd < 1e-12 ? 0 : Math.max(0, Math.min(1, -(ax * dx + ay * dy) / dd));
+      if (Math.hypot(ax + a * dx, ay + a * dy) < clearance) {
+        conflict[i].push(j);
+        conflict[j].push(i);
+      }
+      order(from, i, j);
+      order(to, i, j);
+    }
+  }
+  const layer = new Array(n).fill(-1);
+  const waiting = below.map((s) => s.size);
+  const ready = identity(n).filter((i) => waiting[i] === 0);
+  let done = 0;
+  while (ready.length) {
+    // Most-constrained first, then by index, so the result is deterministic.
+    ready.sort((a, b) => conflict[b].length - conflict[a].length || a - b);
+    const i = ready.shift();
+    let c = 0;
+    for (const lo of below[i]) c = Math.max(c, layer[lo] + 1);
+    const taken = new Set(conflict[i].map((j) => layer[j]));
+    while (taken.has(c)) c++;
+    layer[i] = c;
+    done++;
+    for (const hi of above[i]) if (--waiting[hi] === 0) ready.push(hi);
+  }
+  return done === n ? layer : null; // fewer done = the order constraints form a cycle
 };
 
 /**
@@ -166,6 +303,61 @@ const planShow = (scenes, n, targetIdx) => {
 
   const legs = [];
   const move = (kind, label, sceneId, group, from, to, requested) => {
+    if (kind === 'morph') {
+      if (morphNeedsLayering(from, to)) {
+        const minFrom = minPairDist(from);
+        const minTo = minPairDist(to);
+        // Same tolerance as the per-leg check a few lines below (issue
+        // #141 review, Vishal): a looser 1e-4 here was dead in practice -
+        // for a pure-vertical lift leg, minMorphSeparation(from, fromUp)
+        // is the same as minPairDist(from), so anything that cleared this
+        // check at 1e-4 but not 1e-6 would just get caught by the leg
+        // check a few lines later anyway. One tolerance, not two that
+        // silently agreed on every real input.
+        if (minFrom < DESIGN_SEPARATION - 1e-6 || minTo < DESIGN_SEPARATION - 1e-6) {
+          throw new ShowRefusalError(`Morph "${label}" cannot be made collision-free: endpoint spacing is below minimum separation (${Math.min(minFrom, minTo).toFixed(2)}m < ${DESIGN_SEPARATION}m).`);
+        }
+        const layer = computeMorphLayers(from, to);
+        if (!layer) {
+          throw new ShowRefusalError(`Morph "${label}" cannot be made collision-free: two drones would have to swap their vertical order in the same column.`);
+        }
+        // A little over the design limit, so sampling and rounding cannot
+        // shave a layered pair under it.
+        const gap = LAYER_CLEARANCE;
+        const maxLayer = Math.max(...layer);
+        const highestAlt = Math.min(...from.map((p) => p.z), ...to.map((p) => p.z));
+        // Shared with formations.js's own altitude check (issue #141
+        // review, Vishal): this used to be a second, independent copy of
+        // the same 120m number, which could drift out of sync with it.
+        const ceilingZ = -MAX_ALTITUDE_M;
+        if (highestAlt - (maxLayer + 1) * gap < ceilingZ) {
+          throw new ShowRefusalError(`Morph "${label}" cannot be made collision-free: required altitude layering exceeds 120m ceiling.`);
+        }
+        const fromUp = from.map((p, i) => ({ x: p.x, y: p.y, z: highestAlt - (layer[i] + 1) * gap }));
+        const toUp = to.map((p, i) => ({ x: p.x, y: p.y, z: highestAlt - (layer[i] + 1) * gap }));
+
+        // Every leg is checked exactly, not trusted: the layering is a plan,
+        // and a plan that still brings a pair inside the limit is rejected.
+        for (const [a, b] of [[from, fromUp], [fromUp, toUp], [toUp, to]]) {
+          const legSep = minMorphSeparation(a, b);
+          if (legSep < DESIGN_SEPARATION - 1e-6) { // pads sit exactly 2.0 m apart
+            throw new ShowRefusalError(`Morph "${label}" cannot be made collision-free: a layered leg comes within ${legSep.toFixed(2)}m.`);
+          }
+        }
+
+        // 3 legs: lift, layered transit, descent
+        const rLift = requested > 0 ? requested * 0.2 : 0;
+        const rTransit = requested > 0 ? requested * 0.6 : 0;
+        const rDesc = requested > 0 ? requested * 0.2 : 0;
+        const t1 = maxTravel(from, fromUp);
+        const t2 = maxTravel(fromUp, toUp);
+        const t3 = maxTravel(toUp, to);
+        legs.push({ kind, label, sceneId, group, from, to: fromUp, secs: easedSecs(rLift, t1.dh, t1.dv) });
+        legs.push({ kind, label, sceneId, group, from: fromUp, to: toUp, secs: easedSecs(rTransit, t2.dh, t2.dv) });
+        legs.push({ kind, label, sceneId, group, from: toUp, to, secs: easedSecs(rDesc, t3.dh, t3.dv) });
+        return;
+      }
+    }
     const { dh, dv } = maxTravel(from, to);
     legs.push({ kind, label, sceneId, group, from, to, secs: easedSecs(requested, dh, dv) });
   };

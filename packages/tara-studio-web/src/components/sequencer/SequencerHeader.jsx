@@ -14,9 +14,15 @@ const fmtDuration = (s) => {
  * generated show. They differ when scenes have been edited since the last
  * build, and the header says so — otherwise the timeline below would silently
  * disagree with the numbers here.
+ *
+ * `predictionRefused` (issue #141 review): the scene list, as it stands
+ * right now, cannot be built at all (a ShowRefusalError) - predictedDuration
+ * is then just 0, which on its own would read as "a real, instant show",
+ * not "no prediction". Shown as "—" plus a Refused badge instead.
  */
 export default function SequencerHeader({
   sceneCount, numDrones, rate, predictedDuration, builtDuration, stale,
+  predictionRefused, refusalMessage,
 }) {
   return (
     <div className="sequencer-header">
@@ -24,7 +30,7 @@ export default function SequencerHeader({
         <Clock size={13} />
         <div>
           <span className="seq-stat-label">Show length</span>
-          <span className="seq-stat-value">{fmtDuration(predictedDuration)}</span>
+          <span className="seq-stat-value">{predictionRefused ? '—' : fmtDuration(predictedDuration)}</span>
         </div>
       </div>
 
@@ -52,7 +58,11 @@ export default function SequencerHeader({
         </div>
       </div>
 
-      {stale ? (
+      {predictionRefused ? (
+        <Badge tone="danger" title={refusalMessage || 'The current scene list cannot be built'}>
+          Refused
+        </Badge>
+      ) : stale ? (
         <Badge tone="warn" title="The scene list changed since the last build">
           Rebuild needed
         </Badge>

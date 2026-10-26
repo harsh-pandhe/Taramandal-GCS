@@ -8,6 +8,7 @@
 // agree on the result.
 
 import { SHOW_ALT, fleetCenter } from './layout.js';
+import { ShowRefusalError } from './showErrors.js';
 
 export { SHOW_ALT };
 
@@ -38,7 +39,7 @@ export const SITE_RADIUS_M = 30.0;
 // Mirrors tara_core.safety.DEFAULT_LIMITS.design_separation_m.
 export const MIN_SEPARATION_M = 2.0;
 
-const _MAX_ALTITUDE_M = 120.0;
+export const MAX_ALTITUDE_M = 120.0;
 
 const minPairDist = (pts) => {
   let m = Infinity;
@@ -354,7 +355,7 @@ export const buildFormation = (shapeType, shapePayload, n, scale = 1.0) => {
       const k = (SITE_RADIUS_M - 0.5) / postShiftReach;
       const curDist = minPairDist(current);
       if (shapeType === 'parametric' && curDist * k < MIN_SEPARATION_M - 1e-6) {
-        throw new Error(
+        throw new ShowRefusalError(
           `Formation "${shapePayload}" (n=${n}, scale=${scale}) cannot fit within site radius (${SITE_RADIUS_M}m) without violating minimum spacing (${MIN_SEPARATION_M}m); required spacing would drop to ${(curDist * k).toFixed(2)}m`
         );
       }
@@ -367,14 +368,14 @@ export const buildFormation = (shapeType, shapePayload, n, scale = 1.0) => {
   }
 
   const maxAlt = Math.max(...current.map((p) => -p.z));
-  if (maxAlt > _MAX_ALTITUDE_M + 1e-6) {
-    throw new Error(
-      `Formation "${shapePayload}" (n=${n}, scale=${scale}) exceeds maximum altitude ceiling: ${maxAlt.toFixed(1)}m > ${_MAX_ALTITUDE_M}m`
+  if (maxAlt > MAX_ALTITUDE_M + 1e-6) {
+    throw new ShowRefusalError(
+      `Formation "${shapePayload}" (n=${n}, scale=${scale}) exceeds maximum altitude ceiling: ${maxAlt.toFixed(1)}m > ${MAX_ALTITUDE_M}m`
     );
   }
   const finalMin = minPairDist(current);
   if (shapeType === 'parametric' && finalMin < MIN_SEPARATION_M - 1e-6) {
-    throw new Error(
+    throw new ShowRefusalError(
       `Formation "${shapePayload}" (n=${n}, scale=${scale}) violates minimum spacing: ${finalMin.toFixed(2)}m < ${MIN_SEPARATION_M}m`
     );
   }

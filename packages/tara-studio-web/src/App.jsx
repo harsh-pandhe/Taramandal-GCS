@@ -17,6 +17,7 @@ import useProjects from './hooks/useProjects.js';
 import useAudioTrack from './hooks/useAudioTrack.js';
 
 import { makeScene, computeShowDuration, buildTimelineSegments } from './engine/sequencer.js';
+import { ShowRefusalError } from './engine/showErrors.js';
 import { buildColoredChoreo } from './engine/lighting.js';
 import { serializeTrack } from './engine/ledPatterns.js';
 import { exportShow, sendShowToGCS, downloadExport } from './engine/api.js';
@@ -67,14 +68,33 @@ export default function App() {
   // the built show's assignment — for an unchanged scene list that makes the
   // prediction match the build exactly, and any edit shows up as stale.
   const builtAssignment = choreoData?._targetIdx ?? null;
-  const predictedDuration = useMemo(
-    () => computeShowDuration(scenes, numDrones, rate, builtAssignment),
-    [scenes, numDrones, rate, builtAssignment],
-  );
-  const segments = useMemo(
-    () => buildTimelineSegments(scenes, numDrones, rate, builtAssignment),
-    [scenes, numDrones, rate, builtAssignment],
-  );
+  // Scenes are edited live, so this can run against a momentarily unsafe scene
+  // list (too dense at the current fleet size, etc.) well before the user
+  // hits Build. A refusal there just means "no prediction yet" — the Build
+  // button surfaces the real message — but anything else is a genuine bug,
+  // and must not be swallowed: this runs inside render, so an uncaught throw
+  // here used to take the whole page down (issue #141).
+  // issue #141 review: a refused prediction returning 0 is indistinguishable
+  // in the UI from a real, tiny show - predictionRefused (and the message)
+  // let SequencerHeader say "refused", not "0.0s", for exactly the
+  // "no prediction yet" case this comment already described above.
+  const prediction = useMemo(() => {
+    try {
+      return { duration: computeShowDuration(scenes, numDrones, rate, builtAssignment), refused: false, message: null };
+    } catch (e) {
+      if (e instanceof ShowRefusalError) return { duration: 0, refused: true, message: e.message };
+      throw e;
+    }
+  }, [scenes, numDrones, rate, builtAssignment]);
+  const predictedDuration = prediction.duration;
+  const segments = useMemo(() => {
+    try {
+      return buildTimelineSegments(scenes, numDrones, rate, builtAssignment);
+    } catch (e) {
+      if (e instanceof ShowRefusalError) return [];
+      throw e;
+    }
+  }, [scenes, numDrones, rate, builtAssignment]);
   const builtDuration = choreoData?._duration ?? 0;
   // Scrub against what's actually rendered, so the playhead can never point past
   // the built trajectory.
@@ -243,6 +263,7 @@ export default function App() {
               header={{
                 sceneCount: scenes.length, numDrones, rate,
                 predictedDuration, builtDuration, stale,
+                predictionRefused: prediction.refused, refusalMessage: prediction.message,
               }}
               viewMode={viewMode}
               onViewMode={setViewMode}

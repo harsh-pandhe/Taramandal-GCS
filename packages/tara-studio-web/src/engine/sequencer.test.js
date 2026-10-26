@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import {
   buildSequencedShow,
   computeShowDuration,
@@ -6,10 +6,16 @@ import {
   computeAssignmentChainLocal,
   interpolateWaypoint,
   makeScene,
+  minMorphSeparation,
+  computeMorphLayers,
+  morphNeedsLayering,
+  normalizeAssignment,
   TAKEOFF_SECONDS,
   LAND_SECONDS,
 } from './sequencer.js';
-import { buildFormation } from './formations.js';
+import { buildFormation, SHAPE_LIBRARY } from './formations.js';
+import * as formationsModule from './formations.js';
+import { ShowRefusalError } from './showErrors.js';
 
 const scene = (patch) => makeScene(patch);
 
@@ -218,12 +224,18 @@ describe('collision avoidance at fleet scale', () => {
   it('does not stack a large fleet into a tall altitude column', () => {
     // Giving every drone its own transit band put 100 drones up to ~107 m and
     // slowed each morph to ~275 s to climb there.
+    //
+    // The bound here is looser than it once was: widening the direct-vs-
+    // layered trigger to LAYER_CLEARANCE (issue #141/#153, so a hairline
+    // analytic margin can't be erased by cm export-rounding) now layers a few
+    // morphs that used to fly direct, adding a modest amount of time — nowhere
+    // near the ~275 s this guards against.
     const scenes = acceptanceScenes();
     const show = buildSequencedShow(scenes, 100, 4, computeAssignmentChainLocal(scenes, 100));
     let peak = 0;
     for (const d of show.drones) for (const w of d.waypoints) peak = Math.max(peak, -w.z);
     expect(peak).toBeLessThan(50);
-    expect(show._duration).toBeLessThan(150);
+    expect(show._duration).toBeLessThan(180);
   });
 
   it('predicts the built duration exactly for a real assignment', () => {
@@ -326,5 +338,330 @@ describe('interpolateWaypoint', () => {
     for (let t = 0; t <= show._duration; t += 0.13) {
       expect(interpolateWaypoint(wp, t).x).toBeCloseTo(scan(t).x, 6);
     }
+  });
+});
+
+// Exact minimum separation over the whole built trajectory, not only at the
+// samples: between two samples every drone moves in a straight line at constant
+// speed, so the closed-form check on each consecutive pair of samples covers
+// every instant of the show.
+const exactMinSeparation = (show) => {
+  const w = show.drones.map((d) => d.waypoints);
+  let m = Infinity;
+  for (let k = 0; k + 1 < w[0].length; k++) {
+    m = Math.min(m, minMorphSeparation(w.map((d) => d[k]), w.map((d) => d[k + 1])));
+  }
+  return m;
+};
+
+// Vertical columns: drones directly above each other, as in a text formation.
+const column = (x, y, zs) => zs.map((z) => ({ x, y, z }));
+
+describe('intermediate morph separation (Fix B / issue #137)', () => {
+  const DESIGN_SEPARATION = 2.0;
+  // The pad grid is exactly 2.0 m, so an exact check lands a hair under it.
+  const atLeastDesign = (d) => expect(d).toBeGreaterThanOrEqual(DESIGN_SEPARATION - 1e-6);
+
+  it('flies the e2e demo show (5 then 4, identity mapping) without any pair inside 2.0 m', () => {
+    // The e2e backend stub answers assign-chain with the identity, so the climb
+    // out crosses paths and is layered. With the first version of the layering
+    // two drones in one glyph column swapped order on the way down: 0.02 m.
+    const scenes = [
+      scene({ name: '5', shapeType: 'text', shapePayload: '5', holdDurationSeconds: 6, transitionDurationSeconds: 0 }),
+      scene({ name: '4', shapeType: 'text', shapePayload: '4', holdDurationSeconds: 6, transitionDurationSeconds: 4 }),
+    ];
+    const identityChain = [0, 1, 2].map(() => [0, 1, 2, 3, 4, 5]);
+    atLeastDesign(exactMinSeparation(buildSequencedShow(scenes, 6, 4, identityChain)));
+  });
+
+  it('keeps drones that share a column in order through the lift and the descent', () => {
+    // Two columns trade places; inside each, the lower drone stays lower.
+    const from = [...column(0, 0, [-10, -13]), ...column(0, 6, [-10, -13])];
+    const to = [...column(0, 6, [-11, -14]), ...column(0, 0, [-11, -14])];
+    const layer = computeMorphLayers(from, to);
+    expect(layer[1]).toBeGreaterThan(layer[0]);
+    expect(layer[3]).toBeGreaterThan(layer[2]);
+  });
+
+  it('refuses a layering in which two drones of one column would swap order', () => {
+    // Drone 0 starts below drone 1 in a column and must end above it: a lift
+    // and descent in place cannot do that without them passing through each other.
+    const from = [...column(0, 0, [-10, -13]), { x: 0, y: 1, z: -20 }];
+    const to = [...column(5, 0, [-13, -10]), { x: 0, y: -1, z: -20 }];
+    expect(computeMorphLayers(from, to)).toBeNull();
+  });
+
+  it('maintains >= 2.0 m separation during the 24-drone Grid -> Line scale 2.0 morph', () => {
+    // S0 defect report: Grid -> Line, 24 drones, scale 2.0 dipped to 1.94 m during the return morph.
+    const scenes = [
+      scene({ name: 'Grid', shapeType: 'parametric', shapePayload: 'grid', scale: 2.0, holdDurationSeconds: 4, transitionDurationSeconds: 4 }),
+      scene({ name: 'Line', shapeType: 'parametric', shapePayload: 'line', scale: 2.0, holdDurationSeconds: 4, transitionDurationSeconds: 4 }),
+    ];
+    const n = 24;
+    const chain = computeAssignmentChainLocal(scenes, n);
+    const show = buildSequencedShow(scenes, n, 10, chain);
+
+    atLeastDesign(exactMinSeparation(show));
+  });
+
+  it('maintains >= 2.0 m separation for single-scene Line scale 2.0 (n=24)', () => {
+    const scenes = [
+      scene({ name: 'Line', shapeType: 'parametric', shapePayload: 'line', scale: 2.0, holdDurationSeconds: 4, transitionDurationSeconds: 4 }),
+    ];
+    const n = 24;
+    const chain = computeAssignmentChainLocal(scenes, n);
+    const show = buildSequencedShow(scenes, n, 10, chain);
+
+    atLeastDesign(exactMinSeparation(show));
+  });
+
+  it('analytical minMorphSeparation accurately matches dense time-swept sampling', () => {
+    const from = [
+      { x: 0, y: 0, z: -8 },
+      { x: 2, y: 0, z: -8 },
+    ];
+    const to = [
+      { x: 10, y: 0, z: -10 },
+      { x: 8, y: 0, z: -8 },
+    ];
+    // Drones cross each other: drone 0 goes 0 -> 10, drone 1 goes 2 -> 8.
+    // They cross at midpoint x=5, where d_z = |-9 - (-8)| = 1.0 m.
+    const analytical = minMorphSeparation(from, to);
+
+    // Dense swept numerical simulation
+    let sweptMin = Infinity;
+    for (let k = 0; k <= 1000; k++) {
+      const w = k / 1000;
+      const p0 = { x: from[0].x + w * (to[0].x - from[0].x), y: 0, z: from[0].z + w * (to[0].z - from[0].z) };
+      const p1 = { x: from[1].x + w * (to[1].x - from[1].x), y: 0, z: from[1].z + w * (to[1].z - from[1].z) };
+      const d = Math.hypot(p0.x - p1.x, p0.y - p1.y, p0.z - p1.z);
+      if (d < sweptMin) sweptMin = d;
+    }
+    expect(analytical).toBeCloseTo(sweptMin, 3);
+    expect(analytical).toBeCloseTo(2 / Math.sqrt(5), 3);
+  });
+
+  it('rejects a transition whose endpoint formations violate minimum separation', () => {
+    // issue #141 review (Vishal): this test's name promised a rejection but
+    // its body only checked minMorphSeparation/computeMorphLayers directly,
+    // neither of which throws - it never actually exercised the real
+    // rejection path in planShow's own endpoint check. buildFormation
+    // itself can't produce a tight formation through the public API (its
+    // own spacing floor always holds for any registered shape), so this
+    // mocks it to inject one, through the real computeShowDuration/
+    // planShow pipeline instead of calling the internals directly.
+    const tightFormation = [
+      { x: 0, y: 0, z: -8 },
+      { x: 1.0, y: 0, z: -8 },
+    ];
+    const spy = vi.spyOn(formationsModule, 'buildFormation').mockReturnValue(tightFormation);
+    try {
+      const scenes = [scene({
+        shapeType: 'parametric', shapePayload: 'circle', holdDurationSeconds: 2, transitionDurationSeconds: 4,
+      })];
+      expect(() => computeShowDuration(scenes, 2, 4, null))
+        .toThrow(/endpoint spacing is below minimum separation/);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it('maintains >= 2.0 m across representative counts and shapes (n=10, 24, 60)', () => {
+    const testCases = [
+      { n: 10, shapes: ['circle', 'vee'] },
+      { n: 24, shapes: ['grid', 'circle'] },
+      { n: 60, shapes: ['circle', 'heart', 'grid'] },
+    ];
+    for (const tc of testCases) {
+      const scenes = tc.shapes.map((payload) =>
+        scene({ shapePayload: payload, scale: 1.0, holdDurationSeconds: 2, transitionDurationSeconds: 3 })
+      );
+      const chain = computeAssignmentChainLocal(scenes, tc.n);
+      const show = buildSequencedShow(scenes, tc.n, 4, chain);
+      expect(exactMinSeparation(show), `Fleet n=${tc.n} shapes=${tc.shapes.join('->')}`)
+        .toBeGreaterThanOrEqual(DESIGN_SEPARATION - 1e-6);
+    }
+  });
+});
+
+
+// 500 drones, the Dandiya Nights target. The built-in shapes stack upward at
+// this size (the heart reaches 84.8 m), so a morph that misses 2.0 m by a few
+// centimetres needs more layers than fit under the 120 m ceiling. These six are
+// refused rather than flown: on main each built a show that failed
+// /api/validate at 1.97 m.
+describe('500-drone transitions at the 120 m ceiling (issue #137)', () => {
+  const n = 500;
+  const shape = (spec, transitionDurationSeconds) => {
+    const [shapeType, shapePayload] = spec === '8' ? ['text', '8'] : ['parametric', spec];
+    return scene({ shapeType, shapePayload, holdDurationSeconds: 4, transitionDurationSeconds });
+  };
+  const build = (...specs) => {
+    const scenes = specs.map((spec, i) => shape(spec, i === 0 ? 4 : 6));
+    return buildSequencedShow(scenes, n, 4, computeAssignmentChainLocal(scenes, n));
+  };
+
+  it.each([
+    ['heart', 'grid'], ['grid', 'heart'],
+    ['circle', '8'], ['8', 'circle'],
+    ['heart', '8'], ['8', 'heart'],
+  ])('refuses %s -> %s instead of building it', (a, b) => {
+    expect(() => build(a, b)).toThrow(/required altitude layering exceeds 120m ceiling/);
+  }, 60_000);
+
+  it('builds heart -> grid by way of a sphere, never inside 2.0 m', () => {
+    // The choreography workaround: both legs avoid layering above the heart.
+    // The full validator also passes it (minimum 2.0 m, 3.6 m/s, 2.83 m/s^2).
+    const show = build('heart', 'sphere', 'grid');
+    expect(show.drones).toHaveLength(n);
+    expect(exactMinSeparation(show)).toBeGreaterThanOrEqual(2.0 - 1e-6);
+  }, 60_000);
+});
+
+// Vishal's repro (issue #141/#153): a pair whose analytic separation clears
+// the 2.0 m design limit comfortably enough to have flown direct under the
+// old `sep < DESIGN_SEPARATION` trigger, but whose cm-rounded export position
+// (round2 below, matching tara_studio.exporter's int16-centimetre packing)
+// lands under it. Found by numeric search, not hand-picked: it's an existence
+// proof that the gap between "safe before rounding" and "safe after rounding"
+// is real, not that these two exact points are special.
+describe('the direct-vs-layered trigger absorbs export rounding (issue #141/#153)', () => {
+  const A = { x: -0.7649384176267587, y: -0.6145833536300834, z: -1.7546073069192394 };
+  const B = { x: -0.006217378944141877, y: -0.00870860593605212, z: -0.0059681580638111555 };
+  const round2 = (v) => parseFloat(v.toFixed(2));
+  const roundedDist = (p, q) => Math.hypot(
+    round2(p.x) - round2(q.x), round2(p.y) - round2(q.y), round2(p.z) - round2(q.z),
+  );
+
+  it('is a real rounding erosion case: safe analytically, unsafe once rounded', () => {
+    const trueSep = minMorphSeparation([A, B], [A, B]);
+    // >= 2.0: did not need layering under the old, design-limit-only trigger.
+    expect(trueSep).toBeGreaterThanOrEqual(2.0);
+    // < 2.05 (LAYER_CLEARANCE): does need it under the fixed one.
+    expect(trueSep).toBeLessThan(2.05);
+    expect(roundedDist(A, B)).toBeLessThan(2.0);
+  });
+
+  it('is flagged as needing layering by the fixed trigger', () => {
+    expect(morphNeedsLayering([A, B], [A, B])).toBe(true);
+  });
+
+  it('gets an actual layering plan rather than a refusal', () => {
+    // Not merely "refused": a valid plan exists that puts the two drones in
+    // different layers, so the show still flies this transition, just not
+    // direct through the same altitude band.
+    const layer = computeMorphLayers([A, B], [A, B]);
+    expect(layer).not.toBeNull();
+    expect(layer[0]).not.toBe(layer[1]);
+  });
+
+  it('disabling the wider trigger reproduces the bug (sanity check on the test itself)', () => {
+    // If the trigger were reverted to the old `sep < DESIGN_SEPARATION`, this
+    // pair would not be flagged, proving the first two assertions above
+    // actually depend on the fix and are not vacuously true.
+    expect(minMorphSeparation([A, B], [A, B]) < 2.0).toBe(false);
+  });
+});
+
+describe('normalizeAssignment (issue #141 review: assignment handling)', () => {
+  const identity = (n) => Array.from({ length: n }, (_, i) => i);
+
+  it('falls back to identity when targetIdx is absent (null/undefined)', () => {
+    expect(normalizeAssignment(null, 2, 3)).toEqual({ scenes: [identity(3), identity(3)], ret: identity(3) });
+    expect(normalizeAssignment(undefined, 2, 3)).toEqual({ scenes: [identity(3), identity(3)], ret: identity(3) });
+  });
+
+  it('treats a 0 entry as a valid index, not as missing', () => {
+    // Drone 2 goes to point 0 here - 0 must come through unchanged, not be
+    // read as falsy and replaced.
+    const result = normalizeAssignment([[1, 2, 0]], 1, 3);
+    expect(result.scenes[0]).toEqual([1, 2, 0]);
+  });
+
+  it('uses a real, non-identity permutation as given', () => {
+    const swapped = [[1, 0, 2]];
+    expect(normalizeAssignment(swapped, 1, 3).scenes[0]).toEqual([1, 0, 2]);
+  });
+
+  it('rejects a same-length array with a duplicate index, falling back to identity', () => {
+    // Right length, but not a permutation: drone slots 0 and 2 both point at
+    // target 1, and nothing points at target 2. A corrupt or stale
+    // assignment like this must never be used as-is (it would send two
+    // drones to the same point) - it has to fall back the same way an
+    // absent assignment does, not be silently trusted because the shape
+    // happens to match.
+    const corrupt = [[1, 1, 0]];
+    expect(normalizeAssignment(corrupt, 1, 3).scenes[0]).toEqual(identity(3));
+  });
+
+  it('rejects a same-length array with an out-of-range index, falling back to identity', () => {
+    const corrupt = [[0, 1, 5]];
+    expect(normalizeAssignment(corrupt, 1, 3).scenes[0]).toEqual(identity(3));
+  });
+
+  it('rejects a wrong-length entry, falling back to identity', () => {
+    const wrongLength = [[0, 1]];
+    expect(normalizeAssignment(wrongLength, 1, 3).scenes[0]).toEqual(identity(3));
+  });
+
+  it('applies the same validation to the return-leg entry', () => {
+    const valid = [[0, 1, 2], [2, 0, 1]];
+    expect(normalizeAssignment(valid, 1, 3).ret).toEqual([2, 0, 1]);
+
+    const corruptRet = [[0, 1, 2], [1, 1, 0]];
+    expect(normalizeAssignment(corruptRet, 1, 3).ret).toEqual(identity(3));
+  });
+
+  it('a show built from a corrupt assignment matches one built with none at all', () => {
+    // End-to-end check, not just the helper in isolation: a corrupt
+    // targetIdx (right shape - one entry per scene, matching acceptanceScenes'
+    // 2 - but not an actual permutation) must produce the exact same show as
+    // not passing one at all, proving the fallback really engages rather
+    // than silently using the corrupt array because its shape passed.
+    const scenes = acceptanceScenes();
+    const corrupt = [[1, 1, 0], [1, 1, 0]];
+    const withCorrupt = computeShowDuration(scenes, 3, 4, corrupt);
+    const withNone = computeShowDuration(scenes, 3, 4, null);
+    expect(withCorrupt).toBeCloseTo(withNone, 9);
+  });
+});
+
+describe('500-drone render-path crash repro (issue #141/#153)', () => {
+  // The original bug report: computeShowDuration([heart], 500, 4, null)
+  // threw a plain, uncaught Error when called render-phase (App.jsx's
+  // useMemo, before this issue's fix), taking the whole Studio page down -
+  // because it was a real refusal (the shape can't fit at this count), not
+  // a bug, but nothing distinguished the two. Swept over the whole shape
+  // library, not just heart, at the exact fleet size (500) and assignment
+  // (null, i.e. absent - the render-phase case, before any build/assign
+  // chain has run) the original crash used.
+  const n = 500;
+
+  it.each(SHAPE_LIBRARY.map(({ shapeType, shapePayload, label }) => [label, shapeType, shapePayload]))(
+    'never crashes for %s at 500 drones with no assignment - builds, or refuses with ShowRefusalError',
+    (_label, shapeType, shapePayload) => {
+      const scenes = [scene({ shapeType, shapePayload, holdDurationSeconds: 4, transitionDurationSeconds: 4 })];
+      let threw = null;
+      try {
+        computeShowDuration(scenes, n, 4, null);
+      } catch (e) {
+        threw = e;
+      }
+      if (threw) expect(threw).toBeInstanceOf(ShowRefusalError);
+      // buildTimelineSegments walks the same plan; must agree on crash vs not.
+      let segThrew = null;
+      try {
+        buildTimelineSegments(scenes, n, 4, null);
+      } catch (e) {
+        segThrew = e;
+      }
+      if (segThrew) expect(segThrew).toBeInstanceOf(ShowRefusalError);
+    },
+    30_000,
+  );
+
+  it('the exact original repro (heart, 500 drones, no assignment) is a ShowRefusalError, not a crash', () => {
+    const heart = [scene({ shapeType: 'parametric', shapePayload: 'heart', holdDurationSeconds: 4, transitionDurationSeconds: 4 })];
+    expect(() => computeShowDuration(heart, 500, 4, null)).toThrow(ShowRefusalError);
   });
 });
