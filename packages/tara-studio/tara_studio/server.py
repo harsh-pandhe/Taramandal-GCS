@@ -61,7 +61,6 @@ from tara_studio.voxelizer import (
 from tara_core import DEFAULT_LIMITS, MAX_FLEET_SIZE
 from tara_core.validate import altitude_errors, collision_errors
 from tara_core.assignment import optimal_assignment
-from tara_core.validate import collision_errors
 
 app = FastAPI(title="Taramandal Studio Choreography Engine", version="1.0.0")
 
