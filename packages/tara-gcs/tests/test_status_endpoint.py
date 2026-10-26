@@ -45,6 +45,7 @@ async def test_status_reports_fleet_counts_from_live_telemetry(patched_manager):
         status = await gcs_main.get_status()
 
         assert status["backend"] == "sim"
+        assert status["fidelity"] == "kinematic"
         assert status["num_drones"] == n
         assert status["connected"] == n
         assert status["armed"] == 0  # nothing launched yet
@@ -100,3 +101,42 @@ async def test_status_answers_before_any_drone_connects(patched_manager):
     assert status["num_drones"] == 2
     assert status["connected"] == 0
     assert status["armed"] == 0
+
+
+def test_every_backend_has_a_fidelity_tier():
+    """Issue #170: the evidence tier is derived from the backend, never defaulted.
+
+    A kinematic (tara_sim) pass is scale evidence only; PX4 SITL is the tier
+    with real flight dynamics. An unlabelled or mislabelled backend would let
+    one be quoted as the other, so every accepted backend must map to a tier.
+    """
+    from tara_gcs.drone_manager import FIDELITY_BY_BACKEND
+
+    assert FIDELITY_BY_BACKEND == {"sim": "kinematic", "px4": "px4-sitl"}
+    assert DroneManager(ports=[0], backend="sim").fidelity == "kinematic"
+    assert DroneManager(ports=[0], backend="px4").fidelity == "px4-sitl"
+
+
+@pytest.mark.asyncio
+async def test_status_reports_px4_fidelity_without_connecting(patched_manager):
+    """/api/status labels a px4 backend as px4-sitl even before any drone connects."""
+    patched_manager(DroneManager(ports=[14540], backend="px4"))
+    status = await gcs_main.get_status()
+    assert status["backend"] == "px4"
+    assert status["fidelity"] == "px4-sitl"
+
+
+def test_command_and_preflight_audit_entries_carry_backend_and_fidelity(patched_manager):
+    """Issue #170: every audit entry from the GCS names the backend it ran on.
+
+    Both module-level trails (operator commands, pre-arm decisions) are stamped
+    through the same provider, read at record time, so swapping the backend
+    changes the label on the very next entry rather than being frozen at import.
+    """
+    for backend, fidelity in (("sim", "kinematic"), ("px4", "px4-sitl")):
+        patched_manager(DroneManager(ports=[0], backend=backend))
+        for log in (gcs_main.command_audit, gcs_main.preflight_engine.audit):
+            entry = log.record("test_event", operator="tester")
+            assert entry["backend"] == backend
+            assert entry["fidelity"] == fidelity
+            assert entry["operator"] == "tester"

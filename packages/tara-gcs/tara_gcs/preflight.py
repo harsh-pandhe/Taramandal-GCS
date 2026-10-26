@@ -329,12 +329,28 @@ class AuditLog:
     entries are also kept in memory for the HUD.
     """
 
-    def __init__(self, path: str | None = DEFAULT_AUDIT_PATH, keep_recent: int = 200):
+    def __init__(
+        self,
+        path: str | None = DEFAULT_AUDIT_PATH,
+        keep_recent: int = 200,
+        context: Callable[[], dict] | None = None,
+    ):
         self.path = path
         self.recent: deque[dict] = deque(maxlen=keep_recent)
+        # Fields stamped on every entry (issue #170): the GCS passes the active
+        # simulation backend and fidelity tier, so a log line can never be read
+        # as evidence from the wrong tier. Explicit fields on a record() call
+        # win over the context, and a failing context never loses the entry.
+        self.context = context
 
     def record(self, event: str, **fields) -> dict:
-        entry = {"ts": time.time(), "event": event, **fields}
+        extra: dict = {}
+        if self.context is not None:
+            try:
+                extra = dict(self.context())
+            except Exception:  # an audit trail must survive a bad context provider
+                logger.exception("audit context provider failed; recording without it")
+        entry = {"ts": time.time(), "event": event, **extra, **fields}
         self.recent.append(entry)
         logger.info("AUDIT %s", json.dumps(entry, sort_keys=True, default=str))
         if self.path:
