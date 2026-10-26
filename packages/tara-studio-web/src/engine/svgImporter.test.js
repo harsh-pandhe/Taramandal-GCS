@@ -430,3 +430,99 @@ describe('svgImporter: strict semantics, nested group transforms and viewBox map
     expect(() => svgToFormation('dandiya_sticks', 100)).toThrow(/exceeding site limits/i);
   });
 });
+
+describe('svgImporter: hidden and non-rendered geometry (issue #122/#146 review)', () => {
+  // A visible square (bbox 10..60) plus a decoy square (bbox 70..95) that no
+  // renderer would ever draw - mirrors the 10-23 release review's own fixture.
+  const visibleSquare = 'M 10 10 L 60 10 L 60 60 L 10 60 Z';
+  const decoySquare = 'M 70 70 L 95 70 L 95 95 L 70 95 Z';
+  const bbox = (contours) => {
+    let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+    for (const c of contours) {
+      for (const p of c) {
+        minX = Math.min(minX, p.x); maxX = Math.max(maxX, p.x);
+        minY = Math.min(minY, p.y); maxY = Math.max(maxY, p.y);
+      }
+    }
+    return { minX, maxX, minY, maxY };
+  };
+  const onlyTheVisibleSquare = { minX: 10, maxX: 60, minY: 10, maxY: 60 };
+
+  it('skips geometry inside <defs> - only <use> ever draws it, and <use> is forbidden', () => {
+    const svg = `<svg viewBox="0 0 100 100">
+      <path d="${visibleSquare}" />
+      <defs><path d="${decoySquare}" /></defs>
+    </svg>`;
+    const contours = parseSvgToContours(svg);
+    expect(contours).toHaveLength(1);
+    expect(bbox(contours)).toEqual(onlyTheVisibleSquare);
+  });
+
+  it.each([
+    ['display="none"', 'display="none"'],
+    ['style="display:none"', 'style="display: none"'],
+    ['visibility="hidden"', 'visibility="hidden"'],
+    ['opacity="0"', 'opacity="0"'],
+  ])('skips a decoy element hidden with %s', (_label, attr) => {
+    const svg = `<svg viewBox="0 0 100 100">
+      <path d="${visibleSquare}" />
+      <path d="${decoySquare}" ${attr} />
+    </svg>`;
+    const contours = parseSvgToContours(svg);
+    expect(contours).toHaveLength(1);
+    expect(bbox(contours)).toEqual(onlyTheVisibleSquare);
+  });
+
+  it('skips every child of a hidden group (<g display="none">), including nested groups inside it', () => {
+    const svg = `<svg viewBox="0 0 100 100">
+      <path d="${visibleSquare}" />
+      <g display="none">
+        <g><path d="${decoySquare}" /></g>
+      </g>
+    </svg>`;
+    const contours = parseSvgToContours(svg);
+    expect(contours).toHaveLength(1);
+    expect(bbox(contours)).toEqual(onlyTheVisibleSquare);
+  });
+
+  it('still rejects an unsupported element when it would actually render', () => {
+    expect(() => parseSvgToContours('<svg><path d="M 0 0 L 10 10" /><rect x="70" y="70" width="25" height="25"/></svg>'))
+      .toThrow(/unsupported svg element '<rect>'/i);
+  });
+
+  it('does not reject an unsupported element when it is hidden - it can never render either way', () => {
+    const svg = `<svg viewBox="0 0 100 100">
+      <path d="${visibleSquare}" />
+      <rect x="70" y="70" width="25" height="25" display="none" />
+    </svg>`;
+    expect(() => parseSvgToContours(svg)).not.toThrow();
+  });
+});
+
+describe('svgImporter: nested <svg> rejection (issue #122/#146 review)', () => {
+  it('rejects a nested <svg transform="...">, rather than letting it mutate the base transform', () => {
+    const svg = `<svg viewBox="0 0 200 200">
+      <path d="M 10 10 L 20 10" />
+      <svg transform="translate(50,0)"><path d="M 70 70 L 95 70" /></svg>
+    </svg>`;
+    expect(() => parseSvgToContours(svg)).toThrow(/nested <svg>/i);
+  });
+
+  it('rejects a nested <svg> even with no transform of its own', () => {
+    const svg = '<svg viewBox="0 0 100 100"><path d="M 0 0 L 10 10" /><svg><path d="M 20 20 L 30 30" /></svg></svg>';
+    expect(() => parseSvgToContours(svg)).toThrow(/nested <svg>/i);
+  });
+});
+
+describe('svgImporter: linear-time tag scan (issue #122/#146 review)', () => {
+  it('fails fast on a long unterminated tag at the 500,000-character size limit, instead of backtracking quadratically', () => {
+    // The previous tagRegex took ~0.57s at 50k unterminated characters and
+    // 7.9s at 200k (release review, 2026-10-23) - quadratic growth that
+    // extrapolates to tens of seconds at this 500,000-character ceiling.
+    const unterminated = `<tag${' '.repeat(499_990)}`;
+    expect(unterminated.length).toBeLessThanOrEqual(500_000);
+    const start = performance.now();
+    expect(() => parseSvgToContours(unterminated)).toThrow();
+    expect(performance.now() - start).toBeLessThan(2000);
+  });
+});

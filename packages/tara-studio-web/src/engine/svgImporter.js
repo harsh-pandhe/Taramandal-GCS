@@ -11,6 +11,13 @@ export const MIN_DESIGN_SPACING_M = 2.0;
 export const SITE_RADIUS_M = 30.0;
 export const MAX_ALTITUDE_M = 120.0;
 
+// Known over-rejection (issue #122/#146 review, documented rather than fixed -
+// relaxing it is a grammar change, out of scope for a fail-closed importer):
+// `/<!DOCTYPE/i` and `/SYSTEM/i` match ANY occurrence of that text, including
+// inside a `<title>`/`<desc>` string that has nothing to do with XML's actual
+// DOCTYPE/external-entity syntax (e.g. a title literally containing the word
+// "System"). Accepted as a safe false-positive: it can only ever reject a
+// safe file, never admit an unsafe one.
 const FORBIDDEN_PATTERNS = [
   /<script/i,
   /<foreignobject/i,
@@ -336,6 +343,26 @@ function parseAttributes(attrStr) {
 }
 
 /**
+ * True when an element carries any of the standard ways SVG hides content
+ * from rendering without removing it (issue #122/#146 review): the
+ * `display`/`visibility`/`opacity` attributes, or the same properties in an
+ * inline `style`. An importer that ignores these would silently import
+ * geometry that no renderer ever draws.
+ */
+function isHiddenAttrs(attrs) {
+  if (attrs.display !== undefined && attrs.display.trim().toLowerCase() === 'none') return true;
+  if (attrs.visibility !== undefined && attrs.visibility.trim().toLowerCase() === 'hidden') return true;
+  if (attrs.opacity !== undefined && Number(attrs.opacity) === 0) return true;
+  if (attrs.style) {
+    const style = attrs.style.toLowerCase();
+    if (/display\s*:\s*none\b/.test(style)) return true;
+    if (/visibility\s*:\s*hidden\b/.test(style)) return true;
+    if (/opacity\s*:\s*0(?:\.0+)?\b/.test(style)) return true;
+  }
+  return false;
+}
+
+/**
  * Extracts 2D contours from safe SVG elements, applying nested group transforms and viewBox mapping.
  */
 export function parseSvgToContours(svgText) {
@@ -408,15 +435,37 @@ export function parseSvgToContours(svgText) {
     };
   };
 
-  // Tag regex to iterate hierarchically over elements and maintain transform stack
+  // Tag regex to iterate hierarchically over elements and maintain transform stack.
+  // A single greedy [^>]* (no nested optional \s+ prefix) backtracks by at most
+  // one character for the trailing self-closing '/' - the previous
+  // ((?:\s+[^>]*?)?) shape backtracked the lazy [^>]*? against every length the
+  // greedy \s+ gave up, which is quadratic on a long unterminated tag (issue
+  // #122/#146 review: 50k spaces took 0.57s, 200k took 7.9s on the main thread).
   const textWithoutComments = clean.replace(/<!--[\s\S]*?-->/g, '');
-  const tagRegex = /<(\/)?([a-zA-Z0-9:-]+)((?:\s+[^>]*?)?)(\/?)>/g;
+  const tagRegex = /<(\/)?([a-zA-Z0-9:-]+)([^>]*)(\/?)>/g;
   const transformStack = [[...IDENTITY_MATRIX]];
   const currentMatrix = () => transformStack[transformStack.length - 1];
 
   const SUPPORTED_DRAWABLE = new Set(['path', 'polygon', 'polyline']);
   const UNSUPPORTED_GEOMETRY = new Set(['rect', 'circle', 'ellipse', 'line', 'text', 'mesh']);
-  const STRUCTURAL = new Set(['svg', 'g', 'defs', 'title', 'desc', 'metadata']);
+  // metadata is accepted as an inert, opaque container, same as title/desc -
+  // its typical content (e.g. Inkscape/Illustrator's <rdf:RDF> license/
+  // authorship blocks) uses element names outside this importer's safe
+  // subset and is rejected like any other unsupported element (issue
+  // #122/#146 review: documented over-rejection, not a new metadata
+  // grammar - out of scope for a fail-closed importer).
+  const STRUCTURAL = new Set(['svg', 'g', 'title', 'desc', 'metadata']);
+
+  // >0 while scanning inside a <defs> block or a hidden (display:none /
+  // visibility:hidden / opacity:0) subtree. <defs> content is only ever
+  // drawn via <use>, which FORBIDDEN_PATTERNS bans outright, so nothing
+  // inside it can ever be rendered; a hidden subtree is the same - never
+  // visible, whatever element names it contains. Skipping it entirely (not
+  // just the drawable children) means a hidden <rect> or other element
+  // outside the safe subset doesn't get rejected either, since it has zero
+  // rendering impact regardless (issue #122/#146 review).
+  let suppressDepth = 0;
+  let sawRootSvg = false;
 
   let match;
   while ((match = tagRegex.exec(textWithoutComments)) !== null) {
@@ -424,6 +473,12 @@ export function parseSvgToContours(svgText) {
     const tagName = match[2].toLowerCase();
     const attrsStr = match[3] || '';
     const isSelfClosing = match[4] === '/';
+
+    if (suppressDepth > 0) {
+      if (isClosing) suppressDepth--;
+      else if (!isSelfClosing) suppressDepth++;
+      continue;
+    }
 
     if (isClosing) {
       if (tagName === 'g' || tagName === 'svg') {
@@ -436,6 +491,26 @@ export function parseSvgToContours(svgText) {
       continue;
     }
 
+    if (tagName === 'svg') {
+      // A nested <svg transform="..."> previously mutated transformStack[0]
+      // (the base transform) unconditionally, shifting every sibling parsed
+      // after it; its own close also risked popping an unrelated ancestor
+      // <g>'s matrix early, since nothing pushed for the nested <svg> itself.
+      // Rejecting it outright is simpler and safer than scoping a second,
+      // independent viewport (issue #122/#146 review).
+      if (sawRootSvg) {
+        throw new Error('Nested <svg> elements are not supported.');
+      }
+      sawRootSvg = true;
+    }
+
+    const attrs = parseAttributes(attrsStr);
+
+    if (tagName === 'defs' || isHiddenAttrs(attrs)) {
+      if (!isSelfClosing) suppressDepth = 1;
+      continue;
+    }
+
     if (UNSUPPORTED_GEOMETRY.has(tagName)) {
       throw new Error(`Unsupported SVG element '<${tagName}>'. Supported drawable elements are <path>, <polygon>, and <polyline>.`);
     }
@@ -444,7 +519,6 @@ export function parseSvgToContours(svgText) {
       throw new Error(`Unsupported SVG element '<${tagName}>'.`);
     }
 
-    const attrs = parseAttributes(attrsStr);
     let elemMatrix = [...IDENTITY_MATRIX];
     if (attrs.transform) {
       const parsedFn = parseTransform(attrs.transform);
