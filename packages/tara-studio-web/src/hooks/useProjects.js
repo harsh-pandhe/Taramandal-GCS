@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { defaultFleet } from './useFleet.js';
-import { makeScene } from '../engine/sequencer.js';
+import { makeScene, MIN_CERTIFIABLE_RATE_HZ } from '../engine/sequencer.js';
 import {
   DEFAULT_PROJECT_NAME, createProjectVault, createVaultClient,
 } from '../engine/projectVault.js';
@@ -80,7 +80,10 @@ export default function useProjects(bindings) {
       const normalized = {
         name: project.name,
         scenes: project.scenes?.length ? project.scenes : [makeScene({ name: 'Scene 1' })],
-        rate: project.rate ?? 4,
+        // issue #160: only the *default* for a project saved without its own
+        // rate - an existing saved project keeps whatever rate it was built
+        // at, same as every other field here.
+        rate: project.rate ?? MIN_CERTIFIABLE_RATE_HZ,
         dronesList: project.dronesList?.length ? project.dronesList : defaultFleet(6),
         homeLat: project.homeLat ?? 12.9716,
         homeLon: project.homeLon ?? 77.5946,
