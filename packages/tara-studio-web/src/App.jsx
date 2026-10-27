@@ -133,12 +133,29 @@ export default function App() {
   // project did not come with its built show. An unreachable vault still
   // boots, so the demo show builds either way.
   const builtOnStartup = useRef(false);
+  // Issue #132 self-review, 2026-10-28: an empty/unreachable vault's own
+  // saved-changes baseline is set before this build runs (nothing to build
+  // from yet), so the auto-built demo show below always looked like an
+  // unsaved edit - the "Unsaved" badge showed on cold load, before the
+  // operator had done anything. True once the startup build has happened
+  // and is now waiting for its background validation to settle, so the
+  // baseline can be re-marked including both.
+  const awaitingStartupValidation = useRef(false);
   useEffect(() => {
     if (!projects.booted || builtOnStartup.current) return;
     builtOnStartup.current = true;
-    if (!choreoData) handleBuild();
+    if (!choreoData) {
+      awaitingStartupValidation.current = true;
+      handleBuild();
+    }
     /* eslint-disable-next-line react-hooks/exhaustive-deps */
   }, [projects.booted]);
+  useEffect(() => {
+    if (!awaitingStartupValidation.current || validation === null) return;
+    awaitingStartupValidation.current = false;
+    projects.markSaved();
+    /* eslint-disable-next-line react-hooks/exhaustive-deps */
+  }, [validation, projects.markSaved]);
 
   // Another browser may have saved since this one listed the vault.
   const refreshVault = projects.refresh;

@@ -143,6 +143,15 @@ export default function useProjects(bindings) {
   );
   const retry = useCallback(() => vault.retry(snapshot()).then(settle), [vault, snapshot, settle]);
 
+  // For App.jsx's own startup auto-build (issue #132 visual testing, 2026-10-28
+  // self-review): the vault's own baseline is set *before* that build runs
+  // (an empty/unreachable vault resolves with no editor, so nothing to build
+  // from), so the auto-built demo show always looked like an unsaved edit -
+  // "Unsaved" on cold load, before the operator has done anything. App.jsx
+  // calls this once the startup build (and its async validation) has
+  // settled, to fold that auto-built content into the baseline instead.
+  const markSaved = useCallback(() => { rememberSaved(snapshot()); }, [rememberSaved, snapshot]);
+
   // Unsaved-changes indicator (issue #132). Reactive on the actual saveable
   // fields only - not on bindings as a whole, so it doesn't recompute on
   // every unrelated render, e.g. the playhead advancing during playback.
@@ -174,6 +183,7 @@ export default function useProjects(bindings) {
     error: vaultState.error,
     booted,
     isDirty,
+    markSaved,
     retry,
     refresh: vault.refresh,
   };
