@@ -250,6 +250,11 @@ export default function App() {
 
         {activePage === 'choreo' && (
           <>
+            {/* Issue #132 review (Harsh): unmounting ConsoleDrawer here drops its
+                local state too - e.g. the preview-export status and the GCS
+                sign-in status in the Transmit tab reset once full-screen exits.
+                Acceptable for a demo toggle entered/exited within one session;
+                revisit if full-screen starts being used mid-transmit. */}
             {!fullScreenPreview && (
               <ConsoleDrawer
                 open={drawerOpen}

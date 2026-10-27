@@ -39,8 +39,18 @@ export default function useProjects(bindings) {
   // re-render, so isDirty would stay stuck at its last computed value
   // forever after a save, only catching up by accident on some unrelated
   // re-render.
-  const [lastSavedJson, setLastSavedJson] = useState(null);
-  const rememberSaved = useCallback((snap) => { setLastSavedJson(JSON.stringify(snap)); }, []);
+  //
+  // Holds the snapshot object itself, not a JSON.stringify of it (issue #132
+  // review, Harsh): every setter that can change scenes/dronesList/choreoData/
+  // validation goes through useSceneList/useFleet/useShowBuilder, all of
+  // which replace the value with a new reference rather than mutating it in
+  // place (the undo/redo history in useSceneList/useFleet requires this
+  // already). isDirty can therefore compare each field by `!==` instead of by
+  // content, which costs nothing proportional to size - at 500-1000 drones a
+  // round-trip JSON.stringify of choreoData+validation measured 130-400ms,
+  // enough to be felt on every build/validate.
+  const [lastSaved, setLastSaved] = useState(null);
+  const rememberSaved = useCallback((snap) => { setLastSaved(snap); }, []);
 
   // Vault operations finish after the render that started them; they read the
   // editor through this so they see its state as of the call, not a stale one.
@@ -134,25 +144,24 @@ export default function useProjects(bindings) {
   const retry = useCallback(() => vault.retry(snapshot()).then(settle), [vault, snapshot, settle]);
 
   // Unsaved-changes indicator (issue #132). Reactive on the actual saveable
-  // fields only - not on bindings as a whole, so it doesn't recompute (and
-  // re-stringify a potentially large choreoData) on every unrelated render,
-  // e.g. the playhead advancing during playback.
+  // fields only - not on bindings as a whole, so it doesn't recompute on
+  // every unrelated render, e.g. the playhead advancing during playback.
+  // Each field is compared by reference (see lastSaved's comment above),
+  // not content, so this costs nothing proportional to show size.
   const isDirty = useMemo(() => {
-    if (!booted || lastSavedJson === null) return false;
-    const current = JSON.stringify({
-      name: projectName,
-      scenes: bindings.scenes,
-      rate: bindings.rate,
-      homeLat: bindings.homeLat,
-      homeLon: bindings.homeLon,
-      dronesList: bindings.dronesList,
-      choreoData: bindings.choreoData,
-      validation: bindings.validation,
-    });
-    return current !== lastSavedJson;
-    /* eslint-disable-next-line react-hooks/exhaustive-deps */
+    if (!booted || lastSaved === null) return false;
+    return (
+      projectName !== lastSaved.name
+      || bindings.scenes !== lastSaved.scenes
+      || bindings.rate !== lastSaved.rate
+      || bindings.homeLat !== lastSaved.homeLat
+      || bindings.homeLon !== lastSaved.homeLon
+      || bindings.dronesList !== lastSaved.dronesList
+      || bindings.choreoData !== lastSaved.choreoData
+      || bindings.validation !== lastSaved.validation
+    );
   }, [
-    booted, lastSavedJson, projectName, bindings.scenes, bindings.rate, bindings.homeLat,
+    booted, lastSaved, projectName, bindings.scenes, bindings.rate, bindings.homeLat,
     bindings.homeLon, bindings.dronesList, bindings.choreoData, bindings.validation,
   ]);
 
