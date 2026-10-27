@@ -58,7 +58,7 @@ from tara_studio.voxelizer import (
     voxelize,
 )
 from tara_core import DEFAULT_LIMITS, MAX_FLEET_SIZE
-from tara_core.validate import altitude_errors, collision_errors
+from tara_core.validate import altitude_errors
 from tara_core.assignment import optimal_assignment
 
 app = FastAPI(title="Taramandal Studio Choreography Engine", version="1.0.0")
@@ -697,32 +697,83 @@ def api_export(req: ExportRequest):
             blob = export_tara(choreo, rate_hz)
         except ValueError as e:
             raise HTTPException(status_code=400, detail=f"Cannot compile .tara: {e}")
-        # Issue #157: the certification above ran on `choreo` as given, before
-        # .tara's own int16-centimetre packing (export_tara's _clamp_i16). That
-        # packing is
-        # a second, independent rounding pass on top of whatever the caller
-        # already applied (or didn't): a pair a hair over 2.0 m pre-encode can
-        # come back under it once actually quantized to the centimetre. Direct
-        # review finding: a real 2.0004 m pair exported and decoded from the
-        # true .tara bytes measured 1.9868 m. So re-check separation on the
-        # exact bytes about to leave the server, not the pre-encode choreo -
-        # separation only (not a full certify_feasibility_report re-run): the
-        # quantization can only move positions, not velocity/accel/yaw/jerk
-        # derived from the unrounded input, and a second full sweep here would
-        # double an already-expensive check.
+        # Issue #157/#175: the certification above ran on `choreo` as given,
+        # before .tara's own int16-centimetre packing (export_tara's
+        # _clamp_i16) - a second, independent rounding pass on top of
+        # whatever the caller already applied (or didn't). #157 found this
+        # could erode separation (a real 2.0004 m pair measured 1.9868 m once
+        # decoded); #175 found the same quantization breaks velocity,
+        # acceleration, yaw rate and jerk the same way, since they're all
+        # equally derived from the (now-moved) positions - repro: a show
+        # certify_feasibility_report passed pre-rounding (max jerk 18.66
+        # m/s^3) decoded to 1 velocity + 3 jerk violations. A
+        # separation-only re-check (the pre-#175 version of this code)
+        # missed that class entirely. Re-run the full canonical
+        # certification on the exact bytes about to leave the server, not
+        # the pre-encode choreo - the one extra sweep this costs is recorded
+        # against #173/#156 per Harsh's own triage on #175, not avoided here.
         try:
             exported_show = parse_tara(blob)
         except ValueError as e:
             raise HTTPException(status_code=412, detail=f"Export blocked: could not verify compiled .tara: {e}")
-        quantized_issues = collision_errors(
-            exported_show, limits=DEFAULT_LIMITS, separation=DEFAULT_LIMITS.design_separation_m,
-        )
-        if quantized_issues:
+        # Altitude/ground checked explicitly too, matching this endpoint's
+        # own pre-rounding pattern above (an unconditional, independently-
+        # checked physical limit, not folded into the choreography-quality
+        # certification bundle) - redundant with what
+        # certify_feasibility_report's validate_show call already covers
+        # (verified directly: both use the same exact, waypoint-direct
+        # _altitude_extremes, not a coarser time sweep), kept for
+        # consistency with that existing pattern rather than assumed needed.
+        #
+        # Both calls wrapped the same way the pre-rounding checks above are:
+        # `exported_show` is parse_tara's own output, not arbitrary input, so
+        # an exception here is unlikely - but this is a safety gate on bytes
+        # about to leave the server, and the established pattern in this
+        # function is to fail closed (412) rather than let the validator
+        # raise a bare 500 in that unlikely case.
+        try:
+            rounded_altitude_issues = altitude_errors(exported_show, limits=DEFAULT_LIMITS)
+        except Exception as e:
+            raise HTTPException(
+                status_code=412,
+                detail=f"Export blocked: could not re-verify the compiled .tara's altitude: {e}",
+            )
+        if rounded_altitude_issues:
             raise HTTPException(
                 status_code=412,
                 detail={
-                    "message": "Export blocked: centimetre rounding in the compiled .tara brought two drones under the minimum design separation.",
-                    "errors": quantized_issues,
+                    "message": "Export blocked: centimetre rounding in the compiled .tara brought the show over the altitude ceiling or below ground.",
+                    "errors": rounded_altitude_issues,
+                },
+            )
+        try:
+            rounded_is_certified, rounded_report = certify_feasibility_report(exported_show)
+        except Exception as e:
+            raise HTTPException(
+                status_code=412,
+                detail=f"Export blocked: could not re-certify the compiled .tara: {e}",
+            )
+        # Same preview/flight asymmetry as the pre-rounding gate above
+        # (preview is exempt from jerk, never from core safety) - applied
+        # again here rather than assumed to still hold, since this is a
+        # second, independent certification call.
+        rounded_core_violations = {k: v for k, v in rounded_report.get("violations", {}).items() if k != "jerk"}
+        rounded_core_passed = not any(rounded_core_violations.values())
+        if req.preview_only:
+            if not rounded_core_passed:
+                raise HTTPException(
+                    status_code=412,
+                    detail={
+                        "message": "Preview blocked: centimetre rounding in the compiled .tara broke core safety validation.",
+                        "validation": rounded_report,
+                    },
+                )
+        elif not rounded_is_certified:
+            raise HTTPException(
+                status_code=412,
+                detail={
+                    "message": "Export blocked: centimetre rounding in the compiled .tara broke safety or jerk certification.",
+                    "validation": rounded_report,
                 },
             )
         filename = "PREVIEW_ONLY_choreography.tara" if req.preview_only else "choreography.tara"
