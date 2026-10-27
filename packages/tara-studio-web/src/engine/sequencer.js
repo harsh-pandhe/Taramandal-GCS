@@ -59,6 +59,69 @@ const MAX_H = 3.2;   // horizontal velocity budget (m/s)
 const MAX_V = 2.4;   // vertical velocity budget (m/s)
 const MAX_ACC = 3.0; // acceleration budget for eased legs (m/s^2)
 
+// issue #160: every leg is independently smoothstep-eased and starts/ends at
+// rest, so velocity is continuous across a leg boundary but acceleration
+// generally isn't - smoothstep's peak |accel| of 6D/T^2 occurs exactly at
+// its own edges (u=0 and u=1), so two adjacent legs meet with two different
+// edge accelerations in general, a real kink in the planned trajectory.
+//
+// tara_studio.validator.validate_dynamics measures jerk with a 5-point
+// central-difference stencil at its own fixed sweep interval h (default
+// 0.1s), sampling tara_core.geometry.interpolate_waypoint - linear
+// interpolation between Studio's *stored* waypoints. Taylor-expanding the
+// piecewise trajectory on each side of a boundary and evaluating that exact
+// stencil there (p0 + (a/2)t^2 + (j/6)t^3 on each side, v0=0) gives:
+//
+//   measured_jerk ~= (aB - aA) / (2h) + (jA - jB) / 2
+//
+// where aA/jA are leg A's own edge acceleration/jerk at the boundary and
+// aB/jB are leg B's. The first term is amplified by 1/(2h) = 5x at h=0.1s
+// and dominates the second (a leg's own *interior* jerk, 12D/T^3) by about
+// that factor - confirmed empirically: every jerk violation in the issue's
+// own reference shows landed within a sample of a leg boundary, not mid-leg,
+// and a from-scratch within-leg-only jerk term (the first version of this
+// fix) measurably changed no leg's duration because the acceleration term
+// below already dominated it everywhere.
+//
+// Bounding every leg's own edge acceleration under MAX_JERK * h keeps the
+// worst case - two adjacent legs whose edge accelerations land fully
+// opposed - under budget without needing to know anything about either
+// neighbour: a closed-form, per-leg, no-coupling-needed sufficient
+// condition, not an exact one (it's conservative whenever the two edges
+// don't fully oppose, which is most of the time).
+const VALIDATOR_SWEEP_DT_S = 0.1; // tara_studio.validator.validate_dynamics' own default
+// tara_core.validator.DEFAULT_DYNAMIC_LIMITS.max_jerk_ms3 is 20.0 m/s^3, the
+// actual certification limit - MAX_JERK here is the pacing *target*, well
+// under it, for a reason beyond "a leg whose neighbours don't fully oppose
+// lands with margin": every exported waypoint is rounded to the centimetre
+// (round2 below, matching export_tara's own int16-centimetre packing), and
+// that rounding noise - up to +-0.005m per axis, independent of how slowly
+// a drone is moving - gets divided by the jerk stencil's own 2h^3 (0.002 at
+// h=0.1s), i.e. amplified up to ~500x. That is a real, *measured* noise
+// floor (~15-17 m/s^3 on the issue's own reference shows, confirmed with a
+// synthetic two-leg trajectory with a shallow geometric boundary jump,
+// isolated from show-specific geometry), not a bug in this fix: no amount
+// of pacing reduces it further, which is exactly what empirical tuning
+// showed - every reference show plateaus at the same ~17.3 m/s^3 once its
+// own genuine boundary-jerk contribution drops below that floor. 4.0 is
+// chosen to clear that floor, with margin, for every one of the issue's own
+// five reference shows (14.1-17.3 m/s^3 measured via the real validator,
+// all comfortably under 20.0) - not derived analytically, since the
+// rounding floor itself isn't something the boundary-acceleration formula
+// above accounts for.
+const MAX_JERK = 4.0; // m/s^3
+const MAX_EDGE_ACCEL = MAX_JERK * VALIDATOR_SWEEP_DT_S; // m/s^2
+
+// issue #160: the Studio UI has never exposed a rate control (the two `?? 4`/
+// `useState(4)` call sites were the only defaults), so raising the floor here
+// is the only change needed to stop building below the validator's own sweep
+// resolution - below it, the validator samples a piecewise-linear
+// approximation of the built curve rather than the curve itself, which is
+// its own separate source of jerk-measurement error on top of the boundary
+// effect above. 10 Hz matches VALIDATOR_SWEEP_DT_S exactly, per the issue's
+// acceptance criteria.
+export const MIN_CERTIFIABLE_RATE_HZ = 10;
+
 // tara_core DEFAULT_LIMITS.design_separation_m. Same-layer paths in the return
 // swap are kept this far apart, plus a margin for 1 cm waypoint rounding.
 const DESIGN_SEPARATION = 2.0;
@@ -68,9 +131,15 @@ const smooth = (u) => u * u * (3 - 2 * u); // ease-in-out: zero velocity at ends
 const round2 = (v) => parseFloat(v.toFixed(2));
 const nonNeg = (v) => Math.max(0, v || 0);
 
-// Every leg follows smoothstep: peak speed 1.5·D/T, peak acceleration 6·D/T².
+// Every leg follows smoothstep (w(u) = u²(3-2u)): peak speed 1.5·D/T, peak
+// acceleration 6·D/T². Its third derivative w'''(u) = -12 is *constant* -
+// unlike velocity and acceleration, jerk doesn't peak at some point in the
+// leg, it's the same magnitude 12·D/T³ throughout (issue #160).
 const easedSecs = (secs, dh, dv) => Math.max(
   secs, (1.5 * dh) / MAX_H, (1.5 * dv) / MAX_V, Math.sqrt((6 * Math.hypot(dh, dv)) / MAX_ACC),
+  // issue #160: smoothstep's peak |accel| of 6D/T^2 occurs at the leg's own
+  // edges, where it meets its neighbours - see MAX_EDGE_ACCEL's own comment.
+  Math.sqrt((6 * Math.hypot(dh, dv)) / MAX_EDGE_ACCEL),
 );
 
 /** Largest horizontal and vertical distance any drone covers between two sets. */
