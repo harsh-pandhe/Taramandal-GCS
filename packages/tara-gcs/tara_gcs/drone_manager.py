@@ -1445,6 +1445,14 @@ class DroneManager:
         except Exception as e:
             logging.warning(f"Safe-recovery disarm attempt {context} for drone {drone_id}: {e}")
 
+    # issue #145 review (Harsh, real PX4 SITL + Gazebo, 2026-10-27): the
+    # single-drone climb's stall detection. Class attributes (not method
+    # locals) so tests can monkeypatch a short SINGLE_DRONE_CLIMB_STALL_WINDOW_S
+    # instead of waiting out the real one.
+    SINGLE_DRONE_CLIMB_STALL_WINDOW_S = 10.0  # > the worst liftoff delay observed (7.5s)
+    SINGLE_DRONE_CLIMB_LIFTOFF_MARGIN_S = 15.0
+    SINGLE_DRONE_CLIMB_MIN_RATE_M_S = 0.15  # conservative floor under the ~0.2 m/s observed on real PX4
+
     async def execute_single_drone_demo_sequence(
         self,
         drone_id: int = 0,
@@ -1551,15 +1559,38 @@ class DroneManager:
         # observed altitude rather than a fixed sleep (issue #145 review,
         # item 3): a fixed delay says nothing about whether the climb
         # actually reached, overshot or stalled short of the target.
+        #
+        # issue #145 review (Harsh, first real PX4 SITL + Gazebo run,
+        # 2026-10-27): the original deadline (target_alt_m / 0.5 + 5.0s)
+        # assumed climbing starts immediately at 0.5 m/s. Real PX4 spends
+        # ~4.6-7.5s on arm/spool-up/takeoff ramp before it moves at all, then
+        # climbs at ~0.2 m/s - tara_sim has no such delay and climbs faster,
+        # which is why CI never caught this. A 1m/5s-hold request failed
+        # twice ("observed 0.80 m", "observed 0.74 m") purely because the
+        # deadline ran out while the vehicle was still genuinely climbing.
+        #
+        # Replaced with stall detection: keep waiting as long as altitude is
+        # still making progress toward the target, fail only once there has
+        # been no progress for SINGLE_DRONE_CLIMB_STALL_WINDOW_S - bounded by
+        # a generous overall ceiling so a vehicle that never lifts off at all
+        # still fails closed. The stall window is longer than the worst
+        # liftoff delay observed (7.5s) specifically so the legitimate
+        # pre-liftoff pause is never itself mistaken for a stall.
         alt_tolerance_m = max(0.15, 0.1 * target_alt_m)
-        climb_time = max(0.5, target_alt_m / 0.5)
+        stall_window_s = self.SINGLE_DRONE_CLIMB_STALL_WINDOW_S
+        climb_ceiling_s = (
+            self.SINGLE_DRONE_CLIMB_LIFTOFF_MARGIN_S
+            + target_alt_m / self.SINGLE_DRONE_CLIMB_MIN_RATE_M_S
+        )
         try:
             await drone.offboard.set_position_ned(PositionNedYaw(0.0, 0.0, 0.0, 0.0))
             await drone.offboard.start()
             await drone.offboard.set_position_ned(PositionNedYaw(0.0, 0.0, -target_alt_m, 0.0))
             hover_reached = False
-            climb_deadline = time.time() + climb_time + 5.0
-            while time.time() < climb_deadline:
+            climb_start = time.time()
+            best_z = tel.get("local_z", 0.0)
+            best_z_at = climb_start
+            while time.time() - climb_start < climb_ceiling_s:
                 if self._emergency_in_progress():
                     raise RuntimeError(
                         f"Drone {drone_id}: yielding to fleet emergency state "
@@ -1570,14 +1601,26 @@ class DroneManager:
                 last_hb = tel.get("last_heartbeat")
                 if last_hb is None or (time.time() - last_hb) > 2.5:
                     raise RuntimeError(f"Drone {drone_id} telemetry became stale during climb")
-                if abs(tel.get("local_z", 0.0) - target_alt_m) <= alt_tolerance_m:
+                current_z = tel.get("local_z", 0.0)
+                if abs(current_z - target_alt_m) <= alt_tolerance_m:
                     hover_reached = True
                     break
+                # A small deadband against ordinary telemetry noise, so tiny
+                # jitter around a genuinely stalled altitude doesn't keep
+                # resetting the stall clock.
+                if current_z > best_z + 0.02:
+                    best_z = current_z
+                    best_z_at = time.time()
+                elif time.time() - best_z_at > stall_window_s:
+                    raise RuntimeError(
+                        f"Drone {drone_id} climb stalled: no altitude progress toward "
+                        f"{target_alt_m} m for {stall_window_s:.0f}s (observed {current_z:.2f} m)"
+                    )
                 await asyncio.sleep(0.1)
             if not hover_reached:
                 raise RuntimeError(
                     f"Drone {drone_id} did not reach {target_alt_m} m within "
-                    f"{climb_time + 5.0:.1f}s (observed {tel.get('local_z', 0.0):.2f} m)"
+                    f"{climb_ceiling_s:.1f}s (observed {tel.get('local_z', 0.0):.2f} m)"
                 )
             steps.append({
                 "step": "HOVER_REACHED",

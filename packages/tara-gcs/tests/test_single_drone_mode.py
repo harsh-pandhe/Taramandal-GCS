@@ -575,8 +575,14 @@ async def test_single_drone_climb_stall_fails_closed_and_recovers(commander, pat
     vehicle) must be detected and fail closed, rather than a fixed sleep
     reporting HOVER_REACHED regardless. Since arm() already succeeded by
     this point, the failure must also attempt a safe recovery rather than
-    leaving the vehicle armed."""
+    leaving the vehicle armed.
+
+    issue #145 review (Harsh, real PX4, 2026-10-27): the climb no longer
+    fails on a fixed deadline but on stalled progress (see
+    DroneManager.SINGLE_DRONE_CLIMB_STALL_WINDOW_S); shrink that window here
+    so this test doesn't have to wait out the real 10s to prove it."""
     manager = patched_manager(DroneManager(ports=[14540], backend="sim"))
+    monkeypatch.setattr(manager, "SINGLE_DRONE_CLIMB_STALL_WINDOW_S", 0.5)
     try:
         await manager.connect_all()
         # 0.3s is tara_sim's own DEFAULT_ARMABLE_DELAY_S; 0.5s clears it with
@@ -606,8 +612,46 @@ async def test_single_drone_climb_stall_fails_closed_and_recovers(commander, pat
                 operator=commander,
             )
         assert exc.value.status_code == 500
-        assert "did not reach" in exc.value.detail
+        assert "climb stalled" in exc.value.detail
         assert recover_calls == ["after a failed climb"]
+    finally:
+        await manager.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_single_drone_climb_tolerates_delayed_liftoff_and_slow_climb(commander, patched_manager, monkeypatch):
+    """issue #145 review (Harsh, real PX4 SITL + Gazebo, 2026-10-27): real
+    PX4 spends several seconds arming/spooling up before it moves at all,
+    then climbs at ~0.2 m/s - both slower than the old fixed-deadline
+    formula (target_alt_m / 0.5 + 5.0s) assumed, which is why a genuinely
+    still-climbing vehicle twice got reported as having failed to reach the
+    target. The new stall-progress check must tolerate a liftoff delay and a
+    slow, but still genuinely progressing, climb - and must still reach
+    HOVER_REACHED, not time out."""
+    manager = patched_manager(DroneManager(ports=[14540], backend="sim"))
+    try:
+        await manager.connect_all()
+        await asyncio.sleep(0.5)
+
+        target_alt = 1.0
+        liftoff_delay_s = 6.0  # within the observed 4.6-7.5s real-PX4 range
+        climb_rate_m_s = 0.2   # the real-PX4 rate observed, not tara_sim's faster one
+        start = time.monotonic()
+        original_ingest = manager._ingest_bulk_telemetry
+        def slow_real_px4_climb(snap, include_slow):
+            original_ingest(snap, include_slow)
+            elapsed = time.monotonic() - start
+            climbing_for = max(0.0, elapsed - liftoff_delay_s)
+            simulated_z = min(target_alt, climbing_for * climb_rate_m_s)
+            manager.telemetry[0]["local_z"] = simulated_z
+        monkeypatch.setattr(manager, "_ingest_bulk_telemetry", slow_real_px4_climb)
+
+        result = await gcs_main.run_single_drone_sequence(
+            gcs_main.SingleDroneSequenceRequest(target_altitude_m=target_alt, hover_duration_s=1.0),
+            operator=commander,
+        )
+        hover_reached = next(s for s in result["steps"] if s["step"] == "HOVER_REACHED")
+        assert abs(hover_reached["altitude_m"] - target_alt) <= 0.15
     finally:
         await manager.shutdown()
 
@@ -628,12 +672,19 @@ async def test_single_drone_hover_dwell_fails_closed_on_disconnect(commander, pa
         await asyncio.sleep(0.5)
 
         target_alt = 0.3
+        # Match the climb loop's own break-out tolerance (max(0.15, 0.1 *
+        # target_alt_m)) exactly, not a looser ad-hoc value: a looser
+        # threshold here starts this timer before the climb loop itself
+        # considers the target reached, racing the climb's own stall/ceiling
+        # checks against this test's disconnect injection (issue #145
+        # review, Harsh, 2026-10-27 - flagged as the flakiness root cause).
+        alt_tolerance_m = max(0.15, 0.1 * target_alt)
         original_ingest = manager._ingest_bulk_telemetry
         state = {"first_reached_at": None}
         def disconnect_after_climb(snap, include_slow):
             original_ingest(snap, include_slow)
             tel = manager.telemetry[0]
-            if abs(tel.get("local_z", 0.0) - target_alt) <= 0.2:
+            if abs(tel.get("local_z", 0.0) - target_alt) <= alt_tolerance_m:
                 if state["first_reached_at"] is None:
                     state["first_reached_at"] = time.monotonic()
                 elif time.monotonic() - state["first_reached_at"] > 0.3:
