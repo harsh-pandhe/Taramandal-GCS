@@ -16,7 +16,9 @@ import useShowBuilder from './hooks/useShowBuilder.js';
 import useProjects from './hooks/useProjects.js';
 import useAudioTrack from './hooks/useAudioTrack.js';
 
-import { makeScene, computeShowDuration, buildTimelineSegments } from './engine/sequencer.js';
+import {
+  makeScene, computeShowDuration, buildTimelineSegments, MIN_CERTIFIABLE_RATE_HZ,
+} from './engine/sequencer.js';
 import { ShowRefusalError } from './engine/showErrors.js';
 import { buildColoredChoreo } from './engine/lighting.js';
 import { serializeTrack } from './engine/ledPatterns.js';
@@ -43,7 +45,10 @@ export default function App() {
   const stageCamera = useRef(null);
   const [librarySceneId, setLibrarySceneId] = useState(null);
   const [activeSceneId, setActiveSceneId] = useState(null);
-  const [rate, setRate] = useState(4);
+  // issue #160: below tara_studio.validator.validate_dynamics' own fixed
+  // 10 Hz sweep, the jerk certification measures a linear-interpolation
+  // artifact between sparsely-spaced waypoints, not the curve's real jerk.
+  const [rate, setRate] = useState(MIN_CERTIFIABLE_RATE_HZ);
   const [showPaths, setShowPaths] = useState(true);
   const [lightEffect, setLightEffect] = useState('perDrone');
   const [lightColor, setLightColor] = useState('#38bdf8');

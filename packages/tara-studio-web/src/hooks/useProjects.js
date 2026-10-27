@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { defaultFleet } from './useFleet.js';
-import { makeScene } from '../engine/sequencer.js';
+import { makeScene, MIN_CERTIFIABLE_RATE_HZ } from '../engine/sequencer.js';
 import {
   DEFAULT_PROJECT_NAME, createProjectVault, createVaultClient,
 } from '../engine/projectVault.js';
@@ -59,7 +59,10 @@ export default function useProjects(bindings) {
     if (project) {
       setProjectName(project.name);
       b.setScenes(project.scenes?.length ? project.scenes : [makeScene({ name: 'Scene 1' })]);
-      b.setRate(project.rate ?? 4);
+      // issue #160: only the *default* for a project saved without its own
+      // rate - an existing saved project keeps whatever rate it was built
+      // at, same as every other field here.
+      b.setRate(project.rate ?? MIN_CERTIFIABLE_RATE_HZ);
       b.setDronesList(project.dronesList?.length ? project.dronesList : defaultFleet(6));
       b.setHomeLat(project.homeLat ?? 12.9716);
       b.setHomeLon(project.homeLon ?? 77.5946);
