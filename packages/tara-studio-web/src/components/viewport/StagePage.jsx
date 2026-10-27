@@ -1,6 +1,6 @@
 import { useRef } from 'react';
 import {
-  Compass, Globe, Users, Activity, AlertTriangle, Scan, RotateCcw,
+  Compass, Globe, Users, Activity, AlertTriangle, Scan, RotateCcw, Maximize2, Minimize2,
 } from 'lucide-react';
 import SequencerHeader from '../sequencer/SequencerHeader.jsx';
 import TimelineTrack from '../sequencer/TimelineTrack.jsx';
@@ -8,7 +8,7 @@ import WaveformTrack from '../sequencer/WaveformTrack.jsx';
 import StageViewport3D from './StageViewport3D.jsx';
 import ViewportControls from './ViewportControls.jsx';
 import MatrixView from './MatrixView.jsx';
-import { EmptyState } from '../common/index.jsx';
+import { EmptyState, LoadingState } from '../common/index.jsx';
 
 const VIEWS = [
   { id: '3d', icon: Compass, label: '3D STAGE' },
@@ -23,13 +23,14 @@ export default function StagePage({
   drawerOpen, onOpenDrawer, choreoData, currentTime, lightingOpts,
   dronesList, rate, loading, error, playback, segments, duration, audioPeaks, zoom,
   onScrub, onStep, activeSceneId, onSelectScene, projectId, cameraStore,
+  fullscreen = false, onToggleFullscreen,
 }) {
   const stageRef = useRef(null);
   // The telemetry matrix has no camera, and an empty stage has nothing to frame.
   const noCamera = viewMode === 'matrix' || !choreoData;
 
   return (
-    <main className="studio-viewport">
+    <main className={`studio-viewport${fullscreen ? ' fullscreen-preview' : ''}`}>
       <SequencerHeader {...header} />
 
       <div className="view-mode-tabs-container">
@@ -70,9 +71,20 @@ export default function StagePage({
             <input type="checkbox" checked={showPaths} onChange={(e) => onShowPaths(e.target.checked)} />
             Paths
           </label>
-          {!drawerOpen && (
+          {/* Issue #132: no console to reopen while the sidebar/console are
+              both unmounted for full-screen preview. */}
+          {!drawerOpen && !fullscreen && (
             <button type="button" className="floating-console-btn" onClick={onOpenDrawer}>
               <Activity size={14} /><span>CONSOLE</span>
+            </button>
+          )}
+          {onToggleFullscreen && (
+            <button
+              type="button" className="view-tab fullscreen-toggle-btn" onClick={onToggleFullscreen}
+              title={fullscreen ? 'Exit full-screen preview (Esc)' : 'Full-screen preview'}
+            >
+              {fullscreen ? <Minimize2 size={13} /> : <Maximize2 size={13} />}
+              {fullscreen ? 'EXIT FULL-SCREEN' : 'FULL-SCREEN PREVIEW'}
             </button>
           )}
         </div>
@@ -93,6 +105,16 @@ export default function StagePage({
         )}
 
         {error && <div className="viewport-error"><AlertTriangle size={15} /> {error}</div>}
+        {/* A rebuild (choreoData already present) leaves the existing preview
+            on screen instead - the "BUILDING…" button label already says a
+            build is running, and the current state is better than nothing. */}
+        {!choreoData && loading && viewMode !== 'matrix' && (
+          <div className="viewport-overlay">
+            <LoadingState title="Building sequence…">
+              Solving the drone assignment and compiling the trajectory.
+            </LoadingState>
+          </div>
+        )}
         {!choreoData && !loading && viewMode !== 'matrix' && (
           <div className="viewport-overlay">
             <EmptyState icon={Compass} title="Stage empty">

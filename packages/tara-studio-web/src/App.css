@@ -176,6 +176,9 @@ body {
   font-family: var(--mono); font-size: 0.56rem; color: var(--text-faint);
   text-transform: uppercase; letter-spacing: 1px; display: block; margin-bottom: 0.5rem;
 }
+.sidebar-project-info .ui-field-label {
+  display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.5rem;
+}
 .project-name-display {
   display: flex; align-items: center; gap: 0.5rem;
   background: var(--bg-input); border: 1px solid var(--border);
@@ -388,9 +391,28 @@ input[type="number"] { font-family: var(--mono); font-variant-numeric: tabular-n
 }
 .floating-console-btn:hover { color: var(--accent); border-color: var(--accent-line); }
 
+/* .view-tab buttons normally sit inside .view-mode-tabs, which re-enables
+   pointer-events over its parent .view-mode-tabs-container's blanket `none`
+   (issue #132 investigation: this exact gap is why the fullscreen toggle sat
+   in viewport-right-actions, inert - `view-tab` alone never re-enables it,
+   only its usual wrapper does). Standalone box + shadow so it reads the same
+   as the neighbouring floating-console-btn, not the flat in-group tab look. */
+.fullscreen-toggle-btn {
+  pointer-events: auto; background: var(--bg-surface); border: 1px solid var(--border);
+  box-shadow: var(--shadow-2);
+}
+.fullscreen-toggle-btn:hover { background: var(--bg-surface-2); }
+
 /* ---------------------------------------------------------- Control drawer  */
 .control-drawer {
-  position: absolute; top: 4.25rem; right: 0.85rem; bottom: 5.25rem;
+  /* Sits below the sequencer header + view-tab row, clear of the timeline at
+     the bottom (issue #132 investigation: .control-drawer and .studio-viewport
+     are siblings, both direct children of .studio-workspace - a later
+     ".studio-viewport .control-drawer" override intended to tighten this
+     never matched anything, since .control-drawer is not its descendant, so
+     it silently did nothing; folded its values into the one rule that
+     actually applies instead of leaving dead CSS behind). */
+  position: absolute; top: 7.5rem; right: 0.85rem; bottom: 8.5rem;
   width: 340px; background: var(--bg-surface);
   border: 1px solid var(--border-strong); border-radius: var(--r-lg);
   display: flex; flex-direction: column; z-index: 10;
@@ -1094,9 +1116,10 @@ input[type="number"] { font-family: var(--mono); font-variant-numeric: tabular-n
 
 /* ----------------------------------------------- Stage layout corrections --
    The sequencer header sits in normal flow at the top of the viewport, so the
-   absolutely-positioned tab bar, console drawer and timeline all have to start
-   below it rather than at the viewport's top edge. Without this the header is
-   painted over by the tab bar and the drawer covers the timeline. */
+   absolutely-positioned tab bar and timeline both have to start below it
+   rather than at the viewport's top edge. Without this the header is painted
+   over by the tab bar. (The control drawer's own equivalent correction lives
+   directly on its base .control-drawer rule - see that rule's comment.) */
 .studio-viewport > .sequencer-header { flex: none; z-index: 11; }
 
 .studio-viewport .view-mode-tabs-container {
@@ -1104,9 +1127,6 @@ input[type="number"] { font-family: var(--mono); font-variant-numeric: tabular-n
   padding: 0.7rem 0.85rem 0;
   align-items: center;
 }
-
-/* Sit the drawer under the header + tab row, and clear the timeline below. */
-.studio-viewport .control-drawer { top: 7.5rem; bottom: 8.5rem; }
 
 /* Keep the timeline inside the viewport rather than floating over the drawer.
    When the drawer is open the timeline reserves its width, so the scrubber is
