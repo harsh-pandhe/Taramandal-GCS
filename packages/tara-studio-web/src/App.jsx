@@ -52,6 +52,10 @@ export default function App() {
   const [sending, setSending] = useState(false);
   const [ledTrack, setLedTrack] = useState([]);
   const [zoom, setZoom] = useState(1);
+  // Issue #132: hides the sidebar and console, leaving just the stage,
+  // transport and timeline - a clean full-screen walkthrough for an
+  // operator or a recorded demo, not a new rendering path.
+  const [fullScreenPreview, setFullScreenPreview] = useState(false);
 
   const audio = useAudioTrack();
   const history = useStudioHistory(INITIAL_DOC);
@@ -129,16 +133,43 @@ export default function App() {
   // project did not come with its built show. An unreachable vault still
   // boots, so the demo show builds either way.
   const builtOnStartup = useRef(false);
+  // Issue #132 self-review, 2026-10-28: an empty/unreachable vault's own
+  // saved-changes baseline is set before this build runs (nothing to build
+  // from yet), so the auto-built demo show below always looked like an
+  // unsaved edit - the "Unsaved" badge showed on cold load, before the
+  // operator had done anything. True once the startup build has happened
+  // and is now waiting for its background validation to settle, so the
+  // baseline can be re-marked including both.
+  const awaitingStartupValidation = useRef(false);
   useEffect(() => {
     if (!projects.booted || builtOnStartup.current) return;
     builtOnStartup.current = true;
-    if (!choreoData) handleBuild();
+    if (!choreoData) {
+      awaitingStartupValidation.current = true;
+      handleBuild();
+    }
     /* eslint-disable-next-line react-hooks/exhaustive-deps */
   }, [projects.booted]);
+  useEffect(() => {
+    if (!awaitingStartupValidation.current || validation === null) return;
+    awaitingStartupValidation.current = false;
+    projects.markSaved();
+    /* eslint-disable-next-line react-hooks/exhaustive-deps */
+  }, [validation, projects.markSaved]);
 
   // Another browser may have saved since this one listed the vault.
   const refreshVault = projects.refresh;
   useEffect(() => { if (activePage === 'projects') refreshVault(); }, [activePage, refreshVault]);
+
+  // Issue #132: Escape always exits full-screen preview, even while a form
+  // control has focus - unlike the history/camera shortcuts, there's no text
+  //-entry meaning of Escape to protect here.
+  useEffect(() => {
+    if (!fullScreenPreview) return;
+    const onKeyDown = (e) => { if (e.key === 'Escape') setFullScreenPreview(false); };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [fullScreenPreview]);
 
   // Jump the playhead to the previous/next scene boundary.
   const stepScene = useCallback((dir) => {
@@ -217,47 +248,61 @@ export default function App() {
   return (
     <div className="studio-container">
       <div className="studio-workspace">
-        <Sidebar
-          activePage={activePage}
-          onNavigate={setActivePage}
-          projectName={projects.projectName}
-          onProjectName={projects.setProjectName}
-          onSave={projects.saveCurrent}
-          // The vault page shows it in full; everywhere else it goes by Save.
-          vaultError={activePage === 'projects' ? null : projects.error}
-        />
+        {/* Issue #132: the sidebar and console are both just not rendered in
+            full-screen preview - no state to drive, nothing to listen for
+            while hidden, and the stage (flex: 1) fills the freed width on
+            its own once the sidebar is gone. */}
+        {!fullScreenPreview && (
+          <Sidebar
+            activePage={activePage}
+            onNavigate={setActivePage}
+            projectName={projects.projectName}
+            onProjectName={projects.setProjectName}
+            onSave={projects.saveCurrent}
+            // The vault page shows it in full; everywhere else it goes by Save.
+            vaultError={activePage === 'projects' ? null : projects.error}
+            isDirty={projects.isDirty}
+          />
+        )}
 
         {activePage === 'choreo' && (
           <>
-            <ConsoleDrawer
-              open={drawerOpen}
-              onClose={() => setDrawerOpen(false)}
-              tab={drawerTab}
-              onTab={setDrawerTab}
-              list={list}
-              history={history}
-              loading={loading}
-              onBuild={handleBuild}
-              onOpenLibrary={setLibrarySceneId}
-              light={{
-                effect: lightEffect, onEffect: setLightEffect,
-                baseColor: lightColor, onBaseColor: setLightColor,
-              }}
-              choreoData={choreoData}
-              currentTime={currentTime}
-              lightingOpts={lightingOpts}
-              validation={validation}
-              venue={{ homeLat, homeLon, onHomeLat: setHomeLat, onHomeLon: setHomeLon }}
-              transmit={{
-                onExport: handleExport, onExportPreview: handleExportPreview, onSendToGCS: handleSendToGCS, sending,
-              }}
-              audio={{
-                track: audio, zoom, onZoom: setZoom,
-                ledTrack, onLedTrack: setLedTrack,
-                duration: timelineDuration,
-                onScrub: (t) => { setIsPlaying(false); scrub(t); },
-              }}
-            />
+            {/* Issue #132 review (Harsh): unmounting ConsoleDrawer here drops its
+                local state too - e.g. the preview-export status and the GCS
+                sign-in status in the Transmit tab reset once full-screen exits.
+                Acceptable for a demo toggle entered/exited within one session;
+                revisit if full-screen starts being used mid-transmit. */}
+            {!fullScreenPreview && (
+              <ConsoleDrawer
+                open={drawerOpen}
+                onClose={() => setDrawerOpen(false)}
+                tab={drawerTab}
+                onTab={setDrawerTab}
+                list={list}
+                history={history}
+                loading={loading}
+                onBuild={handleBuild}
+                onOpenLibrary={setLibrarySceneId}
+                light={{
+                  effect: lightEffect, onEffect: setLightEffect,
+                  baseColor: lightColor, onBaseColor: setLightColor,
+                }}
+                choreoData={choreoData}
+                currentTime={currentTime}
+                lightingOpts={lightingOpts}
+                validation={validation}
+                venue={{ homeLat, homeLon, onHomeLat: setHomeLat, onHomeLon: setHomeLon }}
+                transmit={{
+                  onExport: handleExport, onExportPreview: handleExportPreview, onSendToGCS: handleSendToGCS, sending,
+                }}
+                audio={{
+                  track: audio, zoom, onZoom: setZoom,
+                  ledTrack, onLedTrack: setLedTrack,
+                  duration: timelineDuration,
+                  onScrub: (t) => { setIsPlaying(false); scrub(t); },
+                }}
+              />
+            )}
 
             <StagePage
               header={{
@@ -289,6 +334,8 @@ export default function App() {
               onStep={stepScene}
               activeSceneId={activeSceneId}
               onSelectScene={setActiveSceneId}
+              fullscreen={fullScreenPreview}
+              onToggleFullscreen={() => setFullScreenPreview((v) => !v)}
             />
           </>
         )}

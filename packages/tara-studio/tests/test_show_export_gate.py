@@ -15,6 +15,7 @@ from tara_studio import generator
 from tara_studio.exporter import export_json
 from tara_studio.led_engine import apply_track_to_choreo
 from tara_studio.server import app
+from tara_studio.validator import certify_feasibility_report
 
 SHAPES = ["circle", "helix", "heart", "cube", "spline"]
 
@@ -288,6 +289,14 @@ class TestQuantizationGate:
     second, independent rounding pass on top of whatever the caller already
     applied. A pair analytically just over 2.0 m can come back under it once
     actually quantized, and the certification step never saw that version.
+
+    Issue #175, found by independent re-review (Vishal): the #157 fix only
+    re-checked separation on the rounded bytes. Velocity, acceleration, yaw
+    rate and jerk are equally derived from the (now-moved) positions and can
+    break the same way - a sweep of 1026 pre-certified shows found 9 that
+    exported 200 with decoded bytes failing certification. The gate now
+    re-runs the full canonical certification (certify_feasibility_report)
+    plus altitude_errors on the decoded bytes, not a separation-only check.
     """
 
     @pytest.fixture(scope="class")
@@ -308,12 +317,33 @@ class TestQuantizationGate:
         ]
     }
 
+    #: Issue #175's own repro: a single-drone 10 Hz quintic out-and-back
+    #: (L=8m, half-time=2.5s, z=5m) certifies pre-rounding (max jerk 18.66
+    #: m/s^3) but decodes from the real .tara bytes to 1 velocity + 3 jerk
+    #: violations (max jerk exactly 20.0 - the rounding pushed a
+    #: comfortably-clear show right to the limit). Confirmed by direct
+    #: reproduction against certify_feasibility_report before writing this
+    #: test, not copied from the issue text unverified.
+    @staticmethod
+    def _velocity_jerk_erodes_on_tara():
+        p0, p1 = (0.0, 0.0, -5.0), (8.0, 0.0, -5.0)
+        half = 2.5
+        dt = 1.0 / 10.0
+        waypoints = []
+        t = 0.0
+        while t <= 2 * half + 1e-9:
+            state = quintic_segment(p0, p1, half, t) if t <= half else quintic_segment(p1, p0, half, t - half)
+            x, y, z = state["position"]
+            waypoints.append({"time": round(t, 4), "x": x, "y": y, "z": z, "yaw": 0.0})
+            t += dt
+        return {"drones": [{"id": 0, "waypoints": waypoints}]}
+
     def test_tara_export_is_blocked_when_quantization_erodes_separation(self, client):
         res = client.post("/api/export", json={"choreo": self._ERODES_ON_TARA, "format": "tara"})
         assert res.status_code == 412
         detail = res.json()["detail"]
         assert "centimetre rounding" in str(detail).lower()
-        assert detail["errors"]
+        assert detail["validation"]["violations"]["proximity"]
 
     def test_preview_only_tara_export_is_blocked_too(self, client):
         # Core safety (including this) is never waived for preview, issue #143.
@@ -326,6 +356,36 @@ class TestQuantizationGate:
         # so the pre-encode certification already covers them; this is purely
         # a .tara (int16-centimetre packing) concern.
         res = client.post("/api/export", json={"choreo": self._ERODES_ON_TARA, "format": "json"})
+        assert res.status_code == 200
+
+    def test_tara_export_is_blocked_when_quantization_erodes_velocity_or_jerk(self, client):
+        # Issue #175's own acceptance: the gap a separation-only re-check
+        # missed. certify_feasibility_report must pass on this choreo
+        # pre-rounding (otherwise this isn't testing quantization at all,
+        # it's testing the pre-rounding gate, which #157/earlier tests
+        # already cover) - checked directly, not assumed.
+        choreo = self._velocity_jerk_erodes_on_tara()
+        pre_certified, _ = certify_feasibility_report(choreo)
+        assert pre_certified, "fixture must certify before rounding, to isolate the quantization-only gap"
+
+        res = client.post("/api/export", json={"choreo": choreo, "format": "tara"})
+        assert res.status_code == 412
+        detail = res.json()["detail"]
+        assert "centimetre rounding" in str(detail).lower()
+        violations = detail["validation"]["violations"]
+        assert violations["jerk"]
+        assert violations["velocity"]
+
+    def test_preview_only_tara_export_tolerates_jerk_violations_after_rounding(self, client):
+        # The jerk exemption for preview exports (issue #143) applies to the
+        # *post-rounding* re-check too, not just the pre-rounding gate - a
+        # real generator's default output (0 core-safety violations, ~50
+        # jerk violations, same fixture test_export_feasibility_gate.py
+        # uses) stays core-safe after quantization too (checked directly
+        # before writing this test), isolating the exemption from whether
+        # the jerk violations originated before or after rounding.
+        choreo = generator.generate_circle(3, 30.0, 2.0)
+        res = client.post("/api/export", json={"choreo": choreo, "format": "tara", "preview_only": True})
         assert res.status_code == 200
 
     def test_a_comfortably_clear_pair_still_exports_as_tara(self, client):

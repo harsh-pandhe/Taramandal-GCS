@@ -45,7 +45,7 @@ from tara_core import (
     ned_to_geodetic,
 )
 
-from .fleet_state import FleetState
+from .fleet_state import LANDED_ALTITUDE_M, FleetState
 
 #: Home position used to convert this drone's local frame to lat/lon for
 #: `.telemetry.home()` and GLOBAL-mode setpoints, when a `SimFleet` isn't given
@@ -116,6 +116,20 @@ class _Telemetry:
         fs, i = self._sys._fs, self._sys.drone_id
         async for _ in _stream(_FAST_INTERVAL_S, lambda: None):
             yield bool(fs.armed[i])
+
+    async def landed_state(self):
+        """Mirrors FleetState._step's own ON_GROUND threshold (same altitude
+        cutoff, same vertical-speed deadband), applied to the same noisy
+        position every other field here reports rather than ground truth -
+        consistent with position_velocity_ned, not a separate measurement.
+        Only ON_GROUND/IN_AIR are modelled; the sim has no taking-off/landing
+        transition states to report (issue #145).
+        """
+        fs, i = self._sys._fs, self._sys.drone_id
+        async for _ in _stream(_FAST_INTERVAL_S, lambda: None):
+            _, _, alt = fs.noisy_position(i)
+            vz = float(fs.velocity[i, 2])
+            yield "ON_GROUND" if alt <= LANDED_ALTITUDE_M and abs(vz) < 0.1 else "IN_AIR"
 
     async def health(self):
         """Mirrors the subset of mavsdk Health that DroneManager reads.

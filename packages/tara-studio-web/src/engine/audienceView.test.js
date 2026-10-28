@@ -56,7 +56,8 @@ describe('audience camera side (mirroring fix)', () => {
     // The mirroring derivation above depends only on which direction the
     // camera looks, not on the wall's exact X offset — but it does depend
     // on the wall being a flat plane perpendicular to X in the first place.
-    const pts = buildFormation('text', 'TARA', 60);
+    // 40 drones: at 60 the spacing guarantee now refuses TARA (see formations.js).
+    const pts = buildFormation('text', 'TARA', 40);
     const xs = new Set(pts.map((p) => toScene(p).x.toFixed(6)));
     expect(xs.size).toBe(1);
   });

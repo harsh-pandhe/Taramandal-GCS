@@ -526,6 +526,32 @@ test.describe('backend project vault', () => {
     await expect(vaultCards(page)).toHaveCount(1);
     expect(await page.evaluate(() => JSON.parse(localStorage.getItem('taramandal_projects')).length)).toBe(1);
   });
+
+  test('the sidebar shows an Unsaved indicator for live edits and clears it once saved (issue #132)', async ({ page }) => {
+    const save = page.getByRole('button', { name: 'Save Project' });
+    const unsaved = page.getByText('Unsaved');
+    await openStudio(page);
+    await expect(page.getByText(/^Built · /)).toBeVisible();
+
+    // Establish a clean baseline explicitly, rather than assuming a cold
+    // start on an empty vault is already clean - the demo show auto-builds
+    // on startup, and that build itself genuinely isn't saved yet.
+    await save.click();
+    await expect(unsaved).toBeHidden();
+    await expect(save).not.toHaveClass(/btn-primary/);
+
+    await projectName(page).fill('Navratri');
+    await expect(unsaved).toBeVisible();
+    await expect(save).toHaveClass(/btn-primary/);
+
+    await save.click();
+    await expect(unsaved).toBeHidden();
+    await expect(save).not.toHaveClass(/btn-primary/);
+
+    // Adding a scene is a live edit too, not just the name field.
+    await page.getByRole('button', { name: 'Add Scene' }).click();
+    await expect(unsaved).toBeVisible();
+  });
 });
 
 // Issue #102: fleet editing at 100 drones. Behaviour against the real page.
@@ -835,5 +861,39 @@ test.describe('stage camera', () => {
     await view(page, 'TELEMETRY');
     await expect(fitButton).toBeDisabled();
     await expect(resetButton).toBeDisabled();
+  });
+
+  test('full-screen preview hides the sidebar and console, keeps the camera, and Esc exits (issue #132)', async ({ page }) => {
+    const enter = page.getByRole('button', { name: 'FULL-SCREEN PREVIEW' });
+    const exit = page.getByRole('button', { name: 'EXIT FULL-SCREEN' });
+    const sidebar = page.locator('.studio-sidebar');
+
+    await expect(sidebar).toBeVisible();
+    const before = await cameraOf(page);
+
+    await enter.click();
+    await expect(sidebar).toBeHidden();
+    await expect(exit).toBeVisible();
+    // Nothing to reopen a console drawer with - it isn't rendered either.
+    await expect(page.locator('.control-drawer')).toHaveCount(0);
+
+    const during = await cameraOf(page);
+    expect(during).toEqual(before);
+
+    await page.keyboard.press('Escape');
+    await expect(sidebar).toBeVisible();
+    await expect(enter).toBeVisible();
+
+    const after = await cameraOf(page);
+    expect(after).toEqual(before);
+  });
+
+  test('full-screen preview also exits via its own button, not just Escape', async ({ page }) => {
+    await page.getByRole('button', { name: 'FULL-SCREEN PREVIEW' }).click();
+    await expect(page.locator('.studio-sidebar')).toBeHidden();
+
+    await page.getByRole('button', { name: 'EXIT FULL-SCREEN' }).click();
+    await expect(page.locator('.studio-sidebar')).toBeVisible();
+    await expect(page.getByRole('button', { name: 'FULL-SCREEN PREVIEW' })).toBeVisible();
   });
 });

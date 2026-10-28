@@ -380,6 +380,10 @@ class DroneManager:
         self._tasks = []
         self.trajectory_task = None
         self.is_running_trajectory = False
+        # Drone IDs with a single-drone bench/demo sequence (issue #131, #135)
+        # currently in flight - concurrency guard so two overlapping requests
+        # on the same drone can't both try to drive it (issue #145 review).
+        self.single_drone_sequence_active: set[int] = set()
         self.geofence_radius = DEFAULT_LIMITS.geofence_radius_m  # hard RTL radius; recomputed per-show by _apply_geofence_envelope()
         self.soft_geofence_radius = None  # soft-warning radius; None (disabled) until a show sets one
         self.geofence_breaches = {}  # drone_id -> bool, tracks active hard geofence breaches (triggers RTL)
@@ -535,6 +539,16 @@ class DroneManager:
                 # once this drone alone has been aborted out of the show (issue
                 # #59). Cleared when the drone is explicitly re-launched.
                 "aborted": None,
+                "last_heartbeat": None,
+                # MAVSDK LandedState as a string ("ON_GROUND", "IN_AIR", ...),
+                # or None until the first sample arrives. Ground-contact
+                # confirmation (issue #145) reads this directly rather than
+                # inferring it from disarm alone (see
+                # execute_single_drone_demo_sequence). landed_state_at is
+                # when it was last written, so a stalled stream can be told
+                # apart from a genuinely fresh ON_GROUND (issue #145 review).
+                "landed_state": None,
+                "landed_state_at": None,
             }
 
             # On the sim backend one fleet-wide task fills this in instead
@@ -549,6 +563,7 @@ class DroneManager:
             self._tasks.append(asyncio.create_task(self._monitor_gps(drone_id)))
             self._tasks.append(asyncio.create_task(self._monitor_position(drone_id)))
             self._tasks.append(asyncio.create_task(self._monitor_armed_state(drone_id)))
+            self._tasks.append(asyncio.create_task(self._monitor_landed_state(drone_id)))
             self._tasks.append(asyncio.create_task(self._measure_latency_loop(drone_id)))
             self._tasks.append(asyncio.create_task(self._monitor_home(drone_id)))
             self._tasks.append(asyncio.create_task(self._monitor_health(drone_id)))
@@ -644,11 +659,16 @@ class DroneManager:
         ``round`` gives 0.61), and the two backends should not disagree by a
         centimetre over which function was used.
         """
+        # Deferred like the SimFleet import in connect_all - tara_sim stays an
+        # optional dependency outside the sim backend.
+        from tara_sim.fleet_state import LANDED_ALTITUDE_M
+
         ids = [d for d in self.telemetry if d < len(snap.armed)]
         if not ids:
             return
         idx = np.asarray(ids)
         positions = snap.position[idx].tolist()
+        velocities = snap.velocity[idx].tolist()
         pads = _PAD_ARRAY[idx].tolist()
         connected = snap.connected[idx].tolist()
         armed = snap.armed[idx].tolist()
@@ -656,9 +676,11 @@ class DroneManager:
         for k, drone_id in enumerate(ids):
             tel = self.telemetry[drone_id]
             is_conn = bool(connected[k])
-            if is_conn and tel["link_stable_since"] is None:
-                tel["link_stable_since"] = time.monotonic()
-            elif not is_conn:
+            if is_conn:
+                tel["last_heartbeat"] = time.time()
+                if tel["link_stable_since"] is None:
+                    tel["link_stable_since"] = time.monotonic()
+            else:
                 tel["link_stable_since"] = None
             tel["connected"] = is_conn
             if hasattr(self, "_sim_fleet") and self._sim_fleet is not None:
@@ -671,6 +693,15 @@ class DroneManager:
             tel["fleet_x"] = round(local_x + pads[k][0], 2)
             tel["fleet_y"] = round(local_y + pads[k][1], 2)
             tel["fleet_z"] = local_z
+            # Mirrors FleetState._step's own ON_GROUND threshold (same
+            # altitude cutoff, same vertical-speed deadband) and SimSystem's
+            # per-drone landed_state() stream exactly, applied to the same
+            # noisy position every other field here reports. Only ON_GROUND/
+            # IN_AIR are modelled; the sim has no taking-off/landing phase.
+            tel["landed_state"] = (
+                "ON_GROUND" if alt <= LANDED_ALTITUDE_M and abs(velocities[k][2]) < 0.1 else "IN_AIR"
+            )
+            tel["landed_state_at"] = time.time()
             prev_armed = tel["armed"]
             tel["armed"] = armed[k]
             # Reset geofence breach tracking when drone disarms (as _monitor_armed_state does)
@@ -706,8 +737,10 @@ class DroneManager:
             drone = self.drones[drone_id]
             async for state in drone.core.connection_state():
                 tel = self.telemetry[drone_id]
-                if state.is_connected and tel["link_stable_since"] is None:
-                    tel["link_stable_since"] = time.monotonic()
+                if state.is_connected:
+                    tel["last_heartbeat"] = time.time()
+                    if tel["link_stable_since"] is None:
+                        tel["link_stable_since"] = time.monotonic()
                 elif not state.is_connected:
                     tel["link_stable_since"] = None
                 tel["connected"] = state.is_connected
@@ -756,6 +789,20 @@ class DroneManager:
             drone = self.drones[drone_id]
             pad_x_off, pad_y_off = _pad_offset(drone_id)
             async for pos in drone.telemetry.position_velocity_ned():
+                # issue #145 review, item 1: on hardware, last_heartbeat was
+                # only ever refreshed by _monitor_connection's
+                # core.connection_state() stream, which (like landed_state(),
+                # per Harsh's own SITL-cadence note) may only emit on an
+                # actual state change rather than periodically - meaning a
+                # connection that never flaps would go "stale" after 2.5s
+                # regardless of how healthy the link actually is. This
+                # telemetry stream only emits while MAVLink data is actually
+                # arriving, so each tick is itself live-link evidence,
+                # independent of connection_state()'s emission cadence.
+                # TODO(SITL): confirm position_velocity_ned()'s real rate on
+                # the target flight-controller stack before relying on this
+                # as the primary heartbeat source in HARDWARE mode.
+                self.telemetry[drone_id]["last_heartbeat"] = time.time()
                 local_x = round(pos.position.north_m, 2)
                 local_y = round(pos.position.east_m, 2)
                 # NED: convert Down (negative) back to Altitude (positive) for frontend display
@@ -788,6 +835,26 @@ class DroneManager:
             pass
         except Exception as e:
             logging.error(f"Error in _monitor_armed_state for Drone {drone_id}: {e}")
+
+    async def _monitor_landed_state(self, drone_id):
+        """Tracks MAVSDK's own ground-contact state (issue #145).
+
+        A prior version of the single-drone demo sequence inferred "landed"
+        from disarm alone, which a mid-air disarm (fault, failsafe, a bug)
+        would misreport as a normal touchdown. ``telemetry.landed_state()``
+        is MAVSDK's actual vehicle-reported state (``ON_GROUND``, ``IN_AIR``,
+        ``TAKING_OFF``, ``LANDING``), independent of the arm/disarm command
+        path, so this is observed state, not an assumption.
+        """
+        try:
+            drone = self.drones[drone_id]
+            async for state in drone.telemetry.landed_state():
+                self.telemetry[drone_id]["landed_state"] = str(state)
+                self.telemetry[drone_id]["landed_state_at"] = time.time()
+        except asyncio.CancelledError:
+            pass
+        except Exception as e:
+            logging.error(f"Error in _monitor_landed_state for Drone {drone_id}: {e}")
 
     async def _measure_latency_loop(self, drone_id):
         try:
@@ -1307,6 +1374,388 @@ class DroneManager:
         except Exception as e:
             logging.error(f"Failed to kill Drone {drone_id}: {e}")
             return str(e)
+
+    def _is_confirmed_on_ground(self, drone_id: int, tel: dict, context: str) -> bool:
+        """Raises if connection/heartbeat/landed-state look stale; else
+        reports whether the vehicle is confirmed ON_GROUND right now.
+        Strict equality, no "unknown counts as landed" fallback (issue
+        #145 review): an unconfirmed landed_state means wait, not assume
+        grounded. A landed_state (or heartbeat) that stops updating while
+        otherwise looking fine is its own stale-telemetry failure. A
+        heartbeat or landed-state timestamp that was never set at all
+        (None) is treated the same as stale, not as "no data yet, so
+        don't flag it" - review follow-up: the old `is not None and ...`
+        form let a telemetry field that had simply never been written
+        pass silently.
+        """
+        if not tel.get("connected", False):
+            raise RuntimeError(f"Drone {drone_id} disconnected {context}")
+        last_hb = tel.get("last_heartbeat")
+        if last_hb is None or (time.time() - last_hb) > 2.5:
+            raise RuntimeError(f"Drone {drone_id} telemetry became stale {context}")
+        landed_at = tel.get("landed_state_at")
+        if landed_at is None or (time.time() - landed_at) > 2.5:
+            raise RuntimeError(f"Drone {drone_id} landed-state telemetry became stale {context}")
+        return tel.get("landed_state") == "ON_GROUND"
+
+    async def _safe_recover(self, drone_id: int, drone, tel: dict, context: str) -> None:
+        """Best-effort land+disarm after a mid-sequence failure (issue #145
+        review, item 5 - and its own follow-up finding): once arm() has
+        succeeded, a later step failing must not just raise and leave the
+        vehicle armed and uncommanded. _land_one only *sends* the land
+        command; it never waits for touchdown, so disarming right after it
+        (the first version of this method) could disarm a drone that is
+        still airborne. Waits for a fresh, confirmed ON_GROUND - the same
+        confirmation the normal touchdown path uses - before disarming; if
+        the deadline passes, leaves the land in progress and does not
+        disarm. Swallows its own errors (and confirmed non-raising
+        _land_one is still wrapped, on the same belt-and-suspenders
+        reasoning the rest of this sequence uses) - the caller's original
+        failure is what gets raised; this is a safety backstop, not the
+        primary error path.
+        """
+        try:
+            await self._land_one(drone_id)
+        except Exception as e:
+            logging.warning(f"Safe-recovery land attempt {context} for drone {drone_id}: {e}")
+            return
+
+        grounded = False
+        deadline = time.time() + 10.0
+        while time.time() < deadline:
+            try:
+                if self._is_confirmed_on_ground(drone_id, tel, f"during safe recovery ({context})"):
+                    grounded = True
+                    break
+            except RuntimeError as e:
+                logging.warning(f"Safe-recovery ground confirmation {context} for drone {drone_id}: {e}")
+                return
+            await asyncio.sleep(0.1)
+
+        if not grounded:
+            logging.warning(
+                f"Safe-recovery {context} for drone {drone_id}: landing not confirmed within 10s "
+                f"- leaving the land in progress, not disarming in flight."
+            )
+            return
+
+        try:
+            if tel.get("armed", False):
+                await drone.action.disarm()
+        except Exception as e:
+            logging.warning(f"Safe-recovery disarm attempt {context} for drone {drone_id}: {e}")
+
+    # issue #145 review (Harsh, real PX4 SITL + Gazebo, 2026-10-27): the
+    # single-drone climb's stall detection. Class attributes (not method
+    # locals) so tests can monkeypatch a short SINGLE_DRONE_CLIMB_STALL_WINDOW_S
+    # instead of waiting out the real one.
+    SINGLE_DRONE_CLIMB_STALL_WINDOW_S = 10.0  # > the worst liftoff delay observed (7.5s)
+    SINGLE_DRONE_CLIMB_LIFTOFF_MARGIN_S = 15.0
+    SINGLE_DRONE_CLIMB_MIN_RATE_M_S = 0.15  # conservative floor under the ~0.2 m/s observed on real PX4
+
+    async def execute_single_drone_demo_sequence(
+        self,
+        drone_id: int = 0,
+        target_alt_m: float = 1.0,
+        hover_s: float = 5.0,
+        operator: str = "pilot",
+    ) -> list[dict]:
+        """
+        Executes a controlled single-drone hover and landing sequence for V1 demo proof.
+        Sequence:
+          1. Pre-check: Verify drone is connected, telemetry is fresh, and armable.
+          2. Arm Drone and verify armed state from fresh telemetry.
+          3. Offboard climb to target_alt_m (default 1.0m hover).
+          4. Hover dwell for hover_s (default 5.0s).
+          5. Landing: Commanded via autopilot land mode.
+          6. Disarm: Verified via fresh observed telemetry.
+        Returns a timestamped list of verified progression steps.
+        """
+        if drone_id not in self.drones:
+            raise RuntimeError(f"Drone {drone_id} not available")
+        drone = self.drones[drone_id]
+        tel = self.telemetry.get(drone_id)
+        if not tel or not tel.get("connected"):
+            raise RuntimeError(f"Drone {drone_id} is disconnected")
+
+        # Telemetry freshness check: heartbeat must be fresh
+        now = time.time()
+        last_hb = tel.get("last_heartbeat")
+        if last_hb is None or (now - last_hb) > 2.5:
+            raise RuntimeError(f"Drone {drone_id} telemetry is stale or missing heartbeat")
+
+        steps = []
+        t0 = time.time()
+        steps.append({"step": "PREFLIGHT", "status": "PASSED", "time": t0, "drone_id": drone_id})
+
+        # 1. Arm
+        try:
+            await drone.action.arm()
+        except Exception as e:
+            steps.append({"step": "ARM", "status": f"FAILED: {e}", "time": time.time()})
+            # arm() raising doesn't rule out a partial arm (the command could
+            # have been accepted with the ack lost) - _safe_recover is a
+            # harmless no-op if it wasn't (issue #145 review follow-up).
+            await self._safe_recover(drone_id, drone, tel, context="after arm() raised")
+            raise RuntimeError(f"Arming failed: {e}")
+
+        # Await observed telemetry confirmation of arming — NEVER mutate tel["armed"]!
+        arm_confirmed = False
+        arm_deadline = time.time() + 3.0
+        while time.time() < arm_deadline:
+            if not tel.get("connected", False):
+                raise RuntimeError(f"Drone {drone_id} disconnected while awaiting arm confirmation")
+            last_hb = tel.get("last_heartbeat")
+            if last_hb is None or (time.time() - last_hb) > 2.5:
+                raise RuntimeError(f"Drone {drone_id} telemetry became stale while awaiting arm confirmation")
+            if tel.get("armed", False):
+                arm_confirmed = True
+                break
+            await asyncio.sleep(0.05)
+
+        if not arm_confirmed:
+            steps.append({"step": "ARM", "status": "FAILED: arm not observed in telemetry", "time": time.time()})
+            # arm() itself raised nothing, so the vehicle may actually be
+            # armed even though we never observed it (issue #145 review,
+            # item 5): recover rather than leave it armed and uncommanded.
+            await self._safe_recover(drone_id, drone, tel, context="after an unconfirmed arm")
+            raise RuntimeError(f"Arming could not be confirmed by telemetry for Drone {drone_id}")
+
+        steps.append({"step": "ARM", "status": "ARMED", "time": time.time()})
+
+        # From here on the vehicle is armed and may be flying: every exit path
+        # below must either yield to an already-in-progress fleet emergency
+        # (issue #145 review, B3 - EMERGENCY_STATES checks inside each phase)
+        # or attempt a safe recovery, never just raise and leave it
+        # uncommanded. This outer wrapper covers cancellation specifically
+        # (B4): CancelledError is a BaseException, not an Exception, so none
+        # of the `except Exception` blocks inside this method ever see it -
+        # without this, cancelling mid-sequence left the vehicle flying with
+        # no recovery attempt at all, in whatever state it was in when the
+        # task stopped.
+        try:
+            await self._run_single_drone_flight_phase(drone_id, drone, tel, target_alt_m, hover_s, steps)
+        except asyncio.CancelledError:
+            if not self._emergency_in_progress():
+                await self._safe_recover(drone_id, drone, tel, context="after the sequence was cancelled")
+            raise
+
+        return steps
+
+    def _emergency_in_progress(self) -> bool:
+        """True once the fleet FSM has already moved to an emergency state
+        (RTL/LAND/ESTOP) - issue #145 review, B3: something else is already
+        commanding this drone by then, so the single-drone sequence must stop
+        issuing its own commands rather than racing or duplicating them."""
+        return self.fleet_fsm.state in EMERGENCY_STATES
+
+    async def _run_single_drone_flight_phase(
+        self, drone_id: int, drone, tel: dict, target_alt_m: float, hover_s: float, steps: list[dict],
+    ) -> None:
+        """Climb, hold and land - split out of execute_single_drone_demo_sequence
+        so its caller can wrap just this part (everything after a confirmed
+        arm) in one CancelledError handler. See that method's docstring."""
+        # 2. Enter offboard and climb to target altitude, confirmed by
+        # observed altitude rather than a fixed sleep (issue #145 review,
+        # item 3): a fixed delay says nothing about whether the climb
+        # actually reached, overshot or stalled short of the target.
+        #
+        # issue #145 review (Harsh, first real PX4 SITL + Gazebo run,
+        # 2026-10-27): the original deadline (target_alt_m / 0.5 + 5.0s)
+        # assumed climbing starts immediately at 0.5 m/s. Real PX4 spends
+        # ~4.6-7.5s on arm/spool-up/takeoff ramp before it moves at all, then
+        # climbs at ~0.2 m/s - tara_sim has no such delay and climbs faster,
+        # which is why CI never caught this. A 1m/5s-hold request failed
+        # twice ("observed 0.80 m", "observed 0.74 m") purely because the
+        # deadline ran out while the vehicle was still genuinely climbing.
+        #
+        # Replaced with stall detection: keep waiting as long as altitude is
+        # still making progress toward the target, fail only once there has
+        # been no progress for SINGLE_DRONE_CLIMB_STALL_WINDOW_S - bounded by
+        # a generous overall ceiling so a vehicle that never lifts off at all
+        # still fails closed. The stall window is longer than the worst
+        # liftoff delay observed (7.5s) specifically so the legitimate
+        # pre-liftoff pause is never itself mistaken for a stall.
+        alt_tolerance_m = max(0.15, 0.1 * target_alt_m)
+        stall_window_s = self.SINGLE_DRONE_CLIMB_STALL_WINDOW_S
+        climb_ceiling_s = (
+            self.SINGLE_DRONE_CLIMB_LIFTOFF_MARGIN_S
+            + target_alt_m / self.SINGLE_DRONE_CLIMB_MIN_RATE_M_S
+        )
+        try:
+            await drone.offboard.set_position_ned(PositionNedYaw(0.0, 0.0, 0.0, 0.0))
+            await drone.offboard.start()
+            await drone.offboard.set_position_ned(PositionNedYaw(0.0, 0.0, -target_alt_m, 0.0))
+            hover_reached = False
+            climb_start = time.time()
+            best_z = tel.get("local_z", 0.0)
+            best_z_at = climb_start
+            while time.time() - climb_start < climb_ceiling_s:
+                if self._emergency_in_progress():
+                    raise RuntimeError(
+                        f"Drone {drone_id}: yielding to fleet emergency state "
+                        f"{self.fleet_fsm.state.value} instead of continuing the climb"
+                    )
+                if not tel.get("connected", False):
+                    raise RuntimeError(f"Drone {drone_id} disconnected during climb")
+                last_hb = tel.get("last_heartbeat")
+                if last_hb is None or (time.time() - last_hb) > 2.5:
+                    raise RuntimeError(f"Drone {drone_id} telemetry became stale during climb")
+                current_z = tel.get("local_z", 0.0)
+                if abs(current_z - target_alt_m) <= alt_tolerance_m:
+                    hover_reached = True
+                    break
+                # A small deadband against ordinary telemetry noise, so tiny
+                # jitter around a genuinely stalled altitude doesn't keep
+                # resetting the stall clock.
+                if current_z > best_z + 0.02:
+                    best_z = current_z
+                    best_z_at = time.time()
+                elif time.time() - best_z_at > stall_window_s:
+                    raise RuntimeError(
+                        f"Drone {drone_id} climb stalled: no altitude progress toward "
+                        f"{target_alt_m} m for {stall_window_s:.0f}s (observed {current_z:.2f} m)"
+                    )
+                await asyncio.sleep(0.1)
+            if not hover_reached:
+                raise RuntimeError(
+                    f"Drone {drone_id} did not reach {target_alt_m} m within "
+                    f"{climb_ceiling_s:.1f}s (observed {tel.get('local_z', 0.0):.2f} m)"
+                )
+            steps.append({
+                "step": "HOVER_REACHED",
+                "status": "HOLDING",
+                "altitude_m": round(tel.get("local_z", 0.0), 2),
+                "time": time.time(),
+            })
+        except Exception as e:
+            steps.append({"step": "HOVER", "status": f"FAILED: {e}", "time": time.time()})
+            # issue #145 review, B3: an emergency handler (RTL/LAND/ESTOP) is
+            # already commanding this drone by now - recovering here too
+            # would race or duplicate its commands.
+            if not self._emergency_in_progress():
+                await self._safe_recover(drone_id, drone, tel, context="after a failed climb")
+            raise RuntimeError(f"Hover climb failed: {e}")
+
+        # 3. Hold hover - dwell for the actual requested hover_s, watching for
+        # disconnection or stale telemetry throughout rather than blindly
+        # sleeping through it (issue #145 review, item 4): a drone that
+        # dropped link mid-dwell was previously indistinguishable from one
+        # holding steady.
+        #
+        # The altitude band here is deliberately looser than HOVER_REACHED's
+        # alt_tolerance_m: that one judges a single instant right after an
+        # active climb, this one has to tolerate ordinary hover noise over
+        # the whole dwell without false-failing a real hold. It still catches
+        # the actual failure mode (drifting or sinking away from the target),
+        # just not fine positional noise.
+        dwell_alt_tolerance_m = max(0.4, 0.3 * target_alt_m)
+        dwell_start = time.time()
+        try:
+            while time.time() - dwell_start < hover_s:
+                if self._emergency_in_progress():
+                    raise RuntimeError(
+                        f"Drone {drone_id}: yielding to fleet emergency state "
+                        f"{self.fleet_fsm.state.value} instead of continuing the hover dwell"
+                    )
+                if not tel.get("connected", False):
+                    raise RuntimeError(f"Drone {drone_id} disconnected during hover dwell")
+                last_hb = tel.get("last_heartbeat")
+                if last_hb is None or (time.time() - last_hb) > 2.5:
+                    raise RuntimeError(f"Drone {drone_id} telemetry became stale during hover dwell")
+                # Re-checked every tick, not just once at HOVER_REACHED
+                # (issue #145 review): drift or a slow sink mid-hover would
+                # otherwise go unnoticed for the whole dwell.
+                if abs(tel.get("local_z", 0.0) - target_alt_m) > dwell_alt_tolerance_m:
+                    raise RuntimeError(
+                        f"Drone {drone_id} drifted outside the hover altitude band during dwell "
+                        f"(observed {tel.get('local_z', 0.0):.2f} m, target {target_alt_m} m)"
+                    )
+                await asyncio.sleep(0.1)
+        except Exception as e:
+            steps.append({"step": "HOVER_HOLD", "status": f"FAILED: {e}", "time": time.time()})
+            # issue #145 review, B3: same reasoning as the climb phase above -
+            # don't race or duplicate an emergency handler's own commands.
+            if not self._emergency_in_progress():
+                await self._safe_recover(drone_id, drone, tel, context="after a failed hover dwell")
+            raise RuntimeError(f"Hover dwell failed: {e}")
+        actual_dwell = round(time.time() - dwell_start, 2)
+        steps.append({
+            "step": "HOVER_HOLD_COMPLETE",
+            "status": "STABLE",
+            "dwell_s": actual_dwell,
+            "time": time.time(),
+        })
+
+        # 4. Landing and confirmed touchdown/disarm
+        try:
+            if self._emergency_in_progress():
+                raise RuntimeError(
+                    f"Drone {drone_id}: yielding to fleet emergency state "
+                    f"{self.fleet_fsm.state.value} instead of commanding its own landing"
+                )
+            err = await self._land_one(drone_id)
+            if err:
+                # issue #145 review, B2: offboard.stop() has already run
+                # inside _land_one by this point, so a rejected land leaves
+                # the vehicle neither in offboard nor landing - raising here
+                # reaches the except below, which now attempts recovery.
+                raise RuntimeError(f"Autopilot rejected land command: {err}")
+            steps.append({
+                "step": "LANDING_COMMANDED",
+                "status": "LANDING",
+                "landing_control": "AUTOPILOT_DELEGATED",
+                "note": "Descent rate is governed by autopilot landing parameters",
+                "time": time.time(),
+            })
+
+            # Check fresh telemetry observations for landed and disarmed state
+            # Never fabricate or force tel["armed"] = False!
+            disarm_confirmed = False
+            land_deadline = time.time() + 10.0
+            while time.time() < land_deadline:
+                if not tel.get("armed", True) and self._is_confirmed_on_ground(
+                    drone_id, tel, "while awaiting landing/disarm confirmation"
+                ):
+                    disarm_confirmed = True
+                    break
+                await asyncio.sleep(0.1)
+
+            # issue #145 review, B1: this fallback used to call disarm()
+            # unconditionally once the window above ran out - the same
+            # in-flight-disarm risk _safe_recover was already fixed for, left
+            # in this separate path. Only attempt it once the vehicle is
+            # actually confirmed on the ground.
+            if not disarm_confirmed and self._is_confirmed_on_ground(
+                drone_id, tel, "before the fallback disarm attempt"
+            ):
+                try:
+                    await drone.action.disarm()
+                except Exception as e:
+                    logging.warning(f"Explicit disarm attempt: {e}")
+
+                # Poll again for observed telemetry disarm — NEVER mutate tel["armed"]
+                post_disarm_deadline = time.time() + 2.0
+                while time.time() < post_disarm_deadline:
+                    if not tel.get("armed", True) and self._is_confirmed_on_ground(
+                        drone_id, tel, "during disarm confirmation"
+                    ):
+                        disarm_confirmed = True
+                        break
+                    await asyncio.sleep(0.1)
+
+            if not disarm_confirmed:
+                steps.append({"step": "TOUCHDOWN_DISARM", "status": "FAILED: disarm not confirmed by telemetry", "time": time.time()})
+                raise RuntimeError("Touchdown disarm could not be confirmed by telemetry")
+
+            steps.append({"step": "TOUCHDOWN_DISARM", "status": "DISARMED", "time": time.time()})
+        except Exception as e:
+            steps.append({"step": "LANDING", "status": f"FAILED: {e}", "time": time.time()})
+            # issue #145 review, B2: a rejected land (or any other failure in
+            # this block) used to just raise with no recovery attempt at all.
+            if not self._emergency_in_progress():
+                await self._safe_recover(drone_id, drone, tel, context="after a failed landing")
+            raise RuntimeError(f"Landing failed: {e}")
 
     # --- Single-drone abort (issue #59) ---
 

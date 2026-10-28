@@ -159,6 +159,25 @@ body {
 
 .dot.green { background-color: var(--success); }
 .dot.red { background-color: var(--danger); }
+.dot.blue { background-color: var(--primary, #38bdf8); }
+.dot.orange { background-color: #f59e0b; }
+
+.mode-badge {
+  font-weight: 600;
+  letter-spacing: 0.05em;
+}
+
+.mode-badge.simulation-mode {
+  border-color: rgba(56, 189, 248, 0.4);
+  background: rgba(56, 189, 248, 0.08);
+  color: #38bdf8;
+}
+
+.mode-badge.hardware-mode {
+  border-color: rgba(245, 158, 11, 0.5);
+  background: rgba(245, 158, 11, 0.12);
+  color: #fbbf24;
+}
 
 /* Simulation Control Bar — process-level controls for the simulator itself
    (issue #2), distinct from the flight controls below it. Sits above the view

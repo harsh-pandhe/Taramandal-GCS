@@ -379,7 +379,9 @@ export const buildFormation = (shapeType, shapePayload, n, scale = 1.0) => {
     if (postShiftReach > SITE_RADIUS_M + 1e-6) {
       const k = (SITE_RADIUS_M - 0.5) / postShiftReach;
       const curDist = minPairDist(current);
-      if ((shapeType === 'parametric' || shapeType === 'svg') && curDist * k < MIN_SEPARATION_M - 1e-6) {
+      // Every shape type, text included: shrinking a formation to fit the site
+      // must never take it under the design spacing.
+      if (curDist * k < MIN_SEPARATION_M - 1e-6) {
         throw new ShowRefusalError(
           `Formation "${shapePayload}" (n=${n}, scale=${scale}) cannot fit within site radius (${SITE_RADIUS_M}m) without violating minimum spacing (${MIN_SEPARATION_M}m); required spacing would drop to ${(curDist * k).toFixed(2)}m`
         );
@@ -399,7 +401,9 @@ export const buildFormation = (shapeType, shapePayload, n, scale = 1.0) => {
     );
   }
   const finalMin = minPairDist(current);
-  if ((shapeType === 'parametric' || shapeType === 'svg') && finalMin < MIN_SEPARATION_M - 1e-6) {
+  // Checked for every shape type. Text used to skip it, so lettering at a large
+  // fleet built with drones as little as 0.06 m apart.
+  if (finalMin < MIN_SEPARATION_M - 1e-6) {
     throw new ShowRefusalError(
       `Formation "${shapePayload}" (n=${n}, scale=${scale}) violates minimum spacing: ${finalMin.toFixed(2)}m < ${MIN_SEPARATION_M}m`
     );
@@ -587,5 +591,139 @@ export const buildSplitFormation = (parts) => {
     );
   }
 
+  return current;
+};
+
+// ------------------------------------------------------------- depth copies
+
+// EXPORT_ROUNDING_MARGIN_M (0.05m, same export-rounding-erosion margin as
+// buildSplitFormation's own, defined above) applies here too - a depthSpacing
+// floor that stops exactly at MIN_SEPARATION_M has the identical rounding
+// risk as that function's own search.
+
+/**
+ * Repeats a formation identically at depth offsets along fleet-frame X -
+ * the audience-facing axis (see audienceView.test.js: a flat formation
+ * stands in a constant-X plane, and the audience looks down +X). A figure
+ * too wide to fit the site at one depth instead repeats its own outline
+ * several drones deep, reading as one solid shape from the front (500-drone
+ * plan, milestone M1).
+ *
+ * Every copy is the exact same point cloud (`buildFormation`'s own output
+ * for `perCopyCount`), translated by a whole multiple of
+ * `depthSpacing + <front copy's own X span>` - the X span term means a
+ * front copy that already spans some depth itself (unusual, but not
+ * assumed away) still can't let two copies' points interleave below
+ * `depthSpacing`. Because every pair of points in two *different* copies
+ * then differs in X by at least `depthSpacing`, and 3D distance can never
+ * be less than the difference along one axis, MIN_SEPARATION_M between
+ * copies holds regardless of what their (y, z) footprints look like - no
+ * search needed, unlike buildSplitFormation's support-group placement.
+ *
+ * The last copy is truncated (not regenerated at a smaller count) to make
+ * up the remainder, so its points are an exact subset of the front copy's -
+ * every copy, full or partial, matches the front copy's outline exactly
+ * when viewed from the audience (0 m deviation, not merely within 0.5 m).
+ *
+ * Every refusal below is a plain Error, not ShowRefusalError, even though
+ * #141 (which added showErrors.js) is on main as of this rebase - kept
+ * consistent with buildSplitFormation just above, whose own equivalent
+ * refusals (maxReach/maxAlt/finalMin) are still plain Error too. Switching
+ * one of these two near-identical functions and not the other would be a
+ * worse inconsistency than leaving both as they are; that switch belongs to
+ * both of them together, as one cross-cutting change, not scoped to #169
+ * alone.
+ *
+ * @param {'parametric'|'text'|'svg'|'mesh'} shapeType
+ * @param {string} shapePayload
+ * @param {number} perCopyCount drones in one copy - the outline's own natural resolution
+ * @param {number} totalCount drones across every copy combined; must be >= perCopyCount (a single, smaller formation is just buildFormation, not this)
+ * @param {number} scale
+ * @param {number} depthSpacing metres between consecutive copies (must clear MIN_SEPARATION_M with margin for export rounding; the 500-drone plan measured 2.2m for the Dandiya figures)
+ * @returns {{x:number,y:number,z:number}[]} exactly totalCount points
+ */
+export const buildDepthCopies = (shapeType, shapePayload, perCopyCount, totalCount, scale = 1.0, depthSpacing = 2.2) => {
+  // Same margin as buildSplitFormation (release review on #166, applied
+  // here too per #169's review): a copy pitched at exactly
+  // MIN_SEPARATION_M lands two drones ~2.000m apart by construction, and
+  // export rounds every waypoint to the centimetre (round2 in
+  // sequencer.js, then again by export_tara's own int16-centimetre
+  // packing) - enough to erode that down below the limit.
+  if (!(depthSpacing >= MIN_SEPARATION_M + EXPORT_ROUNDING_MARGIN_M)) {
+    throw new Error(
+      `depthSpacing (${depthSpacing}m) must be at least MIN_SEPARATION_M + a margin for export rounding `
+      + `(${(MIN_SEPARATION_M + EXPORT_ROUNDING_MARGIN_M).toFixed(2)}m)`
+    );
+  }
+  if (!Number.isInteger(perCopyCount) || perCopyCount < 1) {
+    throw new Error(`perCopyCount must be an integer >= 1 (got ${perCopyCount})`);
+  }
+  if (!Number.isInteger(totalCount) || totalCount < 1) {
+    throw new Error(`totalCount must be an integer >= 1 (got ${totalCount})`);
+  }
+  // issue #169 review: totalCount < perCopyCount used to silently return a
+  // *fragment* of one copy (the first totalCount points of a perCopyCount-
+  // sized shape) rather than a smaller version of the real outline - e.g.
+  // buildDepthCopies('text', '1', 15, 5) returned 5 points of a 15-point
+  // shape, not a 5-point '1'. A caller that wants fewer drones than one
+  // copy holds wants buildFormation directly, not this.
+  if (totalCount < perCopyCount) {
+    throw new Error(
+      `totalCount (${totalCount}) is less than perCopyCount (${perCopyCount}) - call buildFormation directly `
+      + `for a single, smaller formation instead of buildDepthCopies.`
+    );
+  }
+
+  const front = buildFormation(shapeType, shapePayload, perCopyCount, scale);
+  if (front.length !== perCopyCount) {
+    throw new Error(`Formation "${shapePayload}" returned ${front.length} points, not the requested ${perCopyCount}`);
+  }
+  const frontXs = front.map((p) => p.x);
+  const frontMinX = Math.min(...frontXs), frontMaxX = Math.max(...frontXs);
+  const frontSpanX = frontMaxX - frontMinX;
+  const pitch = depthSpacing + frontSpanX;
+  const copiesNeeded = Math.ceil(totalCount / perCopyCount);
+
+  // Centre the combined cloud's X-extent at 0 up front, like every other
+  // formation's own bbox-centring, so the site-radius check below runs
+  // against exactly the positions returned. Has to subtract the front
+  // copy's own X-centre too (review on #169): buildFormation places a
+  // formation at fleetCenter(perCopyCount), whose X is 0 only when the pad
+  // grid fits in one row (<=15 drones) - every other count centres it
+  // somewhere off 0, which the original version of this line ignored.
+  const frontCentreX = (frontMinX + frontMaxX) / 2;
+  const shiftX = -frontCentreX - ((copiesNeeded - 1) * pitch) / 2;
+
+  const points = [];
+  for (let c = 0; c < copiesNeeded; c++) {
+    const take = Math.min(perCopyCount, totalCount - points.length);
+    const offset = c * pitch + shiftX;
+    for (let i = 0; i < take; i++) {
+      points.push({ x: front[i].x + offset, y: front[i].y, z: front[i].z });
+    }
+  }
+
+  const current = points;
+  const maxReach = current.reduce((m, p) => Math.max(m, Math.hypot(p.x, p.y)), 0);
+  if (maxReach > SITE_RADIUS_M + 1e-6) {
+    throw new Error(
+      `Depth copies of "${shapePayload}" (${totalCount} drones at ${perCopyCount}/copy) need ${copiesNeeded} `
+      + `copies, which do not fit within the site radius (${SITE_RADIUS_M}m) at ${depthSpacing}m apart; `
+      + `refused rather than compressing the depth spacing below MIN_SEPARATION_M.`
+    );
+  }
+
+  const maxAlt = Math.max(...current.map((p) => -p.z));
+  if (maxAlt > MAX_ALTITUDE_M + 1e-6) {
+    throw new Error(
+      `Depth copies of "${shapePayload}" (${totalCount} drones) exceed the maximum altitude ceiling: ${maxAlt.toFixed(1)}m > ${MAX_ALTITUDE_M}m`
+    );
+  }
+  const finalMin = minPairDist(current);
+  if (finalMin < MIN_SEPARATION_M - 1e-6) {
+    throw new Error(
+      `Depth copies of "${shapePayload}" (${totalCount} drones) violate minimum spacing: ${finalMin.toFixed(2)}m < ${MIN_SEPARATION_M}m`
+    );
+  }
   return current;
 };
