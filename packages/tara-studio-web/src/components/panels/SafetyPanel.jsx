@@ -1,4 +1,4 @@
-import { CheckCircle, AlertTriangle } from 'lucide-react';
+import { CheckCircle, AlertTriangle, Loader2 } from 'lucide-react';
 import { EmptyState } from '../common/index.jsx';
 import { judgeMetrics } from '../../engine/safetyLimits.js';
 import EnduranceSection from './EnduranceSection.jsx';
@@ -12,11 +12,22 @@ const Metric = ({ title, value, unit, status, limitLabel }) => (
 );
 
 /** Results of the backend's 4D pre-flight safety validation, plus battery endurance. */
-export default function SafetyPanel({ validation, choreoData }) {
+export default function SafetyPanel({ validation, validating, choreoData }) {
   if (!validation) {
     if (choreoData) {
       return (
         <div className="glass-panel-inner">
+          {/* Issue #173: validation runs in the background after a build and can take
+              several seconds at large fleet sizes (~15s at 1000 drones) - without this,
+              the panel showed nothing safety-related for that whole window, no different
+              from "never validated", which is exactly the "stale/no feedback" gap the
+              issue's acceptance criteria calls out. */}
+          {validating && (
+            <div className="validation-summary unverified" role="status" aria-live="polite">
+              <Loader2 size={18} className="anim-spin" />
+              <span>Validating — running pre-flight safety and dynamics checks…</span>
+            </div>
+          )}
           <EnduranceSection choreoData={choreoData} />
         </div>
       );

@@ -89,7 +89,7 @@ function GcsSignIn() {
 /** Venue georeference plus export / GCS upload actions. */
 export default function TransmitPanel({
   homeLat, homeLon, onHomeLat, onHomeLon,
-  onExport, onExportPreview, onSendToGCS, sending, hasShow, validation,
+  onExport, onExportPreview, onSendToGCS, sending, hasShow, validation, validating,
 }) {
   const isCertified = validation?.status === 'PASSED'
     && validation?.feasibility_certified !== false
@@ -149,7 +149,14 @@ export default function TransmitPanel({
           <span>
             {isCertified && 'Safety Certified — Verified 0 safety violations. Ready to export.'}
             {isFailed && `Safety Gate Locked — ${totalViolations} violation${totalViolations === 1 ? '' : 's'} detected. Fix violations before exporting.`}
-            {isUnverified && 'Unverified Trajectory — Pre-flight safety validation required before export.'}
+            {/* Issue #173: validation is a background, non-blocking call that can take
+                several seconds at large fleet sizes (~15s at 1000 drones) - this window is
+                `isUnverified` too (validation is null either way), so without `validating` an
+                operator waiting on it would read the exact same "required" wording as someone
+                who hasn't triggered it at all. */}
+            {isUnverified && (validating
+              ? 'Validating — Running pre-flight safety and dynamics checks, this can take several seconds at large fleet sizes.'
+              : 'Unverified Trajectory — Pre-flight safety validation required before export.')}
           </span>
         </div>
       )}

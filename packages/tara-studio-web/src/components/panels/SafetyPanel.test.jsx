@@ -141,4 +141,28 @@ describe('SafetyPanel', () => {
     expect(html).toContain('Altitude · Drone 0');
     expect(html).toContain('Below ground · Drone 0');
   });
+
+  it('shows a validating indicator while a background validation is in flight (issue #173)', () => {
+    // No `validation` yet (it's still running) but a `choreoData` already
+    // exists and `validating` is true - without this, the panel looked
+    // identical to "never validated at all", which at large fleet sizes
+    // (~15s at 1000 drones) left an operator with no feedback for a long,
+    // silent wait.
+    const html = renderToStaticMarkup(
+      <SafetyPanel validation={null} validating choreoData={{ drones: [] }} />,
+    );
+    expect(html).toContain('Validating');
+    expect(html).toMatch(/validation-summary unverified/);
+  });
+
+  it('does not show the validating indicator once validation has actually run', () => {
+    const html = render(liveResponse);
+    expect(html).not.toContain('Validating —');
+  });
+
+  it('does not show the validating indicator before any build has happened', () => {
+    const html = renderToStaticMarkup(<SafetyPanel validation={null} validating choreoData={null} />);
+    expect(html).not.toContain('Validating —');
+    expect(html).toContain('No validation yet');
+  });
 });

@@ -16,6 +16,7 @@ import { API_BASE, validateShow } from '../engine/api.js';
 export default function useShowBuilder() {
   const [choreoData, setChoreoData] = useState(null);
   const [validation, setValidation] = useState(null);
+  const [validating, setValidating] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
 
@@ -54,7 +55,13 @@ export default function useShowBuilder() {
       setLoading(false);
     }
 
-    // Validate in the background — preview works, but export is locked until PASSED.
+    // Validate in the background — preview works, but export is locked until
+    // PASSED. `validating` exists only so the UI can distinguish "never
+    // validated yet" from "a validate_show + validate_dynamics sweep is
+    // currently running" (issue #173: at 1000 drones this takes ~15s with
+    // nothing on screen saying why) - not for sequencing, which already
+    // happens naturally since validateShow isn't awaited before returning.
+    setValidating(true);
     validateShow(show)
       .then((v) => {
         if (v && v.metrics) setValidation(v);
@@ -62,7 +69,8 @@ export default function useShowBuilder() {
       })
       .catch((err) => {
         setValidation({ status: 'UNVERIFIED', summary: `Validation service unavailable: ${err?.message || 'offline'}` });
-      });
+      })
+      .finally(() => setValidating(false));
 
     return show;
   }, []);
@@ -70,8 +78,11 @@ export default function useShowBuilder() {
   const clear = useCallback(() => {
     setChoreoData(null);
     setValidation(null);
+    setValidating(false);
     setError(null);
   }, []);
 
-  return { choreoData, setChoreoData, validation, setValidation, loading, error, setError, build, clear };
+  return {
+    choreoData, setChoreoData, validation, setValidation, validating, loading, error, setError, build, clear,
+  };
 }

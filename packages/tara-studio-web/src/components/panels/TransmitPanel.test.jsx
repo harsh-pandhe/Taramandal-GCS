@@ -82,6 +82,27 @@ describe('TransmitPanel Hard Safety Gate (Issue #139)', () => {
     expect(disabledCount).toBeGreaterThanOrEqual(5);
   });
 
+  it('shows a validating message instead of "required" while validation is actually in flight (issue #173)', () => {
+    // validation is null either way (not yet run vs. currently running), so
+    // without `validating` an operator waiting on a slow validate at a large
+    // fleet size would read the exact same "required" wording as someone who
+    // hasn't triggered it at all - still locked either way, just worded
+    // differently so a legitimate wait doesn't look like nothing happened.
+    const html = render({
+      hasShow: true,
+      validation: null,
+      validating: true,
+    });
+
+    expect(html).toContain('safety-gate-badge unverified');
+    expect(html).toContain('Validating');
+    expect(html).not.toContain('Unverified Trajectory');
+
+    const exportSection = html.slice(html.indexOf('Export &amp; Transmit'));
+    const disabledCount = count(exportSection, /<button[^>]*disabled/g);
+    expect(disabledCount).toBeGreaterThanOrEqual(5);
+  });
+
   it('locks all export and transmit buttons when validator returned UNVERIFIED status', () => {
     const html = render({
       hasShow: true,
