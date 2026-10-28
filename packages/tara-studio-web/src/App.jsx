@@ -64,7 +64,7 @@ export default function App() {
   const builder = useShowBuilder();
 
   const { scenes } = list;
-  const { choreoData, validation, loading, error } = builder;
+  const { choreoData, validation, validating, loading, error } = builder;
   const numDrones = fleet.dronesList.length;
 
   // Predicted length of the *current* scene list; the built show may be older.
@@ -291,6 +291,7 @@ export default function App() {
                 currentTime={currentTime}
                 lightingOpts={lightingOpts}
                 validation={validation}
+                validating={validating}
                 venue={{ homeLat, homeLon, onHomeLat: setHomeLat, onHomeLon: setHomeLon }}
                 transmit={{
                   onExport: handleExport, onExportPreview: handleExportPreview, onSendToGCS: handleSendToGCS, sending,

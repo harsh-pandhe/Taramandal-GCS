@@ -10,7 +10,7 @@ const TABS = ['sequence', 'light', 'audio', 'safety', 'transmit'];
 /** The sliding control console: scene editing, lighting, safety, export. */
 export default function ConsoleDrawer({
   open, onClose, tab, onTab, list, history, loading, onBuild, onOpenLibrary,
-  light, choreoData, currentTime, lightingOpts, validation, venue, transmit, audio,
+  light, choreoData, currentTime, lightingOpts, validation, validating, venue, transmit, audio,
 }) {
   return (
     <div className={`control-drawer${open ? ' active' : ''}`}>
@@ -55,14 +55,14 @@ export default function ConsoleDrawer({
             duration={audio.duration} currentTime={currentTime} onScrub={audio.onScrub}
           />
         )}
-        {tab === 'safety' && <SafetyPanel validation={validation} choreoData={choreoData} />}
+        {tab === 'safety' && <SafetyPanel validation={validation} validating={validating} choreoData={choreoData} />}
         {tab === 'transmit' && (
           <TransmitPanel
             homeLat={venue.homeLat} homeLon={venue.homeLon}
             onHomeLat={venue.onHomeLat} onHomeLon={venue.onHomeLon}
             onExport={transmit.onExport} onExportPreview={transmit.onExportPreview} onSendToGCS={transmit.onSendToGCS}
             sending={transmit.sending} hasShow={!!choreoData}
-            validation={validation}
+            validation={validation} validating={validating}
           />
         )}
       </div>

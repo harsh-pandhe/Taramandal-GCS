@@ -557,6 +557,7 @@ input[type="number"] { font-family: var(--mono); font-variant-numeric: tabular-n
 }
 .validation-summary.passed { background: var(--success-tint); border-color: var(--success); color: var(--success); }
 .validation-summary.failed { background: var(--danger-tint); border-color: var(--danger); color: var(--danger); }
+.validation-summary.unverified { background: var(--warning-tint); border-color: var(--warning); color: var(--warning); }
 
 .safety-gate-badge {
   display: flex; align-items: center; gap: 0.6rem; padding: 0.65rem 0.8rem;
