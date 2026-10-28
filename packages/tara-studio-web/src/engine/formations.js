@@ -659,26 +659,27 @@ export const buildDepthCopies = (shapeType, shapePayload, perCopyCount, totalCou
   const pitch = depthSpacing + frontSpanX;
   const copiesNeeded = Math.ceil(totalCount / perCopyCount);
 
-  // Centre the combined cloud's X-extent at 0 up front, like every other
-  // formation's own bbox-centring, so the site-radius check below runs
-  // against exactly the positions returned. Has to subtract the front
-  // copy's own X-centre too (review on #169): buildFormation places a
-  // formation at fleetCenter(perCopyCount), whose X is 0 only when the pad
-  // grid fits in one row (<=15 drones) - every other count centres it
-  // somewhere off 0, which the original version of this line ignored.
-  const frontCentreX = (frontMinX + frontMaxX) / 2;
-  const shiftX = -frontCentreX - ((copiesNeeded - 1) * pitch) / 2;
-
-  const points = [];
+  // Centre the combined cloud's X-extent at 0, like every other formation's
+  // own bbox-centring, so the site-radius check below runs against exactly
+  // the positions returned. Can't derive the shift from the front copy's
+  // own span and copiesNeeded alone (self-review, pre-merge): when
+  // totalCount isn't an exact multiple of perCopyCount, the trailing copy
+  // only holds front[0..take-1], a subset whose own X-extent can differ
+  // from the full front's - so the combined bbox has to be measured from
+  // the actual points after placement, not assumed from frontMinX/frontMaxX
+  // and front's centre. Build at a provisional pitch-only offset first,
+  // then re-centre on the real result.
+  const prePoints = [];
   for (let c = 0; c < copiesNeeded; c++) {
-    const take = Math.min(perCopyCount, totalCount - points.length);
-    const offset = c * pitch + shiftX;
+    const take = Math.min(perCopyCount, totalCount - prePoints.length);
+    const offset = c * pitch;
     for (let i = 0; i < take; i++) {
-      points.push({ x: front[i].x + offset, y: front[i].y, z: front[i].z });
+      prePoints.push({ x: front[i].x + offset, y: front[i].y, z: front[i].z });
     }
   }
-
-  const current = points;
+  const combinedXs = prePoints.map((p) => p.x);
+  const shiftX = -(Math.min(...combinedXs) + Math.max(...combinedXs)) / 2;
+  const current = prePoints.map((p) => ({ x: p.x + shiftX, y: p.y, z: p.z }));
   const maxReach = current.reduce((m, p) => Math.max(m, Math.hypot(p.x, p.y)), 0);
   if (maxReach > SITE_RADIUS_M + 1e-6) {
     throw new Error(

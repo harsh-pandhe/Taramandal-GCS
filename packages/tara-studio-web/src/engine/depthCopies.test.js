@@ -123,6 +123,19 @@ describe('buildDepthCopies', () => {
     expect((Math.min(...xs) + Math.max(...xs)) / 2).toBeCloseTo(0, 6);
   });
 
+  it('centres correctly even when the final copy is a partial, not full, copy (self-review, pre-merge)', () => {
+    // The previous centring formula assumed every copy spans the front
+    // formation's full X-extent, which is only true for full copies. With
+    // perCopyCount=3 and totalCount=7, the 3rd copy holds only front[0]
+    // (a 1-point fragment, not the full 3-point span), so deriving the
+    // shift from frontSpanX/copiesNeeded alone (as the old code did)
+    // mis-centred the real combined cloud by a non-trivial amount. Centring
+    // must be measured from the actual placed points, not assumed.
+    const result = buildDepthCopies('parametric', 'line', 3, 7, 1, 2.2);
+    const xs = result.map((p) => p.x);
+    expect((Math.min(...xs) + Math.max(...xs)) / 2).toBeCloseTo(0, 6);
+  });
+
   it('every point stays within the site radius and under the altitude ceiling', () => {
     const [shapeType, payload, perCopy] = WALL;
     const result = buildDepthCopies(shapeType, payload, perCopy, perCopy * 3);
