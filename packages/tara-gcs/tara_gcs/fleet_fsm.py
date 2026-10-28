@@ -43,6 +43,7 @@ from collections import deque
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from enum import Enum
+from typing import Callable
 
 logger = logging.getLogger("TaramandalGCS")
 
@@ -223,15 +224,28 @@ class FleetStateMachine:
     block can't be interleaved with another command.
     """
 
-    def __init__(self, audit_path: str | None = DEFAULT_AUDIT_PATH, history_size: int = 100):
+    def __init__(
+        self,
+        audit_path: str | None = DEFAULT_AUDIT_PATH,
+        history_size: int = 100,
+        context: Callable[[], dict] | None = None,
+    ):
         """
         Args:
             audit_path: JSONL file every transition and rejected command is
                 appended to. ``None`` keeps the audit trail in memory only.
             history_size: How many recent transitions ``history`` keeps for the
                 API and HUD. The file on disk is the complete record.
+            context: Extra fields merged into every audit entry, read lazily
+                at record time (issue #170) - same pattern as
+                ``preflight.AuditLog``'s own ``context``, which this trail
+                didn't share since it predates that pattern and writes its
+                own JSONL directly. Without it, this was the one audit trail
+                in the GCS a kinematic run's evidence could still be confused
+                with a PX4 SITL one.
         """
         self.audit_path = audit_path
+        self.context = context
         self._state = S.STAGED
         self._since = time.time()
         # Bumped on every accepted transition, so the telemetry socket can tell
@@ -341,6 +355,15 @@ class FleetStateMachine:
     def _audit(self, entry: dict) -> None:
         if not self.audit_path:
             return
+        extra: dict = {}
+        if self.context is not None:
+            try:
+                extra = dict(self.context())
+            except Exception:  # an audit trail must survive a bad context provider
+                logger.exception("Fleet lifecycle: audit context provider failed; recording without it")
+        # Explicit entry fields win over context, same precedence as
+        # preflight.AuditLog.record().
+        entry = {**extra, **entry}
         try:
             directory = os.path.dirname(self.audit_path)
             if directory:

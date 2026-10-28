@@ -423,6 +423,9 @@ async def get_mode(operator: Viewer):
         "configured_mode": current_operating_mode,
         "backend": drone_manager.backend,
         "active_backend": drone_manager.backend,
+        # Evidence tier of that backend (issue #170), matching /api/status's
+        # own field.
+        "fidelity": drone_manager.fidelity,
         "hardware_profile": HARDWARE_PROFILE,
         "hardware_flight_certified": hardware_flight_certified,
         "hardware_flight_available": hardware_available,

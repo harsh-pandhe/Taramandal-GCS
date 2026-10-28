@@ -60,6 +60,7 @@ function Dashboard({ session }) {
         session={session}
         onLogout={logout}
         mode={operatingMode.mode}
+        fidelity={operatingMode.fidelity}
         telemetryStatus={operatingMode.telemetryStatus}
       />
 

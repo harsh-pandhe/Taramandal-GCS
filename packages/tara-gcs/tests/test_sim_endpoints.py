@@ -103,6 +103,25 @@ async def test_status_merges_process_view_with_fleet_heartbeat(sim, monkeypatch)
 
 
 @pytest.mark.asyncio
+async def test_status_fidelity_reflects_the_launched_backend_not_dronemanagers(sim, monkeypatch):
+    """Issue #170: SimManager.status()'s own `backend` comes from the last
+    `/api/sim/launch` request, a value independent of DroneManager.backend
+    (set once at GCS startup from VEHICLE_BACKEND) - they can genuinely
+    diverge, e.g. a GCS started with VEHICLE_BACKEND=px4 but asked to launch
+    a sim-backend fleet for a quick kinematic check. `fidelity` must track
+    the one that was actually launched (what processes are really running),
+    not DroneManager's own config.
+    """
+    monkeypatch.setattr(gcs_main, "drone_manager", DroneManager(ports=[14540], backend="px4"))
+    await gcs_main.sim_launch(gcs_main.SimLaunchRequest(num_drones=5, backend="sim"), operator=COMMANDER)
+
+    status = await gcs_main.sim_status(operator=COMMANDER)
+
+    assert status["backend"] == "sim"
+    assert status["fidelity"] == "kinematic"
+
+
+@pytest.mark.asyncio
 async def test_status_with_no_fleet_reports_not_alive(sim, monkeypatch):
     """Processes up but nothing reporting in is a half-started stack, and the
     operator needs to see that before pressing Launch."""
