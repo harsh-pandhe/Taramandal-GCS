@@ -1,4 +1,5 @@
 import { Compass, FolderOpen, Activity, Save, Edit2 } from 'lucide-react';
+import { Badge } from './common/index.jsx';
 
 const PAGES = [
   { id: 'choreo', icon: Compass, label: 'Sequencer' },
@@ -8,7 +9,7 @@ const PAGES = [
 
 /** Brand, page navigation, and the active project's name/save control. */
 export default function Sidebar({
-  activePage, onNavigate, projectName, onProjectName, onSave, vaultError,
+  activePage, onNavigate, projectName, onProjectName, onSave, vaultError, isDirty,
 }) {
   return (
     <aside className="studio-sidebar">
@@ -31,7 +32,14 @@ export default function Sidebar({
       </nav>
 
       <div className="sidebar-project-info">
-        <span className="ui-field-label">Active Project</span>
+        <span className="ui-field-label">
+          Active Project
+          {isDirty && (
+            <Badge tone="warn" title="This project has changes that haven't been saved yet">
+              Unsaved
+            </Badge>
+          )}
+        </span>
         <div className="project-name-display">
           <Edit2 size={12} />
           <input
@@ -42,7 +50,14 @@ export default function Sidebar({
             aria-label="Project name"
           />
         </div>
-        <button type="button" className="btn-secondary btn-inline" onClick={onSave}>
+        {/* Issue #132: switches to the primary button style once there's
+            something to save - the label itself stays "Save Project" so it
+            keeps one stable accessible name regardless of dirty state. */}
+        <button
+          type="button"
+          className={`btn-inline ${isDirty ? 'btn-primary' : 'btn-secondary'}`}
+          onClick={onSave}
+        >
           <Save size={14} /> Save Project
         </button>
         {vaultError && <p className="vault-error" role="alert">{vaultError}</p>}

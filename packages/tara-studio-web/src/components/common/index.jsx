@@ -1,7 +1,18 @@
 // Small presentational primitives shared across the Studio panels.
+import { Loader2 } from 'lucide-react';
 
 export const Badge = ({ children, tone = 'default', title }) => (
   <span className={`ui-badge ui-badge-${tone}`} title={title}>{children}</span>
+);
+
+/** Matches EmptyState's layout, for the moment before there's anything to
+ * show empty or full (issue #132) - a spinning icon instead of a static one. */
+export const LoadingState = ({ title, children }) => (
+  <div className="ui-empty" role="status" aria-live="polite">
+    <Loader2 size={40} className="ui-empty-icon anim-spin" />
+    <h3>{title}</h3>
+    {children && <p>{children}</p>}
+  </div>
 );
 
 export const IconButton = ({ icon: Icon, label, active, tone, size = 14, ...rest }) => (
