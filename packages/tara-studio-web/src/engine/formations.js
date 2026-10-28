@@ -445,13 +445,14 @@ export const buildFormation = (shapeType, shapePayload, n, scale = 1.0) => {
  * like any other shape, which is a visually different but still safe
  * outcome, not a crash.
  *
- * Every refusal below is a plain Error, not ShowRefusalError (#141) -
- * explicit dependency, not an oversight (review on #166): #141 isn't on
- * main yet, so showErrors.js isn't available to this branch. Once it
- * lands, every throw here should switch to ShowRefusalError, the same way
- * formations.js's and sequencer.js's own refusals will, so a refused split
- * reaching a render-phase useMemo/preview doesn't crash the page the way
- * #141/#153 originally found for other refusals.
+ * The three geometric refusals below (site radius, altitude ceiling,
+ * minimum spacing) are ShowRefusalError, same as buildFormation's own
+ * equivalent checks - well-formed input the safety rules won't allow, not
+ * a bug, so a refused split reaching a render-phase useMemo/preview
+ * doesn't crash the page the way #141/#153 originally found for other
+ * refusals. The argument-validation checks above them (missing parts,
+ * bad counts, a generator returning the wrong count) stay plain Error -
+ * misuse and defensive bug-guards, not a safety-rule refusal.
  *
  * @param {{shapeType: string, shapePayload: string, scale?: number, count: number}[]} parts
  * @returns {{x:number,y:number,z:number}[]} the parts' combined point count, figure first then each support group in order
@@ -572,21 +573,21 @@ export const buildSplitFormation = (parts) => {
   // the radius whenever the span is).
   const maxReach = current.reduce((m, p) => Math.max(m, Math.hypot(p.x, p.y)), 0);
   if (maxReach > SITE_RADIUS_M + 1e-6) {
-    throw new Error(
+    throw new ShowRefusalError(
       `Split formation (figure + ${supports.length} support group(s), ${totalN} drones) cannot fit within the site radius (${SITE_RADIUS_M}m) even centred; refused rather than scaled down, which would undo the clearance already built between groups.`
     );
   }
 
   const maxAlt = Math.max(...current.map((p) => -p.z));
   if (maxAlt > MAX_ALTITUDE_M + 1e-6) {
-    throw new Error(
+    throw new ShowRefusalError(
       `Split formation (${totalN} drones) exceeds the maximum altitude ceiling: ${maxAlt.toFixed(1)}m > ${MAX_ALTITUDE_M}m`
     );
   }
 
   const finalMin = minPairDist(current);
   if (finalMin < MIN_SEPARATION_M - 1e-6) {
-    throw new Error(
+    throw new ShowRefusalError(
       `Split formation (${totalN} drones) violates minimum spacing: ${finalMin.toFixed(2)}m < ${MIN_SEPARATION_M}m`
     );
   }
@@ -625,14 +626,11 @@ export const buildSplitFormation = (parts) => {
  * every copy, full or partial, matches the front copy's outline exactly
  * when viewed from the audience (0 m deviation, not merely within 0.5 m).
  *
- * Every refusal below is a plain Error, not ShowRefusalError, even though
- * #141 (which added showErrors.js) is on main as of this rebase - kept
- * consistent with buildSplitFormation just above, whose own equivalent
- * refusals (maxReach/maxAlt/finalMin) are still plain Error too. Switching
- * one of these two near-identical functions and not the other would be a
- * worse inconsistency than leaving both as they are; that switch belongs to
- * both of them together, as one cross-cutting change, not scoped to #169
- * alone.
+ * The three geometric refusals below (site radius, altitude ceiling,
+ * minimum spacing) are ShowRefusalError, consistent with
+ * buildSplitFormation's own equivalent refusals just above and
+ * buildFormation's. The argument-validation checks above them stay plain
+ * Error - misuse, not a safety-rule refusal.
  *
  * @param {'parametric'|'text'|'svg'|'mesh'} shapeType
  * @param {string} shapePayload
@@ -707,7 +705,7 @@ export const buildDepthCopies = (shapeType, shapePayload, perCopyCount, totalCou
   const current = prePoints.map((p) => ({ x: p.x + shiftX, y: p.y, z: p.z }));
   const maxReach = current.reduce((m, p) => Math.max(m, Math.hypot(p.x, p.y)), 0);
   if (maxReach > SITE_RADIUS_M + 1e-6) {
-    throw new Error(
+    throw new ShowRefusalError(
       `Depth copies of "${shapePayload}" (${totalCount} drones at ${perCopyCount}/copy) need ${copiesNeeded} `
       + `copies, which do not fit within the site radius (${SITE_RADIUS_M}m) at ${depthSpacing}m apart; `
       + `refused rather than compressing the depth spacing below MIN_SEPARATION_M.`
@@ -716,13 +714,13 @@ export const buildDepthCopies = (shapeType, shapePayload, perCopyCount, totalCou
 
   const maxAlt = Math.max(...current.map((p) => -p.z));
   if (maxAlt > MAX_ALTITUDE_M + 1e-6) {
-    throw new Error(
+    throw new ShowRefusalError(
       `Depth copies of "${shapePayload}" (${totalCount} drones) exceed the maximum altitude ceiling: ${maxAlt.toFixed(1)}m > ${MAX_ALTITUDE_M}m`
     );
   }
   const finalMin = minPairDist(current);
   if (finalMin < MIN_SEPARATION_M - 1e-6) {
-    throw new Error(
+    throw new ShowRefusalError(
       `Depth copies of "${shapePayload}" (${totalCount} drones) violate minimum spacing: ${finalMin.toFixed(2)}m < ${MIN_SEPARATION_M}m`
     );
   }
