@@ -571,14 +571,10 @@ export const buildSplitFormation = (parts) => {
 
 // ------------------------------------------------------------- depth copies
 
-// Release review on #141 found the same defect in its own direct-vs-layered
-// trigger: a search (or, here, a floor) that stops exactly at
-// MIN_SEPARATION_M places a pair at ~2.000m by construction, and export
-// rounds every waypoint to the centimetre (round2 in sequencer.js, then
-// again by export_tara's own int16-centimetre packing) - enough to erode a
-// hairline margin below the limit (2*sqrt(3)*0.005 = 0.0173m bound; #141
-// uses 0.05m for its own margin, LAYER_CLEARANCE). Same margin here.
-const EXPORT_ROUNDING_MARGIN_M = 0.05;
+// EXPORT_ROUNDING_MARGIN_M (0.05m, same export-rounding-erosion margin as
+// buildSplitFormation's own, defined above) applies here too - a depthSpacing
+// floor that stops exactly at MIN_SEPARATION_M has the identical rounding
+// risk as that function's own search.
 
 /**
  * Repeats a formation identically at depth offsets along fleet-frame X -
@@ -604,13 +600,14 @@ const EXPORT_ROUNDING_MARGIN_M = 0.05;
  * every copy, full or partial, matches the front copy's outline exactly
  * when viewed from the audience (0 m deviation, not merely within 0.5 m).
  *
- * Every refusal below is a plain Error, not ShowRefusalError (#141) -
- * explicit dependency, not an oversight (review on #169): #141 isn't on
- * main yet, so showErrors.js isn't available to this branch. Once it
- * lands, every throw here should switch to ShowRefusalError, the same way
- * formations.js's and sequencer.js's own refusals will, so a refused
- * depth-copy build reaching a render-phase useMemo/preview doesn't crash
- * the page the way #141/#153 originally found for other refusals.
+ * Every refusal below is a plain Error, not ShowRefusalError, even though
+ * #141 (which added showErrors.js) is on main as of this rebase - kept
+ * consistent with buildSplitFormation just above, whose own equivalent
+ * refusals (maxReach/maxAlt/finalMin) are still plain Error too. Switching
+ * one of these two near-identical functions and not the other would be a
+ * worse inconsistency than leaving both as they are; that switch belongs to
+ * both of them together, as one cross-cutting change, not scoped to #169
+ * alone.
  *
  * @param {'parametric'|'text'|'svg'|'mesh'} shapeType
  * @param {string} shapePayload
