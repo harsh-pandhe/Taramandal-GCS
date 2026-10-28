@@ -373,7 +373,7 @@ class SimManager:
             # not of the GCS's own DroneManager.backend - those two can differ
             # (e.g. a GCS process started with VEHICLE_BACKEND=sim pointed at
             # a px4 launch request). None until something has been launched.
-            "fidelity": FIDELITY_BY_BACKEND.get(backend),
+            "fidelity": FIDELITY_BY_BACKEND.get(backend) if isinstance(backend, str) else None,
             "num_drones": num_drones,
             # One simulated MAVLink port per drone, matching the port block
             # tara_gcs.main derives its fleet from. Zero for the sim backend,
