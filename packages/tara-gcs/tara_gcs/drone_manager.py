@@ -440,7 +440,12 @@ class DroneManager:
 
         # Fleet lifecycle (issue #52). The API validates operator commands
         # against it; _lifecycle_monitor_loop advances it from telemetry.
-        self.fleet_fsm = FleetStateMachine(audit_path=audit_path)
+        # context stamps backend/fidelity on every transition and rejection
+        # (issue #170), same pattern as main.py's command_audit/preflight_engine.
+        self.fleet_fsm = FleetStateMachine(
+            audit_path=audit_path,
+            context=lambda: {"backend": self.backend, "fidelity": self.fidelity},
+        )
         self.launch_task = None
 
     async def connect_all(self) -> None:

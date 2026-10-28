@@ -160,6 +160,39 @@ def test_transitions_and_rejections_are_audited_with_time_operator_and_trigger(t
     assert "Allowed from: FORMATION_HOLD" in rejected["reason"]
 
 
+def test_audit_context_is_merged_into_every_entry_and_loses_to_explicit_fields(tmp_path):
+    """Issue #170: the fleet lifecycle trail is the one audit trail that
+    predates the context-provider pattern command_audit/preflight already
+    use, so it could still be read as evidence from the wrong backend/
+    fidelity tier. Tests the mechanism directly (context merging, explicit
+    fields winning, a failing context never losing the entry) - the real
+    backend/fidelity wiring is covered in test_status_endpoint.py's
+    test_fleet_lifecycle_audit_entries_carry_backend_and_fidelity, against a
+    real DroneManager.
+    """
+    audit_path = tmp_path / "fleet_audit.jsonl"
+    fsm = FleetStateMachine(audit_path=str(audit_path), context=lambda: {"backend": "sim", "extra": "x"})
+    fsm.apply(Command.LAUNCH, operator="alice", trigger="test")
+    (entry,) = [json.loads(line) for line in audit_path.read_text().splitlines()]
+    assert entry["backend"] == "sim"
+    assert entry["extra"] == "x"
+    # accepted=True is set by transition() itself, after the context is
+    # merged in - must not be clobbered by a context that happened to carry
+    # the same key.
+    assert entry["accepted"] is True
+
+
+def test_a_failing_audit_context_never_loses_the_entry(tmp_path):
+    audit_path = tmp_path / "fleet_audit.jsonl"
+    def _broken():
+        raise RuntimeError("context provider is down")
+    fsm = FleetStateMachine(audit_path=str(audit_path), context=_broken)
+    fsm.apply(Command.LAUNCH, operator="alice", trigger="test")
+    (entry,) = [json.loads(line) for line in audit_path.read_text().splitlines()]
+    assert entry["accepted"] is True
+    assert entry["operator"] == "alice"
+
+
 def test_an_unwritable_audit_log_never_blocks_an_emergency(tmp_path):
     """A directory where the file should be makes every write fail."""
     fsm = FleetStateMachine(audit_path=str(tmp_path))

@@ -61,7 +61,7 @@ const CHOREO = {
 };
 
 /** Opens the dashboard with `drones` streaming in; returns the requests the backend received. */
-async function openDashboard(page, drones, { launch = { status: 'success', message: 'ok' } } = {}) {
+async function openDashboard(page, drones, { launch = { status: 'success', message: 'ok' }, mode = null } = {}) {
   const requests = [];
   const record = (route) => { requests.push(new URL(route.request().url()).pathname); };
 
@@ -70,6 +70,9 @@ async function openDashboard(page, drones, { launch = { status: 'success', messa
     ws.send(slowFrame(drones));
   });
   await page.route('**/choreography.json', (route) => route.fulfill({ json: CHOREO }));
+  if (mode) {
+    await page.route('**/api/mode', (route) => route.fulfill({ json: mode }));
+  }
   await page.route('**/api/sim/status', (route) => route.fulfill({ json: {
     running: true, num_drones: drones.length, cpu_percent: 42, memory_mb: 2048,
     heartbeat: { alive: true, connected: drones.length, expected: drones.length },
@@ -241,4 +244,32 @@ test('view tabs swap the operations dashboard for the night-sky view and back', 
   await expect(droneCard(page, '00')).toBeHidden();
   await page.getByRole('button', { name: 'OPERATIONS' }).click();
   await expect(droneCard(page, '00')).toBeVisible();
+});
+
+// Issue #170: the header's fidelity tier label must never be read as
+// evidence from the wrong backend - these three cases are the ones that
+// burn an operator or reviewer if they're wrong (kinematic shown as
+// PX4 SITL or vice versa, and an unrecognized value silently defaulting
+// to either real label instead of flagging itself).
+test.describe('header fidelity tier label (issue #170)', () => {
+  const modeInfo = (fidelity) => ({
+    mode: 'SIMULATION', backend: fidelity === 'px4-sitl' ? 'px4' : 'sim', fidelity,
+    hardware_profile: null, hardware_flight_certified: false,
+    telemetry_freshness_s: 0.1, telemetry_status: 'FRESH', rc_takeover_available: false,
+  });
+
+  test('labels a kinematic (tara_sim) backend', async ({ page }) => {
+    await openDashboard(page, fleet(2), { mode: modeInfo('kinematic') });
+    await expect(page.getByTestId('operating-mode')).toContainText('SIMULATION · tara_sim (kinematic)');
+  });
+
+  test('labels a PX4 SITL (Gazebo) backend', async ({ page }) => {
+    await openDashboard(page, fleet(2), { mode: modeInfo('px4-sitl') });
+    await expect(page.getByTestId('operating-mode')).toContainText('SIMULATION · PX4 SITL (Gazebo)');
+  });
+
+  test('shows UNKNOWN rather than defaulting, for an unrecognized fidelity value', async ({ page }) => {
+    await openDashboard(page, fleet(2), { mode: modeInfo('some-future-tier') });
+    await expect(page.getByTestId('operating-mode')).toContainText('SIMULATION · UNKNOWN');
+  });
 });

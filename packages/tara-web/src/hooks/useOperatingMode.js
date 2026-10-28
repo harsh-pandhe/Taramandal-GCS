@@ -9,6 +9,7 @@ export default function useOperatingMode(setErrorMsg) {
   const [modeInfo, setModeInfo] = useState({
     mode: 'SIMULATION',
     backend: 'sim',
+    fidelity: 'kinematic',
     hardwareProfile: null,
     hardwareFlightCertified: false,
     telemetryFreshnessS: null,
@@ -27,6 +28,7 @@ export default function useOperatingMode(setErrorMsg) {
         setModeInfo({
           mode: data.mode,
           backend: data.backend,
+          fidelity: data.fidelity,
           hardwareProfile: data.hardware_profile,
           hardwareFlightCertified: data.hardware_flight_certified,
           telemetryFreshnessS: data.telemetry_freshness_s,

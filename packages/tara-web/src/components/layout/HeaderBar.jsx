@@ -1,3 +1,12 @@
+// Evidence tier label (issue #170): never silently fall back between
+// tiers - an unrecognized/missing fidelity shows as UNKNOWN rather than
+// defaulting to either real label, so a stale or misconfigured backend
+// can't be read as evidence from the wrong one.
+const FIDELITY_LABEL = {
+  kinematic: 'tara_sim (kinematic)',
+  'px4-sitl': 'PX4 SITL (Gazebo)',
+};
+
 // Fleet lifecycle state (issue #52) -> status dot colour.
 const FLEET_STATE_DOT = {
   STAGED: 'grey',
@@ -14,7 +23,10 @@ const FLEET_STATE_DOT = {
 };
 
 /** Top bar: product mark, GCS telemetry link status, and fleet lifecycle state. */
-export default function HeaderBar({ wsConnected, fleetState, session, onLogout, mode = 'SIMULATION', telemetryStatus = 'FRESH' }) {
+export default function HeaderBar({
+  wsConnected, fleetState, session, onLogout, mode = 'SIMULATION', fidelity, telemetryStatus = 'FRESH',
+}) {
+  const fidelityLabel = FIDELITY_LABEL[fidelity] || 'UNKNOWN';
   return (
     <header className="header-bar">
       <div className="logo-section">
@@ -35,7 +47,7 @@ export default function HeaderBar({ wsConnected, fleetState, session, onLogout, 
       <div className="system-status">
         <div className={`status-badge mode-badge ${mode === 'HARDWARE' ? 'hardware-mode' : 'simulation-mode'}`} data-testid="operating-mode">
           <span className={`dot ${mode === 'HARDWARE' ? 'orange' : 'blue'}`}></span>
-          MODE: {mode} {telemetryStatus === 'STALE' ? '· STALE TELEMETRY' : ''}
+          MODE: {mode}{mode === 'SIMULATION' ? ` · ${fidelityLabel}` : ''} {telemetryStatus === 'STALE' ? '· STALE TELEMETRY' : ''}
         </div>
         <div className="status-badge">
           <span className={`dot ${wsConnected ? 'green' : 'red'}`}></span>

@@ -9,6 +9,7 @@ that `sum` works; the sim backend actually exercises the fields being counted.
 """
 
 import asyncio
+import json
 import time
 
 import pytest
@@ -132,6 +133,31 @@ async def test_status_connected_count_requires_a_fresh_heartbeat_not_just_the_fl
         await manager.shutdown()
 
 
+def test_fleet_lifecycle_audit_entries_carry_backend_and_fidelity(patched_manager, tmp_path):
+    """Issue #170: the fleet lifecycle trail is the one audit trail that
+    predates the context-provider pattern command_audit/preflight already
+    use (test_command_and_preflight_audit_entries_carry_backend_and_fidelity,
+    below) - verifies the same wiring reaches it too, through its owning
+    DroneManager rather than the module-level drone_manager singleton
+    (fleet_fsm's context closes over `self`, not a monkeypatched global).
+
+    Checks the written audit file, not apply()'s return value: the context
+    is merged only into the entry _audit() writes to disk, not into the
+    in-memory record history/API responses are built from - the issue scopes
+    this to the evidence-pack trail, which is the disk log.
+    """
+    from tara_gcs.fleet_fsm import Command
+
+    for backend, fidelity in (("sim", "kinematic"), ("px4", "px4-sitl")):
+        audit_path = tmp_path / f"{backend}_fleet_audit.jsonl"
+        manager = patched_manager(DroneManager(ports=[0], backend=backend, audit_path=str(audit_path)))
+        manager.fleet_fsm.apply(Command.LAUNCH, operator="tester", trigger="test")
+        (entry,) = [json.loads(line) for line in audit_path.read_text().splitlines()]
+        assert entry["backend"] == backend
+        assert entry["fidelity"] == fidelity
+        assert entry["operator"] == "tester"
+
+
 def test_every_backend_has_a_fidelity_tier():
     """Issue #170: the evidence tier is derived from the backend, never defaulted.
 
@@ -153,6 +179,21 @@ async def test_status_reports_px4_fidelity_without_connecting(patched_manager):
     status = await gcs_main.get_status()
     assert status["backend"] == "px4"
     assert status["fidelity"] == "px4-sitl"
+
+
+@pytest.mark.asyncio
+async def test_api_mode_reports_fidelity(patched_manager):
+    """Issue #170: /api/mode carried backend but not fidelity - the one
+    status-style endpoint still missing it, so the dashboard header and
+    single-drone screen (both read from here, not /api/status) had nothing
+    to show.
+    """
+    from tara_gcs.auth import Operator, Role
+
+    patched_manager(DroneManager(ports=[14540], backend="px4"))
+    mode_info = await gcs_main.get_mode(operator=Operator("tester", Role.VIEWER))
+    assert mode_info["backend"] == "px4"
+    assert mode_info["fidelity"] == "px4-sitl"
 
 
 def test_command_and_preflight_audit_entries_carry_backend_and_fidelity(patched_manager):

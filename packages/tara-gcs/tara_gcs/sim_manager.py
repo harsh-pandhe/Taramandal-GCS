@@ -46,6 +46,8 @@ import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from tara_gcs.drone_manager import FIDELITY_BY_BACKEND
+
 logger = logging.getLogger("TaramandalGCS.sim")
 
 #: Grace period after SIGINT before escalating to SIGTERM. PX4 and Gazebo both
@@ -367,6 +369,11 @@ class SimManager:
             "running": self.is_running,
             "supported": self.supported,
             "backend": backend,
+            # Issue #170: the evidence tier of what was actually launched here,
+            # not of the GCS's own DroneManager.backend - those two can differ
+            # (e.g. a GCS process started with VEHICLE_BACKEND=sim pointed at
+            # a px4 launch request). None until something has been launched.
+            "fidelity": FIDELITY_BY_BACKEND.get(backend),
             "num_drones": num_drones,
             # One simulated MAVLink port per drone, matching the port block
             # tara_gcs.main derives its fleet from. Zero for the sim backend,
