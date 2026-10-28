@@ -9,6 +9,7 @@
 
 import { SHOW_ALT, fleetCenter } from './layout.js';
 import { ShowRefusalError } from './showErrors.js';
+import { svgToFormation } from './svgImporter.js';
 
 export { SHOW_ALT };
 
@@ -304,6 +305,8 @@ export const SHAPE_LIBRARY = [
   ...Object.keys(PARAMETRIC).map((k) => ({
     shapeType: 'parametric', shapePayload: k, label: FORMATION_LABELS[k],
   })),
+  { shapeType: 'svg', shapePayload: 'dandiya_sticks', label: 'Dandiya Sticks' },
+  { shapeType: 'svg', shapePayload: 'diya_flame', label: 'Diya Flame' },
   ...['0', '1', '2', '3', '4', '5', '6', '7', '8', '9'].map((d) => ({
     shapeType: 'text', shapePayload: d, label: `Digit ${d}`,
   })),
@@ -318,9 +321,22 @@ const rawFormation = (shapeType, shapePayload, n, scale) => {
   const gen = PARAMETRIC[shapePayload] || fmtCircle;
   let raw;
   if (shapeType === 'text') raw = fmtText(n, s, shapePayload);
+  else if (shapeType === 'svg') raw = svgToFormation(shapePayload, n, { scale: s * 15.0, altitude: SHOW_ALT });
   else if (gen === fmtSphere) raw = gen(n, s);
   else raw = stackIfOversized(gen, n, s);
-  if (n > 1 && !(minPairDist(raw) > 1e-6)) raw = fmtCircle(n, s);
+  if (n > 1 && !(minPairDist(raw) > 1e-6)) {
+    // issue #146/#129 review: an SVG import that collapses to degenerate
+    // geometry (every point coincident) must fail closed, not silently fall
+    // back to a circle the way every other shape type's own degenerate case
+    // does - a parametric/text generator collapsing is a bug in this file,
+    // but an SVG's geometry comes from the uploaded asset, so silently
+    // substituting a circle would hide a bad import behind a shape the
+    // operator never asked for.
+    if (shapeType === 'svg') {
+      throw new Error('SVG formation produced degenerate geometry (points collapsed).');
+    }
+    raw = fmtCircle(n, s);
+  }
   return raw;
 };
 
@@ -391,6 +407,11 @@ export const buildFormation = (shapeType, shapePayload, n, scale = 1.0) => {
     throw new ShowRefusalError(
       `Formation "${shapePayload}" (n=${n}, scale=${scale}) violates minimum spacing: ${finalMin.toFixed(2)}m < ${MIN_SEPARATION_M}m`
     );
+  }
+  for (const p of current) {
+    if (!Number.isFinite(p.x) || !Number.isFinite(p.y) || !Number.isFinite(p.z)) {
+      throw new Error(`Formation "${shapePayload}" produced non-finite coordinates.`);
+    }
   }
   return current;
 };

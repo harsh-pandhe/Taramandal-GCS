@@ -90,12 +90,16 @@ describe('buildFormation', () => {
   });
 
   it('falls back to a ring for unimplemented and unknown shape types', () => {
-    // 'svg' and 'mesh' are in the schema but unimplemented; a scene using one
-    // must still build rather than throw mid-show.
+    // 'mesh' is in the schema but unimplemented; unknown parametric shapes also fall back.
     const ring = buildFormation('parametric', 'circle', 8);
-    expect(buildFormation('svg', 'whatever', 8)).toEqual(ring);
     expect(buildFormation('mesh', 'whatever', 8)).toEqual(ring);
     expect(buildFormation('parametric', 'no-such-shape', 8)).toEqual(ring);
+  });
+
+  it('rejects invalid, malformed, or unsafe SVG without silent fallback', () => {
+    expect(() => buildFormation('svg', 'whatever', 8)).toThrow();
+    expect(() => buildFormation('svg', '<svg></svg>', 8)).toThrow();
+    expect(() => buildFormation('svg', '<svg><path d="M 0 0 A 10 10 0 0 1 20 20" /></svg>', 8)).toThrow();
   });
 
   it('handles degenerate input without throwing', () => {
@@ -167,8 +171,9 @@ describe('formation placement', () => {
 });
 
 describe('SHAPE_LIBRARY', () => {
-  it('lists every parametric shape plus the ten digits', () => {
+  it('lists every parametric shape, SVG assets, plus the ten digits', () => {
     expect(SHAPE_LIBRARY.filter((e) => e.shapeType === 'parametric')).toHaveLength(SHAPES.length);
+    expect(SHAPE_LIBRARY.filter((e) => e.shapeType === 'svg')).toHaveLength(2);
     expect(SHAPE_LIBRARY.filter((e) => e.shapeType === 'text')).toHaveLength(10);
   });
 
