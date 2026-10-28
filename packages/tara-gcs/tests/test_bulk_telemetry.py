@@ -18,6 +18,7 @@ host, and a shared CI runner would make them flaky.
 import asyncio
 import copy
 import gc
+import time
 
 import pytest
 
@@ -148,7 +149,7 @@ async def test_bulk_ingestion_matches_the_per_drone_monitors():
             for m in (
                 manager._monitor_connection, manager._monitor_battery, manager._monitor_flight_mode,
                 manager._monitor_gps, manager._monitor_position, manager._monitor_armed_state,
-                manager._measure_latency_loop, manager._monitor_home,
+                manager._measure_latency_loop, manager._monitor_home, manager._monitor_landed_state,
             )
         ]
         tasks = [asyncio.create_task(m) for m in monitors]
@@ -158,9 +159,49 @@ async def test_bulk_ingestion_matches_the_per_drone_monitors():
         await asyncio.gather(*tasks, return_exceptions=True)
 
         for d in range(n):
+            for ts_field in ("last_heartbeat", "landed_state_at"):
+                if ts_field in bulk[d] and ts_field in manager.telemetry[d]:
+                    if bulk[d][ts_field] is not None and manager.telemetry[d][ts_field] is not None:
+                        assert abs(bulk[d][ts_field] - manager.telemetry[d][ts_field]) < 0.5
+                        manager.telemetry[d][ts_field] = bulk[d][ts_field]
             assert bulk[d] == manager.telemetry[d], f"drone {d}"
             for key, value in bulk[d].items():
                 assert type(value) is type(manager.telemetry[d][key]), f"drone {d} {key}"
+    finally:
+        await manager.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_monitor_position_also_refreshes_last_heartbeat():
+    """issue #145 review (Vishal), item 1: on hardware, last_heartbeat used to
+    be refreshed only by _monitor_connection's core.connection_state() stream
+    - which, like landed_state() (Harsh's own SITL-cadence note on #145), may
+    only emit on an actual state change rather than periodically, so a
+    connection that never flaps could go "stale" after 2.5s regardless of how
+    healthy the link actually is. _monitor_position's stream only emits while
+    data is actually arriving, so it's an independent, continuously-refreshing
+    heartbeat proxy, not reliant on connection_state()'s emission cadence."""
+    manager = DroneManager(ports=[0], backend="sim")
+    try:
+        await manager.connect_all()
+        # Run only the one monitor under test - cancel the bulk-path task so
+        # nothing else writes last_heartbeat.
+        for task in manager._tasks:
+            task.cancel()
+        await asyncio.gather(*manager._tasks, return_exceptions=True)
+        manager._tasks.clear()
+        manager.telemetry[0]["last_heartbeat"] = None
+
+        task = asyncio.create_task(manager._monitor_position(0))
+        try:
+            await asyncio.sleep(0.05)
+        finally:
+            task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
+
+        last_heartbeat = manager.telemetry[0]["last_heartbeat"]
+        assert last_heartbeat is not None
+        assert time.time() - last_heartbeat < 1.0
     finally:
         await manager.shutdown()
 
