@@ -160,6 +160,26 @@ describe('svgImporter: parsePathCommands syntax and robustness', () => {
     expect(() => parsePathCommands('M 10 20 invalid_token 30')).toThrow(/unexpected token/i);
     expect(() => parsePathCommands('L 10 20')).toThrow(/must start with moveto/i);
   });
+
+  it('rejects a bare number after Z instead of hanging (self-review, pre-merge)', () => {
+    // 'Z' takes no parameters and cannot be implicitly repeated the way
+    // M/L/H/V/C/Q can; a bare coordinate right after it previously left
+    // the command unchanged and never advanced past the token, hanging
+    // the parser forever instead of rejecting the input.
+    expect(() => parsePathCommands('M 0 0 L 1 1 Z 2 2')).toThrow(/does not take parameters/i);
+  });
+
+  it('continues a subpath from the closepath point when a command follows Z without an explicit M (self-review, pre-merge)', () => {
+    // Per the SVG spec, a drawing command right after a closepath starts a
+    // new subpath at that same point rather than an empty one. The
+    // previous code cleared curContour on Z without reseeding it, so the
+    // following command's own endpoint was the only point in that
+    // subpath - one point is below the >= 2 threshold that makes it into
+    // `contours`, so the whole segment silently vanished.
+    const contours = parsePathCommands('M 0 0 L 1 1 Z L 2 2');
+    expect(contours).toHaveLength(2);
+    expect(contours[1]).toEqual([{ x: 0, y: 0 }, { x: 2, y: 2 }]);
+  });
 });
 
 describe('svgImporter: parseSvgToContours geometry parsing', () => {
@@ -471,6 +491,31 @@ describe('svgImporter: hidden and non-rendered geometry (issue #122/#146 review)
     const contours = parseSvgToContours(svg);
     expect(contours).toHaveLength(1);
     expect(bbox(contours)).toEqual(onlyTheVisibleSquare);
+  });
+
+  it('skips a decoy element hidden with style="opacity:0"', () => {
+    const svg = `<svg viewBox="0 0 100 100">
+      <path d="${visibleSquare}" />
+      <path d="${decoySquare}" style="opacity:0" />
+    </svg>`;
+    const contours = parseSvgToContours(svg);
+    expect(contours).toHaveLength(1);
+    expect(bbox(contours)).toEqual(onlyTheVisibleSquare);
+  });
+
+  it('does not treat stroke-opacity:0 or fill-opacity:0 as hiding the element (self-review, pre-merge)', () => {
+    // The style regex for opacity:0 previously had no word boundary before
+    // "opacity", so it also matched inside stroke-opacity:0 or
+    // fill-opacity:0 - hiding a path whose fill (or stroke) was still
+    // visible, dropping real geometry from the import with no error. This
+    // path's fill is red, not none, so it still renders despite its
+    // invisible stroke and must not be dropped.
+    const svg = `<svg viewBox="0 0 100 100">
+      <path d="${visibleSquare}" />
+      <path d="${decoySquare}" style="fill:red;stroke-opacity:0" />
+    </svg>`;
+    const contours = parseSvgToContours(svg);
+    expect(contours).toHaveLength(2);
   });
 
   it('skips every child of a hidden group (<g display="none">), including nested groups inside it', () => {

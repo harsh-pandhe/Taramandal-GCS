@@ -242,6 +242,16 @@ export function parsePathCommands(d) {
       throw new Error(`Unsupported SVG path command '${cmd}'. Supported commands are M, L, H, V, C, Q, Z.`);
     }
 
+    // 'Z' takes no parameters, so (unlike M/L/H/V/C/Q) it cannot be
+    // implicitly repeated by a following bare number with no command
+    // letter (self-review, pre-merge). Without this check, a bare number
+    // right after 'Z' left `cmd` unchanged and `i` never advanced past it -
+    // the Z branch re-ran on the same token forever, hanging the thread on
+    // input like 'M0 0 L1 1 Z 2 2' instead of rejecting it.
+    if (upper === 'Z' && t.type !== 'cmd') {
+      throw new Error(`Malformed SVG path data: 'Z' does not take parameters and cannot be implicitly repeated.`);
+    }
+
     const readNum = (context) => {
       if (i >= tokens.length || tokens[i].type !== 'num') {
         throw new Error(`Malformed SVG path data: missing coordinate for command '${cmd}' (${context}).`);
@@ -322,7 +332,15 @@ export function parsePathCommands(d) {
       if (curContour.length >= 2) {
         contours.push(curContour);
       }
-      curContour = [];
+      // Per the SVG spec, a command right after a closepath (other than a
+      // fresh M, handled separately above) continues from the subpath's
+      // start point rather than beginning an empty one (self-review,
+      // pre-merge: 'M0 0 L1 1 Z L2 2' previously dropped the 'L2 2' segment
+      // entirely, since the following L only pushed its own endpoint onto
+      // an empty curContour, leaving it at length 1 - below the >= 2
+      // threshold that makes it into `contours` - and silently losing that
+      // geometry with no error).
+      curContour = [{ x: curX, y: curY }];
     }
   }
 
@@ -359,7 +377,10 @@ function isHiddenAttrs(attrs) {
     const style = attrs.style.toLowerCase();
     if (/display\s*:\s*none\b/.test(style)) return true;
     if (/visibility\s*:\s*hidden\b/.test(style)) return true;
-    if (/opacity\s*:\s*0(?:\.0+)?\b/.test(style)) return true;
+    // Word boundary before "opacity" (self-review, pre-merge): without it,
+    // this also matched inside stroke-opacity:0 or fill-opacity:0, hiding
+    // the whole element even when its fill (or stroke) was still visible.
+    if (/(?<![\w-])opacity\s*:\s*0(?:\.0+)?\b/.test(style)) return true;
   }
   return false;
 }
