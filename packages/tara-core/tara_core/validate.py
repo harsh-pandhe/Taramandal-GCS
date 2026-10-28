@@ -129,6 +129,33 @@ def _altitude_extremes(show: Show, limits: SafetyLimits) -> tuple[dict, float, f
     return found, round(max_alt, 2), round(min_alt, 2)
 
 
+def _method_block(dt: float, samples: int) -> dict:
+    """How a validation report's numbers were measured (issue #126).
+
+    A report that says ``min_distance_m: 2.01`` is only as strong as the way
+    that number was found, so the report states it:
+
+    * ``min_distance`` is **sampled**: the smallest separation over the sweep's
+      sample times, not an exact minimum between samples. Two drones closing at
+      a few m/s can be closer between two samples ``sweep_dt_s`` apart than at
+      either, which is why callers that need a stricter bound (the Studio
+      morph planner's closed-form check, the export rounding margin) enforce
+      their own margin on top.
+    * ``motion`` (velocity, acceleration, yaw rate) are **backward finite
+      differences** of consecutive samples at ``sweep_dt_s``.
+    * ``altitude`` is **exact**: it is read straight off the waypoints, because
+      a single drone's altitude is linear between waypoints, so its extremum is
+      always at one (see ``_altitude_extremes``).
+    """
+    return {
+        "sweep_dt_s": dt,
+        "samples": samples,
+        "min_distance": "sampled",
+        "motion": "backward_difference",
+        "altitude": "waypoint_exact",
+    }
+
+
 def validate_show(
     data,
     limits: SafetyLimits = DEFAULT_LIMITS,
@@ -149,6 +176,10 @@ def validate_show(
         ``metrics``, ``violations`` (at most ``MAX_REPORTED`` per kind, see
         :func:`report_subset`) and ``worst_violations`` (the single worst of
         each kind, or ``None``). Each violation carries the limit it broke.
+
+        ``method`` says how the numbers were measured (sampled separation,
+        finite-difference motion, exact altitude, and the sweep interval); see
+        :func:`_method_block`.
 
         ``violations`` includes ``altitude`` (above ``limits.max_altitude_m``)
         and ``ground`` (below ground, ``z > 0`` in NED) alongside the four
@@ -184,6 +215,7 @@ def validate_show(
             },
             "violations": violations,
             "worst_violations": {key: None for key in violations},
+            "method": _method_block(dt, 0),
         }
 
     # Every violation, in time order, paired with how far past its limit it
@@ -205,7 +237,8 @@ def validate_show(
     found["altitude"] = altitude_found["altitude"]
     found["ground"] = altitude_found["ground"]
 
-    for t in sweep_times(show.duration, dt):
+    sample_times = sweep_times(show.duration, dt)
+    for t in sample_times:
         xyz, states = _positions_at(show, t)
 
         for a, b, dist in close_pairs(xyz, threshold):
@@ -300,6 +333,7 @@ def validate_show(
         },
         "violations": violations,
         "worst_violations": worst_violations,
+        "method": _method_block(dt, len(sample_times)),
     }
 
 

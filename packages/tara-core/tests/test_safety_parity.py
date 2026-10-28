@@ -8,6 +8,8 @@ and 1.5 m fell into that gap.
 
 import pytest
 
+from tara_core.geometry import sweep_times
+
 from tara_core import (
     DEFAULT_LIMITS,
     MAX_REPORTED,
@@ -87,7 +89,7 @@ class TestParityInvariant:
     def test_report_shape_is_stable(self):
         """The web app reads these keys directly."""
         report = validate_show(two_drones_apart(5.0))
-        assert set(report) == {"status", "summary", "metrics", "violations", "worst_violations"}
+        assert set(report) == {"status", "summary", "metrics", "violations", "worst_violations", "method"}
         assert set(report["metrics"]) == {
             "min_distance_m",
             "max_velocity_m_s",
@@ -446,3 +448,31 @@ class TestReportSubset:
 
     def test_an_empty_list_stays_empty(self):
         assert report_subset([]) == []
+
+
+class TestReportMethod:
+    """Issue #126: a report states how its numbers were measured."""
+
+    def test_report_states_sampled_separation_and_the_sweep_interval(self):
+        report = validate_show(two_drones_apart(5.0))
+        method = report["method"]
+        assert method["sweep_dt_s"] == 0.1
+        assert method["min_distance"] == "sampled"
+        assert method["motion"] == "backward_difference"
+        assert method["altitude"] == "waypoint_exact"
+        # two_drones_apart runs 4 s; 0.1 s sampling covers 0.0 through 4.0
+        # inclusive, 41 samples.
+        assert method["samples"] == len(sweep_times(4.0, 0.1)) == 41
+
+    def test_the_stated_interval_follows_the_dt_actually_used(self):
+        coarse = validate_show(two_drones_apart(5.0), dt=0.5)["method"]
+        fine = validate_show(two_drones_apart(5.0), dt=0.05)["method"]
+        assert coarse["sweep_dt_s"] == 0.5 and fine["sweep_dt_s"] == 0.05
+        assert fine["samples"] > coarse["samples"]
+
+    def test_an_empty_show_still_carries_the_method(self):
+        report = validate_show({"drones": []})
+        assert report["status"] == "FAILED"
+        assert report["method"]["samples"] == 0
+        assert report["method"]["min_distance"] == "sampled"
+

@@ -162,10 +162,15 @@ def _curvature(p_prev, p_curr, p_next, dt: float) -> tuple[float, float]:
     return cross / (speed ** 3), speed
 
 
+#: Sweep interval of the dynamics check (jerk and friends). Named so the
+#: certification report can state it (issue #126) without a second copy of 0.1.
+DYNAMICS_SWEEP_DT_S = 0.1
+
+
 def validate_dynamics(
     choreo_data,
     limits: DynamicLimits = DEFAULT_DYNAMIC_LIMITS,
-    dt: float = 0.1,
+    dt: float = DYNAMICS_SWEEP_DT_S,
 ) -> dict:
     """Verify a show is dynamically feasible for the fleet to actually fly.
 
@@ -397,7 +402,7 @@ def certify_feasibility_report(
       (including jerk violations and max_jerk_m_s3).
     """
     safety = validate_show(choreo_data, limits=safety_limits)
-    dynamics = validate_dynamics(choreo_data, limits=dynamic_limits)
+    dynamics = validate_dynamics(choreo_data, limits=dynamic_limits, dt=DYNAMICS_SWEEP_DT_S)
 
     jerk_violations = dynamics.get("violations", {}).get("jerk", [])
     max_jerk = dynamics.get("metrics", {}).get("max_jerk_m_s3", 0.0)
@@ -407,6 +412,14 @@ def certify_feasibility_report(
     report["violations"]["jerk"] = jerk_violations
     report["metrics"] = dict(safety.get("metrics", {}))
     report["metrics"]["max_jerk_m_s3"] = max_jerk
+    # Jerk is measured by a separate sweep with its own stencil (issue #126):
+    # say so next to the safety sweep's method rather than leaving the reader
+    # to assume one interval covers both.
+    report["method"] = {
+        **safety.get("method", {}),
+        "jerk": "central_difference_5pt",
+        "jerk_sweep_dt_s": DYNAMICS_SWEEP_DT_S,
+    }
 
     core_passed = safety.get("status") == "PASSED"
     has_no_jerk = len(jerk_violations) == 0
