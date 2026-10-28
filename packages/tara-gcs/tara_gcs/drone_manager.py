@@ -329,6 +329,18 @@ FIDELITY_BY_BACKEND = {"sim": "kinematic", "px4": "px4-sitl"}
 
 
 class DroneManager:
+    # Heartbeat telemetry older than this is distrusted outright. Shared by
+    # every staleness check in this class and, via this constant, by
+    # /api/status and /api/sim/status in main.py - so the "connected"/"alive"
+    # counts an operator reads match the same freshness bar flight-command
+    # code actually enforces. Before this was shared, those two endpoints
+    # only checked the transport-level `connected` flag: a drone whose
+    # autopilot froze mid-session but kept its MAVSDK/UDP session open would
+    # have read as "connected" there forever, even though every actual
+    # flight-command path in this class would already be refusing it as
+    # stale.
+    HEARTBEAT_STALE_S = 2.5
+
     def __init__(
         self,
         ports: list[int] = [14540, 14541, 14542],
@@ -1375,6 +1387,21 @@ class DroneManager:
             logging.error(f"Failed to kill Drone {drone_id}: {e}")
             return str(e)
 
+    def is_heartbeat_fresh(self, tel: dict) -> bool:
+        """True only when both the transport-level connection flag is set
+        and a heartbeat has arrived within HEARTBEAT_STALE_S. The bar
+        /api/status and /api/sim/status report "connected"/"alive" against -
+        a drone whose connection flag is still set but whose autopilot
+        stopped sending heartbeats (frozen, or a dead link that hasn't timed
+        out the socket yet) does not count, matching what every
+        flight-command staleness check in this class already enforces
+        before doing anything else.
+        """
+        if not tel.get("connected", False):
+            return False
+        last_hb = tel.get("last_heartbeat")
+        return last_hb is not None and (time.time() - last_hb) <= self.HEARTBEAT_STALE_S
+
     def _is_confirmed_on_ground(self, drone_id: int, tel: dict, context: str) -> bool:
         """Raises if connection/heartbeat/landed-state look stale; else
         reports whether the vehicle is confirmed ON_GROUND right now.
@@ -1391,10 +1418,10 @@ class DroneManager:
         if not tel.get("connected", False):
             raise RuntimeError(f"Drone {drone_id} disconnected {context}")
         last_hb = tel.get("last_heartbeat")
-        if last_hb is None or (time.time() - last_hb) > 2.5:
+        if last_hb is None or (time.time() - last_hb) > self.HEARTBEAT_STALE_S:
             raise RuntimeError(f"Drone {drone_id} telemetry became stale {context}")
         landed_at = tel.get("landed_state_at")
-        if landed_at is None or (time.time() - landed_at) > 2.5:
+        if landed_at is None or (time.time() - landed_at) > self.HEARTBEAT_STALE_S:
             raise RuntimeError(f"Drone {drone_id} landed-state telemetry became stale {context}")
         return tel.get("landed_state") == "ON_GROUND"
 
@@ -1481,7 +1508,7 @@ class DroneManager:
         # Telemetry freshness check: heartbeat must be fresh
         now = time.time()
         last_hb = tel.get("last_heartbeat")
-        if last_hb is None or (now - last_hb) > 2.5:
+        if last_hb is None or (now - last_hb) > self.HEARTBEAT_STALE_S:
             raise RuntimeError(f"Drone {drone_id} telemetry is stale or missing heartbeat")
 
         steps = []
@@ -1506,7 +1533,7 @@ class DroneManager:
             if not tel.get("connected", False):
                 raise RuntimeError(f"Drone {drone_id} disconnected while awaiting arm confirmation")
             last_hb = tel.get("last_heartbeat")
-            if last_hb is None or (time.time() - last_hb) > 2.5:
+            if last_hb is None or (time.time() - last_hb) > self.HEARTBEAT_STALE_S:
                 raise RuntimeError(f"Drone {drone_id} telemetry became stale while awaiting arm confirmation")
             if tel.get("armed", False):
                 arm_confirmed = True
@@ -1599,7 +1626,7 @@ class DroneManager:
                 if not tel.get("connected", False):
                     raise RuntimeError(f"Drone {drone_id} disconnected during climb")
                 last_hb = tel.get("last_heartbeat")
-                if last_hb is None or (time.time() - last_hb) > 2.5:
+                if last_hb is None or (time.time() - last_hb) > self.HEARTBEAT_STALE_S:
                     raise RuntimeError(f"Drone {drone_id} telemetry became stale during climb")
                 current_z = tel.get("local_z", 0.0)
                 if abs(current_z - target_alt_m) <= alt_tolerance_m:
@@ -1661,7 +1688,7 @@ class DroneManager:
                 if not tel.get("connected", False):
                     raise RuntimeError(f"Drone {drone_id} disconnected during hover dwell")
                 last_hb = tel.get("last_heartbeat")
-                if last_hb is None or (time.time() - last_hb) > 2.5:
+                if last_hb is None or (time.time() - last_hb) > self.HEARTBEAT_STALE_S:
                     raise RuntimeError(f"Drone {drone_id} telemetry became stale during hover dwell")
                 # Re-checked every tick, not just once at HOVER_REACHED
                 # (issue #145 review): drift or a slow sink mid-hover would

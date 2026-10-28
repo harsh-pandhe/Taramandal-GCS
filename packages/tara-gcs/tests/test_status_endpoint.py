@@ -9,6 +9,7 @@ that `sum` works; the sim backend actually exercises the fields being counted.
 """
 
 import asyncio
+import time
 
 import pytest
 
@@ -101,6 +102,34 @@ async def test_status_answers_before_any_drone_connects(patched_manager):
     assert status["num_drones"] == 2
     assert status["connected"] == 0
     assert status["armed"] == 0
+
+
+@pytest.mark.asyncio
+async def test_status_connected_count_requires_a_fresh_heartbeat_not_just_the_flag(patched_manager):
+    """A frozen autopilot that kept its transport session open must not
+    count as "connected" (self-review, not a review-thread finding): the
+    connected count used to check only the transport-level `connected` flag,
+    so a drone whose heartbeats had stopped arriving - but whose MAVSDK/UDP
+    session hadn't been torn down - would read as connected here forever,
+    even though every actual flight-command path already refuses it as
+    stale.
+    """
+    n = 2
+    manager = patched_manager(DroneManager(ports=list(range(n)), backend="sim"))
+    try:
+        await manager.connect_all()
+        await asyncio.sleep(0.5)
+        assert (await gcs_main.get_status())["connected"] == n
+
+        # Freeze one drone's heartbeat without touching its connection flag -
+        # exactly the state a hung autopilot with a live socket leaves behind.
+        manager.telemetry[0]["last_heartbeat"] = time.time() - (manager.HEARTBEAT_STALE_S + 1.0)
+        assert manager.telemetry[0]["connected"] is True
+
+        status = await gcs_main.get_status()
+        assert status["connected"] == n - 1
+    finally:
+        await manager.shutdown()
 
 
 def test_every_backend_has_a_fidelity_tier():
