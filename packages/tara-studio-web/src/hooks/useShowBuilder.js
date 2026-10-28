@@ -28,19 +28,28 @@ export default function useShowBuilder() {
     setLoading(true);
     setError(null);
 
-    // The morphs are only collision-free under an optimal assignment, so a
-    // backend that's down falls back to solving it in the browser rather than
-    // to the naive drone i → point i mapping.
-    let targetIdx;
-    try {
-      targetIdx = await computeAssignmentChain(scenes, numDrones, API_BASE);
-    } catch (e) {
-      console.warn('Backend assignment unavailable, solving locally:', e.message);
-      targetIdx = computeAssignmentChainLocal(scenes, numDrones);
-    }
-
     let show;
     try {
+      // The morphs are only collision-free under an optimal assignment, so a
+      // backend that's down falls back to solving it in the browser rather than
+      // to the naive drone i → point i mapping.
+      let targetIdx;
+      try {
+        targetIdx = await computeAssignmentChain(scenes, numDrones, API_BASE);
+      } catch (e) {
+        console.warn('Backend assignment unavailable, solving locally:', e.message);
+        // computeAssignmentChainLocal builds every scene's own formation to
+        // solve the chain (self-review, pre-merge): a shape/count combination
+        // that can't fit the site throws ShowRefusalError here too, same as
+        // buildSequencedShow below - previously uncaught at this specific
+        // call site, so it escaped as an unhandled rejection and left
+        // `loading` stuck true forever (the Generate Sequence button frozen
+        // on "BUILDING…" with no error shown). Falls through to the same
+        // classification and `setError` as the buildSequencedShow catch
+        // below, instead of duplicating it.
+        targetIdx = computeAssignmentChainLocal(scenes, numDrones);
+      }
+
       show = buildSequencedShow(scenes, numDrones, Number(rate), targetIdx);
       setChoreoData(show);
       setValidation(null);

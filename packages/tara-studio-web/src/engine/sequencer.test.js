@@ -664,4 +664,17 @@ describe('500-drone render-path crash repro (issue #141/#153)', () => {
     const heart = [scene({ shapeType: 'parametric', shapePayload: 'heart', holdDurationSeconds: 4, transitionDurationSeconds: 4 })];
     expect(() => computeShowDuration(heart, 500, 4, null)).toThrow(ShowRefusalError);
   });
+
+  it('computeAssignmentChainLocal also refuses with ShowRefusalError, not a crash, for a shape that cannot fit (self-review, pre-merge)', () => {
+    // useShowBuilder.build() calls this as its local fallback when the
+    // backend assignment request fails, then classifies whatever it throws
+    // the same way it classifies buildSequencedShow's own throw - only
+    // correct if this one is a ShowRefusalError too, not a plain Error.
+    // computeAssignmentChainLocal builds every scene's own formation via
+    // buildFormation internally to solve the chain, so an oversized shape
+    // throws from inside that call, same as buildFormation's own direct
+    // callers.
+    const text5 = [scene({ shapeType: 'text', shapePayload: '5', holdDurationSeconds: 6, transitionDurationSeconds: 0 })];
+    expect(() => computeAssignmentChainLocal(text5, 500)).toThrow(ShowRefusalError);
+  });
 });
