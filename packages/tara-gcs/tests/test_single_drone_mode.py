@@ -13,9 +13,11 @@ Verifies:
 """
 
 import asyncio
+import io
+import json
 import time
 import pytest
-from fastapi import HTTPException
+from fastapi import HTTPException, UploadFile
 from pydantic import ValidationError
 
 from tara_gcs import main as gcs_main
@@ -1250,6 +1252,47 @@ async def test_single_drone_real_concurrent_invocation_is_refused(commander, pat
         result = await first
         assert result["status"] == "COMPLETED"
         assert 0 not in manager.single_drone_sequence_active
+    finally:
+        await manager.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_upload_trajectory_real_concurrent_with_a_hover_is_refused(commander, patched_manager):
+    """Missing-test item (Harsh, release review): upload_trajectory shares
+    single_drone_sequence_active with run_single_drone_sequence, but the
+    only existing proof (test_signed_upload.py) pre-populates the set by
+    hand - it shows the check exists, not that a real in-flight hover and a
+    real upload with a genuinely valid, parseable trajectory body actually
+    race correctly. Mirrors
+    test_single_drone_real_concurrent_invocation_is_refused's pattern, but
+    races upload_trajectory against the hover instead of a second hover.
+    """
+    manager = patched_manager(DroneManager(ports=[14540], backend="sim"))
+    try:
+        await manager.connect_all()
+        await asyncio.sleep(0.5)
+
+        hover = asyncio.create_task(gcs_main.run_single_drone_sequence(
+            gcs_main.SingleDroneSequenceRequest(target_altitude_m=0.3, hover_duration_s=1.0),
+            operator=commander,
+        ))
+        while 0 not in manager.single_drone_sequence_active:
+            await asyncio.sleep(0.02)
+
+        valid_body = json.dumps({"0": [
+            {"time": 0.0, "x": 0.0, "y": 0.0, "z": 0.0, "yaw": 0.0},
+            {"time": 8.0, "x": 0.0, "y": 0.0, "z": -3.0, "yaw": 0.0},
+        ]}).encode()
+        upload_file = UploadFile(io.BytesIO(valid_body), filename="show.json")
+        with pytest.raises(HTTPException) as exc:
+            await gcs_main.upload_trajectory(file=upload_file, signature=None, operator=commander)
+        assert exc.value.status_code == 409
+        assert "single-drone sequence is active" in exc.value.detail
+        # The upload must never touch the active slot, win or lose the race.
+        assert manager.active_trajectory is None
+
+        result = await hover
+        assert result["status"] == "COMPLETED"
     finally:
         await manager.shutdown()
 
