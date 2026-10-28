@@ -363,7 +363,9 @@ export const buildFormation = (shapeType, shapePayload, n, scale = 1.0) => {
     if (postShiftReach > SITE_RADIUS_M + 1e-6) {
       const k = (SITE_RADIUS_M - 0.5) / postShiftReach;
       const curDist = minPairDist(current);
-      if (shapeType === 'parametric' && curDist * k < MIN_SEPARATION_M - 1e-6) {
+      // Every shape type, text included: shrinking a formation to fit the site
+      // must never take it under the design spacing.
+      if (curDist * k < MIN_SEPARATION_M - 1e-6) {
         throw new ShowRefusalError(
           `Formation "${shapePayload}" (n=${n}, scale=${scale}) cannot fit within site radius (${SITE_RADIUS_M}m) without violating minimum spacing (${MIN_SEPARATION_M}m); required spacing would drop to ${(curDist * k).toFixed(2)}m`
         );
@@ -383,7 +385,9 @@ export const buildFormation = (shapeType, shapePayload, n, scale = 1.0) => {
     );
   }
   const finalMin = minPairDist(current);
-  if (shapeType === 'parametric' && finalMin < MIN_SEPARATION_M - 1e-6) {
+  // Checked for every shape type. Text used to skip it, so lettering at a large
+  // fleet built with drones as little as 0.06 m apart.
+  if (finalMin < MIN_SEPARATION_M - 1e-6) {
     throw new ShowRefusalError(
       `Formation "${shapePayload}" (n=${n}, scale=${scale}) violates minimum spacing: ${finalMin.toFixed(2)}m < ${MIN_SEPARATION_M}m`
     );
