@@ -377,7 +377,10 @@ async def get_status():
         "hardware_flight_certified": hardware_flight_certified,
         "hardware_flight_available": (drone_manager.backend == "hardware" and hardware_flight_certified),
         "num_drones": len(drone_manager.ports),
-        "connected": sum(1 for t in telemetry.values() if t.get("connected")),
+        # Heartbeat-fresh, not just transport-connected (Harsh review): a
+        # drone whose autopilot froze but kept its MAVSDK/UDP session open
+        # would otherwise read as connected here forever.
+        "connected": sum(1 for t in telemetry.values() if drone_manager.is_heartbeat_fresh(t)),
         "armed": sum(1 for t in telemetry.values() if t.get("armed")),
         "trajectory_running": drone_manager.is_running_trajectory,
         "fleet_state": drone_manager.fleet_fsm.state.value,
@@ -1086,7 +1089,9 @@ async def sim_status(operator: Viewer):
     """
     status = sim_manager.status()
     telemetry = drone_manager.telemetry
-    connected = sum(1 for t in telemetry.values() if t.get("connected"))
+    # Heartbeat-fresh, not just transport-connected - same fix and reasoning
+    # as /api/status's own "connected" count just above.
+    connected = sum(1 for t in telemetry.values() if drone_manager.is_heartbeat_fresh(t))
     status["heartbeat"] = {
         # A fleet is only "alive" if something is actually reporting in —
         # processes running with zero connected drones is precisely the

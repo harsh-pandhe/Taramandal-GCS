@@ -11,6 +11,8 @@ manager pointed at a tmp repo so nothing here spawns PX4 or Gazebo.
 
 from __future__ import annotations
 
+import time
+
 import pytest
 from fastapi import HTTPException
 
@@ -78,9 +80,15 @@ async def test_status_merges_process_view_with_fleet_heartbeat(sim, monkeypatch)
     """The dashboard's pills need processes and fleet health from one call."""
     manager = DroneManager(ports=[14540, 14541], backend="sim")
     monkeypatch.setattr(gcs_main, "drone_manager", manager)
+    # last_heartbeat has to be fresh too, not just the connected flag -
+    # self-review follow-up: /api/sim/status's connected/alive counts now
+    # require a live heartbeat (see test_status_connected_count_requires_a
+    # _fresh_heartbeat_not_just_the_flag in test_status_endpoint.py for the
+    # bug this fixes).
+    now = time.time()
     manager.telemetry = {
-        0: {"connected": True, "armed": True, "home_lat": 47.397, "home_lon": 8.545},
-        1: {"connected": True, "armed": False, "home_lat": 0.0, "home_lon": 0.0},
+        0: {"connected": True, "armed": True, "home_lat": 47.397, "home_lon": 8.545, "last_heartbeat": now},
+        1: {"connected": True, "armed": False, "home_lat": 0.0, "home_lon": 0.0, "last_heartbeat": now},
     }
 
     status = await gcs_main.sim_status(operator=COMMANDER)
