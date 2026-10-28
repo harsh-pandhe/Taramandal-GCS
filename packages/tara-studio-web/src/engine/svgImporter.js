@@ -6,6 +6,8 @@
  * embedding untrusted markup into the DOM.
  */
 
+import { ShowRefusalError } from './showErrors.js';
+
 const MAX_SVG_BYTES = 500_000;
 export const MIN_DESIGN_SPACING_M = 2.0;
 export const SITE_RADIUS_M = 30.0;
@@ -713,7 +715,7 @@ export function svgToFormation(svgTextOrKey, n, { scale = 20.0, altitude = 15.0,
   let effectiveScale = Math.max(scale, minRequiredScale);
 
   if (effectiveScale > SITE_RADIUS_M * 2) {
-    throw new Error(
+    throw new ShowRefusalError(
       `SVG formation for ${n} drones requires ${effectiveScale.toFixed(1)}m span, exceeding site limits (${SITE_RADIUS_M}m radius).`
     );
   }
@@ -789,7 +791,7 @@ export function svgToFormation(svgTextOrKey, n, { scale = 20.0, altitude = 15.0,
       const boost = (MIN_DESIGN_SPACING_M / m) * 1.05;
       effectiveScale *= boost;
       if (effectiveScale > SITE_RADIUS_M * 2) {
-        throw new Error(
+        throw new ShowRefusalError(
           `SVG formation for ${n} drones requires ${effectiveScale.toFixed(1)}m span to maintain ${MIN_DESIGN_SPACING_M}m spacing, exceeding site limits (${SITE_RADIUS_M}m radius).`
         );
       }
@@ -799,16 +801,21 @@ export function svgToFormation(svgTextOrKey, n, { scale = 20.0, altitude = 15.0,
 
   // Authoritative post-checks: finite coordinates, site boundary, altitude ceiling, and design spacing
   for (const p of pts3d) {
+    // Defensive, not a refusal (plain Error, not ShowRefusalError): valid SVG
+    // input should never project to a non-finite coordinate, so this guards
+    // against a bug in the resampling/projection math above, the same way
+    // buildSplitFormation's own "generator returned the wrong count" checks
+    // guard against a bug rather than a well-formed-but-unsafe show.
     if (!Number.isFinite(p.x) || !Number.isFinite(p.y) || !Number.isFinite(p.z)) {
       throw new Error('SVG formation produced non-finite coordinates.');
     }
     const reach = Math.hypot(p.x, p.y);
     if (reach > SITE_RADIUS_M + 1e-6) {
-      throw new Error(`SVG formation point exceeds site radius (${reach.toFixed(2)}m > ${SITE_RADIUS_M}m).`);
+      throw new ShowRefusalError(`SVG formation point exceeds site radius (${reach.toFixed(2)}m > ${SITE_RADIUS_M}m).`);
     }
     const alt = -p.z; // NED: -z is height above ground
     if (alt < 0 || alt > MAX_ALTITUDE_M) {
-      throw new Error(`SVG formation altitude (${alt.toFixed(2)}m) exceeds bounds (0 - ${MAX_ALTITUDE_M}m).`);
+      throw new ShowRefusalError(`SVG formation altitude (${alt.toFixed(2)}m) exceeds bounds (0 - ${MAX_ALTITUDE_M}m).`);
     }
   }
 
@@ -821,7 +828,7 @@ export function svgToFormation(svgTextOrKey, n, { scale = 20.0, altitude = 15.0,
       }
     }
     if (finalDist < MIN_DESIGN_SPACING_M - 1e-4) {
-      throw new Error(
+      throw new ShowRefusalError(
         `SVG formation violates minimum design spacing: ${finalDist.toFixed(2)}m < ${MIN_DESIGN_SPACING_M}m.`
       );
     }
