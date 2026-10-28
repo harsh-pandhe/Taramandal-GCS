@@ -111,6 +111,15 @@
     "altitude": null,
     "ground": null
   },
+  "method": {
+    "sweep_dt_s": 0.1,
+    "samples": 3,
+    "min_distance": "sampled",
+    "motion": "backward_difference",
+    "altitude": "waypoint_exact",
+    "jerk": "central_difference_5pt",
+    "jerk_sweep_dt_s": 0.1
+  },
   "feasibility_certified": false,
   "limits": {
     "min_separation_m": 1.5,
