@@ -1,8 +1,9 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useRef } from 'react';
 import {
   buildSequencedShow, computeAssignmentChain, computeAssignmentChainLocal,
 } from '../engine/sequencer.js';
 import { ShowRefusalError } from '../engine/showErrors.js';
+import { createLatestRun } from '../engine/latestRun.js';
 import { API_BASE, validateShow } from '../engine/api.js';
 
 /**
@@ -19,6 +20,26 @@ export default function useShowBuilder() {
   const [validating, setValidating] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
+  // Ties each background validation to the show it was started for (see
+  // latestRun.js): only the latest run may set `validation` or clear
+  // `validating`, so a slow validation of an earlier show can never overwrite
+  // the state of a newer one (or of a project loaded over it).
+  const runRef = useRef(null);
+  if (runRef.current === null) runRef.current = createLatestRun();
+
+  // The show or its validation replaced from outside the builder (a project
+  // load, via useProjects) supersedes any validation still in flight for the
+  // previous show, so the stale result is dropped and the indicator cleared.
+  const setChoreoDataExternal = useCallback((value) => {
+    runRef.current.invalidate();
+    setValidating(false);
+    setChoreoData(value);
+  }, []);
+  const setValidationExternal = useCallback((value) => {
+    runRef.current.invalidate();
+    setValidating(false);
+    setValidation(value);
+  }, []);
 
   const build = useCallback(async (scenes, numDrones, rate) => {
     if (!scenes.length) {
@@ -29,6 +50,7 @@ export default function useShowBuilder() {
     setError(null);
 
     let show;
+    let runId;
     try {
       // The morphs are only collision-free under an optimal assignment, so a
       // backend that's down falls back to solving it in the browser rather than
@@ -53,6 +75,8 @@ export default function useShowBuilder() {
       show = buildSequencedShow(scenes, numDrones, Number(rate), targetIdx);
       setChoreoData(show);
       setValidation(null);
+      // A new show: any validation still running belongs to the previous one.
+      runId = runRef.current.begin();
     } catch (e) {
       // A refusal (unsafe spacing/altitude/layering) is expected input and is
       // shown as the build error; anything else is a genuine bug and must not
@@ -71,20 +95,24 @@ export default function useShowBuilder() {
     // nothing on screen saying why) - not for sequencing, which already
     // happens naturally since validateShow isn't awaited before returning.
     setValidating(true);
+    const isCurrent = () => runRef.current.isCurrent(runId);
     validateShow(show)
       .then((v) => {
+        if (!isCurrent()) return; // a newer show owns the validation state now
         if (v && v.metrics) setValidation(v);
         else setValidation({ status: 'UNVERIFIED', summary: 'Invalid response from validator.' });
       })
       .catch((err) => {
+        if (!isCurrent()) return;
         setValidation({ status: 'UNVERIFIED', summary: `Validation service unavailable: ${err?.message || 'offline'}` });
       })
-      .finally(() => setValidating(false));
+      .finally(() => { if (isCurrent()) setValidating(false); });
 
     return show;
   }, []);
 
   const clear = useCallback(() => {
+    runRef.current.invalidate();
     setChoreoData(null);
     setValidation(null);
     setValidating(false);
@@ -92,6 +120,7 @@ export default function useShowBuilder() {
   }, []);
 
   return {
-    choreoData, setChoreoData, validation, setValidation, validating, loading, error, setError, build, clear,
+    choreoData, setChoreoData: setChoreoDataExternal, validation, setValidation: setValidationExternal,
+    validating, loading, error, setError, build, clear,
   };
 }
