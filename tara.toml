@@ -18,6 +18,12 @@ backend = "px4"
 # PX4_AUTOPILOT_DIR environment variable, this key, then ~/PX4-Autopilot.
 # Prefer the env var for a machine-specific path so it stays out of git.
 # autopilot_dir = "~/PX4-Autopilot"
+#
+# Pinned PX4 tag (issue #177): v1.16.2. Newer PX4 `main` (as of 2026-10) moved
+# build/px4_sitl_default/rootfs/gz_env.sh to build/px4_sitl_default/gz_env.sh
+# (launch_fleet.sh now looks in both places) and its barometer stream times
+# out against Gazebo Sim 8.15 — that part has no workaround yet. `tara doctor`
+# checks the installed tag. See sim/px4/README.md for the full build recipe.
 
 [ports]
 gcs_backend = 8090
