@@ -329,6 +329,129 @@ test.describe('undo/redo', () => {
   });
 });
 
+// Issue #133: one typed AI scene proposal at a time, explicitly reviewed
+// before it touches the document. The backend's own schema/repair/timeout
+// behavior is covered in Python (test_ai_author.py); these only check that
+// the panel wires a proposal response to the right UI state and, on Apply,
+// to the same undoable scene-add path a manual "Add Scene" click uses.
+test.describe('AI scene proposal (issue #133)', () => {
+  test.beforeEach(async ({ page }) => {
+    await openStudio(page);
+    await consoleTab(page, 'AI');
+  });
+
+  const cards = (page) => page.locator('.scene-card');
+  const stubPropose = (page, body) => page.route('**/api/ai/propose', (route) => route.fulfill({ json: body }));
+  const OK_PROPOSAL = {
+    status: 'ok', name: 'A Heart', shape_type: 'parametric', shape_payload: 'heart',
+    scale: 1.2, hold_seconds: 8, transition_seconds: 4, unsupported: [], repaired: false, error: null,
+  };
+
+  test('a successful proposal shows the typed draft, not raw model text', async ({ page }) => {
+    await stubPropose(page, OK_PROPOSAL);
+    await page.getByPlaceholder(/heart shape/i).fill('A big heart that holds for 8 seconds');
+    await page.getByRole('button', { name: 'Propose' }).click();
+
+    await expect(page.locator('.ai-proposal-name')).toHaveText('A Heart');
+    await expect(page.locator('.ai-proposal-fields')).toContainText('Heart');
+    await expect(page.locator('.ai-proposal-fields')).toContainText('1.20×');
+    await expect(page.locator('.ai-proposal-fields')).toContainText('8.0s');
+  });
+
+  test('unsupported parts of the request are listed, not silently dropped', async ({ page }) => {
+    await stubPropose(page, { ...OK_PROPOSAL, unsupported: ['rotation', 'colour change mid-show'] });
+    await page.getByPlaceholder(/heart shape/i).fill('A spinning rainbow heart');
+    await page.getByRole('button', { name: 'Propose' }).click();
+
+    await expect(page.locator('.ai-unsupported-list')).toContainText('rotation');
+    await expect(page.locator('.ai-unsupported-list')).toContainText('colour change mid-show');
+  });
+
+  test('Apply adds exactly one scene through the normal undoable path', async ({ page }) => {
+    await stubPropose(page, OK_PROPOSAL);
+
+    await page.getByPlaceholder(/heart shape/i).fill('a heart');
+    await page.getByRole('button', { name: 'Propose' }).click();
+    await page.getByRole('button', { name: 'Apply' }).click();
+
+    await consoleTab(page, 'SEQUENCE');
+    await expect(cards(page)).toHaveCount(3);
+    await expect(page.getByLabel('Scene 3 name')).toHaveValue('A Heart');
+
+    // Same history as a manual add - one undo removes it.
+    await page.getByRole('button', { name: 'Undo', exact: true }).click();
+    await expect(cards(page)).toHaveCount(2);
+  });
+
+  test('Discard clears the proposal without touching the document', async ({ page }) => {
+    await stubPropose(page, OK_PROPOSAL);
+    await page.getByPlaceholder(/heart shape/i).fill('a heart');
+    await page.getByRole('button', { name: 'Propose' }).click();
+    await expect(page.locator('.ai-proposal-card')).toBeVisible();
+
+    await page.getByRole('button', { name: 'Discard' }).click();
+    await expect(page.locator('.ai-proposal-card')).toHaveCount(0);
+
+    await consoleTab(page, 'SEQUENCE');
+    await expect(cards(page)).toHaveCount(2);
+  });
+
+  test('a scene change elsewhere stales the proposal and blocks Apply', async ({ page }) => {
+    await stubPropose(page, OK_PROPOSAL);
+    await page.getByPlaceholder(/heart shape/i).fill('a heart');
+    await page.getByRole('button', { name: 'Propose' }).click();
+
+    await consoleTab(page, 'SEQUENCE');
+    await page.getByRole('button', { name: 'Add Scene' }).click();
+    await consoleTab(page, 'AI');
+
+    await expect(page.getByText(/changed since this proposal/i)).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Apply' })).toBeDisabled();
+  });
+
+  test('Ollama unavailable is reported plainly, with no draft shown', async ({ page }) => {
+    await stubPropose(page, { status: 'unavailable', error: 'Connection refused' });
+    await page.getByPlaceholder(/heart shape/i).fill('a heart');
+    await page.getByRole('button', { name: 'Propose' }).click();
+
+    await expect(page.getByText(/not reachable/i)).toBeVisible();
+    await expect(page.locator('.ai-proposal-card')).toHaveCount(0);
+  });
+
+  test('a timeout is reported plainly, with no draft shown', async ({ page }) => {
+    await stubPropose(page, { status: 'timeout', error: 'timed out' });
+    await page.getByPlaceholder(/heart shape/i).fill('a heart');
+    await page.getByRole('button', { name: 'Propose' }).click();
+
+    await expect(page.getByText(/took too long/i)).toBeVisible();
+    await expect(page.locator('.ai-proposal-card')).toHaveCount(0);
+  });
+
+  test('a persistent schema error is a clear rejection, not a crash', async ({ page }) => {
+    await stubPropose(page, { status: 'schema_error', error: 'shape must be one of [...]', repaired: true });
+    await page.getByPlaceholder(/heart shape/i).fill('something unrepresentable');
+    await page.getByRole('button', { name: 'Propose' }).click();
+
+    await expect(page.getByText(/couldn.t turn that into a usable scene/i)).toBeVisible();
+    await expect(page.locator('.ai-proposal-card')).toHaveCount(0);
+  });
+
+  test('an uploaded SVG is attached to the request and the panel still works', async ({ page }) => {
+    let sentSvg = null;
+    await page.route('**/api/ai/propose', async (route) => {
+      sentSvg = route.request().postDataJSON().svg;
+      await route.fulfill({ json: { ...OK_PROPOSAL, shape_type: 'svg', shape_payload: sentSvg } });
+    });
+    const svg = Buffer.from('<svg xmlns="http://www.w3.org/2000/svg"><circle r="5"/></svg>');
+    await page.locator('input[type="file"][accept*="svg"]').setInputFiles({ name: 'logo.svg', mimeType: 'image/svg+xml', buffer: svg });
+    await page.getByPlaceholder(/heart shape/i).fill('use my logo');
+    await page.getByRole('button', { name: 'Propose' }).click();
+
+    expect(sentSvg).toContain('<circle');
+    await expect(page.locator('.ai-proposal-fields')).toContainText('uploaded SVG');
+  });
+});
+
 // Issue #100: a save no longer overwrites the previous one.
 test('project save history can be browsed and restored', async ({ page }) => {
   await openStudio(page);

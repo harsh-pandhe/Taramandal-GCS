@@ -38,6 +38,7 @@ from tara_studio.energy import (
 )
 from tara_studio.exporter import export_json, export_csv, export_kml, export_tara, parse_tara
 from tara_studio.signing import SIGNABLE_FORMATS, SigningUnavailable, sign_export, signing_status
+from tara_studio.ai_author import propose as ai_propose
 from tara_studio.project_api import router as project_router
 from tara_studio.led_engine import (
     apply_track_to_choreo,
@@ -815,6 +816,29 @@ def api_export(req: ExportRequest):
         "preview_only": req.preview_only,
         **({"signature": signature} if signature else {}),
     }
+
+class AIProposeRequest(BaseModel):
+    prompt: str = Field(..., min_length=1, max_length=2000, description="Operator's natural-language scene request")
+    svg: Optional[str] = Field(None, description="Operator's own uploaded SVG, already sanitized client-side (issue #129)")
+
+
+@app.post("/api/ai/propose")
+def api_ai_propose(req: AIProposeRequest):
+    """One typed scene proposal (issue #133). Always 200 - every failure mode
+    (unreachable Ollama, a timeout, a model that won't produce valid JSON
+    even after one repair attempt) is a `status` field the panel switches on,
+    not an HTTP error; the one exception is a malformed request body, which
+    Pydantic itself already rejects with a 422 before this runs.
+
+    Applying the result is the caller's job: a successful proposal maps
+    directly onto a `sceneCommands.add()` patch, so it goes through Studio's
+    existing scene-add path, undo history, geometry build and `/api/validate`
+    exactly like a manually added scene - this endpoint never builds or
+    validates a trajectory itself.
+    """
+    result = ai_propose(req.prompt, svg_text=req.svg)
+    return asdict(result)
+
 
 if __name__ == "__main__":
     import uvicorn

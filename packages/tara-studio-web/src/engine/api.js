@@ -191,6 +191,21 @@ export const sendShowToGCS = async ({ choreo, homeLat, homeLon, ledTrack, rateHz
   return gcsRes.json().catch(() => ({}));
 };
 
+/**
+ * Narrow local AI authoring (issue #133): one typed scene proposal for a
+ * prompt, optionally anchored to an operator-uploaded SVG. Always resolves
+ * with a `{status, ...}` body — the backend never raises an HTTP error for a
+ * model/Ollama failure, only for a malformed request, which rejects here too.
+ */
+export const proposeScene = async (prompt, svgText = null) => {
+  const res = await postJson(`${API_BASE}/api/ai/propose`, { prompt, svg: svgText });
+  if (!res.ok) {
+    const details = await res.json().catch(() => ({}));
+    throw new Error(typeof details.detail === 'string' ? details.detail : `AI proposal request rejected (${res.status})`);
+  }
+  return res.json();
+};
+
 /** The message TransmitPanel shows after a preview export (issue #161) resolves. */
 export const previewExportSuccessMessage = (format) => `Preview exported (${format}) — unsigned, not flight-certified.`;
 

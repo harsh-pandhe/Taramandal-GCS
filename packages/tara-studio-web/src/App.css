@@ -437,9 +437,14 @@ input[type="number"] { font-family: var(--mono); font-variant-numeric: tabular-n
 .close-drawer-btn:hover { color: var(--danger); }
 .drawer-tabs { display: flex; background: var(--bg-sunken); border-bottom: 1px solid var(--border); }
 .drawer-tab-btn {
-  flex: 1; background: transparent; border: none; border-bottom: 2px solid transparent;
-  color: var(--text-dim); font-family: var(--ui); font-weight: 600; font-size: 0.72rem;
-  letter-spacing: 0.5px; padding: 0.7rem 0; cursor: pointer; transition: color 0.15s, border-color 0.15s;
+  /* issue #133: a 6th tab (AI) made "TRANSMIT" collide with its neighbour at
+     the old 0.72rem/0.5px — shrunk just enough to keep every tab on one line
+     with visible separation, down to the narrowest label ("AI") still reading
+     clearly. */
+  flex: 1; min-width: 0; background: transparent; border: none; border-bottom: 2px solid transparent;
+  color: var(--text-dim); font-family: var(--ui); font-weight: 600; font-size: 0.58rem;
+  letter-spacing: 0; padding: 0.7rem 0.1rem; cursor: pointer; transition: color 0.15s, border-color 0.15s;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 .drawer-tab-btn:hover { color: var(--text); }
 .drawer-tab-btn.active { color: var(--accent); border-bottom-color: var(--accent); }
@@ -1190,6 +1195,30 @@ input[type="number"] { font-family: var(--mono); font-variant-numeric: tabular-n
 .ui-field-tight input, .ui-field-tight select {
   padding: 0.3rem 0.4rem; font-size: 0.74rem; width: 100%;
 }
+
+.ai-panel-hint { font-size: 0.74rem; line-height: 1.5; color: var(--text-dim); margin: 0; }
+.ai-prompt-input { resize: vertical; min-height: 4.5rem; font-size: 0.8rem; }
+.ai-propose-btn { margin-top: 0.2rem; }
+
+.ai-proposal-card {
+  display: flex; flex-direction: column; gap: 0.6rem;
+  padding: 0.7rem 0.8rem; background: var(--bg-sunken);
+  border: 1px solid var(--border); border-radius: var(--r-sm);
+}
+.ai-proposal-name { font-size: 0.86rem; color: var(--text); margin: 0; }
+.ai-proposal-fields {
+  display: grid; grid-template-columns: auto 1fr; gap: 0.25rem 0.8rem;
+  margin: 0; font-size: 0.76rem;
+}
+.ai-proposal-fields dt { color: var(--text-faint); }
+.ai-proposal-fields dd { margin: 0; color: var(--text); font-family: var(--mono); }
+.ai-unsupported-label { font-size: 0.7rem; color: var(--warning); }
+.ai-unsupported-list {
+  margin: 0; padding-left: 1.1rem; font-size: 0.74rem; color: var(--text-dim);
+  display: flex; flex-direction: column; gap: 0.15rem;
+}
+.ai-proposal-actions { display: flex; gap: 0.5rem; }
+.ai-proposal-actions .btn-inline { width: auto; flex: 1; }
 
 .led-track-editor { margin-top: 0.9rem; }
 /* The drawer is narrow and .section-subtitle is uppercase with wide letter
