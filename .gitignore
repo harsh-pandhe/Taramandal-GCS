@@ -69,3 +69,6 @@ packages/tara-gcs/tara_gcs/audit/
 
 # Fleet lifecycle audit log (issue #52) — runtime data, not source.
 packages/tara-gcs/tara_gcs/fleet_audit.jsonl
+
+# Local secrets (GitHub token etc.) — never committed.
+.env
