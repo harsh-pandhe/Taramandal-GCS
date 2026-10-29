@@ -46,26 +46,36 @@ behavior the issue asks to confirm: validation time now grows roughly in
 proportion to samples x drones, not samples x drones x waypoints.
 
 **The gap between the HTTP number and the direct-call number is not
-`interpolate_waypoint`.** It is two separate, already-understood costs:
+`interpolate_waypoint`.** Measured where the time actually goes at 500
+drones, isolating each layer (self-review, pre-merge — not left as an
+unattributed "two things probably explain it"):
 
-1. **FastAPI/HTTP overhead** — JSON encoding a multi-megabyte request body,
-   routing, and `certify_feasibility_report`'s extra `validate_dynamics`
-   sweep (a second, independent pass over the same timeline, computing
-   velocity/jerk/centripetal in addition to `validate_show`'s own
-   proximity/velocity/acceleration/yaw-rate/altitude checks) all add real
-   wall-clock time on top of the one function this issue is about.
-2. **Violation count in `close_pairs`** — `tara_core.proximity.close_pairs`
-   already uses a `cKDTree` (O(n log n) per sweep step, not O(n²) — see its
-   own module docstring), but it still does real work *per violating pair
-   found*: a `generate_circle` show packs drones closely enough to produce
-   many simultaneous close-pairs, and reporting every one of them costs
-   more than a show with zero violations. A grid show at the same drone
-   count, zero violations, direct `validate_show` call: **~0.5 s at 500
-   drones** (measured in `test_validate_scale.py`). This is expected,
-   proportional-to-violations cost, not a hidden complexity bug — flagging
-   it here only so a future investigation into "why is this circle-shaped
-   show slower than that grid-shaped show at the same drone count" doesn't
-   have to rediscover it.
+| call | result |
+|---|---:|
+| `validate_show` direct, grid, 0 violations | **~0.5 s** |
+| `validate_show` direct, `generate_circle`, FAILED (50+ violations) | **~3.2 s** |
+| `/api/validate` HTTP, same `generate_circle` show | **~8 s** |
+
+So of the ~7.5 s gap between the clean-grid baseline and the full HTTP
+path: **~2.7 s (36%) is `close_pairs`' own per-violation cost** on the
+*same* function call, shape held constant as the only variable — not
+FastAPI, not JSON, not the dynamics sweep. The remaining **~4.8 s (64%)**
+is `certify_feasibility_report`'s extra `validate_dynamics` sweep (a
+second, independent pass over the same timeline, computing
+velocity/jerk/centripetal in addition to `validate_show`'s own
+proximity/velocity/acceleration/yaw-rate/altitude checks) plus FastAPI
+routing and JSON-encoding a multi-megabyte body.
+
+`tara_core.proximity.close_pairs` already uses a `cKDTree`
+(O(n log n) per sweep step, not O(n²) — see its own module docstring),
+but it still does real work *per violating pair found*:
+`generate_circle` packs drones closely enough to produce many
+simultaneous close pairs, and reporting every one of them costs more
+than a show with zero violations. This is expected, proportional-to-
+violations cost, not a hidden complexity bug — flagging it, with the
+measured split above, so a future investigation into "why is this
+circle-shaped show slower than that grid-shaped show at the same drone
+count" doesn't have to rediscover it from scratch.
 
 ## The documented budget
 
