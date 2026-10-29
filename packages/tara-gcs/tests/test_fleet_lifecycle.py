@@ -454,10 +454,65 @@ async def test_a_launch_that_arms_nobody_returns_to_staged(fleet):
 
         await gcs_main.launch_fleet(operator=COMMANDER)
         await manager.launch_task
+        # Past the arm grace window: nothing armed, so the launch really failed.
+        manager._launch_finished_at -= manager.LAUNCH_ARM_GRACE_S + 1.0
         manager.evaluate_lifecycle()
 
         last = manager.fleet_fsm.history[-1]
         assert (last["from"], last["to"], last["trigger"]) == ("PREARM", "STAGED", "launch_failed:no_drone_armed")
+    finally:
+        await manager.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_an_arm_that_has_not_reached_telemetry_yet_is_not_a_failed_launch(fleet):
+    """The launch task ending is not the same moment as the armed flag arriving.
+
+    Failed twice on CI as "stuck in STAGED" with the fleet's own history reading
+    STAGED->PREARM->STAGED (launch_failed:no_drone_armed) while the drone's
+    telemetry said armed: the monitor looked in the gap between arm() returning
+    and the flag reaching telemetry, and sent an armed fleet back to STAGED.
+    """
+    manager = fleet(1)
+    try:
+        await _connect(manager)
+        manager.telemetry[0]["armed"] = False
+        _drive_to(manager.fleet_fsm, S.PREARM)
+        done = asyncio.get_running_loop().create_future()
+        done.set_result(None)
+        manager.launch_task = done                  # the launch task has just ended ...
+        manager._launch_finished_at = time.monotonic()  # ... a moment ago
+
+        manager.evaluate_lifecycle()                # armed flag not here yet
+        assert manager.fleet_fsm.state is S.PREARM  # not a failed launch
+
+        manager.telemetry[0]["armed"] = True        # the flag arrives within the grace window
+        manager.evaluate_lifecycle()
+        assert manager.fleet_fsm.state is S.ARMED
+        assert all(h["trigger"] != "launch_failed:no_drone_armed" for h in manager.fleet_fsm.history)
+    finally:
+        await manager.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_a_launch_that_arms_nobody_still_fails_once_the_grace_window_passes(fleet):
+    manager = fleet(1)
+    try:
+        await _connect(manager)
+        manager.telemetry[0]["armed"] = False
+        _drive_to(manager.fleet_fsm, S.PREARM)
+        done = asyncio.get_running_loop().create_future()
+        done.set_result(None)
+        manager.launch_task = done
+        manager._launch_finished_at = time.monotonic()
+
+        manager.evaluate_lifecycle()
+        assert manager.fleet_fsm.state is S.PREARM            # inside the window
+
+        manager._launch_finished_at -= manager.LAUNCH_ARM_GRACE_S + 0.1
+        manager.evaluate_lifecycle()
+        assert manager.fleet_fsm.state is S.STAGED            # window over, nothing armed
+        assert manager.fleet_fsm.history[-1]["trigger"] == "launch_failed:no_drone_armed"
     finally:
         await manager.shutdown()
 
