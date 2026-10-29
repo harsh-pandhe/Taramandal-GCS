@@ -970,10 +970,95 @@ def _compact_lane_grid(n: int) -> list[tuple[float, float]]:
     ]
 
 
-def _cube_formation(d_id: int, n: int, ratio: float, height: float):
-    grid = _compact_lane_grid(n)
-    gx, gy = grid[d_id % len(grid)]
+@functools.lru_cache(maxsize=16)
+def _lane_assignment(n: int, formation_at_cell, revolutions: float) -> tuple:
+    """Cell index into ``_compact_lane_grid(n)`` for each drone id, 0..n-1.
+
+    The base assignment (``d_id % len(grid)``) has no reason to avoid a
+    same-altitude-layer pair's straight pad<->cell legs crossing during
+    blend or choreo: ``_compact_lane_grid``'s own guarantee (different
+    cells stay >= 2.5 m apart) is about the formation sweep, not that leg,
+    and two drones sharing a layer hold the *identical* height the whole
+    time (see ``_compact_lane_grid``'s docstring) -- there is no vertical
+    margin to fall back on either. #167 review: widening the launch-pad
+    grid by just 2% flipped several same-layer pairs at N=100 from a 2.0 m
+    clearance to 0.97 m -- the margin at the old, exact 2.0 m spacing was a
+    coincidence of that one number, not a guarantee that survives any
+    pad-grid change. Mirrors ``_helix_angles``' fix for the identical
+    problem on the ring: simulate both orderings of a same-layer pair's
+    cell assignment against the shape's real motion and keep whichever
+    gives the larger worst-case separation. Landing is not re-checked here:
+    its own sequencing (see ``_land_waypoint``) already returns to the
+    already-safe pad grid before giving up altitude, independently of
+    which cell a drone came from.
+
+    Args:
+        n: Fleet size.
+        formation_at_cell: ``(cell, ratio, height) -> (x, y, z)``, the
+            shape's geometry given a lane cell directly (no ``d_id`` lookup).
+        revolutions: This shape's heading-turn count, passed straight to
+            ``plan_pacing`` the same way ``_pacing_for`` does.
+    """
+    pads = launch_grid(MAX_FLEET_SIZE)[:n]
+    lane = _compact_lane_grid(n)
+    heights = altitude_layers(n, limits=_LAYER_LIMITS)
+    base = [d_id % len(lane) for d_id in range(n)]
+
+    distinct = sorted(set(heights))
+    level = {h: k for k, h in enumerate(distinct)}
+    groups: dict[int, list[int]] = {}
+    for d_id, h in enumerate(heights):
+        groups.setdefault(level[h], []).append(d_id)
+
+    def formation(d_id, num_drones, ratio, height):
+        return formation_at_cell(lane[base[d_id]], ratio, height)
+
+    start_positions = {d_id: {"x": pads[d_id][0], "y": pads[d_id][1], "z": 0.0} for d_id in range(n)}
+    target_heights = {d_id: heights[d_id] for d_id in range(n)}
+    pacing = _pacing_for(_ShapeSpec(formation, _zero_yaw, revolutions), n, start_positions, target_heights)
+
+    def worst_separation(i, j, cell_i, cell_j, samples: int = 60) -> float:
+        """Closest approach across the whole blend+choreo window (ratio 0 to
+        1), replicating _run_show's blend formula exactly for these two
+        drones under a hypothetical (cell_i, cell_j) assignment."""
+        worst = math.inf
+        for step in range(samples + 1):
+            ratio = step / samples
+            elapsed = ratio * pacing.choreo_s
+            blend_ratio = _ease(elapsed / pacing.blend_s) if pacing.blend_s > 0 else 1.0
+            xi, yi, zi = formation_at_cell(cell_i, ratio, heights[i])
+            xj, yj, zj = formation_at_cell(cell_j, ratio, heights[j])
+            xi = pads[i][0] + blend_ratio * (xi - pads[i][0])
+            yi = pads[i][1] + blend_ratio * (yi - pads[i][1])
+            zi = -heights[i] + blend_ratio * (zi + heights[i])
+            xj = pads[j][0] + blend_ratio * (xj - pads[j][0])
+            yj = pads[j][1] + blend_ratio * (yj - pads[j][1])
+            zj = -heights[j] + blend_ratio * (zj + heights[j])
+            worst = min(worst, math.hypot(xi - xj, yi - yj, zi - zj))
+        return worst
+
+    assignment = list(base)
+    for members in groups.values():
+        if len(members) != 2:
+            continue
+        i, j = members
+        cell_i, cell_j = lane[base[i]], lane[base[j]]
+        straight = worst_separation(i, j, cell_i, cell_j)
+        swapped = worst_separation(i, j, cell_j, cell_i)
+        if swapped > straight:
+            assignment[i], assignment[j] = base[j], base[i]
+    return tuple(assignment)
+
+
+def _cube_formation_at_cell(cell: tuple[float, float], ratio: float, height: float):
+    gx, gy = cell
     return gx + 1.0 * math.sin(2.0 * math.pi * ratio), gy, -height
+
+
+def _cube_formation(d_id: int, n: int, ratio: float, height: float):
+    lane = _compact_lane_grid(n)
+    cell = lane[_lane_assignment(n, _cube_formation_at_cell, 0.0)[d_id]]
+    return _cube_formation_at_cell(cell, ratio, height)
 
 
 def _spline_formation(d_id: int, n: int, ratio: float, height: float):
@@ -996,9 +1081,20 @@ def _spline_formation(d_id: int, n: int, ratio: float, height: float):
     already-tracked gap, not something this fix widens), so the formation
     itself has very little headroom left to add before tipping a drone
     starting near that edge over 30 m from the origin.
+
+    Which cell a drone sweeps from comes from ``_lane_assignment`` (#167
+    review), not a bare ``d_id % len(lane)`` — see its docstring for why: a
+    same-altitude-layer pair's straight pad<->cell legs during blend are not
+    covered by the >= 2.5 m different-cell guarantee above, which is about
+    the sweep itself, not that leg.
     """
     lane = _compact_lane_grid(n)
-    lx, ly = lane[d_id % len(lane)]
+    cell = lane[_lane_assignment(n, _spline_formation_at_cell, 2.5)[d_id]]
+    return _spline_formation_at_cell(cell, ratio, height)
+
+
+def _spline_formation_at_cell(cell: tuple[float, float], ratio: float, height: float):
+    lx, ly = cell
     p0 = (lx, ly, -height)
     p1 = (lx + 2.0, ly + 2.0, -height - 2.0)
     p2 = (lx + 4.0, ly - 2.0, -height + 1.5)

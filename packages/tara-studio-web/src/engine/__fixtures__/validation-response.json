@@ -124,6 +124,7 @@
   "limits": {
     "min_separation_m": 1.5,
     "design_separation_m": 2.0,
+    "pad_spacing_m": 2.2,
     "max_velocity_ms": 6.0,
     "max_accel_ms2": 50.0,
     "max_yaw_rate_dps": 300.0,
