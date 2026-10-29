@@ -4,10 +4,10 @@ import { solveAssignment } from './assignment.js';
 
 describe('pad layout', () => {
   it('matches tara_core.layout.launch_grid(MAX_FLEET_SIZE)', () => {
-    // launch_grid: cols = min(ceil(sqrt(1000)), floor(30 / 2)) = 15,
-    // pad i = ((i // cols) * 2, (i % cols) * 2).
+    // launch_grid: cols = min(ceil(sqrt(1000)), floor(30 / 2.2)) = 13,
+    // pad i = ((i // cols) * 2.2, (i % cols) * 2.2).
     for (let i = 0; i < 200; i++) {
-      expect(padAt(i)).toEqual({ x: Math.floor(i / 15) * 2, y: (i % 15) * 2, z: 0 });
+      expect(padAt(i)).toEqual({ x: Math.floor(i / 13) * 2.2, y: (i % 13) * 2.2, z: 0 });
     }
   });
 
@@ -25,8 +25,11 @@ describe('pad layout', () => {
 
   it('centres on the pads actually in use', () => {
     expect(fleetCenter(1)).toEqual({ x: 0, y: 0 });
-    expect(fleetCenter(6)).toEqual({ x: 0, y: 5 });
-    expect(fleetCenter(100)).toEqual({ x: 6, y: 14 });
+    expect(fleetCenter(6)).toEqual({ x: 0, y: 5.5 });
+    // 7 * 2.2 / 2 and 12 * 2.2 / 2 don't land on an exact double - matching
+    // the implementation's own floating-point result rather than a rounded
+    // one, same reasoning as the padAt() check above.
+    expect(fleetCenter(100)).toEqual({ x: 7.700000000000001, y: 13.200000000000001 });
   });
 });
 

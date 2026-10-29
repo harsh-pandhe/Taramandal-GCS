@@ -57,7 +57,7 @@ def launch_grid(
     landed at row 0, column 16: 32 m out on a single axis, exceeding
     ``DEFAULT_LIMITS.geofence_radius_m`` (30 m) at the moment a show starts,
     regardless of how many drones the show actually used. Capping the row
-    width at ``floor(geofence_radius_m / spacing)`` (15, at the defaults)
+    width at ``floor(geofence_radius_m / spacing)`` (13, at the defaults)
     bounds how far a single row can reach before wrapping.
 
     The cap only changes behaviour once ``ceil(sqrt(n))`` would itself exceed
@@ -76,16 +76,19 @@ def launch_grid(
         n: Number of drones.
         limits: Safety limits supplying the default spacing and the row-width
             cap.
-        spacing: Pad separation in metres. Defaults to ``design_separation_m``,
-            which guarantees every pad clears the runtime abort threshold with
-            margin, so drones may share a hover altitude safely.
+        spacing: Pad separation in metres. Defaults to ``pad_spacing_m`` (issue
+            #167 — deliberately looser than ``design_separation_m``, since a
+            static pad has no tracking-error margin to absorb and can afford
+            more room than the in-flight limit), which guarantees every pad
+            clears the runtime abort threshold with margin, so drones may
+            share a hover altitude safely.
 
     Returns:
         A list of ``n`` ``(x, y)`` tuples, metres.
     """
     if n < 0:
         raise ValueError(f"n must be non-negative, got {n}")
-    spacing = limits.design_separation_m if spacing is None else spacing
+    spacing = limits.pad_spacing_m if spacing is None else spacing
     if spacing <= 0:
         raise ValueError(f"spacing must be positive, got {spacing}")
 

@@ -8,7 +8,7 @@ was in violation while still sitting over its own pads.
 
 import pytest
 
-from tara_core import DEFAULT_LIMITS, altitude_layers, launch_grid, min_separation
+from tara_core import DEFAULT_LIMITS, SafetyLimits, altitude_layers, launch_grid, min_separation
 
 
 class TestLaunchGrid:
@@ -19,6 +19,17 @@ class TestLaunchGrid:
         positions = {i: (x, y, 0.0) for i, (x, y) in enumerate(pads)}
         if n >= 2:
             assert min_separation(positions) >= DEFAULT_LIMITS.design_separation_m - 1e-9
+
+    def test_default_spacing_is_pad_spacing_m_not_design_separation_m(self):
+        """Issue #167: the pad grid has its own, looser constant - pads sit
+        still and have no tracking-error margin to absorb, so they can afford
+        more room than the in-flight design limit."""
+        assert DEFAULT_LIMITS.pad_spacing_m > DEFAULT_LIMITS.design_separation_m
+        default_pads = launch_grid(3)
+        explicit_pads = launch_grid(3, spacing=DEFAULT_LIMITS.pad_spacing_m)
+        assert default_pads == explicit_pads
+        design_pads = launch_grid(3, spacing=DEFAULT_LIMITS.design_separation_m)
+        assert default_pads != design_pads
 
     def test_pads_are_unique(self):
         pads = launch_grid(100)
@@ -43,6 +54,10 @@ class TestLaunchGrid:
     def test_non_positive_spacing_rejected(self):
         with pytest.raises(ValueError, match="spacing must be positive"):
             launch_grid(4, spacing=0.0)
+
+    def test_pad_spacing_tighter_than_design_separation_is_rejected(self):
+        with pytest.raises(ValueError, match="pad_spacing_m .* must be >= design_separation_m"):
+            SafetyLimits(design_separation_m=2.0, pad_spacing_m=1.9)
 
 
 class TestAltitudeLayers:

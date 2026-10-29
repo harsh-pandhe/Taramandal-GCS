@@ -34,6 +34,14 @@ class SafetyLimits:
             is the safety margin absorbing setpoint tracking error and the fact
             that a 10 Hz validation sweep can miss a closer approach between
             samples.
+        pad_spacing_m: Spacing of the shared launch-pad grid (``layout.launch_grid``'s
+            default). Deliberately a *separate* number from ``design_separation_m``
+            (issue #167): pads sit still, so there is no tracking-error margin to
+            absorb there, but routine ground operations (prop wash, GPS drift while
+            landed, an operator walking the line) benefit from more room than the
+            in-flight design minimum. Must be >= ``design_separation_m`` — the pad
+            grid is the one static layout in the system that can always afford to
+            be looser than the in-flight limit, never tighter.
         max_velocity_ms: Per-drone speed ceiling.
         max_accel_ms2: Per-drone acceleration ceiling.
         max_yaw_rate_dps: Per-drone yaw rate ceiling, degrees/second.
@@ -56,6 +64,7 @@ class SafetyLimits:
 
     min_separation_m: float = 1.5
     design_separation_m: float = 2.0
+    pad_spacing_m: float = 2.2
     max_velocity_ms: float = 6.0
     max_accel_ms2: float = 50.0
     max_yaw_rate_dps: float = 300.0
@@ -81,9 +90,17 @@ class SafetyLimits:
                 "the hard RTL radius must not be tighter than the soft-warning "
                 "radius around the same envelope."
             )
+        if self.pad_spacing_m < self.design_separation_m:
+            raise ValueError(
+                "pad_spacing_m "
+                f"({self.pad_spacing_m}) must be >= design_separation_m "
+                f"({self.design_separation_m}): the static pad grid must never be "
+                "tighter than the in-flight design limit."
+            )
         for name in (
             "min_separation_m",
             "design_separation_m",
+            "pad_spacing_m",
             "max_velocity_ms",
             "max_accel_ms2",
             "max_yaw_rate_dps",

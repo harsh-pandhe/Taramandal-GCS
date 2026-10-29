@@ -4,15 +4,17 @@
 // Pads mirror tara_core.layout.launch_grid(MAX_FLEET_SIZE) exactly. The GCS
 // converts every drone's fleet-frame trajectory against that one fixed grid
 // (tara_gcs.drone_manager._pad_offset), so if the Studio puts drone i anywhere
-// else, the show flies drone i from the wrong pad. A single 2 m row agreed with
-// the grid only for the first 15 drones.
+// else, the show flies drone i from the wrong pad. A single row agreed with
+// the grid only for the first PAD_COLS drones.
 
 export const SHOW_ALT = 8.0; // metres above ground: lowest hover layer
 
-// launch_grid spacing defaults to design_separation_m, and its row width is
-// floor(geofence_radius_m / spacing) = floor(30 / 2).
-export const PAD_SPACING = 2.0;
-export const PAD_COLS = 15;
+// launch_grid spacing defaults to pad_spacing_m (issue #167 - deliberately
+// looser than design_separation_m, since a static pad has no tracking-error
+// margin to absorb), and its row width is floor(geofence_radius_m / spacing)
+// = floor(30 / 2.2).
+export const PAD_SPACING = 2.2;
+export const PAD_COLS = 13;
 
 // Hovering drones sit on four staggered heights, checkerboarded over the pads,
 // so any two are at least sqrt(2^2 + HOVER_STEP^2) = 3.2 m apart in 3D rather

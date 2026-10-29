@@ -58,7 +58,7 @@ DEFAULT_ALTITUDES = altitude_layers(MAX_FLEET_SIZE)
 # sim/px4/launch_fleet.sh spawns pads on the same grid tara_core.launch_grid
 # defines, and the Studio's generator bakes that grid into trajectory
 # coordinates (a shared "fleet frame"). This offset converts between the two.
-LAUNCH_PAD_SPACING_Y_M = DEFAULT_LIMITS.design_separation_m
+LAUNCH_PAD_SPACING_Y_M = DEFAULT_LIMITS.pad_spacing_m
 
 #: How long a drone gets to report both is_armable and is_home_position_ok
 #: before launch_sequence gives up on it. Raised from the old armable-only 15s
