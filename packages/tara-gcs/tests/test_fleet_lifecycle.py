@@ -10,6 +10,7 @@ they read, and a mocked fleet would only prove the table is self-consistent.
 
 import asyncio
 import json
+import logging
 import time
 from collections import deque
 
@@ -255,10 +256,31 @@ async def _connect(manager: DroneManager, timeout: float = 5.0) -> None:
         await asyncio.sleep(0.02)
 
 
+@pytest.fixture(autouse=True)
+def _capture_info_logs(caplog):
+    """Keep INFO records for every test in this file.
+
+    pytest only prints captured logs on failure and, by default, only WARNING
+    and above. test_estop_kills_the_motors_and_settles_to_disarmed has twice
+    failed on CI with the fleet stuck in STAGED after a launch and *no* log
+    output at all, which says nothing about why the launch never advanced.
+    The route and the fleet state machine log at INFO, so keeping INFO makes
+    the next occurrence explain itself.
+    """
+    caplog.set_level(logging.INFO)
+
+
 async def _wait_for_state(manager: DroneManager, state: S, timeout: float = 20.0) -> None:
     deadline = time.monotonic() + timeout
     while manager.fleet_fsm.state is not state:
-        assert time.monotonic() < deadline, f"stuck in {manager.fleet_fsm.state.value}, expected {state.value}"
+        if time.monotonic() >= deadline:
+            recent = [f"{h['from']}->{h['to']} ({h.get('trigger')})" for h in list(manager.fleet_fsm.history)[-5:]]
+            pytest.fail(
+                f"stuck in {manager.fleet_fsm.state.value}, expected {state.value}; "
+                f"launch task done={getattr(manager.launch_task, 'done', lambda: None)()}, "
+                f"recent transitions={recent or 'none'}, "
+                f"telemetry={ {i: {k: t.get(k) for k in ('connected', 'armed', 'health_armable')} for i, t in manager.telemetry.items()} }"
+            )
         await asyncio.sleep(0.05)
 
 
