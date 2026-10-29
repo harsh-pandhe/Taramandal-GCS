@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { applyCommand } from './commands.js';
 import { defaultFleet, fleetCommands, makeDrone } from './fleetCommands.js';
 import { createHistory, execute, undo, redo } from './history.js';
+import { PAD_SPACING } from './layout.js';
 
 const doc = (n) => ({ scenes: [], dronesList: defaultFleet(n) });
 const run = (d, ...commands) => commands.reduce((acc, c) => applyCommand(acc, c), d);
@@ -10,6 +11,13 @@ describe('fleet commands', () => {
   it('add reuses the lowest free id and keeps the list ordered', () => {
     const d = run(doc(4), fleetCommands.remove(1), fleetCommands.add());
     expect(d.dronesList.map((x) => x.id)).toEqual([0, 1, 2, 3]);
+  });
+
+  it("a new drone's default spawn Y tracks the live pad grid spacing (issue #132/#167)", () => {
+    // Regression: this field used to be hardcoded at the old 2.0m pad
+    // spacing and silently went stale when #167 widened the grid to 2.2m.
+    const drone = makeDrone(3);
+    expect(drone.spawnOffset).toBeCloseTo(PAD_SPACING * 3, 5);
   });
 
   it('remove never empties the fleet', () => {

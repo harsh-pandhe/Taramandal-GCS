@@ -2,6 +2,8 @@
 // scene edits (#100). A bulk edit is one command and so one undo step, however
 // many vehicles it touches.
 
+import { PAD_SPACING } from './layout.js';
+
 const PALETTE = [
   '#38bdf8', '#10b981', '#f59e0b', '#ec4899', '#8b5cf6',
   '#3b82f6', '#f43f5e', '#22c55e', '#e11d48', '#2563eb',
@@ -11,7 +13,11 @@ export const makeDrone = (id) => ({
   id,
   name: `Drone ${String(id).padStart(2, '0')}`,
   hoverAlt: parseFloat((2.0 + id * 0.7).toFixed(1)),
-  spawnOffset: parseFloat((2.0 * id).toFixed(1)),
+  // Matches layout.js's padAt() grid spacing (issue #167) — this default was
+  // previously hardcoded at the old 2.0m and silently went stale when the
+  // grid widened to 2.2m, since this field isn't actually read by the build
+  // (see the Swarm Fleet UX audit under issue #132).
+  spawnOffset: parseFloat((PAD_SPACING * id).toFixed(1)),
   colorHex: PALETTE[id % PALETTE.length],
 });
 
