@@ -26,6 +26,15 @@ from tara_gcs.drone_manager import DroneManager
 from tara_gcs.fleet_fsm import LifecycleState
 
 
+#: HOVER_REACHED reports the altitude rounded to 0.01 m, while the climb loop
+#: judges the unrounded value against its tolerance. A vehicle that the loop
+#: accepts at 0.8500001 m (|z - 1.0| = 0.1499999 <= 0.15) is reported as 0.85,
+#: and abs(0.85 - 1.0) is 0.15000000000000002, which a plain `<= 0.15` rejects.
+#: Allow half a rounding step (0.005) plus float epsilon so the assertion tests
+#: the tolerance, not the rounding (this made CI flaky on main at ff9e658).
+_REPORT_ROUNDING_M = 0.005 + 1e-9
+
+
 @pytest.fixture
 def viewer():
     return Operator(id="test-viewer", role=Role.VIEWER)
@@ -565,7 +574,7 @@ async def test_single_drone_climb_reports_the_altitude_actually_reached(commande
             operator=commander,
         )
         hover_reached = next(s for s in result["steps"] if s["step"] == "HOVER_REACHED")
-        assert abs(hover_reached["altitude_m"] - 0.8) <= 0.15
+        assert abs(hover_reached["altitude_m"] - 0.8) <= 0.15 + _REPORT_ROUNDING_M
     finally:
         await manager.shutdown()
 
@@ -653,7 +662,7 @@ async def test_single_drone_climb_tolerates_delayed_liftoff_and_slow_climb(comma
             operator=commander,
         )
         hover_reached = next(s for s in result["steps"] if s["step"] == "HOVER_REACHED")
-        assert abs(hover_reached["altitude_m"] - target_alt) <= 0.15
+        assert abs(hover_reached["altitude_m"] - target_alt) <= 0.15 + _REPORT_ROUNDING_M
     finally:
         await manager.shutdown()
 
