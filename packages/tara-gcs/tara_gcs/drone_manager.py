@@ -447,6 +447,10 @@ class DroneManager:
             context=lambda: {"backend": self.backend, "fidelity": self.fidelity},
         )
         self.launch_task = None
+        # When the last launch task ended (monotonic seconds), or None. Lets the
+        # lifecycle monitor give an arm that has not reached telemetry yet a
+        # moment before calling the launch failed (see LAUNCH_ARM_GRACE_S).
+        self._launch_finished_at: float | None = None
 
     async def connect_all(self) -> None:
         """Connects to all drones concurrently."""
@@ -1124,7 +1128,10 @@ class DroneManager:
                 await self.launch_sequence(drone_ids=drone_ids, require_ekf_health=require_ekf_health)
             except Exception as e:
                 logging.error(f"Error during launch sequence execution: {e}")
+            finally:
+                self._launch_finished_at = time.monotonic()
 
+        self._launch_finished_at = None
         self.launch_task = asyncio.create_task(_run())
         return self.launch_task
 
@@ -2598,6 +2605,14 @@ class DroneManager:
     #: Lifecycle monitor rate. Transitions are operator-facing (HUD, gating),
     #: so 5Hz is ample; the 10Hz safety loops above don't depend on it.
     LIFECYCLE_POLL_S = 0.2
+    #: How long after a launch task ends the monitor waits for a drone to show up
+    #: as armed before it calls the launch failed. arm() returning and the armed
+    #: flag reaching telemetry are two different moments (the flag comes from the
+    #: autopilot's own stream), so judging at the instant the task ends can
+    #: report "no drone armed" for a drone that did arm, and send the fleet back
+    #: to STAGED while it is armed. Matches the heartbeat staleness bar: if
+    #: nothing has armed within that long, the launch really did fail.
+    LAUNCH_ARM_GRACE_S = 2.5
     #: Fleet altitude, metres, above which an armed drone counts as airborne.
     TAKEOFF_DETECT_ALT_M = 0.5
     #: How far below its hover altitude a drone may be and still count as in formation.
@@ -2644,7 +2659,9 @@ class DroneManager:
             if armed_ids:
                 fsm.advance(state, LifecycleState.ARMED, trigger="telemetry:first_drone_armed")
             elif not launching:
-                fsm.advance(state, LifecycleState.STAGED, trigger="launch_failed:no_drone_armed")
+                ended = self._launch_finished_at
+                if ended is None or time.monotonic() - ended >= self.LAUNCH_ARM_GRACE_S:
+                    fsm.advance(state, LifecycleState.STAGED, trigger="launch_failed:no_drone_armed")
         elif state is LifecycleState.ARMED:
             if any(self.telemetry[d_id].get("fleet_z", 0.0) >= self.TAKEOFF_DETECT_ALT_M for d_id in armed_ids):
                 fsm.advance(state, LifecycleState.TAKEOFF, trigger="telemetry:climbing")
