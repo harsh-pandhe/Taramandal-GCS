@@ -26,7 +26,8 @@ def _grid_show(n: int, duration: float = 30.0, dt: float = 0.1) -> dict:
     """n drones in a grid, holding position - the workload shape that
     matters for this test is the sweep (duration/dt steps x n drones) and,
     for #156's own bug specifically, the *stored waypoint count per drone*
-    (dt=0.1 matches sequencer.js's 10 Hz default build rate, #160) -
+    (dt=0.1 is 10 Hz, the density a long Studio build has when its
+    build rate is 10 Hz) -
     interpolate_waypoint's pre-#164 cost was O(waypoints) per lookup, so a
     show with too few stored waypoints wouldn't meaningfully exercise the
     regression this test exists to catch, even though it has the right
@@ -60,3 +61,32 @@ def test_validate_show_500_drones_completes_within_a_generous_budget():
 
     assert report["status"] == "PASSED"  # a 2.5m grid clears every limit
     assert elapsed < 10.0, f"validate_show took {elapsed:.1f}s at 500 drones (budget: 10s)"
+
+
+def test_validate_show_a_long_show_stays_cheap_per_waypoint():
+    """The real guard against the pre-#164 linear waypoint scan.
+
+    The 500-drone test above is a smoke test: with only 301 waypoints per drone
+    the old O(waypoints) lookup is merely ~3x slower than the bisect (measured
+    1.5 s old vs 0.5 s new), well under its 10 s budget, so it would not fail if
+    the scan came back. The old cost multiplies with waypoints per drone, so a
+    long show with few drones is what separates the two. Measured on the pre-#164
+    `interpolate_waypoint` against the current one (same validate_show):
+
+        500 drones x   301 waypoints   0.5 s new   1.5 s old
+         50 drones x  3001 waypoints   0.5 s new  10.7 s old
+         25 drones x  6001 waypoints   0.6 s new  20.6 s old
+
+    25 drones x 6001 waypoints (a 10-minute show at 10 Hz) takes about 0.6 s now.
+    The 5 s budget is roughly 8x that for a loaded CI runner and about a quarter
+    of the old cost, so a return to the linear scan fails this test.
+    """
+    show = _grid_show(25, duration=600.0)
+    assert len(show["drones"][0]["waypoints"]) == 6001
+    start = time.perf_counter()
+    report = validate_show(show)
+    elapsed = time.perf_counter() - start
+
+    assert report["status"] == "PASSED"
+    assert elapsed < 5.0, f"validate_show took {elapsed:.1f}s on a 25-drone, 6001-waypoint show (budget: 5s)"
+
