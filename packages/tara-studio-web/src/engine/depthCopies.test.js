@@ -112,11 +112,11 @@ describe('buildDepthCopies', () => {
 
   it('centres the combined X-extent at 0, even when the front copy on its own would not be (issue #169 review)', () => {
     // perCopyCount=5 (WALL) happens to have its own fleetCenter(5).x === 0
-    // (the pad grid fits in one row, <=15), which let an earlier version
-    // of this test pass while the underlying centring math was still
-    // wrong for any count that spans more than one row. 100 does span
-    // more than one row, so fleetCenter(100).x is 6, not 0 - this is the
-    // case that actually exercises the fix.
+    // (the pad grid fits in one row, <=PAD_COLS), which let an earlier
+    // version of this test pass while the underlying centring math was
+    // still wrong for any count that spans more than one row. 100 does
+    // span more than one row, so fleetCenter(100).x is nonzero - this is
+    // the case that actually exercises the fix.
     const perCopy = 30;
     const result = buildDepthCopies('text', '1', perCopy, perCopy * 2);
     const xs = result.map((p) => p.x);

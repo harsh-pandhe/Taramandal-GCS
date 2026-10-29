@@ -138,8 +138,10 @@ describe('trajectory shape', () => {
       expect(last.z).toBe(0);
       expect(first.x).toBe(0);
       expect(last.x).toBe(0);
-      expect(first.y).toBe(2 * i); // pad row, 2 m apart
-      expect(last.y).toBe(2 * i);  // lands back on its own pad
+      // toBeCloseTo, not toBe: every exported waypoint is cm-rounded (round2
+      // in sequencer.js), which 2.2 * i does not land on exactly for every i.
+      expect(first.y).toBeCloseTo(2.2 * i, 2); // pad row, PAD_SPACING apart
+      expect(last.y).toBeCloseTo(2.2 * i, 2);  // lands back on its own pad
     });
   });
 
@@ -250,15 +252,18 @@ describe('collision avoidance at fleet scale', () => {
   });
 
   it('lands every drone back on the pad the GCS thinks it owns', () => {
-    // tara_core.layout.launch_grid(MAX_FLEET_SIZE): 15 columns, 2 m apart. The
-    // GCS resolves drone i's home from that grid, so past the first row the
-    // Studio has to use it too.
+    // tara_core.layout.launch_grid(MAX_FLEET_SIZE): PAD_COLS columns,
+    // PAD_SPACING apart. The GCS resolves drone i's home from that grid, so
+    // past the first row the Studio has to use it too.
     const scenes = acceptanceScenes();
     const n = 40;
     const show = buildSequencedShow(scenes, n, 4, computeAssignmentChainLocal(scenes, n));
     show.drones.forEach((d, i) => {
       const first = d.waypoints[0], last = d.waypoints[d.waypoints.length - 1];
-      const pad = { x: Math.floor(i / 15) * 2, y: (i % 15) * 2 };
+      // Rounded to match round2 in sequencer.js (every exported waypoint is
+      // cm-rounded on export), not the raw PAD_SPACING multiply.
+      const round2 = (v) => parseFloat(v.toFixed(2));
+      const pad = { x: round2(Math.floor(i / 13) * 2.2), y: round2((i % 13) * 2.2) };
       expect([first.x, first.y, first.z], `drone ${i} start`).toEqual([pad.x, pad.y, 0]);
       expect([last.x, last.y, last.z], `drone ${i} end`).toEqual([pad.x, pad.y, 0]);
     });

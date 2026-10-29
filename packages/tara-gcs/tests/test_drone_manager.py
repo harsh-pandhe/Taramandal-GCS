@@ -23,8 +23,9 @@ async def test_proximity_safety_breach():
     manager.trigger_rtl = AsyncMock()
 
     # Both drones armed at their own pad-local origin. In the fleet frame their
-    # pads are 2.0m apart on Y (LAUNCH_PAD_SPACING_Y_M), which is inside the 1.5m
-    # safety limit — i.e. they've drifted onto/near each other's pad.
+    # pads are LAUNCH_PAD_SPACING_Y_M apart on Y; the 1.0m local_y offset below
+    # closes enough of that gap to land inside the 1.5m safety limit — i.e.
+    # they've drifted onto/near each other's pad.
     manager.telemetry = {
         0: _make_telemetry(local_x=0.0, local_y=0.0, local_z=2.0, drone_id=0),
         1: _make_telemetry(local_x=0.0, local_y=-1.0, local_z=2.0, drone_id=1),

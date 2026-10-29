@@ -13,8 +13,10 @@ PX4_AUTOPILOT_DIR=${PX4_AUTOPILOT_DIR:-"$HOME/PX4-Autopilot"}
 # MAX_DRONES if you know your machine can take it.
 MAX_DRONES=${MAX_DRONES:-50}
 # Y-axis spacing between launch pads (meters). MUST match LAUNCH_PAD_SPACING_Y_M
-# in backend/drone_manager.py so the GCS fleet-frame math lines up with spawns.
-PAD_SPACING_Y=${PAD_SPACING_Y:-2}
+# in backend/drone_manager.py (tara_core.safety.DEFAULT_LIMITS.pad_spacing_m)
+# so the GCS fleet-frame math lines up with spawns. Not an integer (issue
+# #167), so the offset below is computed with awk, not bash arithmetic.
+PAD_SPACING_Y=${PAD_SPACING_Y:-2.2}
 
 # Home/origin for the simulated world. PX4 SITL has no real GPS receiver: it
 # synthesizes GNSS from the simulator's world origin, and if that origin is
@@ -132,8 +134,9 @@ cd "$PX4_AUTOPILOT_DIR"
 # Spawning instances
 for ((i=0; i<NUM_DRONES; i++)); do
   # Calculate horizontal spacing offset along the Y axis (must match the GCS
-  # fleet-frame pad offset — see PAD_SPACING_Y above).
-  Y_OFFSET=$((PAD_SPACING_Y * i))
+  # fleet-frame pad offset — see PAD_SPACING_Y above). awk, not bash
+  # arithmetic, since PAD_SPACING_Y is not an integer.
+  Y_OFFSET=$(awk -v s="$PAD_SPACING_Y" -v i="$i" 'BEGIN { printf "%g", s * i }')
   
   if [ "$i" -eq 0 ]; then
     echo "Launching host drone (instance 0) at Y_OFFSET = 0m..."
