@@ -91,6 +91,11 @@ bash "$SCRIPT_DIR/stop_fleet.sh"
 
 # Trap SIGINT, SIGTERM, and EXIT to run cleanup on termination
 cleanup() {
+  # Capture the real exit status immediately — every line below would
+  # otherwise overwrite $? before the final `exit`, which used to mask a
+  # failure after this point (e.g. a missing world file or gz_env.sh, issue
+  # #177) as a misleading "exited with code 0" in the GCS's own process log.
+  local exit_code=$?
   # Disable trap to avoid recursion on exit
   trap - SIGINT SIGTERM EXIT
   echo ""
@@ -98,19 +103,60 @@ cleanup() {
   echo "Stopping fleet and cleaning up background processes..."
   bash "$SCRIPT_DIR/stop_fleet.sh"
   echo "========================================="
-  exit 0
+  exit "$exit_code"
 }
 trap cleanup SIGINT SIGTERM EXIT
 
-# Source Gazebo environment
+# The custom show world (launch pads pad_0..pad_4 + the visual geofence ring,
+# see CHANGELOG 1.0.0) is not committed to this repo yet — lost in the
+# monorepo move (issue #177). If a copy has been added at sim/px4/worlds/,
+# install it into the PX4 checkout; otherwise refuse to start rather than
+# silently falling back to PX4's own default world, which has none of the
+# pads or the ring and would make every spawn offset below meaningless.
+WORLD_DEST_DIR="$PX4_AUTOPILOT_DIR/Tools/simulation/gz/worlds"
+WORLD_SRC="$SCRIPT_DIR/worlds/drone_show_field.sdf"
+WORLD_DEST="$WORLD_DEST_DIR/drone_show_field.sdf"
+if [ ! -f "$WORLD_DEST" ]; then
+  if [ -f "$WORLD_SRC" ]; then
+    echo "Installing drone_show_field.sdf into $WORLD_DEST_DIR..."
+    mkdir -p "$WORLD_DEST_DIR"
+    cp "$WORLD_SRC" "$WORLD_DEST"
+  else
+    echo "Error: drone_show_field.sdf not found at $WORLD_SRC or $WORLD_DEST."
+    echo "       This custom world (launch pads pad_0..pad_4 + geofence ring) is"
+    echo "       not yet committed to this repo (issue #177). See sim/px4/README.md."
+    exit 1
+  fi
+fi
+
+# Source Gazebo environment. PX4 main moved this file in 2026-10 from
+# build/px4_sitl_default/rootfs/gz_env.sh to build/px4_sitl_default/gz_env.sh
+# (issue #177); support both so the pinned v1.16.2 (old layout) and a newer
+# checkout both work.
 echo "Sourcing Gazebo Sim environment..."
-source "$PX4_AUTOPILOT_DIR/build/px4_sitl_default/rootfs/gz_env.sh"
+GZ_ENV_OLD="$PX4_AUTOPILOT_DIR/build/px4_sitl_default/rootfs/gz_env.sh"
+GZ_ENV_NEW="$PX4_AUTOPILOT_DIR/build/px4_sitl_default/gz_env.sh"
+if [ -f "$GZ_ENV_OLD" ]; then
+  source "$GZ_ENV_OLD"
+elif [ -f "$GZ_ENV_NEW" ]; then
+  source "$GZ_ENV_NEW"
+else
+  echo "Error: gz_env.sh not found at $GZ_ENV_OLD or $GZ_ENV_NEW."
+  echo "       Build PX4 SITL first: (cd $PX4_AUTOPILOT_DIR && make px4_sitl gz_x500)"
+  exit 1
+fi
 
 # Export correct world name
 export PX4_GZ_WORLD=drone_show_field
 
 # Isolate Gazebo partition to avoid conflicts with other simulations
 export GZ_PARTITION=taramandal
+
+# Anchor Gazebo's own network binding. PX4's own `make px4_sitl gz_x500`
+# target sets this; this launcher spawns the px4 binary directly instead and
+# must set it too, or multi-instance Gazebo transport discovery can fail
+# (issue #177 item 2).
+export GZ_IP=127.0.0.1
 
 # Disable interactive PX4 shell to prevent EOF infinite loops in log files
 export NO_PXH=1

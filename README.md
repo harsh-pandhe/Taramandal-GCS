@@ -43,7 +43,8 @@ python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
 
 `tara up --backend px4 -n 3` runs the same stack against real PX4 SITL +
 Gazebo instead of the simulator (needs PX4-Autopilot built locally; see
-`sim/px4/launch_fleet.sh`).
+[sim/px4/README.md](sim/px4/README.md) for the pinned version, a sudo-free
+build recipe, and `tara doctor`'s coverage of this backend).
 
 Once the GCS is up, the simulation itself can also be started and stopped from
 the dashboard's Simulation Control Bar — pick a fleet size, hit **Launch Gazebo
