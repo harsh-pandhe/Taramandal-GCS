@@ -122,3 +122,29 @@ For animations custom-designed in **Blender**, `studio/blender_export.py` can be
 blender --background my_show_scene.blend --python studio/blender_export.py -- my_trajectory.json
 ```
 Ensure your Blender objects are named `Drone_00`, `Drone_01`, etc. The script automatically translates Blender coordinates (positive-Z up) to PX4 local NED coordinates (negative-Z up).
+
+---
+
+## 🤖 AI Scene Authoring (V1 narrow assistant, issue #133)
+
+`POST /api/ai/propose` (`tara_studio.ai_author`) turns one prompt plus an
+optional uploaded SVG into a single typed scene draft — a closed-enum
+"shape token," placement, colour and duration — which the operator must
+explicitly Apply or Discard; the model never touches geometry validation,
+safety limits, export signing or GCS/flight control. See the module
+docstring in `ai_author.py` for the schema/repair design.
+
+- **Model**: [`qwen2.5:7b`](https://huggingface.co/Qwen/Qwen2.5-7B-Instruct)
+  served locally via [Ollama](https://ollama.com) (`OLLAMA_MODEL` env var to
+  override the tag). This is the S0 baseline measured in the issue — no
+  further models were benchmarked for V1. Pin the digest you actually pull
+  (`ollama list` after `ollama pull qwen2.5:7b`), not just the mutable
+  `:7b` tag, since a tag can be repointed upstream.
+- **License**: Apache License 2.0 (per the
+  [official model card](https://huggingface.co/Qwen/Qwen2.5-7B-Instruct)),
+  permits commercial use; keep the license/copyright notice if you
+  redistribute weights.
+- **Runtime dependency**: a local Ollama install/daemon. No cloud API calls,
+  no network egress for inference. If Ollama isn't running or the model
+  isn't pulled, `propose()` reports `"unavailable"` and the rest of Studio's
+  manual authoring workflow is unaffected.
