@@ -62,28 +62,59 @@ Adjust the submodule list to whatever your PX4 tag actually needs for a pure
 SITL build; the point is skipping NuttX, not an exact command to copy
 verbatim.
 
-## The missing piece: `drone_show_field.sdf`
+## `drone_show_field.sdf`
 
-The custom Gazebo world this project was built against — launch pads
-`pad_0`..`pad_4` aligned to the GCS's own pad grid, plus a visual red safety
-geofence ring — was created once (see `CHANGELOG.md`, v1.0.0) but was **never
-committed** into this repo; it appears to have been lost in the move from the
-original flat `scripts/`/`backend/`/`frontend/` layout to this monorepo.
+The custom Gazebo world this project was originally built against — launch
+pads `pad_0`..`pad_4` aligned to the GCS's own pad grid, plus a visual red
+safety geofence ring — was created once (see `CHANGELOG.md`, v1.0.0) but was
+**never committed** into this repo; it appears to have been lost in the move
+from the original flat `scripts/`/`backend/`/`frontend/` layout to this
+monorepo, and its exact historical geometry is unknown.
 
-Until a real copy is committed to `sim/px4/worlds/drone_show_field.sdf`:
+Rather than guess at that lost geometry, `sim/px4/generate_world.py`
+**generates** a new `sim/px4/worlds/drone_show_field.sdf` mechanically, from
+this project's own authoritative constants — not invented numbers:
 
-- `launch_fleet.sh` refuses to start with a clear error, rather than silently
-  falling back to a default Gazebo world that has none of the pads or the
-  ring — that would make every spawn position the launcher computes
-  (`PAD_SPACING_Y`, matching `tara_core.safety.DEFAULT_LIMITS.pad_spacing_m`)
-  meaningless, and the discrepancy would be easy to miss.
-- `tara doctor` reports `drone_show_field.sdf world: FAIL` for the same
-  reason — this is the expected, honest state until the file exists.
+- **Pad positions**: `tara_core.layout.launch_grid(MAX_FLEET_SIZE)`, the
+  exact same function `tara_gcs.drone_manager._pad_offset` indexes into for
+  every real drone's fixed pad. For drone ids below the grid's column cap
+  (`floor(geofence_radius_m / pad_spacing_m)`, 13 at current defaults), this
+  is provably a plain Y-axis line — which is exactly what `launch_fleet.sh`
+  already spawns PX4 SITL instances at. `generate_world.py` emits precisely
+  that many pads, and fails loudly (not silently) if a future constant change
+  ever breaks the line-property assumption.
+- **Geofence ring**: `tara_core.safety.DEFAULT_LIMITS.geofence_radius_m`
+  (30m), rendered as a ring of small visual-only markers (SDF has no annulus
+  primitive).
+- **Everything else** (physics, gravity, scene, ground plane, lighting,
+  spherical coordinates) is copied verbatim from PX4's own real, upstream
+  default world (`PX4/PX4-gazebo-models`, `worlds/default.sdf`) — cross-
+  checked against the actual upstream source, not reconstructed from memory
+  of SDF syntax.
 
-Once a copy is placed at `sim/px4/worlds/drone_show_field.sdf`,
-`launch_fleet.sh` installs it into
-`$PX4_AUTOPILOT_DIR/Tools/simulation/gz/worlds/` automatically on every run —
-no manual step needed beyond adding the file.
+Regenerate after any pad-spacing or geofence-radius change (issue #167 is
+exactly this kind of change) with:
+
+```bash
+PYTHONPATH=packages/tara-core python3 sim/px4/generate_world.py
+```
+
+`launch_fleet.sh` installs whatever is at `sim/px4/worlds/drone_show_field.sdf`
+into `$PX4_AUTOPILOT_DIR/Tools/simulation/gz/worlds/` automatically on every
+run; `tara doctor` checks the file exists. If it's ever missing (a clean
+checkout before the file has been generated, or it was deleted), both fail
+with a clear, actionable error rather than silently falling back to a
+default Gazebo world with none of the pads or the ring.
+
+**Known limitation**: this world's structure was validated for well-formed
+XML and cross-checked field-by-field against PX4's own real default world,
+but could not be load-tested against a live `gz sim` instance in the
+environment this was built in (no local Gazebo install, and a fresh PX4+
+Gazebo Harmonic build over a slow connection was still in progress when this
+was written). If `gz sim` rejects it on a real machine, that's the next
+thing to check — the generator's logic (pad math, XML structure) is unit
+tested, but the file's actual Gazebo-loadability is not yet confirmed
+first-hand.
 
 ## `GZ_IP`
 

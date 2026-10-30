@@ -11,6 +11,7 @@ testpaths = [
     "packages/tara-sim/tests",
     "packages/tara-studio/tests",
     "apps/tara/tests",
+    "sim/px4/tests",
 ]
 pythonpath = [
     "packages/tara-core",
