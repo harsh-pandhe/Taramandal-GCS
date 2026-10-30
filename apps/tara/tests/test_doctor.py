@@ -21,8 +21,10 @@ from tara_cli.config import TaraConfig
 from tara_cli.doctor import (
     SUPPORTED_PX4_TAG,
     _check_gz_env,
+    _check_node_version,
     _check_px4_version,
     _check_world_file,
+    _node_version_satisfies_vite,
     run_checks,
 )
 
@@ -136,6 +138,41 @@ class TestGzEnvCheck:
 
         result = _check_gz_env(autopilot)
         assert result.detail == str(old)
+
+
+class TestNodeVersionCheck:
+    """`_node_version_satisfies_vite` is tested as a pure function over
+    (major, minor) pairs — real Node installs spanning 18.x through 23.x
+    aren't available to exercise in one test run, and the thing worth
+    proving is the exact boundary logic (the 21.x line fails; 20.19 is the
+    first 20.x that passes; 22.12 is the first 22.x that passes), not
+    whatever Node happens to be on the machine running this test. The
+    real-subprocess path (`_check_node_version` shelling out to `node
+    --version`) is covered once by `TestRunChecksIntegration`, matching this
+    file's own convention of testing `_check_px4_version` against a real git
+    checkout rather than a mock.
+    """
+
+    @pytest.mark.parametrize(
+        "major,minor",
+        [(20, 19), (20, 20), (20, 99), (22, 12), (22, 50), (23, 0), (30, 0)],
+    )
+    def test_satisfying_versions(self, major, minor):
+        assert _node_version_satisfies_vite(major, minor) is True
+
+    @pytest.mark.parametrize(
+        "major,minor",
+        [(18, 19), (20, 18), (20, 0), (21, 0), (21, 99), (22, 0), (22, 11)],
+    )
+    def test_non_satisfying_versions(self, major, minor):
+        assert _node_version_satisfies_vite(major, minor) is False
+
+    def test_real_node_version_check_runs(self):
+        """Exercises the real subprocess call; doesn't assert pass/fail since
+        that depends on whatever Node this test machine has installed."""
+        result = _check_node_version()
+        assert result.name == "Node.js version"
+        assert isinstance(result.ok, bool)
 
 
 class TestRunChecksIntegration:

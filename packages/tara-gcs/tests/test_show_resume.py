@@ -20,6 +20,7 @@ import urllib.request
 
 import pytest
 
+from tara_gcs.auth import OperatorStore, Role
 from tara_gcs.drone_manager import DroneManager
 
 
@@ -234,11 +235,17 @@ GCS_STARTUP_TIMEOUT_S = 20.0
 
 
 def _wait_for_server(base_url: str, timeout: float) -> None:
+    # /api/status takes no operator dependency (it's "for `tara status` and
+    # any scripted check" per its own docstring) — unlike /api/saved-show-state,
+    # which started requiring auth once RBAC (issue #64) landed on every other
+    # endpoint. Probing an authenticated endpoint before any operator/token
+    # exists always 401s, never 200s, so this must be the one unauthenticated
+    # endpoint, not whichever one the test happens to call first.
     deadline = time.time() + timeout
     last_error = None
     while time.time() < deadline:
         try:
-            urllib.request.urlopen(f"{base_url}/api/saved-show-state", timeout=1.0)
+            urllib.request.urlopen(f"{base_url}/api/status", timeout=1.0)
             return
         except Exception as e:
             last_error = e
@@ -246,17 +253,31 @@ def _wait_for_server(base_url: str, timeout: float) -> None:
     raise RuntimeError(f"GCS server did not come up at {base_url}: {last_error}")
 
 
-def _post(base_url: str, path: str, payload: dict | None = None) -> dict:
+def _post(base_url: str, path: str, payload: dict | None = None, token: str | None = None) -> dict:
     data = json.dumps(payload or {}).encode()
-    req = urllib.request.Request(f"{base_url}{path}", data=data, method="POST",
-                                  headers={"Content-Type": "application/json"})
+    headers = {"Content-Type": "application/json"}
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+    req = urllib.request.Request(f"{base_url}{path}", data=data, method="POST", headers=headers)
     with urllib.request.urlopen(req, timeout=5.0) as resp:
         return json.loads(resp.read())
 
 
-def _get(base_url: str, path: str) -> dict:
-    with urllib.request.urlopen(f"{base_url}{path}", timeout=5.0) as resp:
+def _get(base_url: str, path: str, token: str | None = None) -> dict:
+    headers = {"Authorization": f"Bearer {token}"} if token else {}
+    req = urllib.request.Request(f"{base_url}{path}", headers=headers)
+    with urllib.request.urlopen(req, timeout=5.0) as resp:
         return json.loads(resp.read())
+
+
+def _http_login(base_url: str, operator: str, passphrase: str) -> str:
+    req = urllib.request.Request(
+        f"{base_url}/api/auth/login", method="POST",
+        data=json.dumps({"operator": operator, "passphrase": passphrase}).encode(),
+        headers={"Content-Type": "application/json"},
+    )
+    with urllib.request.urlopen(req, timeout=5.0) as resp:
+        return json.loads(resp.read())["token"]
 
 
 @pytest.mark.slow
@@ -282,6 +303,12 @@ def test_kill_and_restart_gcs_process_recovers_state(tmp_path):
     # uploads a plain unsigned file the way `tara up --allow-unsigned` permits.
     env["GCS_ALLOW_UNSIGNED"] = "1"
     env["GCS_AUDIT_PATH"] = str(tmp_path / "fleet_audit.jsonl")
+    # Issue #64: every command endpoint now requires an authenticated
+    # operator; a throwaway operators file for this test, not the
+    # developer's real one.
+    operators_path = tmp_path / "operators.json"
+    OperatorStore(operators_path).add("commander", Role.FLIGHT_COMMANDER, "commander passphrase")
+    env["GCS_OPERATORS_PATH"] = str(operators_path)
     env["PYTHONPATH"] = os.pathsep.join([
         os.path.join(repo_root, "packages", "tara-core"),
         os.path.join(repo_root, "packages", "tara-gcs"),
@@ -304,6 +331,7 @@ def test_kill_and_restart_gcs_process_recovers_state(tmp_path):
     proc = _spawn()
     try:
         _wait_for_server(base_url, GCS_STARTUP_TIMEOUT_S)
+        token = _http_login(base_url, "commander", "commander passphrase")
 
         trajectory = {"0": [
             {"time": 0.0, "x": 0.0, "y": 0.0, "z": 0.0, "yaw": 0.0},
@@ -328,7 +356,10 @@ def test_kill_and_restart_gcs_process_recovers_state(tmp_path):
             f"{base_url}/api/upload-trajectory",
             data=body,
             method="POST",
-            headers={"Content-Type": f"multipart/form-data; boundary={boundary}"},
+            headers={
+                "Content-Type": f"multipart/form-data; boundary={boundary}",
+                "Authorization": f"Bearer {token}",
+            },
         )
         with urllib.request.urlopen(req, timeout=5.0) as resp:
             upload_result = json.loads(resp.read())
@@ -339,7 +370,7 @@ def test_kill_and_restart_gcs_process_recovers_state(tmp_path):
         # the drone is up and its mission verifies.
         deadline = time.time() + GCS_STARTUP_TIMEOUT_S
         while True:
-            mission = _post(base_url, "/api/upload-mission")
+            mission = _post(base_url, "/api/upload-mission", token=token)
             if mission.get("all_verified") or time.time() > deadline:
                 break
             time.sleep(0.5)
@@ -347,7 +378,7 @@ def test_kill_and_restart_gcs_process_recovers_state(tmp_path):
 
         deadline = time.time() + GCS_STARTUP_TIMEOUT_S
         while True:
-            chk = _get(base_url, "/api/preflight-check")
+            chk = _get(base_url, "/api/preflight-check", token=token)
             if chk.get("launch_permitted") or time.time() > deadline:
                 break
             time.sleep(0.2)
@@ -355,13 +386,13 @@ def test_kill_and_restart_gcs_process_recovers_state(tmp_path):
 
         # The fleet lifecycle (issue #52) refuses to start a show on the
         # ground, so take off first, as an operator would.
-        _post(base_url, "/api/launch")
+        _post(base_url, "/api/launch", token=token)
         deadline = time.time() + GCS_STARTUP_TIMEOUT_S
-        while _get(base_url, "/api/fleet-state")["state"] != "FORMATION_HOLD":
+        while _get(base_url, "/api/fleet-state", token=token)["state"] != "FORMATION_HOLD":
             assert time.time() < deadline, "fleet never reached FORMATION_HOLD after launch"
             time.sleep(0.2)
 
-        _post(base_url, "/api/start-trajectory", {"mode": "LOCAL", "trigger_epoch_ms": 0})
+        _post(base_url, "/api/start-trajectory", {"mode": "LOCAL", "trigger_epoch_ms": 0}, token=token)
 
         # Let the show run long enough for at least one periodic snapshot.
         # (STATE_SNAPSHOT_INTERVAL_S is 5s in production code; wait past it.)
@@ -374,22 +405,25 @@ def test_kill_and_restart_gcs_process_recovers_state(tmp_path):
 
         assert os.path.exists(state_path), "expected a periodic snapshot to have been written before the kill"
 
-        # Restart a fresh process pointed at the same state file.
+        # Restart a fresh process pointed at the same state file. Sessions
+        # are in-memory, so the old token died with the old process — log in
+        # again against the (file-backed, still-present) operators file.
         proc = _spawn()
         _wait_for_server(base_url, GCS_STARTUP_TIMEOUT_S)
+        token = _http_login(base_url, "commander", "commander passphrase")
 
-        saved = _get(base_url, "/api/saved-show-state")
+        saved = _get(base_url, "/api/saved-show-state", token=token)
         assert saved["pending"] is True
         assert saved["mode"] == "LOCAL"
         assert saved["elapsed_seconds"] > 0
         assert "0" in saved["drones_summary"]
 
-        resumed = _post(base_url, "/api/resume-show")
+        resumed = _post(base_url, "/api/resume-show", token=token)
         assert resumed["status"] == "success"
         assert "0" in resumed["trajectory_data"] or 0 in resumed["trajectory_data"]
 
         # Resuming must not have re-armed/launched anything on its own.
-        state_after_resume = _get(base_url, "/api/saved-show-state")
+        state_after_resume = _get(base_url, "/api/saved-show-state", token=token)
         assert state_after_resume["pending"] is False
     finally:
         if proc is not None:

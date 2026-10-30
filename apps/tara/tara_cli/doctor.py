@@ -25,6 +25,17 @@ SUPPORTED_PX4_TAG = "v1.16.2"
 #: monorepo move — see CHANGELOG 1.0.0) still hasn't been supplied.
 WORLD_FILE_RELATIVE_PATH = ("sim", "px4", "worlds", "drone_show_field.sdf")
 
+#: `vite`'s own package.json `engines.node` (tara-web, tara-studio-web both
+#: pin `vite ^8.1.1`): "^20.19.0 || >=22.12.0" — the 21.x line and anything
+#: below 20.19 don't qualify. Found during a real `tara up` run (issue #172
+#: groundwork, 2026-10-30): a distro-apt Node (18.19.1 on Ubuntu 24.04) has
+#: `npm` on PATH and passes the old check, but Vite's CLI crashes immediately
+#: with `ReferenceError: CustomEvent is not defined` — which `tara up`'s
+#: supervisor treats as a fatal service death and tears the *whole* stack
+#: down, including the already-healthy PX4/Gazebo/GCS side. Catch it here
+#: instead of in that cross-service log flood.
+NODE_ENGINES_RANGE = "^20.19.0 || >=22.12.0"
+
 
 @dataclass
 class CheckResult:
@@ -50,6 +61,8 @@ def run_checks(config: TaraConfig) -> list[CheckResult]:
 
     npm = shutil.which("npm")
     results.append(CheckResult("npm on PATH", npm is not None, npm or "not found — install Node.js"))
+    if npm is not None:
+        results.append(_check_node_version())
 
     for pkg_dir, label in (
         (config.repo_root / "packages" / "tara-web", "tara-web node_modules"),
@@ -152,6 +165,32 @@ def _check_gz_env(autopilot_dir: Path) -> CheckResult:
         "PX4 gz_env.sh",
         found is not None,
         str(found) if found else f"not found at {old} or {new} — build PX4 SITL first: (cd {autopilot_dir} && make px4_sitl gz_x500)",
+    )
+
+
+def _node_version_satisfies_vite(major: int, minor: int) -> bool:
+    """Mirrors vite's own `engines.node`: "^20.19.0 || >=22.12.0"."""
+    return (major == 20 and minor >= 19) or (major == 22 and minor >= 12) or major > 22
+
+
+def _check_node_version() -> CheckResult:
+    proc = subprocess.run(["node", "--version"], capture_output=True, text=True, check=False)
+    if proc.returncode != 0:
+        return CheckResult("Node.js version", False, "`node --version` failed — is Node.js installed?")
+    raw = proc.stdout.strip().lstrip("v")
+    try:
+        major, minor = (int(p) for p in raw.split(".")[:2])
+    except ValueError:
+        return CheckResult("Node.js version", False, f"could not parse `node --version` output: {raw!r}")
+    ok = _node_version_satisfies_vite(major, minor)
+    return CheckResult(
+        "Node.js version",
+        ok,
+        raw if ok else (
+            f"{raw} doesn't satisfy vite's required {NODE_ENGINES_RANGE} — the web dev "
+            "servers (tara-web, tara-studio-web) will crash on startup and take the rest "
+            "of `tara up`'s supervised services down with them. Install a newer Node.js."
+        ),
     )
 
 
