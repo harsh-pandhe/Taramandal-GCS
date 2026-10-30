@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { API_BASE, GCS_BASE, exportShow, sendShowToGCS } from './api.js';
+import { API_BASE, GCS_BASE, exportShow, proposeScene, sendShowToGCS } from './api.js';
 
 const CHOREO = { drones: [{ id: 0, waypoints: [{ time: 0, x: 0, y: 0, z: 0, yaw: 0 }] }] };
 const TRACK = [{ pattern: 'STROBE', start_time: 0, duration: 10, color: '#ffffff', frequency_hz: 8 }];
@@ -102,5 +102,39 @@ describe('exportShow preview_only (issue #161)', () => {
     const data = await exportShow({ choreo: CHOREO, format: 'json', homeLat: 1, homeLon: 2 });
     expect(data.filename).toBe('choreography.json');
     expect(calls).toHaveLength(1);
+  });
+});
+
+describe('proposeScene (issue #133)', () => {
+  it('posts the prompt and svg, and returns the typed draft as-is', async () => {
+    const calls = [];
+    vi.stubGlobal('fetch', vi.fn(async (url, init) => {
+      calls.push({ url, init });
+      return new Response(JSON.stringify({ status: 'ok', name: 'Heart', shape_type: 'parametric', shape_payload: 'heart' }), { status: 200 });
+    }));
+
+    const result = await proposeScene('a heart', '<svg></svg>');
+
+    expect(calls[0].url).toBe(`${API_BASE}/api/ai/propose`);
+    expect(JSON.parse(calls[0].init.body)).toEqual({ prompt: 'a heart', svg: '<svg></svg>' });
+    expect(result).toEqual({ status: 'ok', name: 'Heart', shape_type: 'parametric', shape_payload: 'heart' });
+  });
+
+  it('sends svg: null when no SVG was attached', async () => {
+    const calls = [];
+    vi.stubGlobal('fetch', vi.fn(async (url, init) => {
+      calls.push({ url, init });
+      return new Response(JSON.stringify({ status: 'ok' }), { status: 200 });
+    }));
+
+    await proposeScene('a heart');
+    expect(JSON.parse(calls[0].init.body).svg).toBeNull();
+  });
+
+  it('throws with the backend detail on a non-ok response (a malformed request, not a model failure)', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(
+      JSON.stringify({ detail: 'prompt too long' }), { status: 422 },
+    )));
+    await expect(proposeScene('x')).rejects.toThrow(/prompt too long/);
   });
 });
