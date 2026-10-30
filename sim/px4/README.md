@@ -106,15 +106,29 @@ checkout before the file has been generated, or it was deleted), both fail
 with a clear, actionable error rather than silently falling back to a
 default Gazebo world with none of the pads or the ring.
 
-**Known limitation**: this world's structure was validated for well-formed
-XML and cross-checked field-by-field against PX4's own real default world,
-but could not be load-tested against a live `gz sim` instance in the
-environment this was built in (no local Gazebo install, and a fresh PX4+
-Gazebo Harmonic build over a slow connection was still in progress when this
-was written). If `gz sim` rejects it on a real machine, that's the next
-thing to check — the generator's logic (pad math, XML structure) is unit
-tested, but the file's actual Gazebo-loadability is not yet confirmed
-first-hand.
+**Validated** (issue #177 follow-up, PR #200, 2026-10-30): beyond well-formed
+XML and field-by-field cross-checking against PX4's own real default world,
+this file has been load-tested against a real Gazebo Sim 8.15 instance
+(`gz sim -s -r --headless-rendering ... --iterations 100`, clean exit, zero
+errors) and a real PX4 v1.16.2 spawn replicating `launch_fleet.sh`'s exact
+env vars — the drone landed at `(0, 0, 0.2)`, exactly `launch_grid(
+MAX_FLEET_SIZE)[0]`, with a valid EKF home lock and normal mavlink streaming.
+The generator's logic (pad math, XML structure) is unit tested; the file's
+Gazebo-loadability is now confirmed first-hand, not just inferred.
+
+## Node.js version
+
+`tara-web` and `tara-studio-web` both pin `vite ^8.1.1`, which requires Node
+`^20.19.0 || >=22.12.0`. A distro-apt Node (18.19.1 on Ubuntu 24.04, as of
+this writing) has `npm` on `PATH` and will pass a check that only looks for
+`npm` — but Vite's CLI crashes on startup with `ReferenceError: CustomEvent
+is not defined`, and `tara up`'s supervisor treats that as a fatal service
+death, tearing down the whole stack including the already-healthy PX4/
+Gazebo/GCS side. `tara doctor` checks the actual Node version, not just that
+`npm` exists, to catch this before `tara up` does. If you hit this, install a
+newer Node — e.g. via NodeSource: `curl -fsSL
+https://deb.nodesource.com/setup_20.x | sudo -E bash -` then `sudo apt-get
+install -y nodejs`.
 
 ## `GZ_IP`
 
