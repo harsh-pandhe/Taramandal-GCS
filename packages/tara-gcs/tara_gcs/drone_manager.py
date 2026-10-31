@@ -348,6 +348,9 @@ class DroneManager:
         state_path: str = DEFAULT_STATE_PATH,
         broadcast_transmit=None,
         audit_path: str | None = DEFAULT_AUDIT_PATH,
+        sim_rng_seed: int | None = None,
+        sim_packet_loss_base: float = 0.0,
+        sim_packet_loss_per_100m: float = 0.0,
     ):
         """
         Args:
@@ -379,11 +382,23 @@ class DroneManager:
                 execution is refused until a radio and firmware are wired in.
             audit_path: JSONL file the fleet lifecycle state machine appends
                 every transition to (issue #52). ``None`` keeps it in memory.
+            sim_rng_seed: backend="sim" only - seeds tara_sim's physics/noise/
+                RF-channel randomness for reproducible runs (issue #62).
+                ``None`` (default) is nondeterministic, same as tara_sim's own
+                default.
+            sim_packet_loss_base: backend="sim" only - base packet-error rate
+                for tara_sim's RF channel model (issue #62). ``0.0``
+                (default) models no RF loss at all - the pre-#62 sim backend.
+            sim_packet_loss_per_100m: backend="sim" only - additional PER per
+                100m of distance from each drone's pad (issue #62).
         """
         if backend not in ("px4", "sim"):
             raise ValueError(f"backend must be 'px4' or 'sim', got {backend!r}")
         self.ports = ports
         self.backend = backend
+        self._sim_rng_seed = sim_rng_seed
+        self._sim_packet_loss_base = sim_packet_loss_base
+        self._sim_packet_loss_per_100m = sim_packet_loss_per_100m
         # Evidence tier of this backend (issue #170); see FIDELITY_BY_BACKEND.
         self.fidelity = FIDELITY_BY_BACKEND[backend]
         self._sim_fleet = None  # tara_sim.SimFleet, created in connect_all() when backend == "sim"
@@ -457,9 +472,18 @@ class DroneManager:
         logging.info(f"Connecting to {len(self.ports)} drones (backend={self.backend}) on ports: {self.ports}")
 
         if self.backend == "sim":
-            from tara_sim import SimFleet
+            from tara_sim import RFChannelConfig, SimConfig, SimFleet
 
-            self._sim_fleet = SimFleet(len(self.ports))
+            sim_config = SimConfig(rng_seed=self._sim_rng_seed) if self._sim_rng_seed is not None else None
+            rf_channel_config = (
+                RFChannelConfig(
+                    packet_loss_base=self._sim_packet_loss_base,
+                    packet_loss_per_100m=self._sim_packet_loss_per_100m,
+                )
+                if self._sim_packet_loss_base > 0 or self._sim_packet_loss_per_100m > 0
+                else None
+            )
+            self._sim_fleet = SimFleet(len(self.ports), config=sim_config, rf_channel_config=rf_channel_config)
             self._tasks.append(self._sim_fleet.start())
             if self._broadcast_transmit is None:
                 self._broadcast_transmit = self._sim_fleet.broadcast
@@ -1398,6 +1422,17 @@ class DroneManager:
         except Exception as e:
             logging.error(f"Failed to kill Drone {drone_id}: {e}")
             return str(e)
+
+    def rf_channel_drop_rate(self) -> float | None:
+        """Fleet-mean packet drop rate from tara_sim's RF channel model
+        (issue #62), or ``None`` when there isn't one to report - backend is
+        not "sim", the fleet hasn't connected yet, or no loss is configured.
+        ``/api/status`` surfaces this directly; a scripted check or dashboard
+        panel can poll it without knowing anything about tara_sim internals.
+        """
+        if self._sim_fleet is None:
+            return None
+        return self._sim_fleet.rf_channel_drop_rate()
 
     def is_heartbeat_fresh(self, tel: dict) -> bool:
         """True only when both the transport-level connection flag is set

@@ -173,6 +173,53 @@ def test_every_backend_has_a_fidelity_tier():
 
 
 @pytest.mark.asyncio
+async def test_status_packet_drop_rate_is_null_when_no_rf_loss_configured(patched_manager):
+    """Issue #62: packet_drop_rate must be null, not 0.0, when the sim fleet
+    has no RF channel model at all - distinct from "connected with zero loss
+    observed so far", which IS 0.0 (the next test)."""
+    manager = patched_manager(DroneManager(ports=list(range(3)), backend="sim"))
+    try:
+        await manager.connect_all()
+        status = await gcs_main.get_status()
+        assert status["packet_drop_rate"] is None
+    finally:
+        await manager.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_status_packet_drop_rate_reflects_the_rf_channel_model(patched_manager):
+    manager = patched_manager(
+        DroneManager(ports=list(range(30)), backend="sim", sim_rng_seed=3, sim_packet_loss_base=0.25)
+    )
+    try:
+        await manager.connect_all()
+        assert (await gcs_main.get_status())["packet_drop_rate"] == pytest.approx(0.0)
+
+        fs = manager._sim_fleet.state
+        for _ in range(200):
+            fs.tick(fs.config.dt)
+
+        status = await gcs_main.get_status()
+        # A sanity range, not a tight pin: the default Gilbert-Elliott burst
+        # parameters push the empirical rate a bit above the 0.25 base rate
+        # (bursts are rarer but ~4x as lossy while active) - the exact burst
+        # math is pinned precisely in tara-sim's own test suite
+        # (test_rf_channel.py); this integration test's job is only proving
+        # the wiring from DroneManager's constructor kwargs through to this
+        # endpoint actually reaches tara_sim, not re-deriving its statistics.
+        assert 0.2 < status["packet_drop_rate"] < 0.35
+    finally:
+        await manager.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_status_packet_drop_rate_is_null_on_px4_backend(patched_manager):
+    patched_manager(DroneManager(ports=[14540], backend="px4"))
+    status = await gcs_main.get_status()
+    assert status["packet_drop_rate"] is None
+
+
+@pytest.mark.asyncio
 async def test_status_reports_px4_fidelity_without_connecting(patched_manager):
     """/api/status labels a px4 backend as px4-sitl even before any drone connects."""
     patched_manager(DroneManager(ports=[14540], backend="px4"))

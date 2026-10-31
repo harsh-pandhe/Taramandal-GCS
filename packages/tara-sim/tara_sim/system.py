@@ -46,6 +46,7 @@ from tara_core import (
 )
 
 from .fleet_state import LANDED_ALTITUDE_M, FleetState
+from .rf_channel import RFChannelConfig
 
 #: Home position used to convert this drone's local frame to lat/lon for
 #: `.telemetry.home()` and GLOBAL-mode setpoints, when a `SimFleet` isn't given
@@ -346,6 +347,9 @@ class SimFleet:
             GLOBAL-mode setpoints and `.telemetry.home()`. Defaults to
             ``tara_core.launch_grid(n)`` — the same grid `drone_manager.py`
             uses, so home coordinates agree between the two.
+        rf_channel_config: Distance/burst packet-loss model (issue #62).
+            ``None`` (default) — no RF loss modeled beyond whatever
+            ``config.dropout_prob_per_tick`` sets.
     """
 
     def __init__(
@@ -355,8 +359,9 @@ class SimFleet:
         venue_lon: float = DEFAULT_VENUE_LON,
         config=None,
         pad_positions: list[tuple[float, float]] | None = None,
+        rf_channel_config: RFChannelConfig | None = None,
     ):
-        self.state = FleetState(n, config=config)
+        self.state = FleetState(n, config=config, rf_channel_config=rf_channel_config)
         if pad_positions is None:
             from tara_core import launch_grid
 
@@ -390,6 +395,17 @@ class SimFleet:
             home_lon=self._home_lon.copy(),
             home_alt=np.full(fs.n, HOME_ABSOLUTE_ALT_M),
         )
+
+    def rf_channel_drop_rate(self) -> float | None:
+        """Fleet-mean packet drop rate observed so far, or ``None`` if no RF
+        channel model is active (the GCS's "live packet drop rate" metric,
+        issue #62). ``0.0`` is a real "no loss yet", distinct from the
+        "not modeling loss at all" that ``None`` reports.
+        """
+        rf = self.state.rf_channel
+        if rf is None:
+            return None
+        return float(rf.drop_rate().mean())
 
     def system(self, drone_id: int) -> SimSystem:
         if drone_id not in self._systems:

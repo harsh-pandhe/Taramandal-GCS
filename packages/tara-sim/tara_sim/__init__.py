@@ -7,6 +7,15 @@ exact seam.
 """
 
 from .fleet_state import FleetState, SimConfig
+from .rf_channel import RFChannelConfig, RFChannelModel
 from .system import BulkTelemetry, SimFleet, SimSystem
 
-__all__ = ["BulkTelemetry", "FleetState", "SimConfig", "SimFleet", "SimSystem"]
+__all__ = [
+    "BulkTelemetry",
+    "FleetState",
+    "RFChannelConfig",
+    "RFChannelModel",
+    "SimConfig",
+    "SimFleet",
+    "SimSystem",
+]
