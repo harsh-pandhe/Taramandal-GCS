@@ -1121,6 +1121,29 @@ async def sim_status(operator: Viewer):
     return status
 
 
+class InjectFaultRequest(BaseModel):
+    drone_id: int
+    fault_type: str
+    params: dict = Field(default_factory=dict)
+
+
+@app.post("/api/sim/inject-fault")
+async def sim_inject_fault(req: InjectFaultRequest, operator: Commander):
+    """Simulate a sensor/actuator fault on one drone (issue #63), backend="sim" only.
+
+    See `DroneManager.inject_fault` for the fault types, their `params`
+    shape, and why `motor_failure` drives the real single-drone abort
+    sequence instead of a simulated sensor reading.
+    """
+    try:
+        result = await drone_manager.inject_fault(req.drone_id, req.fault_type, req.params)
+    except KeyError:
+        raise HTTPException(status_code=404, detail=f"Drone {req.drone_id} is not connected to this GCS.")
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return {"status": "success", **result}
+
+
 @app.post("/api/rviz/launch")
 async def rviz_launch(req: RvizLaunchRequest = RvizLaunchRequest(), *, operator: Commander):
     """Launch RViz2 with the pre-configured drone-swarm display."""

@@ -312,6 +312,53 @@ class FleetState:
         self._last_setpoint_rx[drone_id] = self.time_s
         self.mission_active[drone_id] = False
 
+    # ------------------------------------------------- fault injection (#63)
+    #
+    # Direct, one-shot state edits — not a continuous physics process like
+    # RFChannelModel's per-tick loss. A real fault (a GPS module losing lock,
+    # a cell dying) is better modelled as "the sensor now reads differently"
+    # than as a decaying process this simulator would have to invent a curve
+    # for. `tick()` and every existing monitor read these same arrays, so
+    # nothing downstream needs to know a value was injected rather than
+    # arrived at physically — the whole point, matching how #62's RF model
+    # reused the existing offboard-loss failsafe instead of building a new
+    # reaction path.
+    #
+    # "Motor failure" is deliberately NOT here: issue #63 wants it to trigger
+    # the *real* single-drone abort sequence (DroneManager.abort_drone), not
+    # a tara_sim state edit — see tara_gcs.main's /api/sim/inject-fault.
+
+    def inject_gnss_fault(self, drone_id: int, fix_type: str) -> None:
+        """Set this drone's reported GNSS fix type directly.
+
+        No vocabulary check here — `tara_sim` doesn't depend on
+        `tara_gcs.preflight`'s ``GNSS_FIX_TYPES`` (this module takes no
+        dependency on `tara_gcs` at all; see `system.py`'s own docstring on
+        why). The caller validates against that vocabulary before this is
+        reached.
+        """
+        self.gps_fix_type[drone_id] = fix_type
+
+    def inject_battery_fault(self, drone_id: int, pct: float) -> None:
+        """Set this drone's reported battery percentage directly.
+
+        Bypasses the normal drain-per-tick math entirely — a cell failure is
+        a step change, not an accelerated drain.
+        """
+        if not (0.0 <= pct <= 100.0):
+            raise ValueError(f"pct must be in [0, 100], got {pct}")
+        self.battery_pct[drone_id] = pct
+
+    def inject_position_deviation(self, drone_id: int, offset_m: tuple[float, float, float]) -> None:
+        """Offset this drone's actual position from the controller's
+        tracked target by ``offset_m`` (local frame, altitude-up) —
+        simulating a tracking failure (wind gust, control-loop fault) rather
+        than a commanded move. `target_position` is left untouched, so the
+        PD tracker in `tick()` immediately starts correcting it back, same
+        as it would for any other disturbance — this does not latch.
+        """
+        self.position[drone_id] += np.asarray(offset_m, dtype=float)
+
     # ------------------------------------------------------ onboard mission
 
     def load_mission(self, drone_id: int, show_id: bytes, waypoints: list[dict]) -> None:

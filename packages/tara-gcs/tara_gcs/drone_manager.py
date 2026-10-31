@@ -27,6 +27,7 @@ from tara_core.show import Show
 from mavsdk import System
 from mavsdk.offboard import PositionNedYaw, PositionGlobalYaw, OffboardError, VelocityNedYaw, AccelerationNed
 from tara_gcs.broadcast_manager import BROADCAST_SYSID
+from tara_gcs.preflight import GNSS_FIX_TYPES
 from tara_gcs.fleet_fsm import (
     AIRBORNE_STATES,
     DEFAULT_AUDIT_PATH,
@@ -1941,6 +1942,76 @@ class DroneManager:
             "clearance": clearance,
             "warning": warning,
         }
+
+    async def inject_fault(self, drone_id: int, fault_type: str, params: dict) -> dict:
+        """Simulate a sensor/actuator fault on one drone (issue #63).
+
+        backend="sim" only: every fault type is a direct edit of
+        `tara_sim.FleetState`'s own arrays (``rtk_loss``, ``battery_drop``,
+        ``deviation``) except ``motor_failure``, which instead drives the
+        *real* single-drone abort path (`abort_drone`, mode="land") — a
+        motor failure's correct response is the actual emergency landing
+        sequence, not a simulated sensor reading, so there is nothing to
+        fake at the tara_sim layer for it.
+
+        Every existing monitor (the GNSS-fix preflight gate, the proximity/
+        geofence sweep, the dashboard's own telemetry-driven HUD) reads
+        these same arrays already — nothing downstream needs to know a
+        fault was injected rather than arrived at physically, the same
+        reasoning #62's RF channel model used for the offboard-loss
+        failsafe.
+
+        Args:
+            drone_id: Which drone.
+            fault_type: One of ``"rtk_loss"``, ``"battery_drop"``,
+                ``"motor_failure"``, ``"deviation"``.
+            params: Fault-specific. ``rtk_loss``: ``{"fix_type": str}``, one
+                of ``tara_gcs.preflight.GNSS_FIX_TYPES``. ``battery_drop``:
+                ``{"pct": float}``, 0-100. ``deviation``:
+                ``{"offset_m": [north, east, alt]}``, 3 floats. Ignored for
+                ``motor_failure``.
+
+        Returns:
+            A result dict; shape depends on ``fault_type`` (``motor_failure``
+            returns exactly `abort_drone`'s own return shape).
+
+        Raises:
+            ValueError: backend is not "sim", the fleet hasn't connected
+                yet, ``fault_type`` is unrecognised, or ``params`` fails
+                that fault type's own validation.
+            KeyError: ``drone_id`` isn't a connected drone.
+        """
+        if self.backend != "sim" or self._sim_fleet is None:
+            raise ValueError("fault injection is only available on backend=\"sim\" with a connected fleet")
+        if drone_id not in self.drones:
+            raise KeyError(drone_id)
+
+        if fault_type == "motor_failure":
+            return await self.abort_drone(drone_id, "land")
+
+        fs = self._sim_fleet.state
+        if fault_type == "rtk_loss":
+            fix_type = params.get("fix_type")
+            if fix_type not in GNSS_FIX_TYPES:
+                raise ValueError(f"fix_type must be one of {sorted(GNSS_FIX_TYPES)}, got {fix_type!r}")
+            fs.inject_gnss_fault(drone_id, fix_type)
+            return {"drone_id": drone_id, "fault_type": fault_type, "fix_type": fix_type}
+        elif fault_type == "battery_drop":
+            pct = params.get("pct")
+            if not isinstance(pct, (int, float)):
+                raise ValueError(f"pct must be a number, got {pct!r}")
+            fs.inject_battery_fault(drone_id, float(pct))
+            return {"drone_id": drone_id, "fault_type": fault_type, "pct": pct}
+        elif fault_type == "deviation":
+            offset_m = params.get("offset_m")
+            if not (isinstance(offset_m, (list, tuple)) and len(offset_m) == 3):
+                raise ValueError(f"offset_m must be [north, east, alt], got {offset_m!r}")
+            fs.inject_position_deviation(drone_id, tuple(float(v) for v in offset_m))
+            return {"drone_id": drone_id, "fault_type": fault_type, "offset_m": offset_m}
+        else:
+            raise ValueError(
+                f"fault_type must be one of 'rtk_loss', 'battery_drop', 'motor_failure', 'deviation', got {fault_type!r}"
+            )
 
     # --- Trajectory Playback ---
 
