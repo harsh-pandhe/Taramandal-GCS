@@ -12,6 +12,7 @@ import {
   normalizeAssignment,
   TAKEOFF_SECONDS,
   LAND_SECONDS,
+  MIN_CERTIFIABLE_RATE_HZ,
 } from './sequencer.js';
 import { buildFormation, SHAPE_LIBRARY } from './formations.js';
 import * as formationsModule from './formations.js';
@@ -111,6 +112,49 @@ describe('show duration', () => {
     ];
     const nominal = computeShowDuration(fast);
     expect(buildSequencedShow(fast, 20, 2)._duration).toBeGreaterThan(nominal);
+  });
+
+  it('paces, rather than waives, a transition that would exceed the jerk pacing budget (issue #160)', () => {
+    const n = 24;
+    const harsh = [
+      scene({ shapePayload: 'circle', holdDurationSeconds: 1, transitionDurationSeconds: 0 }),
+      scene({ shapePayload: 'grid', holdDurationSeconds: 1, transitionDurationSeconds: 0 }),
+    ];
+    // No targetIdx: identity assignment, so the comparison distance below is
+    // exactly what the engine paced against, not a possibly-shorter travel
+    // distance an optimal assignment could have found instead.
+    const show = buildSequencedShow(harsh, n, MIN_CERTIFIABLE_RATE_HZ);
+    // Built, not refused - this is what "paced rather than waived" means.
+    expect(show.drones).toHaveLength(n);
+
+    const segs = buildTimelineSegments(harsh, n, MIN_CERTIFIABLE_RATE_HZ);
+    const morph = segs.find((s) => s.label === 'Morph → Scene');
+    const morphSecs = morph.end - morph.start;
+
+    const from = buildFormation('parametric', 'circle', n, 1.0);
+    const to = buildFormation('parametric', 'grid', n, 1.0);
+    let dh = 0;
+    for (let i = 0; i < n; i++) dh = Math.max(dh, Math.hypot(from[i].x - to[i].x, from[i].y - to[i].y));
+
+    // The pre-#160 acceleration-only budget this leg would have been paced
+    // to (3.0 m/s^2 - independently restated here, not imported, so this
+    // doesn't just assert the implementation against itself). The jerk
+    // pacing budget is stricter by a factor of 7.5 (that 3.0 divided by the
+    // 0.4 m/s^2 edge-acceleration budget 4.0 m/s^3 * 0.1s sweep interval
+    // works out to), so a jerk-paced leg should run well past what the old
+    // budget alone demanded, not by a rounding-sized margin - proving the
+    // jerk term is the one actually binding here, not just present.
+    const PRE_160_MAX_ACC_M_S2 = 3.0;
+    const accelOnlySecs = Math.sqrt((6 * dh) / PRE_160_MAX_ACC_M_S2);
+    expect(morphSecs).toBeGreaterThan(accelOnlySecs * 2);
+  });
+
+  it('defaults to the validator-sweep-matching rate, not the old 4 Hz (issue #160)', () => {
+    // tara_studio.validator.validate_dynamics' own default sweep interval is
+    // 0.1s (10 Hz). Below that, the jerk certification measures a linear-
+    // interpolation artifact between sparsely-spaced waypoints, not the
+    // built curve's real jerk - see sequencer.js's own VALIDATOR_SWEEP_DT_S.
+    expect(MIN_CERTIFIABLE_RATE_HZ).toBe(10);
   });
 });
 
@@ -230,14 +274,19 @@ describe('collision avoidance at fleet scale', () => {
     // The bound here is looser than it once was: widening the direct-vs-
     // layered trigger to LAYER_CLEARANCE (issue #141/#153, so a hairline
     // analytic margin can't be erased by cm export-rounding) now layers a few
-    // morphs that used to fly direct, adding a modest amount of time — nowhere
-    // near the ~275 s this guards against.
+    // morphs that used to fly direct, adding a modest amount of time; the
+    // jerk-aware pacing term (issue #160, a leg's own edge acceleration -
+    // smoothstep's peak, which occurs exactly at its edges - kept under a
+    // budget derived from the real certification limit) adds more on top,
+    // mostly in the low-visibility return-to-pad swap rather than the
+    // choreography itself — still nowhere near the ~275 s this guards
+    // against.
     const scenes = acceptanceScenes();
     const show = buildSequencedShow(scenes, 100, 4, computeAssignmentChainLocal(scenes, 100));
     let peak = 0;
     for (const d of show.drones) for (const w of d.waypoints) peak = Math.max(peak, -w.z);
     expect(peak).toBeLessThan(50);
-    expect(show._duration).toBeLessThan(180);
+    expect(show._duration).toBeLessThan(250);
   });
 
   it('predicts the built duration exactly for a real assignment', () => {
