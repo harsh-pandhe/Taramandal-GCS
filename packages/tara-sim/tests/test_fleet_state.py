@@ -276,3 +276,63 @@ class TestOffboardLossFailsafe:
         run_ticks(fs, int(3.0 * fs.config.tick_hz))
         assert not fs.offboard_failsafe[0]
         assert fs.flight_mode[0] == "HOLD"
+
+
+class TestFaultInjection:
+    """Issue #63: one-shot state edits a GCS-level fault-injection endpoint
+    drives, distinct from a continuous physics process."""
+
+    def test_inject_gnss_fault_sets_the_fix_type_directly(self):
+        fs = FleetState(3, SimConfig(rng_seed=1))
+        assert fs.gps_fix_type[1] == "FIX_3D"  # the default
+        fs.inject_gnss_fault(1, "RTK_FLOAT")
+        assert fs.gps_fix_type[1] == "RTK_FLOAT"
+        assert fs.gps_fix_type[0] == "FIX_3D"  # others untouched
+
+    def test_inject_gnss_fault_does_not_require_a_tick_to_take_effect(self):
+        fs = FleetState(1, SimConfig(rng_seed=1))
+        fs.inject_gnss_fault(0, "NO_GPS")
+        assert fs.gps_fix_type[0] == "NO_GPS"  # readable before any tick()
+
+    def test_inject_battery_fault_sets_percentage_directly(self):
+        fs = FleetState(3, SimConfig(rng_seed=1))
+        fs.inject_battery_fault(2, 12.5)
+        assert fs.battery_pct[2] == pytest.approx(12.5)
+        assert fs.battery_pct[0] == pytest.approx(100.0)  # others untouched
+
+    @pytest.mark.parametrize("pct", [-0.1, 100.1])
+    def test_inject_battery_fault_rejects_out_of_range(self, pct):
+        fs = FleetState(1, SimConfig(rng_seed=1))
+        with pytest.raises(ValueError):
+            fs.inject_battery_fault(0, pct)
+
+    def test_inject_battery_fault_bypasses_drain_math_not_races_it(self):
+        """A step change, not an accelerated drain - the next tick's normal
+        drain applies on top of the injected value, not instead of it."""
+        fs = FleetState(1, SimConfig(rng_seed=1, battery_drain_per_s=1.0))
+        fs.armed[:] = True
+        fs.inject_battery_fault(0, 50.0)
+        fs.tick(fs.config.dt)
+        assert fs.battery_pct[0] < 50.0
+        assert fs.battery_pct[0] == pytest.approx(50.0, abs=1.0)
+
+    def test_inject_position_deviation_offsets_position(self):
+        fs = FleetState(1, SimConfig(rng_seed=1, wind_std_ms2=0.0))
+        fs.armed[:] = True
+        fs.command_setpoint(0, (0.0, 0.0, 5.0))
+        run_ticks(fs, 500)
+        assert fs.position[0] == pytest.approx([0.0, 0.0, 5.0], abs=0.15)
+
+        fs.inject_position_deviation(0, (1.5, 0.0, 0.0))
+        assert fs.position[0] == pytest.approx([1.5, 0.0, 5.0], abs=0.15)
+
+    def test_inject_position_deviation_does_not_latch(self):
+        """target_position is untouched, so the tracker pulls the drone back
+        - a fault is a disturbance, not a new destination."""
+        fs = FleetState(1, SimConfig(rng_seed=1, wind_std_ms2=0.0))
+        fs.armed[:] = True
+        fs.command_setpoint(0, (0.0, 0.0, 5.0))
+        run_ticks(fs, 500)
+        fs.inject_position_deviation(0, (1.5, 0.0, 0.0))
+        run_ticks(fs, 500)
+        assert fs.position[0] == pytest.approx([0.0, 0.0, 5.0], abs=0.15)

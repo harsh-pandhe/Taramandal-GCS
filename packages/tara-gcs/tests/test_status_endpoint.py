@@ -158,6 +158,51 @@ def test_fleet_lifecycle_audit_entries_carry_backend_and_fidelity(patched_manage
         assert entry["operator"] == "tester"
 
 
+@pytest.mark.asyncio
+async def test_sim_inject_fault_route_reaches_the_manager(patched_manager):
+    """Issue #63: the HTTP layer itself - request parsing, the Commander
+    role gate, error translation - not DroneManager.inject_fault's own
+    behaviour (covered thoroughly in test_fault_injection.py)."""
+    from tara_gcs.auth import Operator, Role
+
+    manager = patched_manager(DroneManager(ports=list(range(2)), backend="sim"))
+    try:
+        await manager.connect_all()
+        req = gcs_main.InjectFaultRequest(drone_id=0, fault_type="battery_drop", params={"pct": 5.0})
+        result = await gcs_main.sim_inject_fault(req, operator=Operator("tester", Role.FLIGHT_COMMANDER))
+        assert result["status"] == "success"
+        assert manager._sim_fleet.state.battery_pct[0] == pytest.approx(5.0)
+    finally:
+        await manager.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_sim_inject_fault_route_translates_errors_to_http_status(patched_manager):
+    from fastapi import HTTPException
+    from tara_gcs.auth import Operator, Role
+
+    manager = patched_manager(DroneManager(ports=[0], backend="sim"))
+    try:
+        await manager.connect_all()
+        operator = Operator("tester", Role.FLIGHT_COMMANDER)
+
+        with pytest.raises(HTTPException) as exc_info:
+            await gcs_main.sim_inject_fault(
+                gcs_main.InjectFaultRequest(drone_id=0, fault_type="not_a_real_fault", params={}),
+                operator=operator,
+            )
+        assert exc_info.value.status_code == 400
+
+        with pytest.raises(HTTPException) as exc_info:
+            await gcs_main.sim_inject_fault(
+                gcs_main.InjectFaultRequest(drone_id=99, fault_type="battery_drop", params={"pct": 1.0}),
+                operator=operator,
+            )
+        assert exc_info.value.status_code == 404
+    finally:
+        await manager.shutdown()
+
+
 def test_every_backend_has_a_fidelity_tier():
     """Issue #170: the evidence tier is derived from the backend, never defaulted.
 
