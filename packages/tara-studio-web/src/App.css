@@ -189,6 +189,7 @@ body {
   font-family: var(--ui); font-size: 0.8rem; font-weight: 600; outline: none; width: 100%;
   text-overflow: ellipsis;
 }
+.project-name-input:focus-visible { box-shadow: 0 0 0 1px var(--accent); border-radius: var(--r-sm); }
 
 .sidebar-footer {
   font-family: var(--mono); color: var(--text-faint); text-align: center;
@@ -1335,6 +1336,7 @@ input[type="number"] { font-family: var(--mono); font-variant-numeric: tabular-n
   background: transparent; border: 0; color: var(--text); outline: none;
   padding: 0.5rem 0; font-size: 0.8rem; width: 100%;
 }
+.fleet-search:has(input:focus-visible) { box-shadow: 0 0 0 1px var(--accent); }
 .fleet-count { font-size: 0.75rem; color: var(--text-dim); font-family: var(--mono); }
 .fleet-count strong { color: var(--text); }
 
@@ -1378,3 +1380,19 @@ input[type="number"] { font-family: var(--mono); font-variant-numeric: tabular-n
 .fleet-row .color-row { display: flex; align-items: center; gap: 0.4rem; }
 .fleet-row input[type="color"] { width: 2rem; height: 1.5rem; padding: 0; border: 0; background: none; }
 .fleet-empty { padding: 1.5rem; color: var(--text-faint); font-size: 0.8rem; }
+
+/* ---------------------------------------------------- Reduced motion ------ */
+/* issue #132: every transition/animation above is decorative (hover states,
+   panel entrances, a shake on validation error) except .anim-spin, whose
+   motion *is* the information it conveys (a build is still running) — WCAG
+   2.3.3 treats that as essential and exempt. Collapsing everything else to
+   near-zero keeps state changes instant rather than deleting them outright,
+   so layout/visibility logic that happens to ride on a transitionend listener
+   elsewhere still fires. */
+@media (prefers-reduced-motion: reduce) {
+  *:not(.anim-spin, .anim-spin *) {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
+}
