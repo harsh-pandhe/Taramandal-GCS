@@ -13,7 +13,7 @@ from tara_core import DEFAULT_LIMITS, MAX_FLEET_SIZE, altitude_layers, launch_gr
 from tara_core.assignment import optimal_assignment
 from tara_core.geometry import quintic_profile
 
-from .pacing import ShowPacing, formation_spread, plan_pacing
+from .pacing import MAX_ORBIT_SPEED_MS, ShowPacing, formation_spread, plan_pacing
 from .voxelizer import _contour_length, _sample_contours
 
 #: Where circle, helix and heart formations are centred: the fleet origin, the
@@ -44,12 +44,6 @@ _LAYER_LIMITS = dataclasses.replace(
     DEFAULT_LIMITS, max_altitude_m=DEFAULT_LIMITS.max_altitude_m - FORMATION_HEADROOM_M
 )
 
-#: Fastest an orbiting ring's outermost drone may travel around its orbit.
-#: Pacing sizes the choreography window from the climb, the blend and the yaw
-#: rate, on the premise that orbiting a small fixed ring is always legal at
-#: the base 20 s; a ring grown to fill the geofence breaks that premise (one
-#: turn of a 28 m ring in 20 s is 8.8 m/s). See _circle_sweep.
-MAX_ORBIT_SPEED_MS = 2.5
 
 
 def _default_launch_state(
@@ -299,11 +293,13 @@ def _pacing_for(spec, num_drones: int, start_positions: dict, target_heights: di
     }
     climb_m = max(target_heights.values()) if target_heights else 0.0
     spread_m = formation_spread(hover_positions, entry_targets)
+    orbit_reach_m = spec.orbit_reach_fn(num_drones) if spec.orbit_reach_fn else 0.0
     return plan_pacing(
         num_drones,
         climb_m=climb_m,
         spread_m=spread_m,
         revolutions=spec.revolutions,
+        orbit_reach_m=orbit_reach_m,
     )
 
 
@@ -447,12 +443,17 @@ class _ShapeSpec:
             180 deg.
         revolutions: Full turns the heading makes across the choreography, used
             to keep the yaw rate legal. 0 for shapes that hold a heading.
+        orbit_reach_fn: ``(n) -> metres``, the radius this shape's formation
+            actually translates around while it turns (issue #88) — ``None``
+            for every shape that only spins in place or holds a heading
+            (currently every shape but circle).
     """
 
-    def __init__(self, formation, yaw, revolutions: float):
+    def __init__(self, formation, yaw, revolutions: float, orbit_reach_fn=None):
         self.formation = formation
         self.yaw = yaw
         self.revolutions = revolutions
+        self.orbit_reach_fn = orbit_reach_fn
 
 
 def _circle_radius(n: int) -> float:
@@ -574,31 +575,45 @@ def _rotated_slot(shape: str, d_id: int, n: int, angle: float) -> tuple[float, f
 
 
 @functools.lru_cache(maxsize=16)
+def _circle_reach_m(n: int) -> float:
+    """Farthest any drone's circle slot sits from FORMATION_CENTER, metres.
+
+    Shared by ``_circle_sweep`` (the sweep clamp) and ``_pacing_for`` (the
+    pacing floor, issue #88) so the two stay measuring the same ring.
+    """
+    slots = _outline_slots("circle", n)
+    return max(math.hypot(x, y) for x, y in slots)
+
+
+@functools.lru_cache(maxsize=16)
 def _circle_sweep(n: int) -> float:
     """How far the ring turns over the choreography, radians.
 
-    The ring keeps turning while drones are still blending in from their
-    pads, so the two speeds add. The orbit therefore gets whatever the
-    blend's eased peak (1.5x its mean) leaves under 90% of the speed ceiling,
-    capped at MAX_ORBIT_SPEED_MS, over the shortest choreography window
-    pacing allows. A full turn when that fits; otherwise as much of one as
-    the outermost ring can make at that speed. Assumes the default launch
-    grid and hover layers, like the slot assignment.
+    ``plan_pacing``'s ``orbit_reach_m`` (issue #88) already sizes the window
+    for a full turn whenever one is physically feasible, so this is normally
+    a no-op (orbit * choreo_s / reach == 2*pi, by construction — both this
+    and plan_pacing's own ``orbit_s`` are the same distance-over-speed
+    budget). It still legitimately clamps below a full turn in the one case
+    plan_pacing's floor can't fix: the blend's own eased peak alone already
+    consuming the 90%-of-ceiling budget, leaving no speed for the orbit at
+    all (the ``orbit <= 0`` branch below).
     """
-    slots = _outline_slots("circle", n)
-    reach = max(math.hypot(x, y) for x, y in slots)
+    reach = _circle_reach_m(n)
     if reach <= 0:
         return 2.0 * math.pi
     # Same measurement _pacing_for makes, taken straight from the slots (the
     # ring at ratio 0) so this does not recurse through _circle_formation.
     start_positions, heights = _launch_state(n, None, None)
     hover = {d: {"x": p["x"], "y": p["y"], "z": -heights[d]} for d, p in start_positions.items()}
+    slots = _outline_slots("circle", n)
     entry = {
         d: (FORMATION_CENTER[0] + sx, FORMATION_CENTER[1] + sy, -heights[d])
         for d, (sx, sy) in enumerate(slots)
     }
     spread_m = formation_spread(hover, entry)
-    pacing = plan_pacing(n, climb_m=max(heights.values()), spread_m=spread_m, revolutions=1.0)
+    pacing = plan_pacing(
+        n, climb_m=max(heights.values()), spread_m=spread_m, revolutions=1.0, orbit_reach_m=reach
+    )
     blend_peak = 1.5 * spread_m / pacing.blend_s
     orbit = min(MAX_ORBIT_SPEED_MS, 0.9 * DEFAULT_LIMITS.max_velocity_ms - blend_peak)
     return max(0.0, min(2.0 * math.pi, orbit * pacing.choreo_s / reach))
@@ -1139,7 +1154,7 @@ def _zero_yaw(d_id: int, n: int, ratio: float) -> float:
 
 #: Shape name -> its formation geometry. Keyed the same way the API dispatches.
 _SHAPES = {
-    "circle": _ShapeSpec(_circle_formation, _circle_yaw, revolutions=1.0),
+    "circle": _ShapeSpec(_circle_formation, _circle_yaw, revolutions=1.0, orbit_reach_fn=_circle_reach_m),
     "helix": _ShapeSpec(_helix_formation, _helix_yaw, revolutions=1.5),
     "heart": _ShapeSpec(_heart_formation, _heart_yaw, revolutions=0.25),
     "cube": _ShapeSpec(_cube_formation, _zero_yaw, revolutions=0.0),

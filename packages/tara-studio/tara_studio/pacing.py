@@ -88,6 +88,13 @@ CRUISE_FRACTION = 0.4
 #: well as under the speed ceiling.
 CRUISE_YAW_FRACTION = 0.55
 
+#: Hard ceiling on tangential orbit speed, independent of ``max_velocity_ms``
+#: (issue #88). A ring's own rotation only has to look good on camera, not
+#: push the fleet as fast as a translation move legally could — a full turn
+#: of a 28 m ring in 20 s is already 8.8 m/s, well above what reads as a
+#: deliberate orbit rather than a blur.
+MAX_ORBIT_SPEED_MS = 2.5
+
 
 @dataclass(frozen=True)
 class ShowPacing:
@@ -159,6 +166,7 @@ def plan_pacing(
     climb_m: float,
     spread_m: float,
     revolutions: float = 1.0,
+    orbit_reach_m: float = 0.0,
     limits: SafetyLimits = DEFAULT_LIMITS,
 ) -> ShowPacing:
     """Derive a fleet-size-aware timeline from the distances a show must cover.
@@ -175,6 +183,16 @@ def plan_pacing(
         revolutions: How many full turns the choreography's yaw makes. The
             circle turns once, the helix 1.5x, the heart 0.25x; the cube and
             spline hold a fixed heading and pass 0.
+        orbit_reach_m: Radius, in metres, of the circle a shape's formation
+            actually translates around while it turns (issue #88) — 0.0 for a
+            shape that only spins in place or holds a fixed heading (every
+            shape but circle, currently). ``revolutions`` alone budgets a
+            yaw *rate*, which is right for spinning in place but wrong for a
+            ring: a wide ring's constraint is tangential *velocity* around a
+            real-metre radius, not how fast its heading turns. A non-zero
+            value gives the window an explicit floor sized for a full orbit
+            at a budgeted orbit speed, the same way ``climb_m``/``spread_m``
+            already floor the window for climb and blend.
         limits: Safety limits supplying the speed and yaw-rate ceilings.
 
     Returns:
@@ -193,6 +211,7 @@ def plan_pacing(
         ("climb_m", climb_m),
         ("spread_m", spread_m),
         ("revolutions", revolutions),
+        ("orbit_reach_m", orbit_reach_m),
     ):
         if value < 0:
             raise ValueError(f"{name} must be non-negative, got {value}")
@@ -211,8 +230,24 @@ def plan_pacing(
     yaw_s = 0.0
     if revolutions > 0:
         yaw_s = (360.0 * revolutions) / (limits.max_yaw_rate_dps * CRUISE_YAW_FRACTION)
+
+    # A ring's own rotation adds to the blend's still-ongoing pad-to-formation
+    # speed (both share the window), so the orbit only gets whatever the
+    # blend's eased peak (1.5x its mean, matching generator._ease) leaves
+    # under 90% of the speed ceiling, capped at MAX_ORBIT_SPEED_MS. Formerly
+    # computed after the fact in generator._circle_sweep, which could only
+    # shrink the sweep to fit an already-fixed window rather than grow the
+    # window to fit the rotation — moved here so the window itself is sized
+    # for a full orbit whenever one is physically feasible.
+    orbit_s = 0.0
+    if orbit_reach_m > 0 and revolutions > 0:
+        blend_peak = 1.5 * spread_m / blend_s
+        orbit_speed_budget = min(MAX_ORBIT_SPEED_MS, 0.9 * limits.max_velocity_ms - blend_peak)
+        if orbit_speed_budget > 0:
+            orbit_s = (2.0 * math.pi * orbit_reach_m * revolutions) / orbit_speed_budget
+
     hold_s = BASE_CHOREO_S - BASE_BLEND_S
-    choreo_s = max(BASE_CHOREO_S, blend_s + hold_s, yaw_s)
+    choreo_s = max(BASE_CHOREO_S, blend_s + hold_s, yaw_s, orbit_s)
 
     # Landing retraces the blend distance and then descends from the top layer.
     # _land_waypoint splits the window at LAND_RETURN_FRACTION, so the window
