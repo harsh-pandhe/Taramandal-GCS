@@ -20,6 +20,9 @@ def build_services(
     headless: bool,
     rviz: bool,
     allow_unsigned: bool = False,
+    sim_seed: int | None = None,
+    sim_packet_loss: float = 0.0,
+    sim_packet_loss_per_100m: float = 0.0,
 ) -> list[Service]:
     """Return the ordered list of services for one `tara up` invocation.
 
@@ -31,6 +34,14 @@ def build_services(
         rviz: Also launch the ROS2 TF bridge + RViz.
         allow_unsigned: Let the GCS accept trajectory uploads that carry no
             signature manifest (issue #49). Bad signatures are still rejected.
+        sim_seed: backend="sim" only (issue #62) - seeds tara_sim's physics/
+            RF-channel randomness, for reproducible runs. Ignored on "px4".
+        sim_packet_loss: backend="sim" only (issue #62) - base RF
+            packet-error rate tara_sim's channel model applies to every
+            drone. ``0.0`` (default) models no RF loss.
+        sim_packet_loss_per_100m: backend="sim" only (issue #62) -
+            additional packet-error rate per 100m of distance from each
+            drone's own pad.
 
     Returns:
         Services in launch order. The caller is expected to add them to a
@@ -94,6 +105,21 @@ def build_services(
                 "NUM_DRONES": str(num_drones),
                 "VEHICLE_BACKEND": backend,
                 "GCS_ALLOW_UNSIGNED": "1" if allow_unsigned else "0",
+                **(
+                    {"SIM_RNG_SEED": str(sim_seed)}
+                    if backend == "sim" and sim_seed is not None
+                    else {}
+                ),
+                **(
+                    {"SIM_PACKET_LOSS_BASE": str(sim_packet_loss)}
+                    if backend == "sim" and sim_packet_loss > 0
+                    else {}
+                ),
+                **(
+                    {"SIM_PACKET_LOSS_PER_100M": str(sim_packet_loss_per_100m)}
+                    if backend == "sim" and sim_packet_loss_per_100m > 0
+                    else {}
+                ),
             },
         )
     )

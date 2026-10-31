@@ -42,6 +42,17 @@ def up(
         False, "--allow-unsigned",
         help="Let the GCS accept trajectory files without a signature manifest (legacy shows, local dev).",
     ),
+    seed: int = typer.Option(
+        None, "--seed", help="Seed tara_sim's physics/RF-channel randomness for reproducible runs (backend=sim only).",
+    ),
+    packet_loss: float = typer.Option(
+        0.0, "--packet-loss",
+        help="Base RF packet-error rate for tara_sim's channel model, e.g. 0.05 for 5 percent (backend=sim only; issue #62).",
+    ),
+    packet_loss_per_100m: float = typer.Option(
+        0.0, "--packet-loss-per-100m",
+        help="Additional packet-error rate per 100m of distance from each drone's pad (backend=sim only; issue #62).",
+    ),
 ) -> None:
     """Start the fleet, both backends, and both web apps as one supervised unit."""
     config = load_config()
@@ -64,7 +75,8 @@ def up(
     try:
         services = build_services(
             config, num_drones=num_drones, backend=backend_name, headless=headless, rviz=rviz_enabled,
-            allow_unsigned=allow_unsigned,
+            allow_unsigned=allow_unsigned, sim_seed=seed, sim_packet_loss=packet_loss,
+            sim_packet_loss_per_100m=packet_loss_per_100m,
         )
     except UnsupportedBackendError as exc:
         typer.secho(f"[tara] {exc}", fg=typer.colors.RED, err=True)

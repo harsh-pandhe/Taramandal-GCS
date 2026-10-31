@@ -24,6 +24,8 @@ from dataclasses import dataclass
 
 import numpy as np
 
+from .rf_channel import RFChannelConfig, RFChannelModel
+
 #: Real PX4/SITL commonly settles EKF/health checks in a few hundred ms in
 #: simulation. This is not modeled physically — it exists so a health-check
 #: loop that waits for "armable" behaves like a real one instead of returning
@@ -127,12 +129,34 @@ class FleetState:
     MAVSDK object would also need it.
     """
 
-    def __init__(self, n: int, config: SimConfig | None = None):
+    def __init__(
+        self,
+        n: int,
+        config: SimConfig | None = None,
+        rf_channel_config: RFChannelConfig | None = None,
+    ):
         if n < 0:
             raise ValueError(f"n must be non-negative, got {n}")
         self.n = n
         self.config = config or SimConfig()
         self._rng = np.random.default_rng(self.config.rng_seed)
+
+        # issue #62: an enabled RF channel model replaces dropout_prob_per_tick
+        # as the source of truth for `connected` (see `tick`) rather than
+        # layering on top of it - combining two independent loss mechanisms
+        # into one `connected` flag would make either one's effect
+        # unattributable from the outside. A caller who wants both loss
+        # *shapes* should express it as one RFChannelConfig (its
+        # packet_loss_base already is a flat per-tick rate, same shape as
+        # dropout_prob_per_tick in the GOOD state).
+        if rf_channel_config is not None and rf_channel_config.enabled and self.config.dropout_prob_per_tick > 0:
+            raise ValueError(
+                "rf_channel_config and config.dropout_prob_per_tick both model connectivity loss - "
+                "use one or the other, not both"
+            )
+        self.rf_channel: RFChannelModel | None = None
+        if rf_channel_config is not None and rf_channel_config.enabled:
+            self.rf_channel = RFChannelModel(n, rf_channel_config, self._rng)
 
         self.position = np.zeros((n, 3))
         self.velocity = np.zeros((n, 3))
@@ -401,6 +425,17 @@ class FleetState:
         if cfg.dropout_prob_per_tick > 0:
             flips = self._rng.random(self.n) < cfg.dropout_prob_per_tick
             self.connected[flips] = ~self.connected[flips]
+        elif self.rf_channel is not None:
+            # Distance from each drone's own pad - see rf_channel.py's module
+            # docstring for why this (rather than a separate GCS antenna
+            # position, which this simulator doesn't model) is the distance
+            # term. Unlike dropout_prob_per_tick's toggle, this directly sets
+            # `connected` from the channel's state each tick - a dropped
+            # packet is this tick's telemetry/setpoint missing, not a latched
+            # link-down state, matching how a real lossy link actually reads.
+            distance_m = np.linalg.norm(self.position[:, :2], axis=1)
+            dropped = self.rf_channel.step(distance_m)
+            self.connected[:] = ~dropped
 
         landed = active & self.landing & (self.position[:, 2] <= LANDED_ALTITUDE_M) & (np.abs(self.velocity[:, 2]) < 0.1)
         for drone_id in np.nonzero(landed)[0]:

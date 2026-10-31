@@ -89,6 +89,13 @@ if os.environ.get("GCS_STATE_PATH"):
     kwargs["state_path"] = os.environ["GCS_STATE_PATH"]
 if os.environ.get("GCS_AUDIT_PATH"):
     kwargs["audit_path"] = os.environ["GCS_AUDIT_PATH"]
+# backend="sim" tuning (issue #62) - no effect on backend="px4".
+if os.environ.get("SIM_RNG_SEED"):
+    kwargs["sim_rng_seed"] = int(os.environ["SIM_RNG_SEED"])
+if os.environ.get("SIM_PACKET_LOSS_BASE"):
+    kwargs["sim_packet_loss_base"] = float(os.environ["SIM_PACKET_LOSS_BASE"])
+if os.environ.get("SIM_PACKET_LOSS_PER_100M"):
+    kwargs["sim_packet_loss_per_100m"] = float(os.environ["SIM_PACKET_LOSS_PER_100M"])
 drone_manager = DroneManager(ports=ports, backend=VEHICLE_BACKEND, **kwargs)
 
 # Owns the Gazebo/PX4/RViz processes the dashboard's Simulation Control Bar
@@ -387,6 +394,9 @@ async def get_status():
         # Drones aborted out of the show on their own (issue #59); per-drone
         # detail is each drone's "aborted" telemetry field.
         "aborted": sorted(d_id for d_id, t in telemetry.items() if t.get("aborted")),
+        # Fleet-mean packet drop rate from tara_sim's RF channel model
+        # (issue #62); null unless backend="sim" with loss configured.
+        "packet_drop_rate": drone_manager.rf_channel_drop_rate(),
     }
 
 
