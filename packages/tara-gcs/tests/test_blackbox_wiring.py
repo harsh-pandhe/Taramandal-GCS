@@ -94,6 +94,10 @@ def test_a_short_show_leaves_telemetry_commands_and_transitions_in_the_log(gcs, 
         assert client.post("/api/stop-trajectory").status_code == 409
         assert client.post("/api/land").status_code == 200
         _wait(lambda: manager.fleet_fsm.state is S.DISARMED, what="landing")
+        # The recorder samples at 10 Hz, independently of the FSM: give it a few ticks to
+        # see the landed fleet before shutdown (CI runners are slow enough to lose this race).
+        landed_at = client.get("/api/blackbox/status").json()["ticks"]
+        _wait(lambda: client.get("/api/blackbox/status").json()["ticks"] >= landed_at + 3, what="the recorder to sample the landed fleet")
         status = client.get("/api/blackbox/status").json()
         assert status["ticks"] > 20 and status["errors"] == 0 and not status["failed"]
     # Leaving the context ran the real shutdown handler: the file is closed cleanly.
@@ -168,6 +172,8 @@ def test_an_injected_fault_that_breaches_separation_is_recorded(gcs, tmp_path):
         log = read_blackbox(_session_files(tmp_path)[-1])
         assert log.truncated  # still open: no gzip trailer yet
 
+    log = read_blackbox(_session_files(tmp_path)[-1])  # re-read now it is closed: it includes the ticks after the breach
+    assert not log.truncated
     breach = [e for e in log.events if e["kind"] == "proximity_breach"][0]
     assert breach["drones"] == [0, 1] and breach["distance_m"] < 1.5
     kinds = [e["kind"] for e in log.events]
@@ -176,9 +182,12 @@ def test_an_injected_fault_that_breaches_separation_is_recorded(gcs, tmp_path):
     assert fault_cmd["status"] == 200 and fault_cmd["t"] <= breach["t"]
     rtl = [e for e in log.events if e["kind"] == "fsm_transition" and e["trigger"] == "failsafe:proximity"]
     assert rtl and rtl[0]["t"] >= breach["t"], kinds
-    # And the telemetry shows the two drones on top of each other at the time.
-    last = log.ticks[-1]
-    assert abs(last["ch"]["x"][0] - last["ch"]["x"][1]) < 150
+    # And the telemetry shows the two drones on top of each other (the deviation is then corrected, so
+    # look for the moment, not the last tick; which tick catches it depends on sampling phase).
+    def apart_cm(t):
+        return sum((t["ch"][k][0] - t["ch"][k][1]) ** 2 for k in "xyz") ** 0.5
+
+    assert min(apart_cm(t) for t in log.ticks) < 150
 
 
 def test_an_injected_fault_that_leaves_the_geofence_is_recorded(gcs, tmp_path):
