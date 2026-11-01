@@ -172,7 +172,7 @@ def test_an_injected_fault_that_breaches_separation_is_recorded(gcs, tmp_path):
         log = read_blackbox(_session_files(tmp_path)[-1])
         assert log.truncated  # still open: no gzip trailer yet
 
-    log = read_blackbox(_session_files(tmp_path)[-1])  # re-read now it is closed: it includes the ticks after the breach
+    log = read_blackbox(_session_files(tmp_path)[-1])  # re-read now it is closed
     assert not log.truncated
     breach = [e for e in log.events if e["kind"] == "proximity_breach"][0]
     assert breach["drones"] == [0, 1] and breach["distance_m"] < 1.5
@@ -182,12 +182,11 @@ def test_an_injected_fault_that_breaches_separation_is_recorded(gcs, tmp_path):
     assert fault_cmd["status"] == 200 and fault_cmd["t"] <= breach["t"]
     rtl = [e for e in log.events if e["kind"] == "fsm_transition" and e["trigger"] == "failsafe:proximity"]
     assert rtl and rtl[0]["t"] >= breach["t"], kinds
-    # And the telemetry shows the two drones on top of each other (the deviation is then corrected, so
-    # look for the moment, not the last tick; which tick catches it depends on sampling phase).
-    def apart_cm(t):
-        return sum((t["ch"][k][0] - t["ch"][k][1]) ** 2 for k in "xyz") ** 0.5
-
-    assert min(apart_cm(t) for t in log.ticks) < 150
+    # The breach is evidenced by the event above (drones + distance_m), not by a sampled tick: the
+    # deviation is corrected within a fraction of a second and ticks are 10 Hz, so whether one lands
+    # inside that window depends on sampling phase. All we assert about ticks is that both drones were
+    # being recorded throughout.
+    assert log.ticks and all(t["ids"] == [0, 1] for t in log.ticks)
 
 
 def test_an_injected_fault_that_leaves_the_geofence_is_recorded(gcs, tmp_path):

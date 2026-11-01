@@ -12,6 +12,8 @@ What is recorded
 * **Events**: GCS command invocations, fleet FSM transitions and rejections,
   proximity and geofence breaches. Events are rare and are the part an
   investigator reads first, so each one is flushed to disk as it is recorded.
+  Ticks are 10 Hz, so an event shorter than ~100 ms (a breach corrected at
+  once) is recorded as an event, with its figures, not reconstructed from ticks.
 
 V1 is evidence preservation, not a replay UI: the file is self-describing and
 :func:`read_blackbox` decodes it, but nothing here renders anything.
