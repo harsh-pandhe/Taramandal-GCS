@@ -1,0 +1,239 @@
+{
+  "label": "baseline-f3dive-n3-p1",
+  "started_utc": "2026-11-01T20:48:32Z",
+  "commit": "7a6ab70347a1b60a7e52e0362fd21f7f3f5cde20",
+  "gcs": "http://127.0.0.1:8090",
+  "studio": "http://127.0.0.1:8001",
+  "steps": {
+    "validate": "certified",
+    "export": "signed",
+    "upload_trajectory": {
+      "signature": {
+        "verified": true,
+        "signer": "Studio SITL #172",
+        "key_id": "7fa30d7106e1dfbf",
+        "signed_at": "2026-11-01T20:48:33+00:00"
+      },
+      "geofence": {
+        "soft_warning_radius_m": 16.405903527216125,
+        "hard_geofence_radius_m": 21.405903527216125
+      }
+    },
+    "upload_mission": {
+      "all_verified": true,
+      "verified_count": 3,
+      "launch_gate": "ok"
+    },
+    "preflight": {
+      "launch_permitted": true,
+      "blocking_reasons": []
+    },
+    "launch": {
+      "drone_ids": [
+        0,
+        1,
+        2
+      ],
+      "excluded": []
+    },
+    "formation_hold_after_s": 10.8,
+    "start": {
+      "execution": "streamed",
+      "mode": "LOCAL",
+      "ack_latency_s": 0.054
+    },
+    "land": {
+      "status": 200,
+      "detail": "ok"
+    }
+  },
+  "verdict": "PASS",
+  "show_source": "/work/examples/diwali/segments/diwali_3drone_segment.json",
+  "num_drones": 3,
+  "planned": {
+    "duration_s": 84.2,
+    "studio_status": "PASSED",
+    "feasibility_certified": true,
+    "min_separation_m": 2.2,
+    "max_velocity_m_s": 1.3,
+    "max_jerk_m_s3": 15.0,
+    "max_altitude_m": 14.67,
+    "limits": {
+      "min_separation_m": 1.5,
+      "design_separation_m": 2.0,
+      "pad_spacing_m": 2.2,
+      "max_velocity_ms": 6.0,
+      "max_accel_ms2": 50.0,
+      "max_yaw_rate_dps": 300.0,
+      "geofence_radius_m": 30.0,
+      "max_altitude_m": 120.0,
+      "geofence_soft_warning_buffer_m": 10.0,
+      "geofence_hard_buffer_m": 15.0,
+      "max_jerk_ms3": 20.0
+    }
+  },
+  "gcs_status_before": {
+    "mode": "SIMULATION",
+    "configured_mode": "SIMULATION",
+    "backend": "px4",
+    "fidelity": "px4-sitl",
+    "active_backend": "px4",
+    "hardware_flight_certified": false,
+    "hardware_flight_available": false,
+    "num_drones": 3,
+    "connected": 3,
+    "armed": 0,
+    "trajectory_running": false,
+    "fleet_state": "STAGED",
+    "aborted": [],
+    "packet_drop_rate": null
+  },
+  "actual": {
+    "end_state": "SHOW_COMPLETE",
+    "show_complete_after_s": 85.32,
+    "playback_duration_s": 84.32,
+    "final_state": "DISARMED",
+    "aborted_drones": [],
+    "emergency_transitions": [],
+    "gazebo": {
+      "samples_in_show": 4337,
+      "sample_rate_hz": 51.5,
+      "real_time_factor": 0.993,
+      "longest_stall_s": 0.05,
+      "sim_stalled": false,
+      "min_separation_m": 2.169,
+      "min_separation_pair": [
+        0,
+        1
+      ],
+      "min_separation_at_s": 84.1,
+      "planned_min_separation_same_instants_m": 2.2,
+      "tracking_error": {
+        "0": {
+          "max_m": 1.98,
+          "rms_m": 0.207,
+          "p95_m": 0.203,
+          "start_transient_s": 1.45,
+          "max_after_transient_m": 0.496
+        },
+        "1": {
+          "max_m": 4.008,
+          "rms_m": 0.462,
+          "p95_m": 0.316,
+          "start_transient_s": 2.58,
+          "max_after_transient_m": 0.494
+        },
+        "2": {
+          "max_m": 5.956,
+          "rms_m": 0.755,
+          "p95_m": 0.318,
+          "start_transient_s": 3.71,
+          "max_after_transient_m": 0.496
+        }
+      },
+      "max_tracking_error_m": 5.956,
+      "max_tracking_error_drone": 2,
+      "max_tracking_error_at_s": 0.1,
+      "final_position_error_m": {
+        "0": 0.046,
+        "1": 0.012,
+        "2": 0.083
+      },
+      "gcs_reported_max_tracking_error_m": {
+        "0": 1.97,
+        "1": 3.97,
+        "2": 5.92
+      },
+      "gcs_minus_gazebo_mean_offset_m": {
+        "0": [
+          -0.02,
+          0.03,
+          0.01
+        ],
+        "1": [
+          0.03,
+          0.01,
+          -0.06
+        ],
+        "2": [
+          0.03,
+          0.03,
+          -0.04
+        ]
+      }
+    }
+  },
+  "fleet_history": [
+    {
+      "time": "2026-11-01T20:48:35.283+00:00",
+      "from": "STAGED",
+      "to": "PREARM",
+      "trigger": "POST /api/launch",
+      "operator": "sitl172"
+    },
+    {
+      "time": "2026-11-01T20:48:37.426+00:00",
+      "from": "PREARM",
+      "to": "ARMED",
+      "trigger": "telemetry:first_drone_armed",
+      "operator": "system"
+    },
+    {
+      "time": "2026-11-01T20:48:41.047+00:00",
+      "from": "ARMED",
+      "to": "TAKEOFF",
+      "trigger": "telemetry:climbing",
+      "operator": "system"
+    },
+    {
+      "time": "2026-11-01T20:48:45.677+00:00",
+      "from": "TAKEOFF",
+      "to": "FORMATION_HOLD",
+      "trigger": "telemetry:formation_altitude_reached",
+      "operator": "system"
+    },
+    {
+      "time": "2026-11-01T20:48:49.035+00:00",
+      "from": "FORMATION_HOLD",
+      "to": "RUNNING",
+      "trigger": "POST /api/start-trajectory",
+      "operator": "sitl172"
+    },
+    {
+      "time": "2026-11-01T20:50:14.335+00:00",
+      "from": "RUNNING",
+      "to": "SHOW_COMPLETE",
+      "trigger": "trajectory_complete",
+      "operator": "system"
+    },
+    {
+      "time": "2026-11-01T20:50:34.773+00:00",
+      "from": "SHOW_COMPLETE",
+      "to": "LANDING",
+      "trigger": "POST /api/land",
+      "operator": "sitl172"
+    },
+    {
+      "time": "2026-11-01T20:50:40.010+00:00",
+      "from": "LANDING",
+      "to": "DISARMED",
+      "trigger": "telemetry:all_disarmed",
+      "operator": "system"
+    }
+  ],
+  "gazebo_reader_errors": [],
+  "run_context": {
+    "note": "baseline, F3 dive present",
+    "host_load_before": "2.78 2.58 2.14",
+    "host_load_at_start": "8.08 3.88 2.60",
+    "host_load_at_end": "11.66 6.92 3.92",
+    "other_running_containers": [],
+    "fresh_container": true,
+    "microsd_dirs_before_stack": 0,
+    "remapper_skips_in_log": [],
+    "max_error_from_1s_after_transient_m": 0.323,
+    "max_error_from_1s_after_transient_source": "10 Hz gazebo_fleet_frame.csv, recomputed outside the tool",
+    "lowest_altitude_first_12s_m": 0.78,
+    "show_file": "examples/diwali/segments/diwali_3drone_segment.json"
+  }
+}
