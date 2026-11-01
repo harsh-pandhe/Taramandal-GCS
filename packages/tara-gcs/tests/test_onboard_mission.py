@@ -360,3 +360,35 @@ async def test_api_upload_mission_needs_a_trajectory(tmp_path, patched_manager):
     with pytest.raises(HTTPException) as refused:
         await gcs_main.upload_mission(operator=COMMANDER)
     assert refused.value.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_upload_mission_creates_directory_recursively(tmp_path, monkeypatch):
+    """Issue #172 (F2): MAVLink FTP create_directory is not recursive. On fresh
+    SITL rootfs or empty SD cards, /fs/microsd does not exist yet. Verify that
+    all path components are created in order."""
+    manager = _manager(tmp_path, 1)
+    await _connected(manager)
+    try:
+        created_dirs = []
+        original_create_dir = manager.drones[0].ftp.create_directory
+
+        async def spy_create_dir(path: str):
+            created_dirs.append(path)
+            await original_create_dir(path)
+
+        monkeypatch.setattr(manager.drones[0].ftp, "create_directory", spy_create_dir)
+
+        status = await manager.upload_show(_show(1))
+        assert status["all_verified"]
+        # Expected sequence for /fs/microsd/tara: /fs, /fs/microsd, /fs/microsd/tara
+        assert "/fs" in created_dirs
+        assert "/fs/microsd" in created_dirs
+        assert "/fs/microsd/tara" in created_dirs
+        idx_fs = created_dirs.index("/fs")
+        idx_micro = created_dirs.index("/fs/microsd")
+        idx_tara = created_dirs.index("/fs/microsd/tara")
+        assert idx_fs < idx_micro < idx_tara
+    finally:
+        await manager.shutdown()
+

@@ -1033,10 +1033,18 @@ class DroneManager:
         entry["status"] = "UPLOADING"
 
         async def _transfer() -> bool:
-            try:
-                await drone.ftp.create_directory(MISSION_REMOTE_DIR)
-            except Exception:
-                pass  # PX4's FTP server reports an existing directory as an error
+            # Recursive directory creation (issue #172, F2): MAVLink FTP create_directory
+            # is not recursive. On fresh SITL rootfs or clean SD cards, parent directories
+            # like /fs/microsd do not exist yet. Create each path component, ignoring
+            # errors from existing directories.
+            parts = [p for p in MISSION_REMOTE_DIR.split("/") if p]
+            cur = ""
+            for p in parts:
+                cur = f"{cur}/{p}"
+                try:
+                    await drone.ftp.create_directory(cur)
+                except Exception:
+                    pass  # PX4 reports an existing directory as an error
             async for _ in drone.ftp.upload(local_path, MISSION_REMOTE_DIR):
                 pass
             return await drone.ftp.are_files_identical(local_path, remote_path)
