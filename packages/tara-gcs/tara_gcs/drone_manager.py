@@ -1025,6 +1025,36 @@ class DroneManager:
         )
         return self.mission_status()
 
+    @staticmethod
+    async def _ensure_remote_dir(drone, remote_dir: str) -> None:
+        """Make ``remote_dir`` exist on the drone's storage, or raise saying why not.
+
+        MAVLink FTP's create_directory is not recursive, and on a fresh SITL
+        rootfs or an empty SD card even ``/fs/microsd`` is missing (issue #172,
+        F2), so each directory in the path is created in turn. PX4 reports a
+        directory that already exists as an error too, so a create that raises
+        proves nothing: the target is listed afterwards, and only a directory
+        that is still not there fails the upload - with the directory and the
+        last create error, not the bare FILE_DOES_NOT_EXIST the upload would
+        otherwise end in.
+        """
+        current = ""
+        last_error: Exception | None = None
+        for part in (p for p in remote_dir.split("/") if p):
+            current = f"{current}/{part}"
+            try:
+                await drone.ftp.create_directory(current)
+            except Exception as e:
+                last_error = e
+        try:
+            await drone.ftp.list_directory(remote_dir)
+        except Exception as e:
+            cause = f"; last create_directory error: {last_error}" if last_error else ""
+            raise RuntimeError(
+                f"mission directory {remote_dir} does not exist on the drone and could not be created "
+                f"(listing it failed: {e}{cause})"
+            ) from e
+
     async def _upload_mission(self, drone_id: int, local_path: str, entry: dict) -> None:
         """Upload one drone's mission over MAVLink FTP and have the drone
         confirm its copy's CRC-32. Records the outcome in ``entry``."""
@@ -1033,18 +1063,7 @@ class DroneManager:
         entry["status"] = "UPLOADING"
 
         async def _transfer() -> bool:
-            # Recursive directory creation (issue #172, F2): MAVLink FTP create_directory
-            # is not recursive. On fresh SITL rootfs or clean SD cards, parent directories
-            # like /fs/microsd do not exist yet. Create each path component, ignoring
-            # errors from existing directories.
-            parts = [p for p in MISSION_REMOTE_DIR.split("/") if p]
-            cur = ""
-            for p in parts:
-                cur = f"{cur}/{p}"
-                try:
-                    await drone.ftp.create_directory(cur)
-                except Exception:
-                    pass  # PX4 reports an existing directory as an error
+            await self._ensure_remote_dir(drone, MISSION_REMOTE_DIR)
             async for _ in drone.ftp.upload(local_path, MISSION_REMOTE_DIR):
                 pass
             return await drone.ftp.are_files_identical(local_path, remote_path)
