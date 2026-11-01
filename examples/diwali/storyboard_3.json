@@ -1,0 +1,10 @@
+{
+  "name": "Diwali 2026 - 3-drone segment for Gazebo/PX4 (rangoli ring, sphere burst, ring)",
+  "n": 3,
+  "rate_hz": 10,
+  "scenes": [
+    { "name": "Rangoli ring", "shapeType": "parametric", "shapePayload": "circle", "scale": 1.0, "holdDurationSeconds": 8, "transitionDurationSeconds": 8 },
+    { "name": "Sphere burst", "shapeType": "parametric", "shapePayload": "sphere", "scale": 1.0, "holdDurationSeconds": 8, "transitionDurationSeconds": 8 },
+    { "name": "Ring", "shapeType": "parametric", "shapePayload": "circle", "scale": 1.0, "holdDurationSeconds": 6, "transitionDurationSeconds": 8 }
+  ]
+}

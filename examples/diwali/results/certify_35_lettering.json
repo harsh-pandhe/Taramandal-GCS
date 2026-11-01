@@ -1,0 +1,64 @@
+{
+  "storyboard": "Diwali 2026 (35 drones, with DIWALI lettering - certified but only ~6 drones per letter) - DIWALI, diya, rangoli, ring, sphere burst",
+  "n": 35,
+  "rate_hz": 10,
+  "scenes": [
+    "DIWALI",
+    "Diya",
+    "Rangoli",
+    "Ring",
+    "Sphere burst"
+  ],
+  "built": true,
+  "duration_s": 230.8,
+  "nominal_duration_s": 90,
+  "waypoints_per_drone": 2309,
+  "max_altitude_m": 34.35,
+  "validator": {
+    "status": "PASSED",
+    "feasibility_certified": true,
+    "metrics": {
+      "min_distance_m": 2.05,
+      "max_velocity_m_s": 1.84,
+      "max_acceleration_m_s2": 2.45,
+      "max_yaw_rate_deg_s": 0,
+      "max_altitude_m": 34.35,
+      "min_altitude_m": 0,
+      "max_jerk_m_s3": 17.32
+    },
+    "violation_counts": {
+      "proximity": 0,
+      "velocity": 0,
+      "acceleration": 0,
+      "yaw_rate": 0,
+      "altitude": 0,
+      "ground": 0,
+      "jerk": 0
+    }
+  },
+  "exports": {
+    "json": {
+      "http_status": 200,
+      "preview_only": false,
+      "filename": "choreography.json",
+      "refusal": null,
+      "bytes": 10368088
+    },
+    "tara": {
+      "http_status": 200,
+      "preview_only": false,
+      "filename": "choreography.tara",
+      "refusal": null,
+      "bytes": 1293208
+    }
+  },
+  "min_separation_check": "samples + 4 linear sub-steps between samples",
+  "min_separation_m": 2.05,
+  "max_altitude_exported_m": 34.35,
+  "checks": {
+    "flight_export_accepted": true,
+    "zero_violations": true,
+    "separation_at_least_2m": true,
+    "ceiling_120m": true
+  }
+}
