@@ -950,7 +950,13 @@ async def start_trajectory(req: StartTrajectoryRequest, operator: Commander):
         logger.error(f"Failed starting trajectory: {e}")
         raise HTTPException(status_code=400, detail=str(e))
     _apply_command(Command.START_TRAJECTORY, operator.id, trigger)
-    return {"status": "success", "message": f"Trajectory started in {req.mode} mode ({req.execution} execution)."}
+    return {
+        "status": "success",
+        "message": f"Trajectory started in {req.mode} mode ({req.execution} execution).",
+        # Seconds the show's t=0 is behind this request: the streamed start first
+        # flies each drone from the formation hold to the show's first waypoint.
+        "bridge_s": drone_manager.start_bridge_s,
+    }
 
 @app.post("/api/stop-trajectory")
 async def stop_trajectory(operator: Commander):
