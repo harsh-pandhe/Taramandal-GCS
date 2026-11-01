@@ -19,7 +19,8 @@
   /* Text */
   --text:       #e6ebf3;
   --text-dim:   #97a1b4;
-  --text-faint: #5b6577;
+  /* Was #5b6577 (2.9-3.4:1 on the surfaces); #7b869a is 4.6-5.4:1, AA for small text. */
+  --text-faint: #7b869a;
 
   /* Accent — cool technical cyan, used sparingly (active / brand / links) */
   --accent:      #38bdf8;
@@ -47,6 +48,13 @@
   /* Type */
   --ui: 'Archivo', system-ui, sans-serif;
   --mono: 'JetBrains Mono', ui-monospace, 'Courier New', monospace;
+
+  /* Type scale (issue #132). The old sheet used ~27 sizes down to 0.5rem; small
+     labels, ticks and badges now sit on one floor so nothing is under ~11px. */
+  --fs-xs: 0.7rem;    /* uppercase labels, ticks, badges */
+  --fs-sm: 0.76rem;   /* secondary text, buttons, timeline segments */
+  --fs-md: 0.84rem;   /* controls, inputs, body */
+  --fs-lg: 0.95rem;   /* key readouts, scene titles */
 
   /* Radii — small & precise, not bubbly */
   --r-sm: 4px;
@@ -146,8 +154,8 @@ body {
   margin: 0; font-family: var(--ui);
 }
 .brand-sub {
-  font-size: 0.58rem; font-weight: 600; color: var(--accent);
-  letter-spacing: 1.5px; font-family: var(--mono);
+  font-size: var(--fs-xs); font-weight: 600; color: var(--accent);
+  letter-spacing: 1.2px; font-family: var(--mono);
 }
 
 .sidebar-nav { display: flex; flex-direction: column; gap: 0.2rem; flex: 1; }
@@ -186,7 +194,7 @@ body {
 }
 .project-name-input {
   background: transparent; border: none; color: var(--text);
-  font-family: var(--ui); font-size: 0.8rem; font-weight: 600; outline: none; width: 100%;
+  font-family: var(--ui); font-size: var(--fs-md); font-weight: 600; outline: none; width: 100%;
   text-overflow: ellipsis;
 }
 .project-name-input:focus-visible { box-shadow: 0 0 0 1px var(--accent); border-radius: var(--r-sm); }
@@ -255,8 +263,8 @@ body {
 .form-group label,
 .matrix-data-item label,
 .form-row label {
-  display: block; font-size: 0.62rem; color: var(--text-faint);
-  margin-bottom: 0.35rem; text-transform: uppercase; letter-spacing: 0.8px;
+  display: block; font-size: var(--fs-xs); color: var(--text-faint);
+  margin-bottom: 0.35rem; text-transform: uppercase; letter-spacing: 0.6px;
   font-family: var(--mono); font-weight: 500;
 }
 .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 0.7rem; }
@@ -289,7 +297,7 @@ input[type="number"] { font-family: var(--mono); font-variant-numeric: tabular-n
   color: #04121c;
   padding: 0.65rem;
   font-family: var(--ui);
-  font-size: 0.8rem; font-weight: 700; letter-spacing: 0.3px;
+  font-size: var(--fs-md); font-weight: 700; letter-spacing: 0.3px;
   cursor: pointer; transition: background 0.15s, box-shadow 0.15s;
 }
 .btn-primary:hover { background: var(--accent-hover); box-shadow: var(--shadow-1); }
@@ -304,10 +312,22 @@ input[type="number"] { font-family: var(--mono); font-variant-numeric: tabular-n
   color: var(--text);
   padding: 0.65rem;
   font-family: var(--ui);
-  font-size: 0.8rem; font-weight: 600;
+  font-size: var(--fs-md); font-weight: 600;
   cursor: pointer; transition: background 0.15s, border-color 0.15s;
 }
 .btn-secondary:hover { background: var(--bg-surface); border-color: var(--accent-line); color: var(--text); }
+
+/* Used by the audio zoom row, LED keyframes and the AI panel, but never styled,
+   so those controls rendered as white browser-default buttons on the dark UI.
+   The quietest of the three treatments: outline only, no fill. */
+.btn-ghost {
+  background: transparent; border: 1px solid var(--border-strong); border-radius: var(--r-sm);
+  color: var(--text-dim); padding: 0.4rem 0.7rem;
+  font-family: var(--ui); font-size: var(--fs-sm); font-weight: 600;
+  cursor: pointer; transition: color 0.15s, border-color 0.15s, background 0.15s;
+}
+.btn-ghost:hover:not(:disabled) { color: var(--text); border-color: var(--accent-line); background: var(--bg-surface-2); }
+.btn-ghost:disabled { opacity: 0.45; cursor: not-allowed; }
 
 /* ---------------------------------------------------------- Security gate - */
 .security-gate-wrapper {
@@ -373,7 +393,7 @@ input[type="number"] { font-family: var(--mono); font-variant-numeric: tabular-n
 }
 .view-tab {
   display: flex; align-items: center; gap: 0.45rem;
-  font-family: var(--ui); font-size: 0.72rem; font-weight: 600; letter-spacing: 0.3px;
+  font-family: var(--ui); font-size: var(--fs-sm); font-weight: 600; letter-spacing: 0.3px;
   background: transparent; border: none; color: var(--text-dim);
   padding: 0.45rem 0.8rem; border-radius: var(--r-sm); cursor: pointer;
   transition: background 0.15s, color 0.15s;
@@ -385,7 +405,7 @@ input[type="number"] { font-family: var(--mono); font-variant-numeric: tabular-n
 .floating-console-btn {
   display: flex; align-items: center; gap: 0.5rem;
   background: var(--bg-surface); border: 1px solid var(--border);
-  color: var(--text); font-family: var(--ui); font-size: 0.72rem;
+  color: var(--text); font-family: var(--ui); font-size: var(--fs-sm);
   font-weight: 600; letter-spacing: 0.3px; padding: 0.5rem 0.9rem;
   border-radius: var(--r); cursor: pointer; pointer-events: auto;
   box-shadow: var(--shadow-2); transition: border-color 0.15s, color 0.15s;
@@ -414,7 +434,7 @@ input[type="number"] { font-family: var(--mono); font-variant-numeric: tabular-n
      it silently did nothing; folded its values into the one rule that
      actually applies instead of leaving dead CSS behind). */
   position: absolute; top: 7.5rem; right: 0.85rem; bottom: 8.5rem;
-  width: 340px; background: var(--bg-surface);
+  width: 380px; background: var(--bg-surface);
   border: 1px solid var(--border-strong); border-radius: var(--r-lg);
   display: flex; flex-direction: column; z-index: 10;
   box-shadow: var(--shadow-3);
@@ -439,12 +459,14 @@ input[type="number"] { font-family: var(--mono); font-variant-numeric: tabular-n
 .drawer-tabs { display: flex; background: var(--bg-sunken); border-bottom: 1px solid var(--border); }
 .drawer-tab-btn {
   /* issue #133: a 6th tab (AI) made "TRANSMIT" collide with its neighbour at
-     the old 0.72rem/0.5px — shrunk just enough to keep every tab on one line
-     with visible separation, down to the narrowest label ("AI") still reading
-     clearly. */
-  flex: 1; min-width: 0; background: transparent; border: none; border-bottom: 2px solid transparent;
-  color: var(--text-dim); font-family: var(--ui); font-weight: 600; font-size: 0.58rem;
-  letter-spacing: 0; padding: 0.7rem 0.1rem; cursor: pointer; transition: color 0.15s, border-color 0.15s;
+     0.72rem/0.5px in a 340px drawer, which was fixed by shrinking the type to
+     0.58rem (~9px). The drawer is now 380px, so the tabs sit on the type
+     scale's floor instead and still keep one line each. */
+  /* Sized by content, not equal thirds-and-sixths: "AI" needs far less room than
+     "SEQUENCE", which truncated when every tab got the same 63px. */
+  flex: 1 1 auto; min-width: 0; background: transparent; border: none; border-bottom: 2px solid transparent;
+  color: var(--text-dim); font-family: var(--ui); font-weight: 600; font-size: var(--fs-xs);
+  letter-spacing: 0.2px; padding: 0.75rem 0.3rem; cursor: pointer; transition: color 0.15s, border-color 0.15s;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 .drawer-tab-btn:hover { color: var(--text); }
@@ -472,8 +494,8 @@ input[type="number"] { font-family: var(--mono); font-variant-numeric: tabular-n
 .slider-container { flex: 1; display: flex; align-items: center; gap: 1rem; }
 
 .telemetry-label {
-  font-family: var(--mono); font-size: 0.6rem; font-weight: 600;
-  letter-spacing: 1.5px; color: var(--text-faint); white-space: nowrap;
+  font-family: var(--mono); font-size: var(--fs-xs); font-weight: 600;
+  letter-spacing: 1.2px; color: var(--text-faint); white-space: nowrap;
 }
 .timeline-slider {
   -webkit-appearance: none; appearance: none; width: 100%; height: 8px;
@@ -526,10 +548,22 @@ input[type="number"] { font-family: var(--mono); font-variant-numeric: tabular-n
 .scene-card-times { display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; }
 .scene-card-times label {
   display: flex; flex-direction: column; gap: 0.25rem;
-  font-size: 0.58rem; color: var(--text-faint); text-transform: uppercase;
-  letter-spacing: 0.6px; font-family: var(--mono);
+  font-size: var(--fs-xs); color: var(--text-faint); text-transform: uppercase;
+  letter-spacing: 0.4px; font-family: var(--mono);
+  /* labels wrap to one or two lines ("HOLD (S)" vs "LAYER GAP (M)"); pinning the
+     input to the bottom keeps the three fields on one baseline either way. */
+  justify-content: flex-end;
 }
-.scene-card-times input { padding: 0.4rem 0.5rem; font-size: 0.8rem; }
+.scene-card-times input { padding: 0.4rem 0.5rem; font-size: var(--fs-md); }
+
+/* "Generate Sequence" is the sequencer's primary action; with a few scenes it
+   was pushed below the drawer's fold. Pinned to the bottom of the scroll area,
+   with a surface-coloured halo so scene cards don't show through behind it. */
+.control-drawer .seq-generate {
+  position: sticky; bottom: 0; z-index: 2;
+  /* y-offset + spread = the drawer's 1.25rem bottom padding, so nothing shows beneath it. */
+  box-shadow: 0 0.65rem 0 0.6rem var(--bg-surface);
+}
 
 /* ---------------------------------------------------------- Error boundary  */
 .error-boundary-wrapper {
@@ -558,7 +592,7 @@ input[type="number"] { font-family: var(--mono); font-variant-numeric: tabular-n
 /* ---------------------------------------------------------- Validation ---- */
 .validation-summary {
   display: flex; align-items: center; gap: 0.65rem; padding: 0.7rem 0.85rem;
-  border-radius: var(--r-sm); margin-bottom: 1rem; font-size: 0.8rem; font-weight: 600;
+  border-radius: var(--r-sm); margin-bottom: 1rem; font-size: var(--fs-md); font-weight: 600;
   border: 1px solid var(--border);
 }
 .validation-summary.passed { background: var(--success-tint); border-color: var(--success); color: var(--success); }
@@ -567,7 +601,7 @@ input[type="number"] { font-family: var(--mono); font-variant-numeric: tabular-n
 
 .safety-gate-badge {
   display: flex; align-items: center; gap: 0.6rem; padding: 0.65rem 0.8rem;
-  border-radius: var(--r-sm); margin-bottom: 0.9rem; font-size: 0.78rem; font-weight: 600;
+  border-radius: var(--r-sm); margin-bottom: 0.9rem; font-size: var(--fs-md); font-weight: 600;
   border: 1px solid var(--border); line-height: 1.35;
 }
 .safety-gate-badge.passed { background: var(--success-tint); border-color: var(--success); color: var(--success); }
@@ -581,15 +615,15 @@ input[type="number"] { font-family: var(--mono); font-variant-numeric: tabular-n
   border-radius: var(--r-sm); padding: 0.65rem; text-align: center;
 }
 .metric-title {
-  font-size: 0.58rem; color: var(--text-faint); text-transform: uppercase;
+  font-size: var(--fs-xs); color: var(--text-faint); text-transform: uppercase;
   letter-spacing: 0.6px; margin-bottom: 0.3rem; font-family: var(--mono);
 }
-.metric-val { font-size: 1rem; font-weight: 700; color: var(--text); font-variant-numeric: tabular-nums; }
+.metric-val { font-size: 1.1rem; font-weight: 700; color: var(--text); font-variant-numeric: tabular-nums; }
 .metric-val.passed { color: var(--success); }
 .metric-val.warning { color: var(--warning); }
 .metric-val.danger { color: var(--danger); }
 .metric-limit {
-  font-size: 0.56rem; color: var(--text-faint); margin-top: 0.25rem;
+  font-size: var(--fs-xs); color: var(--text-faint); margin-top: 0.25rem;
   font-family: var(--mono); font-variant-numeric: tabular-nums;
 }
 
@@ -599,7 +633,7 @@ input[type="number"] { font-family: var(--mono); font-variant-numeric: tabular-n
 }
 .violation-item {
   background: var(--danger-tint); border-left: 2px solid var(--danger);
-  padding: 0.45rem 0.6rem; font-size: 0.72rem; border-radius: 0 var(--r-sm) var(--r-sm) 0;
+  padding: 0.45rem 0.6rem; font-size: var(--fs-sm); border-radius: 0 var(--r-sm) var(--r-sm) 0;
   display: flex; justify-content: space-between; font-family: var(--mono);
 }
 
@@ -619,7 +653,7 @@ input[type="number"] { font-family: var(--mono); font-variant-numeric: tabular-n
 }
 .battery-chart-legend {
   display: flex; flex-wrap: wrap; gap: 0.35rem 0.9rem; margin-bottom: 0.35rem;
-  font-size: 0.64rem; font-family: var(--mono); color: var(--text-dim);
+  font-size: var(--fs-xs); font-family: var(--mono); color: var(--text-dim);
 }
 .battery-chart-legend span { display: inline-flex; align-items: center; gap: 0.35rem; }
 .battery-chart .key { display: inline-block; width: 12px; height: 0; border-top: 2px solid; border-radius: 1px; }
@@ -631,12 +665,12 @@ input[type="number"] { font-family: var(--mono); font-variant-numeric: tabular-n
 .battery-chart svg { display: block; width: 100%; height: auto; overflow: visible; outline: none; touch-action: pan-y; }
 .battery-chart svg:focus-visible { box-shadow: 0 0 0 1px var(--accent-line); border-radius: var(--r-sm); }
 .battery-chart .grid { stroke: var(--border); stroke-width: 1; }
-.battery-chart .tick { fill: var(--text-faint); font-size: 8px; font-family: var(--mono); }
+.battery-chart .tick { fill: var(--text-faint); font-size: 9px; font-family: var(--mono); }
 .battery-chart .reserve { stroke: var(--text-faint); stroke-width: 1; stroke-dasharray: 3 3; }
 .battery-chart .series { fill: none; stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
 .battery-chart .series-worst { stroke: var(--series-worst); }
 .battery-chart .series-mean { stroke: var(--series-mean); }
-.battery-chart .end-label { fill: var(--text); font-size: 8.5px; font-family: var(--mono); font-weight: 600; }
+.battery-chart .end-label { fill: var(--text); font-size: 9.5px; font-family: var(--mono); font-weight: 600; }
 .battery-chart .end-label-muted { fill: var(--text-dim); font-weight: 400; }
 .battery-chart .crosshair line { stroke: var(--text-faint); stroke-width: 1; }
 .battery-chart .dot { stroke: var(--bg-sunken); stroke-width: 2; }
@@ -648,14 +682,14 @@ input[type="number"] { font-family: var(--mono); font-variant-numeric: tabular-n
   position: absolute; top: 42%; pointer-events: none; z-index: 2;
   background: var(--bg-surface); border: 1px solid var(--border-strong);
   border-radius: var(--r-sm); padding: 0.4rem 0.55rem; box-shadow: var(--shadow-2);
-  font-size: 0.66rem; font-family: var(--mono); color: var(--text-dim); white-space: nowrap;
+  font-size: var(--fs-xs); font-family: var(--mono); color: var(--text-dim); white-space: nowrap;
 }
 .battery-tooltip .tt-time { color: var(--text-faint); margin-bottom: 0.2rem; }
 .battery-tooltip .tt-row { display: flex; align-items: center; gap: 0.4rem; }
 .battery-tooltip strong { color: var(--text); font-weight: 600; }
 .battery-tooltip .tt-muted { padding-left: calc(12px + 0.4rem); }
 
-.battery-table { margin-top: 0.35rem; font-size: 0.64rem; font-family: var(--mono); color: var(--text-dim); }
+.battery-table { margin-top: 0.35rem; font-size: var(--fs-xs); font-family: var(--mono); color: var(--text-dim); }
 .battery-table summary { cursor: pointer; color: var(--text-faint); }
 .battery-table table { width: 100%; border-collapse: collapse; margin-top: 0.3rem; font-variant-numeric: tabular-nums; }
 .battery-table th { text-align: right; font-weight: 400; color: var(--text-faint); padding: 0.15rem 0.3rem; border-bottom: 1px solid var(--border); }
@@ -693,7 +727,7 @@ input[type="number"] { font-family: var(--mono); font-variant-numeric: tabular-n
   border-bottom: 1px solid var(--border); padding-bottom: 0.5rem; margin-bottom: 0.75rem;
 }
 .matrix-drone-id { font-weight: 700; font-size: 0.82rem; color: var(--text); }
-.matrix-status { font-size: 0.66rem; font-weight: 700; letter-spacing: 1px; }
+.matrix-status { font-size: var(--fs-xs); font-weight: 700; letter-spacing: 1px; }
 .matrix-data-row { display: grid; grid-template-columns: 1fr 1fr; gap: 0.7rem; }
 .matrix-data-item { display: flex; flex-direction: column; gap: 0.2rem; }
 .matrix-data-item .value { font-size: 0.9rem; font-weight: 500; color: var(--text); }
@@ -769,7 +803,7 @@ input[type="number"] { font-family: var(--mono); font-variant-numeric: tabular-n
 
 /* ---------------------------------------------------------- Status pills -- */
 .status-badge {
-  font-family: var(--mono); font-size: 0.64rem; font-weight: 700;
+  font-family: var(--mono); font-size: var(--fs-xs); font-weight: 700;
   letter-spacing: 0.8px; text-transform: uppercase; padding: 0.2rem 0.5rem;
   border-radius: var(--r-sm); border: 1px solid currentColor;
 }
@@ -799,13 +833,13 @@ input[type="number"] { font-family: var(--mono); font-variant-numeric: tabular-n
 /* ---------------------------------------------------- Common primitives ---- */
 .ui-field { display: flex; flex-direction: column; gap: 0.3rem; }
 .ui-field-label {
-  font-size: 0.62rem; text-transform: uppercase; letter-spacing: 0.8px;
+  font-size: var(--fs-xs); text-transform: uppercase; letter-spacing: 0.8px;
   color: var(--text-faint); font-family: var(--mono);
 }
 .ui-badge {
   display: inline-flex; align-items: center; gap: 0.3rem;
   padding: 0.2rem 0.5rem; border-radius: var(--r-sm);
-  font-size: 0.66rem; font-family: var(--mono); letter-spacing: 0.4px;
+  font-size: var(--fs-xs); font-weight: 600; font-family: var(--mono); letter-spacing: 0.4px;
   border: 1px solid currentColor; white-space: nowrap;
 }
 .ui-badge-ok { color: var(--success); background: var(--success-tint); }
@@ -842,7 +876,7 @@ input[type="number"] { font-family: var(--mono); font-variant-numeric: tabular-n
   display: inline-flex; align-items: center; justify-content: center; gap: 0.4rem;
   width: 100%;
 }
-.btn-sm { padding: 0.35rem 0.7rem; font-size: 0.72rem; width: auto; }
+.btn-sm { padding: 0.35rem 0.7rem; font-size: var(--fs-sm); width: auto; }
 .btn-danger-outline {
   background: transparent; color: var(--danger);
   border: 1px solid var(--danger); border-radius: var(--r-sm);
@@ -899,26 +933,26 @@ input[type="number"] { font-family: var(--mono); font-variant-numeric: tabular-n
 .color-row input[type="color"] { width: 44px; height: 32px; padding: 2px; cursor: pointer; }
 .color-row input[type="text"] { flex: 1; }
 .mono { font-family: var(--mono); font-size: 0.78rem; color: var(--text-dim); }
-.panel-hint { font-size: 0.68rem; color: var(--text-faint); line-height: 1.55; margin: 0; }
+.panel-hint { font-size: var(--fs-sm); color: var(--text-faint); line-height: 1.55; margin: 0; }
 .toggle-inline {
   display: inline-flex; align-items: center; gap: 0.35rem;
-  font-size: 0.7rem; color: var(--text-dim); cursor: pointer; user-select: none;
+  font-size: var(--fs-sm); color: var(--text-dim); cursor: pointer; user-select: none;
 }
 
 /* ------------------------------------------------------ Sequencer header --- */
 .sequencer-header {
   display: flex; align-items: center; gap: 1.5rem; flex-wrap: wrap;
-  padding: 0.6rem 1rem;
+  padding: 0.7rem 1rem;
   background: var(--bg-surface); border-bottom: 1px solid var(--border);
 }
 .seq-stat { display: flex; align-items: center; gap: 0.5rem; color: var(--text-faint); }
 .seq-stat > div { display: flex; flex-direction: column; line-height: 1.25; }
 .seq-stat-label {
-  font-size: 0.58rem; text-transform: uppercase; letter-spacing: 0.8px;
+  font-size: var(--fs-xs); text-transform: uppercase; letter-spacing: 0.8px;
   color: var(--text-faint); font-family: var(--mono);
 }
 .seq-stat-value {
-  font-size: 0.85rem; color: var(--text);
+  font-size: var(--fs-lg); font-weight: 600; color: var(--text);
   font-family: var(--mono); font-variant-numeric: tabular-nums;
 }
 
@@ -935,13 +969,13 @@ input[type="number"] { font-family: var(--mono); font-variant-numeric: tabular-n
 .scene-grip { color: var(--text-faint); cursor: grab; display: flex; }
 .scene-grip:active { cursor: grabbing; }
 .scene-index {
-  font-family: var(--mono); font-size: 0.68rem; color: var(--accent);
+  font-family: var(--mono); font-size: var(--fs-xs); font-weight: 700; color: var(--accent);
   background: var(--accent-tint); border-radius: var(--r-sm);
-  padding: 0.15rem 0.35rem; flex: none;
+  padding: 0.15rem 0.4rem; flex: none;
 }
 .scene-name {
   flex: 1; min-width: 0; background: transparent; border: 1px solid transparent;
-  color: var(--text); font-size: 0.8rem; padding: 0.2rem 0.3rem;
+  color: var(--text); font-size: var(--fs-md); font-weight: 600; padding: 0.2rem 0.3rem;
   border-radius: var(--r-sm);
 }
 .scene-name:hover, .scene-name:focus { border-color: var(--border-strong); background: var(--bg-input); }
@@ -968,7 +1002,7 @@ input[type="number"] { font-family: var(--mono); font-variant-numeric: tabular-n
 }
 .scene-shape-btn:hover { border-color: var(--accent-line); color: var(--text); }
 .scene-shape-name { flex: 1; text-align: left; font-family: var(--mono); color: var(--text); }
-.scene-shape-scale { font-family: var(--mono); font-size: 0.68rem; color: var(--text-faint); }
+.scene-shape-scale { font-family: var(--mono); font-size: var(--fs-xs); color: var(--text-faint); }
 .scene-card-times { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.4rem; }
 .scene-card-times input { padding: 0.35rem 0.4rem; font-size: 0.76rem; width: 100%; }
 
@@ -976,16 +1010,16 @@ input[type="number"] { font-family: var(--mono); font-variant-numeric: tabular-n
 .timeline-track { display: flex; flex-direction: column; gap: 0.25rem; width: 100%; }
 .tl-lane { position: relative; width: 100%; }
 .tl-lane-scenes {
-  height: 34px; background: var(--bg-sunken);
+  height: 40px; background: var(--bg-sunken);
   border: 1px solid var(--border); border-radius: var(--r-sm);
   overflow: hidden; cursor: pointer; touch-action: none;
 }
 .tl-lane-scenes:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 .tl-seg {
   position: absolute; top: 0; bottom: 0;
-  display: flex; align-items: center; justify-content: center;
+  display: flex; align-items: flex-end; justify-content: center; padding-bottom: 7px;
   border-right: 1px solid var(--bg-sunken);
-  font-size: 0.62rem; font-family: var(--mono);
+  font-size: var(--fs-xs); font-family: var(--mono);
   color: var(--text); overflow: hidden; white-space: nowrap;
 }
 .tl-seg-label { padding: 0 0.3rem; text-overflow: ellipsis; overflow: hidden; pointer-events: none; }
@@ -999,13 +1033,13 @@ input[type="number"] { font-family: var(--mono); font-variant-numeric: tabular-n
 }
 .tl-playhead-time {
   position: absolute; top: -1px; left: 4px;
-  font-family: var(--mono); font-size: 0.58rem; color: var(--warning);
-  background: var(--bg-sunken); padding: 0 0.2rem; border-radius: 2px;
+  font-family: var(--mono); font-size: var(--fs-xs); font-weight: 600; color: var(--warning);
+  background: var(--bg-sunken); padding: 0 0.25rem; border-radius: 2px; line-height: 1.3;
 }
-.tl-lane-ruler { height: 16px; }
+.tl-lane-ruler { height: 20px; }
 .tl-tick {
   position: absolute; top: 0; transform: translateX(-50%);
-  font-family: var(--mono); font-size: 0.56rem; color: var(--text-faint);
+  font-family: var(--mono); font-size: var(--fs-xs); color: var(--text-faint);
   display: flex; flex-direction: column; align-items: center;
 }
 .tl-tick i { width: 1px; height: 4px; background: var(--border-strong); }
@@ -1111,7 +1145,7 @@ input[type="number"] { font-family: var(--mono); font-variant-numeric: tabular-n
 .v-danger { color: var(--danger); font-weight: 600; }
 .v-warn { color: var(--warning); font-weight: 600; }
 .violations-none {
-  color: var(--text-faint); font-size: 0.75rem;
+  color: var(--text-faint); font-size: var(--fs-sm);
   text-align: center; padding: 1rem;
 }
 
@@ -1143,7 +1177,7 @@ input[type="number"] { font-family: var(--mono); font-variant-numeric: tabular-n
   transition: margin-right 0.35s cubic-bezier(0.16, 1, 0.3, 1);
 }
 .studio-workspace:has(.control-drawer.active) .studio-viewport .timeline-overlay {
-  margin-right: calc(340px + 1.6rem);
+  margin-right: calc(380px + 1.6rem);
 }
 
 /* The stage is the only element that should absorb leftover height. */
@@ -1271,7 +1305,7 @@ input[type="number"] { font-family: var(--mono); font-variant-numeric: tabular-n
 
 .history-list summary {
   display: flex; align-items: center; gap: 0.35rem; cursor: pointer;
-  font-size: 0.68rem; color: var(--text-faint); font-family: var(--mono);
+  font-size: var(--fs-xs); color: var(--text-faint); font-family: var(--mono);
   text-transform: uppercase; letter-spacing: 0.8px; user-select: none;
 }
 .history-count { margin-left: auto; font-variant-numeric: tabular-nums; }
@@ -1319,7 +1353,12 @@ input[type="number"] { font-family: var(--mono); font-variant-numeric: tabular-n
 }
 .vault-alert span { flex: 1; }
 .vault-alert button { margin: 0; flex-shrink: 0; }
-.vault-error { margin: 0.5rem 0 0; color: var(--danger); font-size: 0.68rem; line-height: 1.35; }
+/* An alert, not a stray red caption: the one place a failed save is reported. */
+.vault-error {
+  margin: 0.6rem 0 0; color: var(--danger); font-size: var(--fs-sm); line-height: 1.4;
+  background: var(--danger-tint); border-left: 2px solid var(--danger);
+  border-radius: 0 var(--r-sm) var(--r-sm) 0; padding: 0.45rem 0.6rem; word-break: break-word;
+}
 
 /* ------------------------------------------- Fleet list, bulk edit (#102) */
 .fleet-page { gap: 1rem; }

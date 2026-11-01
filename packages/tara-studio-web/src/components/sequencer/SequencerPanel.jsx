@@ -46,7 +46,7 @@ export default function SequencerPanel({
 
       <button
         type="button"
-        className="btn-primary btn-inline"
+        className="btn-primary btn-inline seq-generate"
         onClick={onBuild}
         disabled={loading || !scenes.length}
       >

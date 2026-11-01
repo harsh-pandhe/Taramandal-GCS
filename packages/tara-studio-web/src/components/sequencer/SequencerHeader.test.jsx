@@ -51,4 +51,42 @@ describe('SequencerHeader', () => {
     const html = render({ predictionRefused: false, stale: false, builtDuration: 20 });
     expect(html).toContain('Built · 20.0s');
   });
+
+  // The header states the export gate's verdict (issue #132), mirroring
+  // App.jsx: only a PASSED validation opens export.
+  describe('validation / export state', () => {
+    it('says export is open only for a PASSED validation', () => {
+      const html = render({ builtDuration: 20, validation: { status: 'PASSED' } });
+      expect(html).toContain('Safety passed · export open');
+    });
+
+    it('says export is blocked for a FAILED validation', () => {
+      const html = render({ builtDuration: 20, validation: { status: 'FAILED' } });
+      expect(html).toContain('Safety failed · export blocked');
+      expect(html).not.toContain('export open');
+    });
+
+    it('treats any other status as unverified and blocked', () => {
+      const html = render({ builtDuration: 20, validation: { status: 'UNVERIFIED' } });
+      expect(html).toContain('Unverified · export blocked');
+    });
+
+    it('shows a built show that has no validation yet as unverified, not as open', () => {
+      const html = render({ builtDuration: 20, validation: null });
+      expect(html).toContain('Unverified · export blocked');
+      expect(html).not.toContain('export open');
+    });
+
+    it('shows Validating… while the sweep runs, even over a previous PASSED result', () => {
+      const html = render({ builtDuration: 20, validating: true, validation: { status: 'PASSED' } });
+      expect(html).toContain('Validating…');
+      expect(html).not.toContain('export open');
+    });
+
+    it('shows no validation badge before anything has been built', () => {
+      const html = render({ builtDuration: 0, validation: null });
+      expect(html).not.toContain('export');
+      expect(html).not.toContain('Validating');
+    });
+  });
 });
