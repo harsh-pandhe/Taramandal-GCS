@@ -388,7 +388,9 @@ async def get_status():
         # drone whose autopilot froze but kept its MAVSDK/UDP session open
         # would otherwise read as connected here forever.
         "connected": sum(1 for t in telemetry.values() if drone_manager.is_heartbeat_fresh(t)),
-        "armed": sum(1 for t in telemetry.values() if t.get("armed")),
+        # Same bar for armed (issue #171): after a PX4 process was killed
+        # mid-hover this kept reporting armed: 1 off the dead link's last frame.
+        "armed": sum(1 for t in telemetry.values() if drone_manager.is_heartbeat_fresh(t) and t.get("armed")),
         "trajectory_running": drone_manager.is_running_trajectory,
         "fleet_state": drone_manager.fleet_fsm.state.value,
         # Drones aborted out of the show on their own (issue #59); per-drone
@@ -1111,7 +1113,7 @@ async def sim_status(operator: Viewer):
         # half-started state an operator needs to see before pressing Launch.
         "alive": connected > 0,
         "connected": connected,
-        "armed": sum(1 for t in telemetry.values() if t.get("armed")),
+        "armed": sum(1 for t in telemetry.values() if drone_manager.is_heartbeat_fresh(t) and t.get("armed")),
         "expected": len(drone_manager.ports),
         "home_locked": sum(
             1 for t in telemetry.values()
