@@ -103,7 +103,7 @@
     </model>
     <model name="pad_1">
       <static>true</static>
-      <pose>0.000 2.200 0.010 0 0 0</pose>
+      <pose>2.200 0.000 0.010 0 0 0</pose>
       <link name="link">
         <visual name="visual">
           <geometry><cylinder><radius>0.4</radius><length>0.02</length></cylinder></geometry>
@@ -116,7 +116,7 @@
     </model>
     <model name="pad_2">
       <static>true</static>
-      <pose>0.000 4.400 0.010 0 0 0</pose>
+      <pose>4.400 0.000 0.010 0 0 0</pose>
       <link name="link">
         <visual name="visual">
           <geometry><cylinder><radius>0.4</radius><length>0.02</length></cylinder></geometry>
@@ -129,7 +129,7 @@
     </model>
     <model name="pad_3">
       <static>true</static>
-      <pose>0.000 6.600 0.010 0 0 0</pose>
+      <pose>6.600 0.000 0.010 0 0 0</pose>
       <link name="link">
         <visual name="visual">
           <geometry><cylinder><radius>0.4</radius><length>0.02</length></cylinder></geometry>
@@ -142,7 +142,7 @@
     </model>
     <model name="pad_4">
       <static>true</static>
-      <pose>0.000 8.800 0.010 0 0 0</pose>
+      <pose>8.800 0.000 0.010 0 0 0</pose>
       <link name="link">
         <visual name="visual">
           <geometry><cylinder><radius>0.4</radius><length>0.02</length></cylinder></geometry>
@@ -155,7 +155,7 @@
     </model>
     <model name="pad_5">
       <static>true</static>
-      <pose>0.000 11.000 0.010 0 0 0</pose>
+      <pose>11.000 0.000 0.010 0 0 0</pose>
       <link name="link">
         <visual name="visual">
           <geometry><cylinder><radius>0.4</radius><length>0.02</length></cylinder></geometry>
@@ -168,7 +168,7 @@
     </model>
     <model name="pad_6">
       <static>true</static>
-      <pose>0.000 13.200 0.010 0 0 0</pose>
+      <pose>13.200 0.000 0.010 0 0 0</pose>
       <link name="link">
         <visual name="visual">
           <geometry><cylinder><radius>0.4</radius><length>0.02</length></cylinder></geometry>
@@ -181,7 +181,7 @@
     </model>
     <model name="pad_7">
       <static>true</static>
-      <pose>0.000 15.400 0.010 0 0 0</pose>
+      <pose>15.400 0.000 0.010 0 0 0</pose>
       <link name="link">
         <visual name="visual">
           <geometry><cylinder><radius>0.4</radius><length>0.02</length></cylinder></geometry>
@@ -194,7 +194,7 @@
     </model>
     <model name="pad_8">
       <static>true</static>
-      <pose>0.000 17.600 0.010 0 0 0</pose>
+      <pose>17.600 0.000 0.010 0 0 0</pose>
       <link name="link">
         <visual name="visual">
           <geometry><cylinder><radius>0.4</radius><length>0.02</length></cylinder></geometry>
@@ -207,7 +207,7 @@
     </model>
     <model name="pad_9">
       <static>true</static>
-      <pose>0.000 19.800 0.010 0 0 0</pose>
+      <pose>19.800 0.000 0.010 0 0 0</pose>
       <link name="link">
         <visual name="visual">
           <geometry><cylinder><radius>0.4</radius><length>0.02</length></cylinder></geometry>
@@ -220,7 +220,7 @@
     </model>
     <model name="pad_10">
       <static>true</static>
-      <pose>0.000 22.000 0.010 0 0 0</pose>
+      <pose>22.000 0.000 0.010 0 0 0</pose>
       <link name="link">
         <visual name="visual">
           <geometry><cylinder><radius>0.4</radius><length>0.02</length></cylinder></geometry>
@@ -233,7 +233,7 @@
     </model>
     <model name="pad_11">
       <static>true</static>
-      <pose>0.000 24.200 0.010 0 0 0</pose>
+      <pose>24.200 0.000 0.010 0 0 0</pose>
       <link name="link">
         <visual name="visual">
           <geometry><cylinder><radius>0.4</radius><length>0.02</length></cylinder></geometry>
@@ -246,7 +246,7 @@
     </model>
     <model name="pad_12">
       <static>true</static>
-      <pose>0.000 26.400 0.010 0 0 0</pose>
+      <pose>26.400 0.000 0.010 0 0 0</pose>
       <link name="link">
         <visual name="visual">
           <geometry><cylinder><radius>0.4</radius><length>0.02</length></cylinder></geometry>

@@ -15,10 +15,13 @@ invented:
   function ``tara_gcs.drone_manager._pad_offset`` indexes into for every real
   drone's fixed pad. For drone ids below the grid's column cap (13 at
   defaults), this is provably a plain Y-axis line - ``(0, i * pad_spacing_m)``
-  - which is exactly what ``launch_fleet.sh`` already spawns PX4 SITL
-  instances at (``PX4_GZ_MODEL_POSE="0,${Y_OFFSET},0.2,0,0,0"``). Generating
-  N <= 13 pads keeps this script's output provably in agreement with both,
-  rather than asserting it.
+  in the fleet frame. Fleet y is *east* and Gazebo's world frame is ENU
+  (x east), so each pad is placed at Gazebo ``(i * pad_spacing_m, 0)``
+  (``fleet_to_gazebo``) - which is where ``launch_fleet.sh`` spawns PX4 SITL
+  instance i (``PX4_GZ_MODEL_POSE="${EAST_OFFSET},0,0.2,0,0,0"``). Both used
+  Gazebo ``(0, i * pad_spacing_m)`` - north - while the GCS assumed east
+  (issue #172 F1). Generating N <= 13 pads keeps this script's output
+  provably in agreement with both, rather than asserting it.
 - Geofence ring: ``tara_core.safety.DEFAULT_LIMITS.geofence_radius_m`` (30m),
   drawn as a ring of small visual-only markers (SDF has no annulus
   primitive) - cosmetic rendering choice, not a guessed number.
@@ -52,6 +55,19 @@ GEOFENCE_SEGMENTS = 48
 PAD_RADIUS_M = 0.4
 PAD_HEIGHT_M = 0.02
 OUT_PATH = Path(__file__).resolve().parent / "worlds" / "drone_show_field.sdf"
+
+
+def fleet_to_gazebo(x: float, y: float) -> tuple[float, float]:
+    """Map a fleet-frame ``(x, y)`` to Gazebo world ``(east, north)`` (issue #172 F1).
+
+    The GCS fleet frame is NED - x north, y east, which is what each drone's
+    own PX4 local frame and ``tara_gcs.drone_manager._pad_offset`` use. Gazebo's
+    world frame is ENU - x east, y north. The two horizontal axes are swapped,
+    so a pad at fleet ``(x, y)`` is at Gazebo ``(y, x)``. ``launch_fleet.sh``
+    spawns drones with the same mapping; ``tests/test_generate_world.py`` pins
+    the two together.
+    """
+    return y, x
 
 
 def _pad_positions() -> list[tuple[float, float]]:
@@ -104,7 +120,9 @@ def _geofence_marker(name: str, x: float, y: float) -> str:
 
 
 def generate() -> str:
-    pads = "".join(_pad_model(f"pad_{i}", x, y) for i, (x, y) in enumerate(_pad_positions()))
+    pads = "".join(
+        _pad_model(f"pad_{i}", *fleet_to_gazebo(x, y)) for i, (x, y) in enumerate(_pad_positions())
+    )
 
     r = DEFAULT_LIMITS.geofence_radius_m
     ring = "".join(
