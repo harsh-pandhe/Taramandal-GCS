@@ -12,6 +12,8 @@ What is recorded
 * **Events**: GCS command invocations, fleet FSM transitions and rejections,
   proximity and geofence breaches. Events are rare and are the part an
   investigator reads first, so each one is flushed to disk as it is recorded.
+  Ticks are 10 Hz, so an event shorter than ~100 ms (a breach corrected at
+  once) is recorded as an event, with its figures, not reconstructed from ticks.
 
 V1 is evidence preservation, not a replay UI: the file is self-describing and
 :func:`read_blackbox` decodes it, but nothing here renders anything.
@@ -110,6 +112,7 @@ _RF_KEY = "r"  # RF drop rate, 1e-4 units
 _FLAG_KEY = "s"
 _MODE_KEY = "m"  # index into the key line's "modes" dictionary
 _FIX_KEY = "f"  # index into "fixes"
+_RESERVED_EVENT_KEYS = frozenset({"type", "t", "wall", "kind"})
 _ALL_KEYS = tuple(c.key for c in CHANNELS) + (_RF_KEY, _FLAG_KEY, _MODE_KEY, _FIX_KEY)
 
 
@@ -225,7 +228,14 @@ class BlackboxRecorder:
     def new_session(cls, directory: str = DEFAULT_DIR, **kwargs) -> "BlackboxRecorder":
         """A recorder writing ``blackbox_<UTC start>_<pid>.jsonl.gz`` in ``directory``."""
         stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S")
-        return cls(os.path.join(directory, f"blackbox_{stamp}_{os.getpid()}.jsonl.gz"), **kwargs)
+        base = f"blackbox_{stamp}_{os.getpid()}"
+        for n in range(1, 1000):  # a rotation within the same second gets a suffix
+            name = f"{base}.jsonl.gz" if n == 1 else f"{base}_{n}.jsonl.gz"
+            try:
+                return cls(os.path.join(directory, name), **kwargs)
+            except FileExistsError:
+                continue
+        raise FileExistsError(f"no free blackbox file name for {base} in {directory}")
 
     # ------------------------------------------------------------- recording
 
@@ -260,7 +270,7 @@ class BlackboxRecorder:
         self._last_tick_t = now
         return True
 
-    def record_event(self, kind: str, **fields) -> None:
+    def record_event(self, kind: str, /, **fields) -> None:
         """One event line, flushed to the OS immediately."""
         if self.failed or self.closed:
             self.dropped += 1
@@ -268,7 +278,9 @@ class BlackboxRecorder:
         try:
             entry = {"type": "event", "t": self._t_ms(self._clock()), "wall": self._wall(), "kind": kind}
             entry.update(self._context())
-            entry.update(fields)
+            # A caller's field must never overwrite the line's own framing
+            # (audit entries carry keys like "type" and "t").
+            entry.update({(f"field_{k}" if k in _RESERVED_EVENT_KEYS else k): v for k, v in fields.items()})
             self._emit(entry)
             self.events += 1
             self._flush()
