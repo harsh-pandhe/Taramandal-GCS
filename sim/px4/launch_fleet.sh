@@ -12,9 +12,11 @@ PX4_AUTOPILOT_DIR=${PX4_AUTOPILOT_DIR:-"$HOME/PX4-Autopilot"}
 # use the synthetic-telemetry load harness instead of real SITL. Override with
 # MAX_DRONES if you know your machine can take it.
 MAX_DRONES=${MAX_DRONES:-50}
-# Y-axis spacing between launch pads (meters). MUST match LAUNCH_PAD_SPACING_Y_M
-# in backend/drone_manager.py (tara_core.safety.DEFAULT_LIMITS.pad_spacing_m)
-# so the GCS fleet-frame math lines up with spawns. Not an integer (issue
+# Spacing between launch pads along the fleet frame's Y axis (meters). MUST
+# match LAUNCH_PAD_SPACING_Y_M in backend/drone_manager.py
+# (tara_core.safety.DEFAULT_LIMITS.pad_spacing_m) so the GCS fleet-frame math
+# lines up with spawns. Fleet Y is EAST (the fleet frame is NED); Gazebo's world
+# frame is ENU, so the spawns below offset Gazebo's X, not its Y (issue #172 F1). Not an integer (issue
 # #167), so the offset below is computed with awk, not bash arithmetic.
 PAD_SPACING_Y=${PAD_SPACING_Y:-2.2}
 
@@ -116,17 +118,21 @@ trap cleanup SIGINT SIGTERM EXIT
 WORLD_DEST_DIR="$PX4_AUTOPILOT_DIR/Tools/simulation/gz/worlds"
 WORLD_SRC="$SCRIPT_DIR/worlds/drone_show_field.sdf"
 WORLD_DEST="$WORLD_DEST_DIR/drone_show_field.sdf"
-if [ ! -f "$WORLD_DEST" ]; then
-  if [ -f "$WORLD_SRC" ]; then
+# The repo's copy is generated (sim/px4/generate_world.py), so it is
+# re-installed whenever it differs from what is already in the checkout - a
+# one-time copy would leave a stale world (e.g. the pre-#172 pads on Gazebo's
+# north axis) in place on every machine that had launched the fleet before.
+if [ -f "$WORLD_SRC" ]; then
+  if ! cmp -s "$WORLD_SRC" "$WORLD_DEST"; then
     echo "Installing drone_show_field.sdf into $WORLD_DEST_DIR..."
     mkdir -p "$WORLD_DEST_DIR"
     cp "$WORLD_SRC" "$WORLD_DEST"
-  else
-    echo "Error: drone_show_field.sdf not found at $WORLD_SRC or $WORLD_DEST."
-    echo "       This custom world (launch pads pad_0..pad_4 + geofence ring) is"
-    echo "       not yet committed to this repo (issue #177). See sim/px4/README.md."
-    exit 1
   fi
+elif [ ! -f "$WORLD_DEST" ]; then
+  echo "Error: drone_show_field.sdf not found at $WORLD_SRC or $WORLD_DEST."
+  echo "       This custom world (launch pads pad_0..pad_4 + geofence ring) is"
+  echo "       not yet committed to this repo (issue #177). See sim/px4/README.md."
+  exit 1
 fi
 
 # Source Gazebo environment. PX4 main moved this file in 2026-10 from
@@ -179,21 +185,22 @@ cd "$PX4_AUTOPILOT_DIR"
 
 # Spawning instances
 for ((i=0; i<NUM_DRONES; i++)); do
-  # Calculate horizontal spacing offset along the Y axis (must match the GCS
-  # fleet-frame pad offset — see PAD_SPACING_Y above). awk, not bash
+  # Calculate the pad's offset east of drone 0. The GCS fleet-frame pad offset is
+  # (0, PAD_SPACING_Y * i) with fleet Y = east (NED), and Gazebo is ENU, so this
+  # is the Gazebo X coordinate of the spawn pose below - not Y. awk, not bash
   # arithmetic, since PAD_SPACING_Y is not an integer.
-  Y_OFFSET=$(awk -v s="$PAD_SPACING_Y" -v i="$i" 'BEGIN { printf "%g", s * i }')
+  EAST_OFFSET=$(awk -v s="$PAD_SPACING_Y" -v i="$i" 'BEGIN { printf "%g", s * i }')
   
   if [ "$i" -eq 0 ]; then
-    echo "Launching host drone (instance 0) at Y_OFFSET = 0m..."
+    echo "Launching host drone (instance 0) at EAST_OFFSET = 0m..."
     PX4_SYS_AUTOSTART=4001 PX4_SIM_MODEL=gz_x500 PX4_GZ_MODEL_POSE="0,0,0.2,0,0,0" ./build/px4_sitl_default/bin/px4 -d -i 0 > /tmp/px4_0.log 2>&1 &
     
     # Wait for gazebo server and host instance to settle down
     echo "Waiting 10 seconds for Gazebo Sim server to initialize..."
     sleep 10
   else
-    echo "Launching follower drone (instance $i) at Y_OFFSET = ${Y_OFFSET}m..."
-    PX4_GZ_STANDALONE=1 PX4_SYS_AUTOSTART=4001 PX4_GZ_MODEL_POSE="0,${Y_OFFSET},0.2,0,0,0" PX4_SIM_MODEL=gz_x500 ./build/px4_sitl_default/bin/px4 -d -i $i > /tmp/px4_${i}.log 2>&1 &
+    echo "Launching follower drone (instance $i) at EAST_OFFSET = ${EAST_OFFSET}m..."
+    PX4_GZ_STANDALONE=1 PX4_SYS_AUTOSTART=4001 PX4_GZ_MODEL_POSE="${EAST_OFFSET},0,0.2,0,0,0" PX4_SIM_MODEL=gz_x500 ./build/px4_sitl_default/bin/px4 -d -i $i > /tmp/px4_${i}.log 2>&1 &
     
     # Wait 2 seconds before spawning next to prevent racing conditions
     sleep 2

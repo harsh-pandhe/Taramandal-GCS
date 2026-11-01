@@ -79,8 +79,11 @@ this project's own authoritative constants — not invented numbers:
   exact same function `tara_gcs.drone_manager._pad_offset` indexes into for
   every real drone's fixed pad. For drone ids below the grid's column cap
   (`floor(geofence_radius_m / pad_spacing_m)`, 13 at current defaults), this
-  is provably a plain Y-axis line — which is exactly what `launch_fleet.sh`
-  already spawns PX4 SITL instances at. `generate_world.py` emits precisely
+  is provably a plain Y-axis line in the fleet frame. Fleet Y is east (the
+  fleet frame is NED) and Gazebo's world frame is ENU, so the pads are placed
+  along Gazebo's **X** axis — which is exactly where `launch_fleet.sh` spawns
+  PX4 SITL instances (issue #172 F1: both previously used Gazebo's Y, i.e.
+  north, while the GCS assumed east). `generate_world.py` emits precisely
   that many pads, and fails loudly (not silently) if a future constant change
   ever breaks the line-property assumption.
 - **Geofence ring**: `tara_core.safety.DEFAULT_LIMITS.geofence_radius_m`
