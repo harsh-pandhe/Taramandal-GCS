@@ -25,12 +25,13 @@ from tara_core.validate import collision_errors
 #: figure as ``DroneManager.verify_launch_geometry``'s default tolerance, so a
 #: show the geometry check accepts as "placed correctly" starts as it always did.
 BRIDGE_TOLERANCE_M = 0.5
-#: Peak speed of the leg (m/s), well inside ``DEFAULT_LIMITS.max_velocity_ms``
-#: and under PX4's default descent cap (``MPC_Z_VEL_MAX_DN``, 1.5 m/s): the leg
-#: is mostly a descent to the pad, and a plan faster than the vehicle may fly
-#: just shows up as tracking lag (0.8 m at 2 m/s on SITL, issue #172). The
-#: longest leg is the highest altitude layer back to the pad, so this sets the
-#: delay before a show's t = 0 (about 8 s for a 6 m descent).
+#: Peak speed of the leg (m/s) for a real PX4 vehicle, under its default descent
+#: cap (``MPC_Z_VEL_MAX_DN``, 1.5 m/s): the leg is mostly a descent to the pad,
+#: and a plan faster than the vehicle may fly just shows up as tracking lag
+#: (0.8 m at 2 m/s on SITL, issue #172). The longest leg is the highest
+#: altitude layer back to the pad, so the speed sets the delay before a show's
+#: t = 0 (about 8 s for a 6 m descent). The sim backend has no such cap; the
+#: caller passes its own speed (``DroneManager.start_bridge_peak_speed_ms``).
 BRIDGE_PEAK_SPEED_MS = 1.4
 #: Shortest leg, so a small correction is still eased in rather than stepped.
 MIN_BRIDGE_S = 1.0
@@ -54,6 +55,7 @@ def _min_jerk(tau: float) -> float:
 def build_start_bridge(
     plan: dict[int, list[dict]],
     hold: dict[int, tuple[float, float, float]],
+    peak_speed_ms: float = BRIDGE_PEAK_SPEED_MS,
 ) -> tuple[dict[int, list[dict]], float]:
     """Prepend a transition leg to ``plan`` and shift the show by its duration.
 
@@ -63,6 +65,8 @@ def build_start_bridge(
         hold: Where each drone is now, ``{drone_id: (x, y, z)}`` in the same
             frame. A drone with no entry (not connected) is carried along
             unchanged: its first waypoint is simply held for the leg.
+        peak_speed_ms: Peak speed of the leg. The longest leg sets the duration,
+            ``1.875 * distance / peak_speed_ms``, the same for every drone.
 
     Returns:
         ``(plan, bridge_s)``. When every drone is within
@@ -90,7 +94,7 @@ def build_start_bridge(
 
     steps = max(
         math.ceil(MIN_BRIDGE_S / BRIDGE_SAMPLE_S),
-        math.ceil(_MIN_JERK_PEAK_FACTOR * longest / BRIDGE_PEAK_SPEED_MS / BRIDGE_SAMPLE_S),
+        math.ceil(_MIN_JERK_PEAK_FACTOR * longest / peak_speed_ms / BRIDGE_SAMPLE_S),
     )
     bridge_s = steps * BRIDGE_SAMPLE_S
 

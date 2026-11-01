@@ -12,8 +12,10 @@ import math
 
 import pytest
 
-from tara_core import DEFAULT_LIMITS
+from tara_core import DEFAULT_LIMITS, altitude_layers
+from tara_core.layout import launch_grid
 from tara_core.geometry import interpolate_waypoint
+from tara_gcs.drone_manager import DroneManager
 from tara_gcs.start_bridge import (
     BRIDGE_PEAK_SPEED_MS,
     BRIDGE_TOLERANCE_M,
@@ -171,3 +173,71 @@ def test_legs_that_pass_over_each_other_at_different_heights_are_fine():
     plan, bridge_s = build_start_bridge(show, hold)
 
     assert bridge_s > 0.0
+
+
+# --- the leg scales with the fleet and with the vehicle ------------------------
+
+
+def _fleet_at_hold(n: int) -> tuple[dict, dict]:
+    """The real layout: pad grid, altitude layers (up to the 120 m ceiling), a
+    show that starts on every pad."""
+    grid, alts = launch_grid(n), altitude_layers(n)
+    hold = {i: (grid[i][0], grid[i][1], -alts[i]) for i in range(n)}
+    show = {
+        i: [
+            {"time": 0.0, "x": grid[i][0], "y": grid[i][1], "z": 0.0, "yaw": 0.0},
+            {"time": 10.0, "x": grid[i][0], "y": grid[i][1], "z": -3.0, "yaw": 0.0},
+        ]
+        for i in range(n)
+    }
+    return show, hold
+
+
+def test_the_peak_speed_is_a_parameter_and_is_respected():
+    show, hold = _show_from_pad(3), _hold(3)
+
+    slow_plan, slow_s = build_start_bridge(show, hold, peak_speed_ms=1.0)
+    fast_plan, fast_s = build_start_bridge(show, hold, peak_speed_ms=4.0)
+
+    assert slow_s > fast_s
+    dt = 0.02
+    for plan, peak in ((slow_plan, 1.0), (fast_plan, 4.0)):
+        fastest = max(
+            math.dist(_sample(plan, i, k * dt), _sample(plan, i, (k - 1) * dt)) / dt
+            for i in range(3)
+            for k in range(1, 400)
+        )
+        assert fastest <= peak * 1.05
+
+
+def test_on_the_sim_backend_the_leg_is_flown_at_the_vehicles_own_speed_limit():
+    """The tallest layer is 120 m at 100+ drones. At PX4's 1.4 m/s descent cap that
+    leg is 160 s, against ~19 s for the plain dive it replaces (measured on the
+    sim backend at 500 drones, issue #172): a start that is 8x later for no
+    reason, since the sim vehicle is limited by max_velocity_ms, not by PX4."""
+    show, hold = _fleet_at_hold(100)
+    sim = DroneManager(ports=[14540], backend="sim")
+
+    _, bridge_s = build_start_bridge(show, hold, peak_speed_ms=sim.start_bridge_peak_speed_ms)
+
+    assert sim.start_bridge_peak_speed_ms > BRIDGE_PEAK_SPEED_MS
+    assert sim.start_bridge_peak_speed_ms <= DEFAULT_LIMITS.max_velocity_ms
+    assert bridge_s <= 50.0
+
+
+def test_on_px4_the_leg_stays_under_the_autopilots_descent_cap():
+    px4 = DroneManager(ports=[14540], backend="px4")
+
+    assert px4.start_bridge_peak_speed_ms == BRIDGE_PEAK_SPEED_MS
+    assert BRIDGE_PEAK_SPEED_MS < 1.5  # PX4 MPC_Z_VEL_MAX_DN default
+
+
+def test_a_full_size_fleet_leg_is_still_swept_for_separation():
+    """500 drones, the Dandiya size: the sweep must run, and must pass because
+    drones stay over their own pads (2.2 m apart on the grid)."""
+    show, hold = _fleet_at_hold(500)
+
+    plan, bridge_s = build_start_bridge(show, hold, peak_speed_ms=DEFAULT_LIMITS.max_velocity_ms * 0.75)
+
+    assert bridge_s > 0.0
+    assert len(plan) == 500

@@ -37,7 +37,7 @@ from tara_gcs.fleet_fsm import (
     FleetStateMachine,
     LifecycleState,
 )
-from tara_gcs.start_bridge import build_start_bridge
+from tara_gcs.start_bridge import BRIDGE_PEAK_SPEED_MS, build_start_bridge
 from tara_gcs.state_store import DEFAULT_STATE_PATH, discard_show_state, load_show_state, save_show_state
 from tara_gcs.trajectory_parser import gate_trajectory
 
@@ -433,6 +433,13 @@ class DroneManager:
         # positions from this — reading active_trajectory by drone id would
         # check against the wrong drone whenever a remap moved a slot.
         self.playing_trajectory: dict | None = None
+        # Peak speed of the start transition leg (issue #172, F3). A PX4 vehicle
+        # is held to its own descent cap; the sim vehicle only to the fleet's
+        # speed limit, and at 100+ drones the tallest layer is 120 m, where the
+        # PX4 figure would make the leg 160 s long.
+        self.start_bridge_peak_speed_ms: float = (
+            DEFAULT_LIMITS.max_velocity_ms * 0.8 if backend == "sim" else BRIDGE_PEAK_SPEED_MS
+        )
         # How long the streamed show's t=0 was delayed by the transition leg from
         # the formation hold (issue #172, F3); 0.0 when none was needed.
         self.start_bridge_s: float = 0.0
@@ -2142,7 +2149,7 @@ class DroneManager:
                 for drone_id, tel in self.telemetry.items()
                 if tel.get("connected") and all(k in tel for k in ("fleet_x", "fleet_y", "fleet_z"))
             }
-            plan, bridge_s = build_start_bridge(plan, hold)
+            plan, bridge_s = build_start_bridge(plan, hold, self.start_bridge_peak_speed_ms)
 
         self.stop_trajectory()
         self.active_trajectory = trajectory_data
