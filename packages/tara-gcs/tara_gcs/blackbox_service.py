@@ -115,6 +115,10 @@ class BlackboxService:
 
         self._rec: BlackboxRecorder | None = None
         self._task: asyncio.Task | None = None
+        #: Finishing a rotated-out session (close + prune) runs off the loop; stop()
+        #: waits for these, so cancelling the sampler mid-rotation cannot leave a
+        #: session file without its gzip trailer.
+        self._finishing: set[asyncio.Task] = set()
         self._next_sample = 0.0
         self._retry_at = 0.0
         self._errors = 0
@@ -155,6 +159,8 @@ class BlackboxService:
         fsm = getattr(self.dm, "fleet_fsm", None)
         if fsm is not None and self._on_fsm in fsm.observers:
             fsm.observers.remove(self._on_fsm)
+        if self._finishing:
+            await asyncio.gather(*self._finishing, return_exceptions=True)
         rec, self._rec = self._rec, None
         if rec is not None:
             try:
@@ -192,7 +198,6 @@ class BlackboxService:
         logger.info("Blackbox: recording to %s", self._rec.path)
 
     async def _rotate(self) -> None:
-        loop = asyncio.get_running_loop()
         old = self._rec
         try:
             self._open_session()
@@ -201,8 +206,18 @@ class BlackboxService:
             self._rec = old
             return
         if old is not None:
+            finishing = asyncio.ensure_future(self._finish_session(old, keep=self._rec.path))
+            self._finishing.add(finishing)
+            finishing.add_done_callback(self._finishing.discard)
+            await asyncio.shield(finishing)  # a cancel lands here, not inside the close
+
+    async def _finish_session(self, old: BlackboxRecorder, keep: str) -> None:
+        loop = asyncio.get_running_loop()
+        try:
             await loop.run_in_executor(None, old.close)
-            await loop.run_in_executor(None, prune_sessions, self.directory, self.max_total_bytes, self._rec.path)
+            await loop.run_in_executor(None, prune_sessions, self.directory, self.max_total_bytes, keep)
+        except Exception:
+            logger.exception("Blackbox: error finishing %s", old.path)
 
     # ------------------------------------------------------------- observers
 
