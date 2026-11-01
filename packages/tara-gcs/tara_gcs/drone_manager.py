@@ -88,6 +88,14 @@ class LaunchGateError(RuntimeError):
     """Arming refused because the fleet does not hold a verified copy of the show."""
 
 
+class OperatorTakeoverError(RuntimeError):
+    """A pilot moved the vehicle out of OFFBOARD mid-sequence (issue #171).
+
+    The single-drone sequence yields without issuing any command of its own:
+    the pilot, not this sequence, is flying the vehicle now.
+    """
+
+
 #: Pads for the largest fleet we support, computed once. Indexing into a single
 #: fixed grid matters: deriving it per-drone from the current fleet size would
 #: move a drone's pad every time the fleet grew, because the grid's width is
@@ -1617,6 +1625,27 @@ class DroneManager:
 
         return steps
 
+    def _check_operator_takeover(self, drone_id: int, tel: dict, offboard_seen: bool) -> bool:
+        """Returns whether OFFBOARD has been observed; raises OperatorTakeoverError
+        once the vehicle leaves it (issue #171).
+
+        Real PX4 SITL: a MANUAL_CONTROL stream plus a switch to POSCTL took the
+        vehicle out of OFFBOARD mid-dwell, and the sequence - which only
+        watched altitude, link and the fleet FSM - kept dwelling, then landed
+        over the pilot. Only a change *away from* a mode this sequence has
+        itself seen counts: PX4 can still report HOLD/TAKEOFF for a moment
+        after arm, before the offboard request takes effect.
+        """
+        mode = tel.get("flight_mode")
+        if mode == "OFFBOARD":
+            return True
+        if offboard_seen and mode is not None:
+            raise OperatorTakeoverError(
+                f"Drone {drone_id}: operator took over (flight mode left OFFBOARD for {mode}); "
+                "the sequence is yielding without commanding the vehicle"
+            )
+        return offboard_seen
+
     def _emergency_in_progress(self) -> bool:
         """True once the fleet FSM has already moved to an emergency state
         (RTL/LAND/ESTOP) - issue #145 review, B3: something else is already
@@ -1665,12 +1694,14 @@ class DroneManager:
             climb_start = time.time()
             best_z = tel.get("local_z", 0.0)
             best_z_at = climb_start
+            offboard_seen = False
             while time.time() - climb_start < climb_ceiling_s:
                 if self._emergency_in_progress():
                     raise RuntimeError(
                         f"Drone {drone_id}: yielding to fleet emergency state "
                         f"{self.fleet_fsm.state.value} instead of continuing the climb"
                     )
+                offboard_seen = self._check_operator_takeover(drone_id, tel, offboard_seen)
                 if not tel.get("connected", False):
                     raise RuntimeError(f"Drone {drone_id} disconnected during climb")
                 last_hb = tel.get("last_heartbeat")
@@ -1708,7 +1739,7 @@ class DroneManager:
             # issue #145 review, B3: an emergency handler (RTL/LAND/ESTOP) is
             # already commanding this drone by now - recovering here too
             # would race or duplicate its commands.
-            if not self._emergency_in_progress():
+            if not self._emergency_in_progress() and not isinstance(e, OperatorTakeoverError):
                 await self._safe_recover(drone_id, drone, tel, context="after a failed climb")
             raise RuntimeError(f"Hover climb failed: {e}")
 
@@ -1733,6 +1764,7 @@ class DroneManager:
                         f"Drone {drone_id}: yielding to fleet emergency state "
                         f"{self.fleet_fsm.state.value} instead of continuing the hover dwell"
                     )
+                offboard_seen = self._check_operator_takeover(drone_id, tel, offboard_seen)
                 if not tel.get("connected", False):
                     raise RuntimeError(f"Drone {drone_id} disconnected during hover dwell")
                 last_hb = tel.get("last_heartbeat")
@@ -1751,7 +1783,7 @@ class DroneManager:
             steps.append({"step": "HOVER_HOLD", "status": f"FAILED: {e}", "time": time.time()})
             # issue #145 review, B3: same reasoning as the climb phase above -
             # don't race or duplicate an emergency handler's own commands.
-            if not self._emergency_in_progress():
+            if not self._emergency_in_progress() and not isinstance(e, OperatorTakeoverError):
                 await self._safe_recover(drone_id, drone, tel, context="after a failed hover dwell")
             raise RuntimeError(f"Hover dwell failed: {e}")
         actual_dwell = round(time.time() - dwell_start, 2)
@@ -1769,6 +1801,7 @@ class DroneManager:
                     f"Drone {drone_id}: yielding to fleet emergency state "
                     f"{self.fleet_fsm.state.value} instead of commanding its own landing"
                 )
+            self._check_operator_takeover(drone_id, tel, offboard_seen)
             err = await self._land_one(drone_id)
             if err:
                 # issue #145 review, B2: offboard.stop() has already run
@@ -1828,7 +1861,7 @@ class DroneManager:
             steps.append({"step": "LANDING", "status": f"FAILED: {e}", "time": time.time()})
             # issue #145 review, B2: a rejected land (or any other failure in
             # this block) used to just raise with no recovery attempt at all.
-            if not self._emergency_in_progress():
+            if not self._emergency_in_progress() and not isinstance(e, OperatorTakeoverError):
                 await self._safe_recover(drone_id, drone, tel, context="after a failed landing")
             raise RuntimeError(f"Landing failed: {e}")
 
