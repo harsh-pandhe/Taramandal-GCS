@@ -1,0 +1,12 @@
+{
+  "name": "Diwali 2026 (100 drones) - HAPPY, DIWALI, diya, rangoli, sphere burst",
+  "n": 100,
+  "rate_hz": 10,
+  "scenes": [
+    { "name": "HAPPY", "shapeType": "svg", "svgFile": "happy.svg", "scale": 1.0, "holdDurationSeconds": 10, "transitionDurationSeconds": 6 },
+    { "name": "DIWALI", "shapeType": "svg", "svgFile": "diwali.svg", "scale": 1.0, "holdDurationSeconds": 10, "transitionDurationSeconds": 6 },
+    { "name": "Diya", "shapeType": "svg", "svgFile": "diya_festive.svg", "scale": 1.0, "holdDurationSeconds": 8, "transitionDurationSeconds": 8 },
+    { "name": "Rangoli", "shapeType": "svg", "svgFile": "rangoli.svg", "scale": 1.0, "holdDurationSeconds": 8, "transitionDurationSeconds": 8 },
+    { "name": "Sphere burst", "shapeType": "parametric", "shapePayload": "sphere", "scale": 1.0, "holdDurationSeconds": 8, "transitionDurationSeconds": 6 }
+  ]
+}

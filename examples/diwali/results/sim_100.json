@@ -1,0 +1,72 @@
+[
+  {
+    "file": "diwali_100.json",
+    "n": 100,
+    "planned_duration_s": 352.5,
+    "armed_in_physics": 100,
+    "tick": {
+      "ticks": 16387,
+      "target_dt_ms": 20.0,
+      "idle_floor_ms": 20.0,
+      "gap_ms_mean": 21.58,
+      "gap_ms_p50": 19.94,
+      "gap_ms_p95": 21.18,
+      "gap_ms_max": 835.55,
+      "overshoot_ms_mean": 1.91,
+      "overshoot_ms_p95": 1.18,
+      "late_tick_pct": 0.4,
+      "effective_tick_hz": 46.3,
+      "realtime_ratio": 0.927,
+      "sim_realtime_ratio": 0.926
+    },
+    "control_loop": {
+      "ticks": 3266,
+      "lateness_ms_mean": 9.37,
+      "lateness_ms_p95": 3.86,
+      "lateness_ms_max": 817.03,
+      "missed_pct": 2.1
+    },
+    "asyncio_tasks_peak": 110,
+    "proximity_breach_seen_by_gcs_monitor": false,
+    "geofence_breaches": 0,
+    "settled_at_s": 14.5,
+    "altitude_at_show_start_m": {
+      "min": 1.8,
+      "max": 120.0
+    },
+    "tracking_error_before_settle_m": {
+      "mean": 16.392,
+      "p99": 102.184,
+      "max": 119.983
+    },
+    "flown_min_separation_before_settle_m": 2.197,
+    "max_altitude_before_settle_m": 119.99,
+    "tracking_error_after_settle_m": {
+      "mean": 0.061,
+      "p99": 0.517,
+      "max": 4.621
+    },
+    "flown_min_separation_after_settle_m": 2.042,
+    "max_altitude_after_settle_m": 62.87,
+    "sampled_at_hz": 5.0,
+    "on_ground_at_end": 100,
+    "phases_s": {
+      "connect_s": 0.0,
+      "upload_s": 0.7,
+      "launch_s": 80.0,
+      "show_s": 354.1
+    },
+    "resources": {
+      "cpu_percent_mean": 24.4,
+      "cpu_percent_peak": 103.6,
+      "rss_mb_peak": 340.7,
+      "samples": 1644
+    },
+    "acceptance_51": {
+      "tasks_under_50": false,
+      "control_latency_under_50ms": false,
+      "no_missed_ticks": false,
+      "realtime_factor_at_least_0_98": false
+    }
+  }
+]

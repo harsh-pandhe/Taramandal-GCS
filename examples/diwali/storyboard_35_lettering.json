@@ -1,0 +1,12 @@
+{
+  "name": "Diwali 2026 (35 drones, with DIWALI lettering - certified but only ~6 drones per letter) - DIWALI, diya, rangoli, ring, sphere burst",
+  "n": 35,
+  "rate_hz": 10,
+  "scenes": [
+    { "name": "DIWALI", "shapeType": "svg", "svgFile": "diwali.svg", "scale": 1.0, "holdDurationSeconds": 10, "transitionDurationSeconds": 6 },
+    { "name": "Diya", "shapeType": "svg", "shapePayload": "diya_flame", "scale": 1.0, "holdDurationSeconds": 8, "transitionDurationSeconds": 8 },
+    { "name": "Rangoli", "shapeType": "svg", "svgFile": "rangoli.svg", "scale": 1.0, "holdDurationSeconds": 8, "transitionDurationSeconds": 8 },
+    { "name": "Ring", "shapeType": "parametric", "shapePayload": "circle", "scale": 1.0, "holdDurationSeconds": 6, "transitionDurationSeconds": 6 },
+    { "name": "Sphere burst", "shapeType": "parametric", "shapePayload": "sphere", "scale": 1.0, "holdDurationSeconds": 8, "transitionDurationSeconds": 6 }
+  ]
+}

@@ -1,0 +1,61 @@
+{
+  "storyboard": "Diwali 2026 (500 drones, sim scale only) - ring, sphere burst",
+  "n": 500,
+  "rate_hz": 10,
+  "scenes": [
+    "Ring",
+    "Sphere burst"
+  ],
+  "built": true,
+  "duration_s": 216.4,
+  "nominal_duration_s": 42,
+  "waypoints_per_drone": 2165,
+  "max_altitude_m": 75.2,
+  "validator": {
+    "status": "PASSED",
+    "feasibility_certified": true,
+    "metrics": {
+      "min_distance_m": 2.05,
+      "max_velocity_m_s": 3.26,
+      "max_acceleration_m_s2": 3,
+      "max_yaw_rate_deg_s": 0,
+      "max_altitude_m": 75.2,
+      "min_altitude_m": 0,
+      "max_jerk_m_s3": 17.32
+    },
+    "violation_counts": {
+      "proximity": 0,
+      "velocity": 0,
+      "acceleration": 0,
+      "yaw_rate": 0,
+      "altitude": 0,
+      "ground": 0,
+      "jerk": 0
+    }
+  },
+  "exports": {
+    "json": {
+      "http_status": 200,
+      "preview_only": false,
+      "filename": "choreography.json",
+      "refusal": null,
+      "bytes": 139582850
+    },
+    "tara": {
+      "http_status": 200,
+      "preview_only": false,
+      "filename": "choreography.tara",
+      "refusal": null,
+      "bytes": 17322028
+    }
+  },
+  "min_separation_check": "samples only (n > 150)",
+  "min_separation_m": 2.05,
+  "max_altitude_exported_m": 75.2,
+  "checks": {
+    "flight_export_accepted": true,
+    "zero_violations": true,
+    "separation_at_least_2m": true,
+    "ceiling_120m": true
+  }
+}

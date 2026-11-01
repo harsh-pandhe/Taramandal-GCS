@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="100" height="100">
+  <!-- Festival diya with halo: lamp and flame from diya_flame.svg, plus a halo ring -->
+  <path d="M 20 60 Q 50 90 80 60 Q 50 70 20 60 Z" fill="none" stroke="currentColor" stroke-width="3" />
+  <path d="M 50 55 Q 35 40 50 15 Q 65 40 50 55 Z" fill="none" stroke="currentColor" stroke-width="3" />
+  <path d="M 96.00 46.00 L 95.61 52.00 L 94.43 57.91 L 92.50 63.60 L 89.84 69.00 L 86.49 74.00 L 82.53 78.53 L 78.00 82.49 L 73.00 85.84 L 67.60 88.50 L 61.91 90.43 L 56.00 91.61 L 50.00 92.00 L 44.00 91.61 L 38.09 90.43 L 32.40 88.50 L 27.00 85.84 L 22.00 82.49 L 17.47 78.53 L 13.51 74.00 L 10.16 69.00 L 7.50 63.60 L 5.57 57.91 L 4.39 52.00 L 4.00 46.00 L 4.39 40.00 L 5.57 34.09 L 7.50 28.40 L 10.16 23.00 L 13.51 18.00 L 17.47 13.47 L 22.00 9.51 L 27.00 6.16 L 32.40 3.50 L 38.09 1.57 L 44.00 0.39 L 50.00 0.00 L 56.00 0.39 L 61.91 1.57 L 67.60 3.50 L 73.00 6.16 L 78.00 9.51 L 82.53 13.47 L 86.49 18.00 L 89.84 23.00 L 92.50 28.40 L 94.43 34.09 L 95.61 40.00 L 96.00 46.00" fill="none" stroke="currentColor" stroke-width="2" />
+</svg>

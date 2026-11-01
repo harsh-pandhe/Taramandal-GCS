@@ -1,0 +1,9 @@
+{
+  "name": "Diwali 2026 (500 drones, sim scale only) - ring, sphere burst",
+  "n": 500,
+  "rate_hz": 10,
+  "scenes": [
+    { "name": "Ring", "shapeType": "parametric", "shapePayload": "circle", "scale": 1.0, "holdDurationSeconds": 6, "transitionDurationSeconds": 6 },
+    { "name": "Sphere burst", "shapeType": "parametric", "shapePayload": "sphere", "scale": 1.0, "holdDurationSeconds": 8, "transitionDurationSeconds": 6 }
+  ]
+}

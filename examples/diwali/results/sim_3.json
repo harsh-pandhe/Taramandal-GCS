@@ -1,0 +1,72 @@
+[
+  {
+    "file": "diwali_3drone_segment.json",
+    "n": 3,
+    "planned_duration_s": 84.2,
+    "armed_in_physics": 3,
+    "tick": {
+      "ticks": 4289,
+      "target_dt_ms": 20.0,
+      "idle_floor_ms": 20.0,
+      "gap_ms_mean": 20.0,
+      "gap_ms_p50": 19.9,
+      "gap_ms_p95": 20.87,
+      "gap_ms_max": 25.2,
+      "overshoot_ms_mean": 0.23,
+      "overshoot_ms_p95": 0.87,
+      "late_tick_pct": 0.0,
+      "effective_tick_hz": 50.0,
+      "realtime_ratio": 1.0,
+      "sim_realtime_ratio": 1.0
+    },
+    "control_loop": {
+      "ticks": 857,
+      "lateness_ms_mean": 0.73,
+      "lateness_ms_p95": 1.59,
+      "lateness_ms_max": 3.57,
+      "missed_pct": 0.0
+    },
+    "asyncio_tasks_peak": 13,
+    "proximity_breach_seen_by_gcs_monitor": false,
+    "geofence_breaches": 0,
+    "settled_at_s": 0.4,
+    "altitude_at_show_start_m": {
+      "min": 1.5,
+      "max": 3.7
+    },
+    "tracking_error_before_settle_m": {
+      "mean": 3.778,
+      "p99": 5.498,
+      "max": 5.498
+    },
+    "flown_min_separation_before_settle_m": 2.609,
+    "max_altitude_before_settle_m": 5.51,
+    "tracking_error_after_settle_m": {
+      "mean": 0.051,
+      "p99": 0.7,
+      "max": 4.922
+    },
+    "flown_min_separation_after_settle_m": 2.199,
+    "max_altitude_after_settle_m": 14.74,
+    "sampled_at_hz": 5.0,
+    "on_ground_at_end": 3,
+    "phases_s": {
+      "connect_s": 0.0,
+      "upload_s": 0.0,
+      "launch_s": 2.0,
+      "show_s": 85.8
+    },
+    "resources": {
+      "cpu_percent_mean": 4.7,
+      "cpu_percent_peak": 12.0,
+      "rss_mb_peak": 134.0,
+      "samples": 354
+    },
+    "acceptance_51": {
+      "tasks_under_50": true,
+      "control_latency_under_50ms": true,
+      "no_missed_ticks": true,
+      "realtime_factor_at_least_0_98": true
+    }
+  }
+]
