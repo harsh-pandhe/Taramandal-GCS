@@ -444,7 +444,10 @@ async def test_sim_abort_lands_one_drone_while_the_rest_fly_the_show(patched_man
         await manager.upload_show(show)
         await manager.launch_sequence()
         manager.start_trajectory(show, mode="LOCAL", execution="streamed")
-        await asyncio.sleep(3.0)  # climbed and holding
+        # This show starts on the pad, so the start first flies the fleet from
+        # its hold altitudes to it (issue #172 F3); the show proper begins after
+        # that leg. Wait for the show to take over, climb and hold.
+        await asyncio.sleep(manager.start_bridge_s + 3.0)
 
         # Count every setpoint the playback loop sends drone 0 from here on.
         offboard0 = manager.drones[0].offboard
