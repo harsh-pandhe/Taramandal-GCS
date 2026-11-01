@@ -1,0 +1,256 @@
+{
+  "label": "asis-n3-p2",
+  "started_utc": "2026-11-01T12:34:02Z",
+  "gcs": "http://127.0.0.1:8090",
+  "studio": "http://127.0.0.1:8001",
+  "steps": {
+    "validate": "certified",
+    "export": "signed",
+    "upload_trajectory": {
+      "signature": {
+        "verified": true,
+        "signer": "Studio SITL #172",
+        "key_id": "7fa30d7106e1dfbf",
+        "signed_at": "2026-11-01T12:34:03+00:00"
+      },
+      "geofence": {
+        "soft_warning_radius_m": 16.405903527216125,
+        "hard_geofence_radius_m": 21.405903527216125
+      }
+    },
+    "upload_mission": {
+      "all_verified": true,
+      "verified_count": 3,
+      "launch_gate": "ok"
+    },
+    "preflight": {
+      "launch_permitted": true,
+      "blocking_reasons": []
+    },
+    "launch": {
+      "drone_ids": [
+        0,
+        1,
+        2
+      ],
+      "excluded": []
+    },
+    "formation_hold_after_s": 9.6,
+    "start": {
+      "execution": "streamed",
+      "mode": "LOCAL",
+      "ack_latency_s": 0.009
+    },
+    "land": {
+      "status": 200,
+      "detail": "ok"
+    }
+  },
+  "verdict": "FAIL: ended in RTL; emergency transition; Gazebo min separation 0.336 m < 1.5 m; final state RTL",
+  "show_source": "stand-in: Studio sequencer circle, 3 drones, 10.0 Hz (as in #209)",
+  "num_drones": 3,
+  "planned": {
+    "duration_s": 90.2,
+    "studio_status": "PASSED",
+    "feasibility_certified": true,
+    "min_separation_m": 2.05,
+    "max_velocity_m_s": 1.3,
+    "max_jerk_m_s3": 14.14,
+    "max_altitude_m": 14.6,
+    "limits": {
+      "min_separation_m": 1.5,
+      "design_separation_m": 2.0,
+      "pad_spacing_m": 2.2,
+      "max_velocity_ms": 6.0,
+      "max_accel_ms2": 50.0,
+      "max_yaw_rate_dps": 300.0,
+      "geofence_radius_m": 30.0,
+      "max_altitude_m": 120.0,
+      "geofence_soft_warning_buffer_m": 10.0,
+      "geofence_hard_buffer_m": 15.0,
+      "max_jerk_ms3": 20.0
+    }
+  },
+  "gcs_status_before": {
+    "mode": "SIMULATION",
+    "configured_mode": "SIMULATION",
+    "backend": "px4",
+    "fidelity": "px4-sitl",
+    "active_backend": "px4",
+    "hardware_flight_certified": false,
+    "hardware_flight_available": false,
+    "num_drones": 3,
+    "connected": 3,
+    "armed": 0,
+    "trajectory_running": false,
+    "fleet_state": "STAGED",
+    "aborted": [],
+    "packet_drop_rate": null
+  },
+  "actual": {
+    "end_state": "RTL",
+    "final_state": "RTL",
+    "aborted_drones": [],
+    "emergency_transitions": [
+      {
+        "time": "2026-11-01T12:35:29.895+00:00",
+        "from": "RUNNING",
+        "to": "RTL",
+        "trigger": "failsafe:geofence",
+        "operator": "system"
+      },
+      {
+        "time": "2026-11-01T12:35:31.215+00:00",
+        "from": "RTL",
+        "to": "RTL",
+        "trigger": "failsafe:proximity",
+        "operator": "system"
+      },
+      {
+        "time": "2026-11-01T12:37:17.000+00:00",
+        "from": "LANDING",
+        "to": "RTL",
+        "trigger": "failsafe:geofence",
+        "operator": "system"
+      }
+    ],
+    "gazebo": {
+      "samples_in_show": 4435,
+      "sample_rate_hz": 49.2,
+      "real_time_factor": 0.919,
+      "longest_stall_s": 0.08,
+      "sim_stalled": false,
+      "min_separation_m": 0.336,
+      "min_separation_pair": [
+        0,
+        1
+      ],
+      "min_separation_at_s": 67.1,
+      "planned_min_separation_same_instants_m": 2.05,
+      "tracking_error": {
+        "0": {
+          "max_m": 22.852,
+          "rms_m": 9.417,
+          "p95_m": 21.509,
+          "start_transient_s": 1.53,
+          "max_after_transient_m": 22.851,
+          "rescored_from_csv_10hz": true
+        },
+        "1": {
+          "max_m": 12.769,
+          "rms_m": 3.743,
+          "p95_m": 5.572,
+          "start_transient_s": null,
+          "max_after_transient_m": 12.665,
+          "rescored_from_csv_10hz": true
+        },
+        "2": {
+          "max_m": 8.583,
+          "rms_m": 6.354,
+          "p95_m": 7.458,
+          "start_transient_s": null,
+          "max_after_transient_m": 8.578,
+          "rescored_from_csv_10hz": true
+        }
+      },
+      "max_tracking_error_m": 22.852,
+      "max_tracking_error_drone": 0,
+      "max_tracking_error_at_s": 71.9,
+      "final_position_error_m": {
+        "0": 18.246,
+        "1": 3.12,
+        "2": 6.22
+      },
+      "gcs_reported_max_tracking_error_m": {
+        "0": 23.405,
+        "1": 12.108,
+        "2": 5.94
+      },
+      "gcs_minus_gazebo_mean_offset_m": {
+        "0": [
+          -0.04,
+          -0.02,
+          0.08
+        ],
+        "1": [
+          -2.19,
+          2.12,
+          0.05
+        ],
+        "2": [
+          -4.41,
+          4.37,
+          0.06
+        ]
+      }
+    }
+  },
+  "fleet_history": [
+    {
+      "time": "2026-11-01T12:34:04.861+00:00",
+      "from": "STAGED",
+      "to": "PREARM",
+      "trigger": "POST /api/launch",
+      "operator": "sitl172"
+    },
+    {
+      "time": "2026-11-01T12:34:06.536+00:00",
+      "from": "PREARM",
+      "to": "ARMED",
+      "trigger": "telemetry:first_drone_armed",
+      "operator": "system"
+    },
+    {
+      "time": "2026-11-01T12:34:09.748+00:00",
+      "from": "ARMED",
+      "to": "TAKEOFF",
+      "trigger": "telemetry:climbing",
+      "operator": "system"
+    },
+    {
+      "time": "2026-11-01T12:34:14.168+00:00",
+      "from": "TAKEOFF",
+      "to": "FORMATION_HOLD",
+      "trigger": "telemetry:formation_altitude_reached",
+      "operator": "system"
+    },
+    {
+      "time": "2026-11-01T12:34:17.425+00:00",
+      "from": "FORMATION_HOLD",
+      "to": "RUNNING",
+      "trigger": "POST /api/start-trajectory",
+      "operator": "sitl172"
+    },
+    {
+      "time": "2026-11-01T12:35:29.895+00:00",
+      "from": "RUNNING",
+      "to": "RTL",
+      "trigger": "failsafe:geofence",
+      "operator": "system"
+    },
+    {
+      "time": "2026-11-01T12:35:31.215+00:00",
+      "from": "RTL",
+      "to": "RTL",
+      "trigger": "failsafe:proximity",
+      "operator": "system"
+    },
+    {
+      "time": "2026-11-01T12:35:50.466+00:00",
+      "from": "RTL",
+      "to": "LANDING",
+      "trigger": "POST /api/land",
+      "operator": "sitl172"
+    },
+    {
+      "time": "2026-11-01T12:37:17.000+00:00",
+      "from": "LANDING",
+      "to": "RTL",
+      "trigger": "failsafe:geofence",
+      "operator": "system"
+    }
+  ],
+  "gazebo_reader_errors": [],
+  "commit": "3ee84a1b89ab724eae6d305c7bbb314ce713d267",
+  "spawn": "as shipped (launch_fleet.sh, 0,2.2*i)"
+}
