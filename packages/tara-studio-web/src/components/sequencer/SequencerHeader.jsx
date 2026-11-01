@@ -22,7 +22,7 @@ const fmtDuration = (s) => {
  */
 export default function SequencerHeader({
   sceneCount, numDrones, rate, predictedDuration, builtDuration, stale,
-  predictionRefused, refusalMessage,
+  predictionRefused, refusalMessage, validation = null, validating = false,
 }) {
   return (
     <div className="sequencer-header">
@@ -69,6 +69,24 @@ export default function SequencerHeader({
       ) : builtDuration > 0 ? (
         <Badge tone="ok" title="Built trajectory matches the scene list">
           Built · {fmtDuration(builtDuration)}
+        </Badge>
+      ) : null}
+
+      {validating ? (
+        <Badge tone="default" title="Safety validation is running; export stays blocked until it passes">
+          Validating…
+        </Badge>
+      ) : validation?.status === 'PASSED' ? (
+        <Badge tone="ok" title="The show passed safety validation">
+          Safety passed · export open
+        </Badge>
+      ) : validation?.status === 'FAILED' ? (
+        <Badge tone="danger" title="Fix the violations in the Safety tab before exporting">
+          Safety failed · export blocked
+        </Badge>
+      ) : validation || builtDuration > 0 ? (
+        <Badge tone="warn" title="The show has not been verified; export stays blocked">
+          Unverified · export blocked
         </Badge>
       ) : null}
     </div>
