@@ -17,7 +17,6 @@ from tara_gcs.fleet_fsm import LifecycleState as S
 from tara_gcs import main as gcs_main
 from tara_gcs.auth import Operator, Role
 from tara_gcs.drone_manager import DroneManager, _pad_offset
-from tara_gcs.start_bridge import BRIDGE_PEAK_SPEED_MS
 
 COMMANDER = Operator("test-commander", Role.FLIGHT_COMMANDER)
 SAMPLE_S = 0.02
@@ -115,7 +114,7 @@ async def test_the_commanded_altitude_never_changes_faster_than_the_leg_allows(f
         await _start(_show_from_pad(3))
         planned = await _sample_planned_altitude(manager, 2.0)
 
-        limit_per_tick = BRIDGE_PEAK_SPEED_MS * 0.1 * 1.1
+        limit_per_tick = manager.start_bridge_peak_speed_ms * 0.1 * 1.1
         for i, values in planned.items():
             steps = [abs(b - a) for a, b in zip(values, values[1:])]
             assert len(steps) > 3, f"drone {i}: no commands seen"
