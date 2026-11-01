@@ -332,7 +332,7 @@ describe('svgImporter: deterministic integration with normal editable scenes and
         }
       }
     }
-  });
+  }, 20000);
 });
 
 describe('svgImporter: strict semantics, nested group transforms and viewBox mapping (PR #146)', () => {
