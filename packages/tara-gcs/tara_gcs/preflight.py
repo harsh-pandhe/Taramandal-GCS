@@ -342,6 +342,10 @@ class AuditLog:
         # as evidence from the wrong tier. Explicit fields on a record() call
         # win over the context, and a failing context never loses the entry.
         self.context = context
+        # Called with every entry as it is recorded (issue #65: the black-box
+        # recorder). Observers must not be able to break the audit trail, so a
+        # failing one is logged and skipped.
+        self.observers: list[Callable[[dict], None]] = []
 
     def record(self, event: str, **fields) -> dict:
         extra: dict = {}
@@ -353,6 +357,11 @@ class AuditLog:
         entry = {"ts": time.time(), "event": event, **extra, **fields}
         self.recent.append(entry)
         logger.info("AUDIT %s", json.dumps(entry, sort_keys=True, default=str))
+        for observer in self.observers:
+            try:
+                observer(entry)
+            except Exception:
+                logger.exception("audit observer failed; entry still recorded")
         if self.path:
             os.makedirs(os.path.dirname(self.path) or ".", exist_ok=True)
             with open(self.path, "a", encoding="utf-8") as f:

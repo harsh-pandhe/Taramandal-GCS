@@ -252,6 +252,10 @@ class FleetStateMachine:
         # "the state changed since my last frame" with one integer compare.
         self._seq = 0
         self.history: deque[dict] = deque(maxlen=history_size)
+        # Called with every audit record, accepted or rejected, as it happens
+        # (issue #65: the black-box recorder). A failing observer is logged and
+        # skipped; it must not break a lifecycle transition.
+        self.observers: list[Callable[[dict], None]] = []
 
     @property
     def state(self) -> LifecycleState:
@@ -353,6 +357,11 @@ class FleetStateMachine:
         }
 
     def _audit(self, entry: dict) -> None:
+        for observer in self.observers:
+            try:
+                observer(entry)
+            except Exception:
+                logger.exception("Fleet lifecycle: audit observer failed; transition still recorded")
         if not self.audit_path:
             return
         extra: dict = {}
