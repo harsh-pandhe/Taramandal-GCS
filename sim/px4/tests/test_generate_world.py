@@ -134,3 +134,48 @@ def test_pads_outside_the_column_cap_would_be_refused_not_silently_wrong():
             generate_world._pad_positions()
     finally:
         generate_world.PAD_COUNT = original
+
+
+def _run_world_install_block(script_dir: Path, px4_dir: Path) -> None:
+    """Run launch_fleet.sh's own world-install block, and nothing else.
+
+    The rest of the script kills running PX4/Gazebo processes, so it is not
+    safe to execute under test; the block is cut out between its two comment
+    anchors and run with the variables the script would have set.
+    """
+    import subprocess
+
+    text = (Path(generate_world.__file__).parent / "launch_fleet.sh").read_text()
+    block = text[text.index("WORLD_DEST_DIR="): text.index("# Source Gazebo environment")]
+    subprocess.run(
+        ["bash", "-c", block],
+        check=True,
+        env={"PATH": "/usr/bin:/bin", "SCRIPT_DIR": str(script_dir), "PX4_AUTOPILOT_DIR": str(px4_dir)},
+    )
+
+
+def test_launch_fleet_replaces_a_stale_installed_world(tmp_path):
+    """Issue #172 F1: the world is generated, so a copy installed by an earlier
+    run (pads on the old north axis) must not survive a fix to the generator."""
+    script_dir = tmp_path / "sim"
+    (script_dir / "worlds").mkdir(parents=True)
+    (script_dir / "worlds" / "drone_show_field.sdf").write_text("new world")
+    installed = tmp_path / "px4" / "Tools" / "simulation" / "gz" / "worlds" / "drone_show_field.sdf"
+    installed.parent.mkdir(parents=True)
+    installed.write_text("stale world")
+
+    _run_world_install_block(script_dir, tmp_path / "px4")
+
+    assert installed.read_text() == "new world"
+
+
+def test_launch_fleet_installs_the_world_when_none_is_installed(tmp_path):
+    script_dir = tmp_path / "sim"
+    (script_dir / "worlds").mkdir(parents=True)
+    (script_dir / "worlds" / "drone_show_field.sdf").write_text("new world")
+    (tmp_path / "px4").mkdir()
+
+    _run_world_install_block(script_dir, tmp_path / "px4")
+
+    installed = tmp_path / "px4" / "Tools" / "simulation" / "gz" / "worlds" / "drone_show_field.sdf"
+    assert installed.read_text() == "new world"

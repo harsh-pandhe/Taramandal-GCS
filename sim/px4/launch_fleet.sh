@@ -118,17 +118,21 @@ trap cleanup SIGINT SIGTERM EXIT
 WORLD_DEST_DIR="$PX4_AUTOPILOT_DIR/Tools/simulation/gz/worlds"
 WORLD_SRC="$SCRIPT_DIR/worlds/drone_show_field.sdf"
 WORLD_DEST="$WORLD_DEST_DIR/drone_show_field.sdf"
-if [ ! -f "$WORLD_DEST" ]; then
-  if [ -f "$WORLD_SRC" ]; then
+# The repo's copy is generated (sim/px4/generate_world.py), so it is
+# re-installed whenever it differs from what is already in the checkout - a
+# one-time copy would leave a stale world (e.g. the pre-#172 pads on Gazebo's
+# north axis) in place on every machine that had launched the fleet before.
+if [ -f "$WORLD_SRC" ]; then
+  if ! cmp -s "$WORLD_SRC" "$WORLD_DEST"; then
     echo "Installing drone_show_field.sdf into $WORLD_DEST_DIR..."
     mkdir -p "$WORLD_DEST_DIR"
     cp "$WORLD_SRC" "$WORLD_DEST"
-  else
-    echo "Error: drone_show_field.sdf not found at $WORLD_SRC or $WORLD_DEST."
-    echo "       This custom world (launch pads pad_0..pad_4 + geofence ring) is"
-    echo "       not yet committed to this repo (issue #177). See sim/px4/README.md."
-    exit 1
   fi
+elif [ ! -f "$WORLD_DEST" ]; then
+  echo "Error: drone_show_field.sdf not found at $WORLD_SRC or $WORLD_DEST."
+  echo "       This custom world (launch pads pad_0..pad_4 + geofence ring) is"
+  echo "       not yet committed to this repo (issue #177). See sim/px4/README.md."
+  exit 1
 fi
 
 # Source Gazebo environment. PX4 main moved this file in 2026-10 from
