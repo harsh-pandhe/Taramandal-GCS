@@ -24,6 +24,7 @@ Every tier label below follows the fidelity convention #170 established:
 | Architecture diagram with trust/safety boundaries | Done, this document |
 | Results matrix (T1 / T2 / T3) | Partially done — T1 filled, T2 partially filled (single-drone only), T3 not started |
 | Test evidence table (SHA, PR, fleet size, timing, separation) | Done for everything flown so far |
+| Repeatable evidence checklist (commands that reproduce each result) | Done, [section 8](#8-repeatable-evidence-checklist); the human-gated items are listed there as blocked, not faked |
 | Recordings (Studio full-screen preview, GCS + Gazebo + RViz) | **Not done** — Harsh's hardware/recording pass, see [#171](https://github.com/harsh-pandhe/Taramandal-GCS/issues/171) |
 | Hardware BOM, wiring/configuration | **Not done** — owned by the hardware lead, not yet supplied |
 | Asset/music provenance and usage rights | **Not done** — blocked on sourcing a licensed track, see [#132](https://github.com/harsh-pandhe/Taramandal-GCS/issues/132) |
@@ -194,6 +195,87 @@ track has been sourced. Placeholder section.
   choreography in #91, and the broader AI copilot work in #89/#90/#94 — is
   explicitly out of this pack's scope; V1's evidence capture is
   deliberately the smaller slice #65's own roadmap note describes.
+
+## 8. Repeatable evidence checklist
+
+Run from the repo root with the venv active (`source .venv/bin/activate`) and
+`export PYTEST_DISABLE_PLUGIN_AUTOLOAD=1` (what `scripts/ci-gates/lib.sh`
+sets; it keeps ROS's pytest plugins out). "Re-run" means the command was run
+again, as written here, on 2026-11-01 (Ubuntu, Python 3.12) while writing this
+section. Anything not marked re-run is documented but was not re-run then.
+
+### A. Software evidence, no special hardware (T1)
+
+| # | Claim in this pack | Command | Expect | Re-run |
+|---|---|---|---|---|
+| A1 | Environment is sane | `./tara doctor` | Every check green; a red line names its own fix | no (needs PX4 build for the px4 checks) |
+| A2 | Studio shows certify the jerk gate through the real `/api/export` (#160) | `pytest -p asyncio -q packages/tara-studio/tests/test_issue_160_jerk_pacing_certification.py` | all 5 reference shows pass | yes |
+| A3 | 5 formation generators, zero proximity/geofence/altitude violations | `pytest -p asyncio -q packages/tara-studio/tests/test_generator_regression.py` | pass | yes |
+| A4 | Circle orbit completes a full turn at N=50-100 (#88) | `pytest -p asyncio -q packages/tara-studio/tests/test_issue_88_circle_orbit_pacing.py` | pass | yes |
+| A5 | `validate_show` stays near-linear at 500 drones (#164) | `pytest -p asyncio -q packages/tara-core/tests/test_validate_scale.py` | pass (a CI regression guard, not a timing table) | yes |
+| A6 | Studio-built show through the GCS on the sim backend (#172, T1 half) | `pytest -p asyncio -q packages/tara-gcs/tests/test_issue_172_studio_gcs_e2e.py` | pass | yes |
+| A7 | RF channel model (#62) | `pytest -p asyncio -q packages/tara-sim/tests/test_rf_channel.py packages/tara-gcs/tests/test_sim_rf_channel.py` | pass | yes |
+| A8 | Fault injection (#63) | `pytest -p asyncio -q packages/tara-gcs/tests/test_fault_injection.py` | pass | yes |
+| A9 | 100-drone sim show, zero safety violations (CI's scale gate) | `./scripts/ci --job scale-regression`, or `pytest -p asyncio -v packages/tara-gcs/tests/test_sim_backend.py::test_100_drone_sim_show_completes_with_zero_safety_violations` | pass; takes ~1.5 min by design (launch stagger) | yes (pytest form) |
+| A10 | GCS recovers from kill + restart mid-show | `pytest -p asyncio -q packages/tara-gcs/tests/test_show_resume.py` | pass; marked `slow`, so CI skips it | yes |
+| A11 | Real-time factor and late ticks vs fleet size | `python tools/benchmark_fleet_scale.py -n 100,500,1000` | xRT about 1.00, 0.0% late ticks at each size; writes `tools/benchmark_results.json` (gitignored) | `-n 100` only: xRT 1.00, 0.0% late |
+| A12 | Full Python suite, including `slow` | `pytest -p asyncio` (CI's gate is `pytest -p asyncio -m "not slow"`, i.e. `./scripts/ci --job python-tests`) | no failures | no |
+
+A2-A8 ran together as one command: 88 passed in about 35 s. A9 and
+A10 together: 10 passed in about 104 s.
+
+### B. Studio web (the #132 evidence)
+
+| # | Claim | Command | Expect | Re-run |
+|---|---|---|---|---|
+| B1 | Unit tests | `cd packages/tara-studio-web && npm ci && npm test` | all pass (551 on the #210 branch) | yes, on #210's branch |
+| B2 | Lint and production build | `npm run lint && npm run build` | clean | yes, on #210's branch |
+| B3 | Visual baselines unchanged | `npm run test:e2e:docker` (Docker required; do not run Playwright natively, its fonts differ from CI) | 54 passed | yes, on #210's branch |
+| B4 | A visual change is intentional | `npm run test:e2e:docker:update`, then review every changed PNG in `e2e/studio.spec.js-snapshots/`, then re-run B3 without `--update` | B3 passes; each changed image is justified in the PR | done for #210 |
+| B5 | The CI gates as CI runs them | `./scripts/ci` (or `--job lint-and-typecheck`, `frontend-tests`, `test-e2e`; `--list` prints the names) | all gates pass | no |
+
+B1-B3 describe the #210 branch, not `main` after it; re-run them on `main`
+once #210 merges and put that SHA in section 4.
+
+### C. T2: PX4 SITL + Gazebo (needs the PX4 build)
+
+Prerequisites are in [sim/px4/README.md](../sim/px4/README.md): pinned PX4
+v1.16.2, Gazebo Sim 8, and the generated world
+(`PYTHONPATH=packages/tara-core python3 sim/px4/generate_world.py`).
+
+| # | Claim | Command | Expect | Re-run |
+|---|---|---|---|---|
+| C1 | The PX4 stack comes up | `./tara doctor`, then `./tara up --backend px4 -n 1 --allow-unsigned` | doctor all green; GCS, Studio and both web servers answer | no (done once, in the #171 findings comment) |
+| C2 | Single-drone hover cycle (#145) | With the stack up and a Commander-role operator: `POST $GCS_URL/api/auth/login` with `{"operator": ..., "passphrase": ...}`, then `POST $GCS_URL/api/single-drone/hover-sequence` with `Authorization: Bearer <token>` and `{"target_altitude_m": 1.0, "hover_duration_s": 5.0}` | PREFLIGHT, ARM, climb to within the `max(0.15, 0.1 x target)` tolerance (0.86 m observed), hold, land, disarm | no (done twice in the #171 comment) |
+| C3 | Duplicate hover request is rejected | Send C2's second request while the first is climbing | HTTP error "A single-drone sequence is already running on drone 0."; the first flight is unaffected | no (done once) |
+
+`GCS_URL` is the gcs-api address `tara up` prints. The throwaway-operator and
+login setup is demonstrated in `packages/tara-gcs/tests/test_show_resume.py`.
+
+### D. Known gaps in reproducibility (not hidden)
+
+- **`/api/validate` latency table** (about 1.7 s / 8 s / 21 s at 100 / 500 /
+  1000): measured with a throwaway script that was not committed. A5 guards
+  the 500-drone direct call but does not reproduce the HTTP figures. Either
+  commit the script or treat the table as a one-time measurement.
+- **35-drone Dandiya "min separation 2.000000 m" claim** (section 3): its
+  source is a comment on #134; no committed command regenerates it.
+- **Exact original reference-show parameters for #160** were not preserved;
+  A2 runs reconstructions.
+- **Other fault-matrix cases** (link loss, stale telemetry, rejected
+  pre-preflight arm, abort mid-climb, manual takeover) have no checklist line
+  because they have not been run.
+
+### E. Blocked: cannot be done from the sandbox
+
+| Item | Blocked on | Why |
+|---|---|---|
+| #132 walkthrough recording (Studio create, build, validate, full-screen preview, export, no terminal) | a human with a screen recorder | The pack must not contain a simulated recording. Repeatable once someone does it: start `./tara up --backend sim -n 20`, open Studio, follow the walkthrough in #132's acceptance list, and record at 1440x900 |
+| Gazebo + RViz + GCS dashboard recording (#171) | Harsh (owns the run); RViz and a display are not available here | Acceptance needs all three visible |
+| Remaining T2 fault-matrix cases (#171) | Harsh's recorded pass | Same |
+| Music track and usage rights (#132) | Harsh to approve a licensed source | No track has been chosen; do not add one without recorded rights |
+| Studio-built show flown on PX4 + Gazebo (#172, T2 half) | PX4 environment time | The C-section commands above cover single-drone only |
+| Hardware (T3), BOM, wiring (#135) | Safety approval; hardware lead; Harsh's PX4-vs-ArduCopter answer | Nothing exists to run |
 
 ---
 
