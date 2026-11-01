@@ -13,7 +13,6 @@ import time
 import pytest
 from fastapi import HTTPException
 
-from tara_core.geometry import interpolate_waypoint
 from tara_gcs.fleet_fsm import LifecycleState as S
 from tara_gcs import main as gcs_main
 from tara_gcs.auth import Operator, Role
