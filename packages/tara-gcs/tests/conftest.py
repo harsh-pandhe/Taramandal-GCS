@@ -19,6 +19,13 @@ def pytest_configure(config):
 
 
 @pytest.fixture(autouse=True)
+def _blackbox_in_tmp(tmp_path, monkeypatch):
+    """The flight recorder is on by default (issue #65), so any test that runs the
+    GCS startup would otherwise write session files into the source tree."""
+    monkeypatch.setenv("GCS_BLACKBOX_DIR", str(tmp_path / "blackbox"))
+
+
+@pytest.fixture(autouse=True)
 def _logged_in_commander(request):
     if request.node.get_closest_marker("real_auth"):
         yield
