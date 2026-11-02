@@ -746,6 +746,12 @@ class PreArmChecklistEngine:
         else:
             missing = [name for name, ok in (("not armable", armable), ("no home lock", home_ok)) if not ok]
             ekf_detail = ", ".join(missing).capitalize()
+            # is_armable is one flag for every cause. PX4 on the ground in LAND
+            # or POSCTL reports not armable (issue #171), which used to read as
+            # an EKF fault here. The gate stays red; the mode may be why.
+            mode = tel.get("flight_mode")
+            if not armable and mode not in (None, "UNKNOWN", "HOLD"):
+                ekf_detail += f"; PX4 is in {mode}, which can block arming even with a healthy EKF: set HOLD and re-check"
         yield "ekf_health", connected and armable and home_ok, ekf_detail
 
         yield ("trajectory_hash", *self._check_trajectory(drone_id, tel, trajectory))
