@@ -10,6 +10,7 @@ through ``/api/sim/inject-fault`` - the safety breach.
 import asyncio
 import glob
 import os
+import threading
 import time
 
 import numpy as np
@@ -350,6 +351,47 @@ async def test_stop_during_rotation_waits_for_rotated_out_session_close(tmp_path
     finally:
         if svc.recorder and not svc.recorder.closed:
             await svc.stop()
+
+
+async def test_stop_cancelling_the_sampler_mid_rotation_still_finishes_the_old_file(tmp_path):
+    """The defect behind the shield in _rotate: the sampler task itself runs the rotation,
+    and stop() cancels it. Before the fix that cancel landed inside the executor close, so
+    stop() returned while the rotated-out file still had no gzip trailer. (The test above
+    runs _rotate() in a task nothing cancels, so it passes with or without the fix.)"""
+    dm = FakeDM(n=100)
+    svc = BlackboxService(
+        dm, directory=str(tmp_path), max_total_mb=1.0, file_mb=0.01,
+        recorder_kwargs={"fsync_interval_s": None, "flush_interval_s": 0.05},
+    )
+    svc.start()
+    old = svc.recorder
+    old_path = old.path
+    orig_close = old.close
+    close_started = threading.Event()
+
+    def slow_close():
+        close_started.set()
+        time.sleep(0.4)  # the trailer is written only after this
+        return orig_close()
+
+    old.close = slow_close
+    try:
+        for _ in range(400):  # noisy data: the sampler's own poll rotates the file once it is big enough
+            dm.jitter()
+            await asyncio.sleep(0.05)
+            if close_started.is_set():
+                break
+        assert close_started.is_set(), "the sampler never rotated"
+        assert svc.recorder is not old  # a new session is already live, the old one is mid-close
+
+        await asyncio.wait_for(svc.stop(), timeout=5.0)  # stop() returns, and it cancelled the sampler mid-close
+    finally:
+        if svc.recorder is not None:
+            await svc.stop()
+
+    log = read_blackbox(old_path)  # read immediately: no grace period for a close still running in a thread
+    assert not log.truncated and log.ticks
+    assert svc._task is None and not svc._finishing
 
 
 async def test_a_disk_failure_is_swallowed_and_a_fresh_file_takes_over(tmp_path, monkeypatch, caplog):

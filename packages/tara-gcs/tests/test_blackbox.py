@@ -456,6 +456,8 @@ async def test_recording_does_not_slow_a_10hz_loop(tmp_path):
         with_rec = await run(rec)
     finally:
         rec.close()
-    assert rec.ticks == ticks
+    # Under CPU load the loop falls behind and catches up with back-to-back calls; the recorder's rate
+    # limit (nothing closer than half a period) deliberately drops those, so allow a few.
+    assert ticks - 5 <= rec.ticks <= ticks, rec.ticks
     print(f"\nmean tick lateness: {base:.3f} ms without, {with_rec:.3f} ms with the recorder")
     assert with_rec - base < 5.0
