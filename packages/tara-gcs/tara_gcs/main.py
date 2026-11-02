@@ -493,6 +493,24 @@ class SingleDroneSequenceRequest(BaseModel):
     hover_duration_s: float = Field(default=5.0, ge=1.0, le=30.0, description="Hover duration in seconds (1.0s - 30.0s)")
 
 
+def _why_fleet_is_not_parked() -> str | None:
+    """The first drone not confirmed disarmed and on the ground from fresh
+    telemetry, as an operator-facing reason; None if the whole fleet is parked.
+    Unknown or stale counts as not parked, and the armed flag is the last known
+    one: a link loss must not read as a drone having come down.
+    """
+    for drone_id, tel in drone_manager.telemetry.items():
+        if tel.get("armed"):
+            return f"Drone {drone_id} is armed."
+        try:
+            on_ground = drone_manager._is_confirmed_on_ground(drone_id, tel, "with a show loaded")
+        except RuntimeError as e:
+            return f"{e}."
+        if not on_ground:
+            return f"Drone {drone_id} is not confirmed on the ground (landed state: {tel.get('landed_state')})."
+    return None
+
+
 @app.post("/api/single-drone/hover-sequence")
 async def run_single_drone_sequence(
     req: SingleDroneSequenceRequest = SingleDroneSequenceRequest(),
@@ -529,11 +547,21 @@ async def run_single_drone_sequence(
     # fleet show can be mid-flight without having moved the FSM yet (e.g. a
     # restart), so check the running-show flags directly too — the same
     # defense-in-depth /api/launch already applies.
-    if drone_manager.is_running_trajectory or drone_manager.active_trajectory is not None:
+    if drone_manager.is_running_trajectory:
         raise HTTPException(
             status_code=409,
             detail="Cannot run the single-drone sequence while a fleet show is active.",
         )
+    # A loaded show alone flies nothing: active_trajectory stays set from upload
+    # on, through to after the show ends (issue #171). Only a parked fleet tells
+    # that apart from a resumed show whose drones are still up after a restart.
+    if drone_manager.active_trajectory is not None:
+        not_parked = _why_fleet_is_not_parked()
+        if not_parked:
+            raise HTTPException(
+                status_code=409,
+                detail=f"Cannot run the single-drone sequence while a fleet show is active: {not_parked}",
+            )
     if drone_id in drone_manager.single_drone_sequence_active:
         raise HTTPException(
             status_code=409,
