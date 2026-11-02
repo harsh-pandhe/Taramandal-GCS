@@ -6,6 +6,11 @@ flights, not hardware.
 **Tool:** [`tools/sitl_planned_vs_actual.py`](../tools/sitl_planned_vs_actual.py).
 **Raw run records:** [`docs/sitl-planned-vs-actual/`](sitl-planned-vs-actual/), one JSON file per run.
 
+**Update 2026-11-02:** F1 and F2 are now fixed on main. The real Diwali 3-drone
+segment passes 3 runs out of 3 on `7a6ab70` with no rig workarounds, with the F3
+start dive still present: see [section D](#d-baseline-f3-dive-present-the-real-diwali-segment-on-main).
+The paragraph below and sections A to C describe the earlier runs on `3ee84a1`.
+
 ## Result in one paragraph
 
 The whole software chain works on real PX4 SITL. Studio builds the show and
@@ -148,6 +153,63 @@ because the sequencer scales its transitions to the formation size. Higher
 drones also hover higher before the start (`altitude_layers`: 2, 4, …, 20 m),
 so the start transient grows with N regardless of sim speed.
 
+### D. Baseline, F3 dive present: the real Diwali segment on main
+
+**Flown 2026-11-02 on `7a6ab70`.** F1 (#215) and F2 (#217) are merged; the F3
+fix (#220) is not, so every run still starts with the dive. This section is the
+baseline to compare against once F3 lands; the runs get repeated then.
+
+- **Show (3 drones):** `examples/diwali/segments/diwali_3drone_segment.json`,
+  84.2 s. `tools/diwali_run_all.sh` with `DIWALI_SIZES=3` rebuilt it
+  byte-identically. The tool then re-exported it with `sign: true`, which left
+  the waypoints unchanged, and the GCS verified the signature on every upload.
+  `--allow-unsigned` was not used.
+- **Show (5 and 8 drones):** the same storyboard built with
+  `tools/diwali_build.mjs --n N`. Both certified with 0 violations.
+- **No rig workarounds:** no manual `mkdir` and no patched `launch_fleet.sh`.
+  Every run used a brand-new container, so the mission upload created
+  `/fs/microsd/tara` itself each time (0 `microsd` directories before the stack
+  started, all missions verified).
+- **Rig setup that remains:** the image has no Node, so the host's Node and npm
+  are copied in, and the Python venv and `node_modules` come from the host
+  checkout. A scratch `tara.toml` adds the trusted key; it is otherwise main's
+  file.
+
+| Run | Drones | Verdict | Studio min sep (m) | Gazebo min sep (m) | Start transient (s) | Max error after transient, tool (m) | Max error from 1 s after transient (m) | Max tracking error, incl. dive (m) | Worst landing error (m) | RTF | Abort / RTL | Final state |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| baseline-f3dive-n3-p1 | 3 | PASS | 2.20 | 2.169 | 3.71 | 0.496 | 0.323 | 5.96 | 0.083 | 0.993 | none | DISARMED |
+| baseline-f3dive-n3-p2 | 3 | PASS | 2.20 | 2.159 | 3.64 | 0.497 | 0.337 | 5.98 | 0.044 | 0.997 | none | DISARMED |
+| baseline-f3dive-n3-p3 | 3 | PASS | 2.20 | 2.147 | 3.52 | 0.500 | 0.274 | 5.91 | 0.065 | 1.000 | none | DISARMED |
+| baseline-f3dive-n5-p1 | 5 | PASS | 2.20 | 2.152 | 5.52 | 0.497 | 0.307 | 9.93 | 0.054 | 0.980 | none | DISARMED |
+| baseline-f3dive-n8-p1 | 8 | PASS | 2.20 | 2.106 | 7.67 | 0.643 | 0.641 | 15.91 | 0.048 | 0.913 | none | DISARMED |
+
+All five met the tool's pass rule: certified and signed, SHOW_COMPLETE, no
+abort or RTL, Gazebo min separation at or above 1.5 m, all drones disarmed. No
+run was discarded and none stalled (longest stall 0.05 s). No drone was
+excluded or re-mapped at upload. Landing used the normal operator LAND after
+SHOW_COMPLETE.
+
+**Reading the table:**
+
+- **The dive is visible and grows with fleet size.** Each drone drops from its
+  formation layer to meet the plan, which is climbing from the pad. That gives
+  the 5.9 m maximum error at 3 drones and 15.9 m at 8. The lowest point in the
+  first 12 s was 0.76–0.81 m above ground. Peak descent was about 1.6 m/s. It
+  did not bring any pair under the limit.
+- **The tool's "max error after transient" is close to 0.5 m by construction.**
+  It measures from the moment the error first drops under 0.5 m, so it starts
+  at that value. The "from 1 s after transient" column is the better figure for
+  steady tracking. It is recomputed from the 10 Hz CSVs and stored in each
+  JSON's `run_context`.
+- **8 drones is near the rig's limit.** Real-time factor (RTF) was 0.913, just
+  above the tool's 0.9 "degraded" line, and steady tracking error about doubled
+  to 0.64 m. Nothing else was running in Docker, so this comes from fleet size.
+  It is one run.
+- **Host load did not affect the results.** 1-minute load was 2.8–4.0 before
+  each run, and RTF was 0.98 or better at 3 and 5 drones.
+
+Each JSON carries `run_context.note = "baseline, F3 dive present"`.
+
 ## Findings
 
 These are filed here and on #172. None was fixed in this PR, per the lane
@@ -212,11 +274,8 @@ on the pad (Studio/GCS interface).**
 ## Not done
 
 - **RViz and the recording** (see Setup).
-- **The real Diwali 3-drone segment.** These runs used the #209 stand-in.
-  Re-run with `--show <exported choreo JSON>` when Tab 4's segment is ready.
-- **Passes on the repository as it is.** Section A is the honest
-  acceptance result: it fails until F1 is fixed (and until F2 is fixed or
-  worked around). Section B shows the chain passes once F1 is fixed.
+- **The acceptance rerun after F3.** Section D is the baseline with the dive
+  still present. Repeat it once #220 merges.
 - **`execution="onboard"`.** Stock PX4 SITL has no onboard show executor (out
   of scope per #172).
 
@@ -231,13 +290,12 @@ Run inside a container from `taramandal-px4-sitl:v1.16.2` with the checkout at
 ./tara keygen /scratch/studio.pem --signer "Studio SITL #172"   # paste its line into /scratch/tara.toml [security].trusted_keys
 PYTHONPATH=packages/tara-gcs:packages/tara-core python -c 'from pathlib import Path; from tara_gcs.auth import OperatorStore, Role; OperatorStore(Path("/scratch/operators.json")).add("sitl172", Role.FLIGHT_COMMANDER, "<passphrase>")'
 
-# per run: fresh stack (rig workaround for F2 first)
-for i in $(seq 0 15); do mkdir -p /home/px4/PX4-Autopilot/build/px4_sitl_default/rootfs/$i/fs/microsd; done
+# per run: new container, fresh stack (no mkdir needed since F2, #217)
 GCS_CONFIG_PATH=/scratch/tara.toml STUDIO_SIGNING_KEY=/scratch/studio.pem \
 GCS_OPERATORS_PATH=/scratch/operators.json PX4_AUTOPILOT_DIR=/home/px4/PX4-Autopilot \
   ./tara up --backend px4 -n 3 &
 # once /api/status shows connected == 3:
-TARA_PASSPHRASE='<passphrase>' python3 tools/sitl_planned_vs_actual.py run --drones 3 --out /scratch/runs --label p1 --commit "$(git rev-parse HEAD)"
+TARA_PASSPHRASE='<passphrase>' python3 tools/sitl_planned_vs_actual.py run --show examples/diwali/segments/diwali_3drone_segment.json --out /scratch/runs --label p1 --commit "$(git rev-parse HEAD)"
 python3 tools/sitl_planned_vs_actual.py summarize /scratch/runs/*.json
 ```
 
