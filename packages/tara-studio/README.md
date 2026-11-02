@@ -137,9 +137,20 @@ docstring in `ai_author.py` for the schema/repair design.
 - **Model**: [`qwen2.5:7b`](https://huggingface.co/Qwen/Qwen2.5-7B-Instruct)
   served locally via [Ollama](https://ollama.com) (`OLLAMA_MODEL` env var to
   override the tag). This is the S0 baseline measured in the issue — no
-  further models were benchmarked for V1. Pin the digest you actually pull
-  (`ollama list` after `ollama pull qwen2.5:7b`), not just the mutable
-  `:7b` tag, since a tag can be repointed upstream.
+  further models were benchmarked for V1.
+- **Pinned digest** (a tag can be repointed upstream, so the tag alone does
+  not identify the weights): `qwen2.5:7b` is Ollama model ID `845dbda0ea48`,
+  full digest
+  `sha256:845dbda0ea48ed749caafd9e6037047aa19acfcfd82e704d7ca97d631a0b697e`
+  (7.6B parameters, Q4_K_M). This is the digest of the copy in the
+  development machine's Ollama, pulled 2026-10-12, read with
+  `curl -s localhost:11434/api/tags` (the `digest` field; `ollama list`
+  shows its first 12 characters as `ID`). On 2026-11-02 it also matched the
+  registry: `curl -s -H "Accept: application/vnd.docker.distribution.manifest.v2+json"
+  https://registry.ollama.ai/v2/library/qwen2.5/manifests/7b | sha256sum`
+  printed the same value. The digest is recorded here, not enforced: nothing
+  in Studio checks it at runtime. If you pull the model again, re-run the
+  `/api/tags` command and update this line if the digest differs.
 - **License**: Apache License 2.0 (per the
   [official model card](https://huggingface.co/Qwen/Qwen2.5-7B-Instruct)),
   permits commercial use; keep the license/copyright notice if you
