@@ -144,6 +144,37 @@ def test_a_fleet_with_no_known_position_at_all_is_refused_not_stepped():
         build_start_bridge(_show_from_pad(2), {})
 
 
+def test_a_drone_with_no_position_refuses_the_start_even_when_every_other_drone_is_in_place():
+    """Review of #220, B-2 gap: refusing only when a leg was needed left this
+    case open. Drones 0 and 1 are already at their first waypoints, drone 2 has
+    no position. Whether drone 2 needs a leg cannot be known, so it took the old
+    unchecked step to its first waypoint with nothing said."""
+    show = {
+        0: [{"time": 0.0, "x": 0.0, "y": 0.0, "z": -5.0, "yaw": 0.0}],
+        1: [{"time": 0.0, "x": 3.0, "y": 0.0, "z": -5.0, "yaw": 0.0}],
+        2: [{"time": 0.0, "x": 6.0, "y": 0.0, "z": -5.0, "yaw": 0.0}],
+    }
+    hold = {0: (0.0, 0.0, -5.0), 1: (3.0, 0.0, -5.0)}
+
+    with pytest.raises(StartBridgeError, match=r"Drone 2\b") as refused:
+        build_start_bridge(show, hold)
+
+    assert "Drone 0" not in str(refused.value) and "Drone 1" not in str(refused.value)
+
+
+def test_a_fleet_already_in_place_with_every_position_known_still_starts_untouched():
+    """The refusal is about unknown positions, not about shows that start at the hold."""
+    show = {
+        0: [{"time": 0.0, "x": 0.0, "y": 0.0, "z": -5.0, "yaw": 0.0}],
+        1: [{"time": 0.0, "x": 3.0, "y": 0.0, "z": -5.0, "yaw": 0.0}],
+    }
+
+    plan, bridge_s = build_start_bridge(show, {0: (0.0, 0.0, -5.0), 1: (3.0, 0.0, -5.0)})
+
+    assert plan is show
+    assert bridge_s == 0.0
+
+
 def test_a_drone_with_no_waypoints_needs_no_position():
     show = {**_show_from_pad(2), 2: []}
 
