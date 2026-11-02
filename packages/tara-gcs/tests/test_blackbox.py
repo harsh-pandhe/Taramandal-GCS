@@ -68,6 +68,14 @@ def _rec(tmp_path, clock, **kw):
     return BlackboxRecorder(str(tmp_path / "b.jsonl.gz"), clock=clock, wall_clock=lambda: 1_700_000_000.0, **kw)
 
 
+def test_session_file_permissions_are_0600(tmp_path, clock):
+    rec = _rec(tmp_path, clock)
+    rec.close()
+    if os.name == "posix":
+        mode = os.stat(rec.path).st_mode & 0o777
+        assert mode == 0o600
+
+
 # ---------------------------------------------------------------- round trip
 
 

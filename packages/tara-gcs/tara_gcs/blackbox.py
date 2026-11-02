@@ -175,7 +175,13 @@ class BlackboxRecorder:
         directory = os.path.dirname(path)
         if directory:
             os.makedirs(directory, exist_ok=True)
-        self._file = open(path, "xb")  # exclusive: refuse to overwrite an earlier session
+        # Create exclusive with mode 0600 (owner read/write only) to protect operator identity and audit details
+        fd = os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+        try:
+            os.fchmod(fd, 0o600)
+        except OSError:
+            pass
+        self._file = open(fd, "wb")
         self._comp = zlib.compressobj(compresslevel, zlib.DEFLATED, 16 + zlib.MAX_WBITS)
 
         self._t0 = clock()
