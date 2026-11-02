@@ -7,6 +7,8 @@ A storyboard for the 8 Nov demo, built with Studio's existing engine only (no en
 | `storyboard_35.json` | 35 | diya, rangoli, ring, sphere burst | the near-term show |
 | `storyboard_35_lettering.json` | 35 | DIWALI, then the above | certified, but lettering is not legible (see below) |
 | `storyboard_100.json` | 100 | HAPPY, DIWALI, diya, rangoli, sphere burst | the full greeting |
+| `storyboard_35_figures.json` | 35 | diya, rangoli, sphere burst, diya | **figures-only fallback**, no spelled greeting |
+| `storyboard_100_figures.json` | 100 | diya, rangoli, sphere burst, diya | **figures-only fallback**, no spelled greeting |
 | `storyboard_500.json` | 500 | ring, sphere burst | sim scale run only |
 | `storyboard_3.json` | 3 | ring, sphere burst, ring | segment for Gazebo/PX4, see `segments/README.md` |
 
@@ -38,6 +40,21 @@ Minimum separation is measured on the exported JSON, independently of the valida
 | 500 | 0.78 | 4.4% | 1.73 s | 9.6% | no | 2.04 m | 0.20 / 2.2 / 4.4 m |
 
 Once the fleet is on the plan it stays on it: separation never fell below 2.04 m and no drone left the geofence. The sim itself is the weak point at show scale. `tools/benchmark_fleet_scale.py`'s 15 s synthetic show runs at 1.00x at every size, but a real show with thousands of waypoints per drone does not. The mission executor alone costs 0.5 ms per tick at 100 drones and 4 ms at 500 (profiled in isolation, 20 ms budget), so it does not explain the shortfall by itself; the cause is not yet known. At 500, 253 of 500 drones were still airborne when the sampling window closed at the planned duration, consistent with physics running 22% slower than the UTC mission clock.
+
+## Figures-only fallback (no spelled greeting)
+
+For the case where the lettering is dropped. Same engine, same fixtures, no text: diya, rangoli, sphere burst, then the diya again as the finale. The 35-drone show uses the stock `diya_flame.svg`; the 100-drone show uses `diya_festive.svg` (the stock diya is refused at 100). Previews: `previews/figures_only_35_drones.png`, `previews/figures_only_100_drones.png`.
+
+Both certify through the real `/api/export` as flight exports (json and tara, HTTP 200, `preview_only: false`, 0 violations, `results/certify_*_figures.json`).
+
+| Drones | Duration | Min separation | Peak altitude | Max velocity / accel / jerk | .tara size |
+|---:|---:|---:|---:|---|---:|
+| 35 | 216.2 s | 2.05 m | 34.4 m | 2.0 m/s / 2.45 m/s² / 17.3 m/s³ | 1.2 MB |
+| 100 | 269.6 s | 2.05 m | 62.8 m | 2.6 m/s / 3.0 m/s² / 17.3 m/s³ | 4.3 MB |
+
+T1 `tara_sim` flight (`results/sim_*_figures.json`): no proximity breach and no geofence breach at either size; flown minimum separation after settling 2.045 m at both; tracking error after settling 0.04 m mean and 0.25 m p99 at 35, 0.08 m mean and 0.96 m p99 at 100 (max 5.0 m and 4.1 m). The launch-layer dive described below is present here too (settles in 6.6 s at 35, 15.3 s at 100). **The real-time factors, 0.96 at 35 and 0.88 at 100, were measured on a loaded host** (load average about 25 on 16 cores, other jobs running) and are lower bounds; the earlier idle-host runs of the lettered shows gave 0.98 and 0.93.
+
+What reads and what does not, from the previews: the diya, the rangoli and the sphere read clearly at 100 drones. At 35 the diya and sphere read; the rangoli is sparse (about 35 points on a flower). The heart and the ring were left out: Studio lays them out flat in plan view, so from a front audience view they are a grid of dots. They only read from above (for example the full-screen preview camera).
 
 ## What did not work, and why
 
