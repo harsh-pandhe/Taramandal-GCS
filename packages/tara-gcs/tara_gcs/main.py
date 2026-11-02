@@ -13,6 +13,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, Field
+from tara_gcs.blackbox import DEFAULT_DIR as BLACKBOX_DEFAULT_DIR
+from tara_gcs.blackbox_service import BlackboxService
 from tara_gcs.drone_manager import DroneManager
 from tara_gcs.fleet_fsm import Command, IllegalTransitionError
 from tara_gcs.trajectory_parser import parse_trajectory_bytes
@@ -277,6 +279,38 @@ def auth_login(req: LoginRequest, request: Request):
     return {"token": token, "expires_at": session.expires_at, **operator.public()}
 
 
+#: The flight recorder (issue #65), built in startup_event so its settings are read
+#: when the GCS starts, not when this module is first imported.
+blackbox_service: BlackboxService | None = None
+
+
+def _build_blackbox_service() -> BlackboxService | None:
+    """GCS_BLACKBOX=0 disables it; GCS_BLACKBOX_DIR, GCS_BLACKBOX_MAX_MB (total,
+    default 500) and GCS_BLACKBOX_FILE_MB (rotation, default 100) tune it. A bad
+    setting is logged and the GCS starts without a recorder rather than not at all."""
+    if os.environ.get("GCS_BLACKBOX", "1").strip().lower() in ("0", "false", "no", "off"):
+        logger.info("Black-box recorder disabled (GCS_BLACKBOX=0).")
+        return None
+    try:
+        return BlackboxService(
+            drone_manager,
+            audit_logs=(command_audit, preflight_engine.audit),
+            directory=os.environ.get("GCS_BLACKBOX_DIR") or BLACKBOX_DEFAULT_DIR,
+            max_total_mb=float(os.environ.get("GCS_BLACKBOX_MAX_MB", 500)),
+            file_mb=float(os.environ.get("GCS_BLACKBOX_FILE_MB", 100)),
+            context=lambda: {**_backend_audit_context(), "operating_mode": current_operating_mode},
+        )
+    except Exception:
+        logger.exception("Black-box recorder settings are invalid; starting the GCS without it")
+        return None
+
+
+@app.get("/api/blackbox/status")
+async def blackbox_status(operator: Viewer):
+    """Whether the flight recorder is running, where it writes, and what it has captured."""
+    return blackbox_service.status() if blackbox_service else {"enabled": False, "recording": False}
+
+
 @app.get("/api/audit/commands")
 async def command_audit_trail(limit: int = 100, *, operator: Viewer):
     """Most recent command-audit entries: logins and state-changing API calls."""
@@ -344,6 +378,13 @@ async def startup_event():
             "to resume (/api/resume-show) or discard (/api/discard-show) it."
         )
 
+    # Start the flight recorder before the fleet connects, so the connect-time
+    # lifecycle transitions are on record too. It never raises (issue #65).
+    global blackbox_service
+    blackbox_service = _build_blackbox_service()
+    if blackbox_service:
+        blackbox_service.start()
+
     # Run drone manager connections in background with error handling
     async def run_connections():
         try:
@@ -356,6 +397,8 @@ async def startup_event():
 async def shutdown_event():
     logger.info("Shutting down Ground Control Station...")
     await drone_manager.shutdown()
+    if blackbox_service:  # after the fleet is down, so its last transitions are recorded
+        await blackbox_service.stop()
     # Processes the GCS spawned are the GCS's to clean up. Without this an API
     # restart orphans a whole PX4/Gazebo fleet, and the next launch fails on a
     # port and Gazebo-partition collision.
