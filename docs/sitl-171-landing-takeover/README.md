@@ -11,4 +11,5 @@ mode/armed stream (an independent MAVSDK client on 14550) for 25 s.
 | `run_fixed.log` | this branch | HTTP 500 "operator took over during the landing (flight mode POSCTL)" straight away; PX4 stays POSCTL, armed, 3.45 m for the full 25 s (the LAND at the end is the script's cleanup) |
 | `run_nominal.log` | this branch, no pilot, 2 runs | both HTTP 200 COMPLETED; PX4 reports OFFBOARD, LAND, HOLD only, none is flagged as a takeover |
 
-Scripts expect the rig layout of the earlier #171 runs (`/scratch` = lib.py, observer.py, operators.json).
+The scripts were reformatted after the runs to pass `ruff check` (no logic change).
+They expect the rig layout of the earlier #171 runs (`/scratch` = lib.py, observer.py, operators.json).
