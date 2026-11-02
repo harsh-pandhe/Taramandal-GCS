@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Download, Globe, Activity, ShieldCheck, ShieldAlert, LogIn, LogOut, CheckCircle, AlertTriangle } from 'lucide-react';
 import { NumberField } from '../common/index.jsx';
+import { exportGate } from '../../engine/exportGate.js';
 import {
   getSigningStatus, getGcsSession, gcsLogin, gcsLogout, onGcsSessionChange, previewExportSuccessMessage,
 } from '../../engine/api.js';
@@ -91,14 +92,8 @@ export default function TransmitPanel({
   homeLat, homeLon, onHomeLat, onHomeLon,
   onExport, onExportPreview, onSendToGCS, sending, hasShow, validation, validating,
 }) {
-  const isCertified = validation?.status === 'PASSED'
-    && validation?.feasibility_certified !== false
-    && !(validation?.violations?.jerk?.length > 0);
-  const isFailed = validation?.status === 'FAILED'
-    || (validation?.violations?.jerk?.length > 0)
-    || (validation?.status === 'PASSED' && validation?.feasibility_certified === false);
-  const isUnverified = hasShow && !isCertified && !isFailed;
-  const canExport = hasShow && isCertified;
+  // One predicate with the header's badge (issue #132): see engine/exportGate.js.
+  const { isCertified, isFailed, isUnverified, canExport } = exportGate({ hasShow, validation });
 
   const jerkCount = validation?.violations?.jerk?.length || 0;
   const nonJerkViolations = (validation?.violations?.proximity?.length || 0)
