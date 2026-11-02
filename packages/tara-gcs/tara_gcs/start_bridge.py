@@ -18,8 +18,10 @@ from __future__ import annotations
 
 import math
 
+import numpy as np
+from scipy.spatial import cKDTree
+
 from tara_core import DEFAULT_LIMITS
-from tara_core.validate import collision_errors
 
 #: A drone this close to its show's first waypoint (metres) needs no leg. Same
 #: figure as ``DroneManager.verify_launch_geometry``'s default tolerance, so a
@@ -63,8 +65,10 @@ def build_start_bridge(
         plan: The show about to be streamed, ``{drone_id: [waypoint, ...]}`` in
             the fleet frame (x north, y east, z down).
         hold: Where each drone is now, ``{drone_id: (x, y, z)}`` in the same
-            frame. A drone with no entry (not connected) is carried along
-            unchanged: its first waypoint is simply held for the leg.
+            frame. Every drone in ``plan`` that has waypoints needs an entry:
+            one without a known position cannot be given a leg, and streaming
+            it anyway would step it to its first waypoint - the dive this
+            module exists to remove.
         peak_speed_ms: Peak speed of the leg. The longest leg sets the duration,
             ``1.875 * distance / peak_speed_ms``, the same for every drone.
 
@@ -76,19 +80,34 @@ def build_start_bridge(
         the same ``bridge_s`` and preceded by its leg. ``plan`` is not modified.
 
     Raises:
-        StartBridgeError: If the legs bring two drones closer than the runtime
-            separation limit (``SafetyLimits.min_separation_m``) - the distance
-            the live proximity monitor aborts on.
+        StartBridgeError: If a drone in ``plan`` has no entry in ``hold`` (and
+            a leg is needed, or no drone's position is known at all, so it
+            cannot be shown that none is). Or if the legs bring two drones
+            closer than the runtime separation limit
+            (``SafetyLimits.min_separation_m``) - the distance the live
+            proximity monitor aborts on - at any instant, not just at the
+            samples (see :func:`_leg_separation_errors`).
     """
     legs: dict[int, tuple[tuple[float, float, float], tuple[float, float, float], float]] = {}
+    unknown: list[int] = []
     for drone_id, waypoints in plan.items():
-        if not waypoints or drone_id not in hold:
+        if not waypoints:
+            continue
+        if drone_id not in hold:
+            unknown.append(drone_id)
             continue
         first = waypoints[0]
         goal = (first["x"], first["y"], first["z"])
         legs[drone_id] = (hold[drone_id], goal, first.get("yaw", 0.0))
 
     longest = max((math.dist(start, goal) for start, goal, _ in legs.values()), default=0.0)
+    if unknown and (longest > BRIDGE_TOLERANCE_M or not legs):
+        raise StartBridgeError(
+            "Start refused: no current position for "
+            + ", ".join(f"Drone {d}" for d in sorted(unknown))
+            + " (not connected, no fresh telemetry, or never reported), so its transition from the "
+            "formation hold to the show's first waypoint cannot be planned or checked."
+        )
     if longest <= BRIDGE_TOLERANCE_M:
         return plan, 0.0
 
@@ -106,6 +125,11 @@ def build_start_bridge(
             bridged[drone_id] = shifted
             continue
         start, goal, yaw = leg
+        if shifted[0]["time"] > bridge_s:
+            # The show is clamped to its first waypoint until that waypoint's
+            # own time. Say so at the instant the leg ends, or the leg's last
+            # sample would drift towards it instead.
+            shifted.insert(0, {**shifted[0], "time": bridge_s})
         # The last step is the show's own first waypoint (now at bridge_s), so
         # the leg stops one sample short rather than duplicating that instant.
         samples = []
@@ -115,15 +139,67 @@ def build_start_bridge(
             samples.append({"time": k * BRIDGE_SAMPLE_S, "x": x, "y": y, "z": z, "yaw": yaw})
         bridged[drone_id] = samples + shifted
 
-    # The show was checked when it was uploaded; only the leg is new. Sweep it
-    # through the instant the show takes over, at the limit the fleet aborts on.
-    transition = {
-        drone_id: [w for w in waypoints if w["time"] <= bridge_s] for drone_id, waypoints in bridged.items()
-    }
-    errors = collision_errors(transition, limits=DEFAULT_LIMITS)
+    # The show was checked when it was uploaded; only the leg is new.
+    errors = _leg_separation_errors(legs, steps)
     if errors:
         raise StartBridgeError(
             f"Start refused: the transition from the formation hold to the show's first waypoints is not safe "
             f"(runtime separation limit {DEFAULT_LIMITS.min_separation_m}m). " + "; ".join(errors)
         )
     return bridged, bridge_s
+
+
+def _leg_separation_errors(
+    legs: dict[int, tuple[tuple[float, float, float], tuple[float, float, float], float]],
+    steps: int,
+    max_errors: int = 3,
+) -> list[str]:
+    """Pairs of drones that come closer than the runtime limit during the legs.
+
+    Exact, not sampled. Every leg has its waypoints at the same instants
+    (``k * BRIDGE_SAMPLE_S``) and the setpoint loop interpolates linearly
+    between them, so within one interval the vector between any two drones is
+    ``r0 + dv * u`` for ``u`` in ``[0, 1]`` and its closest approach is
+    closed-form. Checking only the instants (what ``collision_errors`` does at
+    0.1 s) can step over the minimum: at the sim backend's 4.8 m/s a head-on
+    pair closes 0.96 m per sample, so a true 1.45 m pass can be seen as 1.9 m
+    (issue #172 F3, review). Candidate pairs per interval come from a KD-tree
+    at the limit plus the most the pair can close in that interval.
+
+    Returns:
+        Error strings in the same form as :func:`tara_core.validate.collision_errors`,
+        at most ``max_errors``.
+    """
+    ids = list(legs)
+    if len(ids) < 2:
+        return []
+    limit = DEFAULT_LIMITS.min_separation_m
+    start = np.array([legs[i][0] for i in ids], dtype=float)
+    goal = np.array([legs[i][1] for i in ids], dtype=float)
+    fractions = np.array([_min_jerk(k / steps) for k in range(steps + 1)])
+    points = start[None, :, :] + fractions[:, None, None] * (goal - start)[None, :, :]
+
+    errors: list[str] = []
+    for k in range(steps):
+        a, delta = points[k], points[k + 1] - points[k]
+        reach = 2.0 * float(np.linalg.norm(delta, axis=1).max())
+        pairs = cKDTree(a).query_pairs(limit + reach, output_type="ndarray")
+        if not len(pairs):
+            continue
+        i, j = pairs[:, 0], pairs[:, 1]
+        r0, dv = a[j] - a[i], delta[j] - delta[i]
+        speed2 = np.einsum("ij,ij->i", dv, dv)
+        u = np.where(speed2 > 0.0, -np.einsum("ij,ij->i", r0, dv) / np.where(speed2 > 0.0, speed2, 1.0), 0.0)
+        u = np.clip(u, 0.0, 1.0)
+        dist = np.linalg.norm(r0 + dv * u[:, None], axis=1)
+        for n in np.argsort(dist):
+            if dist[n] >= limit:
+                break
+            a_id, b_id = sorted((ids[int(i[n])], ids[int(j[n])]))
+            errors.append(
+                f"Collision risk at {(k + u[n]) * BRIDGE_SAMPLE_S:.1f}s: Drone {a_id} and Drone {b_id} are "
+                f"separated by {dist[n]:.2f}m (limit: {limit}m)"
+            )
+            if len(errors) >= max_errors:
+                return errors
+    return errors

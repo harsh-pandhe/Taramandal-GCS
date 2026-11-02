@@ -116,14 +116,41 @@ def test_the_leg_starts_and_ends_at_rest():
     assert end_speed < 0.1 * BRIDGE_PEAK_SPEED_MS
 
 
-def test_drones_with_no_position_are_carried_along_not_dropped():
-    show = _show_from_pad(2)
+def test_a_drone_with_no_position_refuses_the_start_instead_of_taking_the_old_step():
+    """Issue #172 F3, review blocker B-2. A planned drone missing from ``hold``
+    used to get no leg and no refusal: its first waypoint was held for the leg
+    and then it took the straight step to z = 0 the leg exists to remove."""
+    show = _show_from_pad(3)
+    hold = {0: _hold(3)[0], 2: _hold(3)[2]}  # drone 1 has no known position
 
-    plan, bridge_s = build_start_bridge(show, {0: _hold(2)[0]})
+    with pytest.raises(StartBridgeError, match=r"Drone 1\b"):
+        build_start_bridge(show, hold)
 
-    assert set(plan) == {0, 1}
-    assert _sample(plan, 1, 0.0) == pytest.approx((0.0, 2.2, 0.0))  # clamped to its first waypoint
-    assert plan[1][-1]["time"] == pytest.approx(show[1][-1]["time"] + bridge_s)
+
+def test_every_drone_without_a_position_is_named():
+    show = _show_from_pad(4)
+
+    with pytest.raises(StartBridgeError) as refused:
+        build_start_bridge(show, {0: _hold(4)[0]})
+
+    for drone in (1, 2, 3):
+        assert f"Drone {drone}" in str(refused.value)
+    assert "Drone 0" not in str(refused.value)
+
+
+def test_a_fleet_with_no_known_position_at_all_is_refused_not_stepped():
+    """Nothing says the show starts at the hold, so it is not assumed to."""
+    with pytest.raises(StartBridgeError, match="Drone 0"):
+        build_start_bridge(_show_from_pad(2), {})
+
+
+def test_a_drone_with_no_waypoints_needs_no_position():
+    show = {**_show_from_pad(2), 2: []}
+
+    plan, bridge_s = build_start_bridge(show, {0: _hold(3)[0], 1: _hold(3)[1]})
+
+    assert bridge_s > 0.0
+    assert plan[2] == []
 
 
 def test_the_input_show_is_not_mutated():
@@ -241,3 +268,76 @@ def test_a_full_size_fleet_leg_is_still_swept_for_separation():
 
     assert bridge_s > 0.0
     assert len(plan) == 500
+
+
+# --- the separation sweep is exact between samples (review blocker B-1) --------
+
+
+def _head_on(true_min_m: float, half_span_m: float) -> tuple[dict, dict]:
+    """Two drones that swap places along x, offset by ``true_min_m`` in y: their
+    legs have the same shape, so the closest approach is exactly ``true_min_m``
+    at the middle of the leg."""
+    z = -3.0
+
+    def wp(x, y):
+        return [{"time": 0.0, "x": x, "y": y, "z": z, "yaw": 0.0}]
+
+    hold = {0: (-half_span_m, 0.0, z), 1: (half_span_m, true_min_m, z)}
+    show = {0: wp(half_span_m, 0.0), 1: wp(-half_span_m, true_min_m)}
+    return show, hold
+
+
+SIM_SPEED_MS = 4.8  # DroneManager.start_bridge_peak_speed_ms on the sim backend
+#: Half-spans chosen so the leg has an odd and an even number of 0.1 s steps: a
+#: pair at the middle of the leg is on a sample for one and between two for the
+#: other, which is what a 0.1 s sampled sweep gets wrong half the time.
+HALF_SPANS = [3.0 + 0.1 * k for k in range(25)]
+
+
+@pytest.mark.parametrize("half_span", HALF_SPANS)
+def test_a_head_on_pass_between_two_samples_is_refused_at_sim_speed(half_span):
+    """True closest approach 1.45 m < 1.5 m. At 4.8 m/s a head-on pair closes
+    0.96 m per 0.1 s sample, so a sweep that only looks at the samples can step
+    over the minimum: the old sweep accepted about half of these."""
+    show, hold = _head_on(1.45, half_span)
+
+    with pytest.raises(StartBridgeError, match=r"Drone 0 and Drone 1"):
+        build_start_bridge(show, hold, peak_speed_ms=SIM_SPEED_MS)
+
+
+@pytest.mark.parametrize("half_span", HALF_SPANS)
+def test_a_head_on_pass_that_really_clears_the_limit_is_still_accepted(half_span):
+    show, hold = _head_on(1.6, half_span)
+
+    plan, bridge_s = build_start_bridge(show, hold, peak_speed_ms=SIM_SPEED_MS)
+
+    assert bridge_s > 0.0
+
+
+def test_the_reported_separation_is_the_true_closest_approach_not_a_sample():
+    show, hold = _head_on(1.45, 3.7)
+
+    with pytest.raises(StartBridgeError, match=r"separated by 1\.45m"):
+        build_start_bridge(show, hold, peak_speed_ms=SIM_SPEED_MS)
+
+
+def test_a_pass_at_exactly_the_limit_is_compliant():
+    show, hold = _head_on(DEFAULT_LIMITS.min_separation_m, 3.7)
+
+    build_start_bridge(show, hold, peak_speed_ms=SIM_SPEED_MS)
+
+
+def test_a_first_waypoint_after_t0_is_held_not_drifted_to():
+    """A show whose first waypoint is at t > 0 is clamped to that point until
+    then. The leg must end *on* it at ``bridge_s`` and hold, not start easing
+    from the leg's last sample towards the shifted waypoint."""
+    show = {0: [
+        {"time": 2.0, "x": 0.0, "y": 0.0, "z": 0.0, "yaw": 0.0},
+        {"time": 5.0, "x": 0.0, "y": 0.0, "z": -3.0, "yaw": 0.0},
+    ]}
+
+    plan, bridge_s = build_start_bridge(show, {0: (0.0, 0.0, -4.0)})
+
+    assert _sample(plan, 0, bridge_s) == pytest.approx((0.0, 0.0, 0.0))
+    assert _sample(plan, 0, bridge_s + 1.0) == pytest.approx((0.0, 0.0, 0.0))
+    assert _sample(plan, 0, bridge_s + 5.0) == pytest.approx((0.0, 0.0, -3.0))
