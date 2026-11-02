@@ -605,6 +605,12 @@ class DroneManager:
                 # #59). Cleared when the drone is explicitly re-launched.
                 "aborted": None,
                 "last_heartbeat": None,
+                # When fleet_x/y/z were last written by the position stream; None
+                # until the first sample. The heartbeat above is also written by
+                # the connection monitor, so it cannot tell a drone that is
+                # reporting its position from one still holding the 0.0 defaults
+                # (issue #172 F3: the start transition is planned from this).
+                "position_at": None,
                 # MAVSDK LandedState as a string ("ON_GROUND", "IN_AIR", ...),
                 # or None until the first sample arrives. Ground-contact
                 # confirmation (issue #145) reads this directly rather than
@@ -758,6 +764,7 @@ class DroneManager:
             tel["fleet_x"] = round(local_x + pads[k][0], 2)
             tel["fleet_y"] = round(local_y + pads[k][1], 2)
             tel["fleet_z"] = local_z
+            tel["position_at"] = time.time()
             # Mirrors FleetState._step's own ON_GROUND threshold (same
             # altitude cutoff, same vertical-speed deadband) and SimSystem's
             # per-drone landed_state() stream exactly, applied to the same
@@ -880,6 +887,7 @@ class DroneManager:
                 self.telemetry[drone_id]["fleet_x"] = round(local_x + pad_x_off, 2)
                 self.telemetry[drone_id]["fleet_y"] = round(local_y + pad_y_off, 2)
                 self.telemetry[drone_id]["fleet_z"] = local_z
+                self.telemetry[drone_id]["position_at"] = time.time()
         except asyncio.CancelledError:
             pass
         except Exception as e:
@@ -2163,10 +2171,17 @@ class DroneManager:
             # show begins on the pad: fly the transition instead of stepping
             # every drone to the first waypoint (issue #172, F3). Raises, before
             # anything below is touched, if that transition is not safe.
+            # A drone is only placed if it is connected, its heartbeat is fresh and
+            # its position stream has reported recently: anything else is left
+            # out, and build_start_bridge then refuses the start naming it rather
+            # than letting it take the old step to the pad.
             hold = {
                 drone_id: (tel["fleet_x"], tel["fleet_y"], -tel["fleet_z"])
                 for drone_id, tel in self.telemetry.items()
-                if tel.get("connected") and all(k in tel for k in ("fleet_x", "fleet_y", "fleet_z"))
+                if self.is_heartbeat_fresh(tel)
+                and all(k in tel for k in ("fleet_x", "fleet_y", "fleet_z"))
+                and tel.get("position_at") is not None
+                and time.time() - tel["position_at"] <= self.HEARTBEAT_STALE_S
             }
             plan, bridge_s = build_start_bridge(plan, hold, self.start_bridge_peak_speed_ms)
 

@@ -114,7 +114,10 @@ async def test_the_commanded_altitude_never_changes_faster_than_the_leg_allows(f
         await _start(_show_from_pad(3))
         planned = await _sample_planned_altitude(manager, 2.0)
 
-        limit_per_tick = manager.start_bridge_peak_speed_ms * 0.1 * 1.1
+        # Two ticks' worth, not one: under load the 10 Hz loop runs late and the
+        # sampler can see two ticks' motion as one step. The step this replaces
+        # was the whole hold altitude (2 to 6 m) in a single command.
+        limit_per_tick = manager.start_bridge_peak_speed_ms * 0.1 * 2.0
         for i, values in planned.items():
             steps = [abs(b - a) for a, b in zip(values, values[1:])]
             assert len(steps) > 3, f"drone {i}: no commands seen"
@@ -228,10 +231,12 @@ async def test_stopping_during_the_leg_ends_the_show_and_returns_to_formation_ho
     manager = fleet(3)
     try:
         await _hold_formation(manager)
-        await _start(_show_from_pad(3))
+        response = await _start(_show_from_pad(3))
         await asyncio.sleep(0.5)  # inside the leg
+        assert 0.5 < response["bridge_s"] and manager.start_bridge_s == response["bridge_s"]
 
         await gcs_main.stop_trajectory(operator=COMMANDER)
+        assert manager.start_bridge_s == 0.0  # and the next start plans its own leg
         await asyncio.sleep(0.3)  # the cancelled loop clears its flags on its next turn
 
         assert manager.fleet_fsm.state is S.FORMATION_HOLD
@@ -240,5 +245,91 @@ async def test_stopping_during_the_leg_ends_the_show_and_returns_to_formation_ho
         # And the drones are where the leg had taken them, still armed, not dropped.
         assert all(t["armed"] for t in manager.telemetry.values())
         assert all(t["fleet_z"] > 1.0 for t in manager.telemetry.values())
+    finally:
+        await manager.shutdown()
+
+
+# --- a drone whose position cannot be trusted refuses the start (review B-2) ----
+
+
+async def _assert_start_refused_naming(manager: DroneManager, drone: int) -> None:
+    with pytest.raises(HTTPException) as refused:
+        await _start(_show_from_pad(len(manager.telemetry)))
+
+    assert refused.value.status_code == 400
+    assert "Start refused" in refused.value.detail
+    assert f"Drone {drone}" in refused.value.detail
+    assert manager.fleet_fsm.state is S.FORMATION_HOLD
+    assert not manager.is_running_trajectory
+    assert manager.playing_trajectory is None
+    assert manager.start_bridge_s == 0.0
+
+
+@pytest.mark.asyncio
+async def test_a_drone_with_a_stale_heartbeat_refuses_the_start_instead_of_taking_the_old_step(fleet, monkeypatch):
+    """Connected on paper, but its autopilot has stopped reporting: its last
+    position is not where it is, and the old behaviour was to step it to z = 0."""
+    manager = fleet(3)
+    try:
+        await _hold_formation(manager)
+        real = manager.is_heartbeat_fresh
+        monkeypatch.setattr(manager, "is_heartbeat_fresh", lambda tel: tel is not manager.telemetry[1] and real(tel))
+
+        await _assert_start_refused_naming(manager, 1)
+    finally:
+        await manager.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_a_drone_whose_position_keys_are_missing_refuses_the_start(fleet):
+    manager = fleet(3)
+    try:
+        await _hold_formation(manager)
+        del manager.telemetry[1]["fleet_x"]  # nothing awaited before the start: no refresh lands in between
+
+        await _assert_start_refused_naming(manager, 1)
+    finally:
+        await manager.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_a_drone_whose_position_was_never_reported_refuses_the_start(fleet):
+    """Heartbeat fresh (the connection monitor writes it), but the position
+    stream has not delivered once, so fleet_x/y/z are still their 0.0 defaults
+    and a leg would be planned from the origin."""
+    manager = fleet(3)
+    try:
+        await _hold_formation(manager)
+        manager.telemetry[1]["position_at"] = None
+
+        await _assert_start_refused_naming(manager, 1)
+    finally:
+        await manager.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_a_position_that_stopped_updating_refuses_the_start(fleet):
+    manager = fleet(3)
+    try:
+        await _hold_formation(manager)
+        manager.telemetry[1]["position_at"] = time.time() - manager.HEARTBEAT_STALE_S - 1.0
+
+        await _assert_start_refused_naming(manager, 1)
+    finally:
+        await manager.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_the_refusal_is_cleared_by_the_drone_reporting_again_and_a_retry_starts(fleet):
+    manager = fleet(3)
+    try:
+        await _hold_formation(manager)
+        manager.telemetry[1]["position_at"] = None
+        await _assert_start_refused_naming(manager, 1)
+
+        await asyncio.sleep(0.3)  # the sim's telemetry loop reports it again
+
+        response = await _start(_show_from_pad(3))
+        assert response["bridge_s"] > 0.0
     finally:
         await manager.shutdown()

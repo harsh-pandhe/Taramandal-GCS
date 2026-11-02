@@ -1,5 +1,6 @@
 import pytest
 import asyncio
+import time
 from unittest.mock import AsyncMock, patch
 from tara_gcs.drone_manager import DroneManager, _pad_offset
 
@@ -274,6 +275,14 @@ async def test_start_trajectory_applies_the_shows_own_envelope(tmp_path):
     manager = DroneManager(ports=[], state_path=str(tmp_path / "show_state.json"))
     manager.remap_trajectory_to_healthy_drones = lambda data: data
     manager._run_trajectory_loop = AsyncMock()
+    # Drone 0 is reporting, hovering at the show's first waypoint: a streamed
+    # start needs every planned drone's position (issue #172 F3), and with it
+    # there is nothing to bridge, so this stays a test of the envelope alone.
+    now = time.time()
+    manager.telemetry[0] = {
+        "connected": True, "last_heartbeat": now, "position_at": now,
+        "fleet_x": 0.0, "fleet_y": 0.0, "fleet_z": 2.0,
+    }
 
     try:
         trajectory = {0: [{"time": 0.0, "x": 0.0, "y": 0.0, "z": -2.0}, {"time": 5.0, "x": 20.0, "y": 0.0, "z": -2.0}]}
