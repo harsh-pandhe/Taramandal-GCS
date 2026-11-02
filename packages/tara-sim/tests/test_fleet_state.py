@@ -336,3 +336,36 @@ class TestFaultInjection:
         fs.inject_position_deviation(0, (1.5, 0.0, 0.0))
         run_ticks(fs, 500)
         assert fs.position[0] == pytest.approx([0.0, 0.0, 5.0], abs=0.15)
+
+
+class TestPositionDeviationRejectsNonFinite:
+    """A NaN/inf in `position` reaches the GCS proximity monitor's cKDTree,
+    which raises "data must be finite" and ends that task (issue #63 retro-review)."""
+
+    @pytest.mark.parametrize(
+        "offset",
+        [
+            (float("nan"), 0.0, 0.0),
+            (0.0, float("inf"), 0.0),
+            (0.0, 0.0, float("-inf")),
+        ],
+    )
+    def test_non_finite_offset_is_rejected_and_position_untouched(self, offset):
+        fs = FleetState(2, SimConfig(rng_seed=1))
+        fs.position[0] = (1.0, 2.0, 3.0)
+        with pytest.raises(ValueError, match="finite"):
+            fs.inject_position_deviation(0, offset)
+        assert fs.position[0] == pytest.approx([1.0, 2.0, 3.0])
+        assert np.isfinite(fs.position).all()
+
+    @pytest.mark.parametrize("offset", [(1.0, 2.0), (1.0, 2.0, 3.0, 4.0), "abc", None])
+    def test_wrong_shape_is_rejected(self, offset):
+        fs = FleetState(1, SimConfig(rng_seed=1))
+        with pytest.raises(ValueError):
+            fs.inject_position_deviation(0, offset)  # type: ignore[arg-type]
+        assert np.isfinite(fs.position).all()
+
+    def test_finite_offsets_still_apply(self):
+        fs = FleetState(1, SimConfig(rng_seed=1))
+        fs.inject_position_deviation(0, (1.5, -2.0, 0.25))
+        assert fs.position[0] == pytest.approx([1.5, -2.0, 0.25])

@@ -6,6 +6,7 @@ optionally RViz) that this project used before Phase 1 of the finishing plan.
 
 from __future__ import annotations
 
+import math
 import os
 import sys
 from pathlib import Path
@@ -59,6 +60,28 @@ def up(
     num_drones = n if n is not None else config.num_drones
     backend_name = backend if backend is not None else config.backend
     rviz_enabled = rviz if rviz is not None else config.rviz
+
+    # An RF loss rate is a probability. 5.0 used to pass through as certain loss
+    # on every packet without a word (issue #62 retro-review). Checked before
+    # anything else, whatever the backend, so a typo is never silently accepted.
+    if not (math.isfinite(packet_loss) and 0.0 <= packet_loss <= 1.0):
+        raise typer.BadParameter(
+            f"must be a rate between 0 and 1 (0.05 is 5 percent), got {packet_loss}", param_hint="--packet-loss"
+        )
+    # No upper bound here: a per-100m rate above 1 is a steep gradient, not a mistake.
+    if not (math.isfinite(packet_loss_per_100m) and packet_loss_per_100m >= 0.0):
+        raise typer.BadParameter(
+            f"must be a finite rate of 0 or more, got {packet_loss_per_100m}", param_hint="--packet-loss-per-100m"
+        )
+    if backend_name == "px4":
+        for flag, value in (("--packet-loss", packet_loss), ("--packet-loss-per-100m", packet_loss_per_100m)):
+            if value > 0:
+                typer.secho(
+                    f"[tara] {flag} {value} is ignored on --backend px4: only tara_sim models RF loss "
+                    "(use --backend sim).",
+                    fg=typer.colors.YELLOW,
+                    err=True,
+                )
 
     # Fail here, before anything is spawned, rather than as one interleaved
     # line in the fleet service's log while the backends start up regardless.

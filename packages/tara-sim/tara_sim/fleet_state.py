@@ -357,7 +357,17 @@ class FleetState:
         PD tracker in `tick()` immediately starts correcting it back, same
         as it would for any other disturbance — this does not latch.
         """
-        self.position[drone_id] += np.asarray(offset_m, dtype=float)
+        try:
+            offset = np.asarray(offset_m, dtype=float)
+        except (TypeError, ValueError):
+            raise ValueError(f"offset_m must be 3 numbers, got {offset_m!r}") from None
+        if offset.shape != (3,):
+            raise ValueError(f"offset_m must be 3 numbers, got {offset_m!r}")
+        # A NaN or infinite position would reach the GCS proximity monitor's
+        # cKDTree, which raises on non-finite data and ends that monitor task.
+        if not np.isfinite(offset).all():
+            raise ValueError(f"offset_m must be finite, got {offset_m!r}")
+        self.position[drone_id] += offset
 
     # ------------------------------------------------------ onboard mission
 

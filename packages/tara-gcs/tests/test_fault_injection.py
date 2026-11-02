@@ -205,3 +205,84 @@ class TestGuardrails:
         manager = DroneManager(ports=[0], backend="sim")
         with pytest.raises(ValueError):
             await manager.inject_fault(0, "battery_drop", {"pct": 10.0})
+
+
+class TestNonFiniteInjectionRequest:
+    """NaN/Infinity in an inject-fault request must be refused at the request
+    boundary, before it can become a drone position (issue #63 retro-review).
+    JSON `NaN` and `Infinity` parse in Python, so they are reachable over HTTP."""
+
+    @pytest.mark.parametrize("bad", ["NaN", "Infinity", "-Infinity"])
+    def test_request_model_rejects_non_finite_offset_from_raw_json(self, bad):
+        from pydantic import ValidationError
+
+        from tara_gcs.main import InjectFaultRequest
+
+        raw = '{"drone_id": 0, "fault_type": "deviation", "params": {"offset_m": [%s, 0, 0]}}' % bad
+        with pytest.raises(ValidationError, match="finite"):
+            InjectFaultRequest.model_validate_json(raw)
+
+    def test_request_model_rejects_non_finite_anywhere_in_params(self):
+        from pydantic import ValidationError
+
+        from tara_gcs.main import InjectFaultRequest
+
+        with pytest.raises(ValidationError, match="finite"):
+            InjectFaultRequest(drone_id=0, fault_type="battery_drop", params={"pct": float("nan")})
+
+    def test_request_model_accepts_finite_params(self):
+        from tara_gcs.main import InjectFaultRequest
+
+        req = InjectFaultRequest(drone_id=1, fault_type="deviation", params={"offset_m": [1.5, 0.0, -2]})
+        assert req.params["offset_m"] == [1.5, 0.0, -2]
+        assert InjectFaultRequest(drone_id=1, fault_type="rtk_loss", params={"fix_type": "NO_GPS"}).params
+
+    @pytest.mark.asyncio
+    async def test_non_finite_deviation_never_reaches_the_fleet(self):
+        """Belt and braces at the DroneManager layer too: a caller that bypasses
+        the request model still cannot put a NaN into the physics state."""
+        manager = await _connected_manager()
+        try:
+            with pytest.raises(ValueError, match="finite"):
+                await manager.inject_fault(0, "deviation", {"offset_m": [float("nan"), 0.0, 0.0]})
+            assert manager._sim_fleet.state.position[0].tolist() == [0.0, 0.0, 0.0]
+        finally:
+            await manager.shutdown()
+
+    @pytest.mark.asyncio
+    async def test_http_post_with_raw_json_nan_is_422_and_fleet_untouched(self, monkeypatch):
+        """End to end through the real route: a body with a bare JSON `NaN`."""
+        from fastapi.testclient import TestClient
+
+        from tara_gcs import main as gcs_main
+
+        manager = await _connected_manager()
+        monkeypatch.setattr(gcs_main, "drone_manager", manager)
+        try:
+            # TestClient runs requests on its own thread/loop; no lifespan needed for this route.
+            client = TestClient(gcs_main.app)
+            body = '{"drone_id": 0, "fault_type": "deviation", "params": {"offset_m": [NaN, 0, 0]}}'
+            response = await asyncio.to_thread(
+                client.post, "/api/sim/inject-fault", content=body, headers={"Content-Type": "application/json"}
+            )
+            assert response.status_code == 422, response.text
+            assert "finite" in response.text
+            assert manager._sim_fleet.state.position[0].tolist() == [0.0, 0.0, 0.0]
+        finally:
+            await manager.shutdown()
+
+    @pytest.mark.asyncio
+    async def test_ordinary_validation_errors_keep_their_422_shape(self):
+        """The NaN-safe 422 handler must not change the body of a normal rejection."""
+        from fastapi.testclient import TestClient
+
+        from tara_gcs import main as gcs_main
+
+        client = TestClient(gcs_main.app)
+        response = await asyncio.to_thread(
+            client.post, "/api/sim/inject-fault", json={"fault_type": "deviation"}
+        )
+        assert response.status_code == 422
+        (error,) = response.json()["detail"]
+        assert error["type"] == "missing"
+        assert error["loc"] == ["body", "drone_id"]

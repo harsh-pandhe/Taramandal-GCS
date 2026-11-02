@@ -1,6 +1,7 @@
 import asyncio
 from enum import Enum
 import logging
+import math
 import os
 from pathlib import Path
 import time
@@ -10,9 +11,12 @@ from fastapi import (
     WebSocketException, status,
 )
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.encoders import jsonable_encoder
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
+from pydantic_core import PydanticCustomError
 from tara_gcs.blackbox import DEFAULT_DIR as BLACKBOX_DEFAULT_DIR
 from tara_gcs.blackbox_service import BlackboxService
 from tara_gcs.drone_manager import DroneManager
@@ -34,6 +38,26 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("TaramandalGCS")
 
 app = FastAPI(title="Taramandal Ground Control Station API")
+
+
+def _json_safe(value):
+    """``value`` with every NaN/infinity replaced by its string, so it can be sent as JSON."""
+    if isinstance(value, float) and not math.isfinite(value):
+        return str(value)
+    if isinstance(value, dict):
+        return {k: _json_safe(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_json_safe(v) for v in value]
+    return value
+
+
+@app.exception_handler(RequestValidationError)
+async def _validation_error_response(request: Request, exc: RequestValidationError):
+    """FastAPI's default 422 body echoes the rejected input. JSON ``NaN`` parses
+    in Python, and Starlette refuses to render it, so rejecting a request that
+    carried one came back as a 500. Same body and status, with non-finite
+    numbers shown as strings."""
+    return JSONResponse(status_code=422, content={"detail": _json_safe(jsonable_encoder(exc.errors()))})
 
 # Enable CORS for frontend connectivity
 app.add_middleware(
@@ -1200,10 +1224,37 @@ async def sim_status(operator: Viewer):
     return status
 
 
+def _first_non_finite(value) -> float | None:
+    """The first NaN or infinite number found anywhere inside ``value``, else None."""
+    if isinstance(value, float):
+        return None if math.isfinite(value) else value
+    if isinstance(value, dict):
+        value = list(value.values())
+    if isinstance(value, (list, tuple)):
+        for item in value:
+            bad = _first_non_finite(item)
+            if bad is not None:
+                return bad
+    return None
+
+
 class InjectFaultRequest(BaseModel):
     drone_id: int
     fault_type: str
     params: dict = Field(default_factory=dict)
+
+    @field_validator("params")
+    @classmethod
+    def _params_are_finite(cls, params: dict) -> dict:
+        # JSON `NaN` / `Infinity` parse in Python. A non-finite offset would
+        # become a drone position, and the proximity monitor's cKDTree raises
+        # on it and ends that monitor task (issue #63 retro-review).
+        bad = _first_non_finite(params)
+        if bad is not None:
+            # PydanticCustomError, not ValueError: a plain ValueError puts the exception object
+            # in the error's ctx, which FastAPI cannot serialise, so the 422 became a 500.
+            raise PydanticCustomError("non_finite", "params must contain only finite numbers, got {bad}", {"bad": str(bad)})
+        return params
 
 
 @app.post("/api/sim/inject-fault")
