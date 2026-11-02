@@ -180,12 +180,17 @@ verdict. Results: `~/tara-sitl-demo-scratch/runs/<label>.json` and CSVs. Stop it
 **What the author verified of this script**
 
 - Refuses while any other `tara-sitl-*` container runs, and `FORCE_BUSY=1` does not override that (tested
-  against another tab's container); refuses on a busy CPU unless `FORCE_BUSY=1`.
-- In the container: stack up with 3 of 3 drones in 36 s; signed upload verified; 2 of 3 missions verified.
-- **NOT VERIFIED: a complete run through the script.** Both attempts were made on a loaded host and stopped at
-  the launch gate ("drone 2 holds a mission but is disconnected", load ~19). Whether load or the script caused
-  it is unknown. The 5 baseline runs below were taken with the equivalent hand-made rig scripts of #222, which are
-  not in the repository. **Before demo day, one clean run of this script on an idle machine is a required step.**
+  against another tab's container); refuses on a busy CPU unless `FORCE_BUSY=1` (its load comparison had a rounding bug, fixed in this PR: 3.63 was read as 4).
+- **One complete run through the script, 3 drones, the 3-drone segment, on this PR's tree (`a10c168`, plus the uncommitted load-check fix below):
+  PASS by the tool's rule.** Host load average 3.62 at the start (under the gate's 4). Stack up 3 of 3 in 24 s;
+  3 of 3 missions verified; launch to `FORMATION_HOLD` 10.7 s; playback 84.23 s of 84.2 s planned; Gazebo min
+  separation **2.192 m** (Studio 2.20); real-time factor **0.997**, no stall; start transient 1.38 / 2.56 /
+  3.57 s per drone and max error 5.90 m (the F3 start dive); landing errors 0.019 / 0.037 / 0.024 m; no abort,
+  no RTL, final state `DISARMED`. Load was 11.3 at the end, and I did not log it during the flight.
+- **One run is not a set.** The earlier forced attempts on a loaded host (load ~19 to 27) stopped at the launch
+  gate ("drone 2 holds a mission but is disconnected"), so a busy host can break the run before it starts.
+  **NOT VERIFIED:** 5 and 8 drones through the script, and three consecutive 3-drone runs. #222's five baseline
+  runs were taken with the equivalent hand-made rig scripts, which are not in the repository.
 - The 5- and 8-drone builds certify (84.8 s and 87.4 s, min sep 2.20 m, 0 violations). I did not diff them
   against the files #222 flew.
 
@@ -305,7 +310,7 @@ Only items that exist today. Owners are proposed. Every item that needs a merge 
 |---|---|---|---|
 | Mon 2 | Review this PR and #222, #219, #220, #216; Harsh decides whether #135 is in play and whether #220 goes in | Vishal, Harsh | PRs exist |
 | Mon 2 | Harsh names the machine for the Gazebo window and RViz, or confirms the T2 clip is dashboard plus run record | Harsh | decision |
-| Tue 3 | If #220 merged: rerun the 3-drone ×3, 5 and 8 baseline with `tools/diwali_t2_sitl.sh` on an idle machine and compare with 2.5. **First run of that script end to end.** | Dhiraj | #220, idle machine |
+| Tue 3 | If #220 merged: rerun the 3-drone ×3, 5 and 8 baseline with `tools/diwali_t2_sitl.sh` on an idle machine and compare with 2.5. (The script has one clean 3-drone pass so far.) | Dhiraj | #220, idle machine |
 | Tue 3 | Studio preview at 35 and 100: confirm the Generate-first step on a real GPU session | Vishal | none |
 | Wed 4 | T1 35 drones through the GCS on an idle machine, three clean runs, logs kept; rehearse the dashboard button path once | Dhiraj | idle machine |
 | Wed 4 | 100-drone clip plan: `diwali_sim_scale.py`, start after settling | Dhiraj | none |
@@ -327,7 +332,7 @@ Only items that exist today. Owners are proposed. Every item that needs a merge 
 | Studio preview 35 and 100 | OK (Playwright, headless Chromium, 1440x900) |
 | GCS dashboard sign-in, Operations, Earth, Night Sky | Rendered; clicks on upload and PRE-ARM buttons not made |
 | Single-drone RTL and fleet RTL mid-show (T1) | Fleet-wide proximity RTL after drone 7's abort; fleet RTL reached DISARMED |
-| T2 through `diwali_t2_sitl.sh` | **NOT VERIFIED end to end** (2.5) |
+| T2 through `diwali_t2_sitl.sh`, 3 drones, one run | PASS: Gazebo min sep 2.192 m, RTF 0.997, landing under 4 cm. 5 and 8 drones, and a 3-run set, **NOT VERIFIED** |
 | Gazebo window, RViz, GNOME/ffmpeg recording, E-STOP, clean `pip`/`npm install`, `./tara reset` | **NOT VERIFIED** |
 
 **Overlap disclosure.** Four of the author's runs shared the machine with another tab's `tara-sitl-171fix`

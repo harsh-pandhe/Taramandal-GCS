@@ -19,7 +19,7 @@ busy_reason() {
   names=$(docker ps --format '{{.Names}}' 2>/dev/null | grep '^tara-sitl-' | tr '\n' ' ')
   [ -n "$names" ] && { echo "SITL container running: $names"; return 0; }
   load=$(cut -d' ' -f1 /proc/loadavg)
-  if [ "$(printf '%.0f' "$load")" -ge "$LOAD_MAX" ]; then
+  if awk -v l="$load" -v m="$LOAD_MAX" 'BEGIN { exit !(l >= m) }'; then
     echo "1-min load average $load >= $LOAD_MAX ($(nproc) cores)"; return 0
   fi
   return 1
