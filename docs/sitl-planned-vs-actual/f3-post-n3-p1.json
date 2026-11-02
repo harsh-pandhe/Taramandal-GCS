@@ -1,0 +1,248 @@
+{
+  "label": "f3-post-n3-p1",
+  "started_utc": "2026-11-02T11:21:27Z",
+  "commit": "e696a89b15b46c2c09986693ce4c67ef60da753b",
+  "gcs": "http://127.0.0.1:8090",
+  "studio": "http://127.0.0.1:8001",
+  "steps": {
+    "validate": "certified",
+    "export": "signed",
+    "upload_trajectory": {
+      "signature": {
+        "verified": true,
+        "signer": "Studio SITL #172",
+        "key_id": "7fa30d7106e1dfbf",
+        "signed_at": "2026-11-02T11:21:27+00:00"
+      },
+      "geofence": {
+        "soft_warning_radius_m": 16.405903527216125,
+        "hard_geofence_radius_m": 21.405903527216125
+      }
+    },
+    "upload_mission": {
+      "all_verified": true,
+      "verified_count": 3,
+      "launch_gate": "ok"
+    },
+    "preflight": {
+      "launch_permitted": true,
+      "blocking_reasons": []
+    },
+    "launch": {
+      "drone_ids": [
+        0,
+        1,
+        2
+      ],
+      "excluded": []
+    },
+    "formation_hold_after_s": 10.1,
+    "start": {
+      "execution": "streamed",
+      "mode": "LOCAL",
+      "ack_latency_s": 0.051,
+      "bridge_s": 8.0
+    },
+    "land": {
+      "status": 200,
+      "detail": "ok"
+    }
+  },
+  "verdict": "PASS",
+  "show_source": "/scratch/build/diwali_3drone_segment.json",
+  "num_drones": 3,
+  "planned": {
+    "duration_s": 84.2,
+    "studio_status": "PASSED",
+    "feasibility_certified": true,
+    "min_separation_m": 2.2,
+    "max_velocity_m_s": 1.3,
+    "max_jerk_m_s3": 15.0,
+    "max_altitude_m": 14.67,
+    "limits": {
+      "min_separation_m": 1.5,
+      "design_separation_m": 2.0,
+      "pad_spacing_m": 2.2,
+      "max_velocity_ms": 6.0,
+      "max_accel_ms2": 50.0,
+      "max_yaw_rate_dps": 300.0,
+      "geofence_radius_m": 30.0,
+      "max_altitude_m": 120.0,
+      "geofence_soft_warning_buffer_m": 10.0,
+      "geofence_hard_buffer_m": 15.0,
+      "max_jerk_ms3": 20.0
+    }
+  },
+  "gcs_status_before": {
+    "mode": "SIMULATION",
+    "configured_mode": "SIMULATION",
+    "backend": "px4",
+    "fidelity": "px4-sitl",
+    "active_backend": "px4",
+    "hardware_flight_certified": false,
+    "hardware_flight_available": false,
+    "num_drones": 3,
+    "connected": 3,
+    "armed": 0,
+    "trajectory_running": false,
+    "fleet_state": "STAGED",
+    "aborted": [],
+    "packet_drop_rate": null
+  },
+  "actual": {
+    "end_state": "SHOW_COMPLETE",
+    "show_complete_after_s": 93.27,
+    "playback_duration_s": 84.27,
+    "bridge_s": 8.0,
+    "final_state": "DISARMED",
+    "aborted_drones": [],
+    "emergency_transitions": [],
+    "gazebo": {
+      "samples_in_show": 4682,
+      "sample_rate_hz": 50.8,
+      "real_time_factor": 0.999,
+      "longest_stall_s": 0.03,
+      "sim_stalled": false,
+      "min_separation_m": 2.14,
+      "min_separation_pair": [
+        0,
+        1
+      ],
+      "min_separation_at_s": 9.8,
+      "planned_min_separation_same_instants_m": 2.2,
+      "tracking_error": {
+        "0": {
+          "max_m": 0.197,
+          "rms_m": 0.1,
+          "p95_m": 0.18,
+          "start_transient_s": 0.01,
+          "max_after_transient_m": 0.197
+        },
+        "1": {
+          "max_m": 0.29,
+          "rms_m": 0.147,
+          "p95_m": 0.272,
+          "start_transient_s": 0.01,
+          "max_after_transient_m": 0.29
+        },
+        "2": {
+          "max_m": 0.264,
+          "rms_m": 0.133,
+          "p95_m": 0.245,
+          "start_transient_s": 0.01,
+          "max_after_transient_m": 0.264
+        }
+      },
+      "bridge_s": 8.0,
+      "start_max_descent_rate_ms": {
+        "0": 0.45,
+        "1": 0.93,
+        "2": 1.38
+      },
+      "max_tracking_error_m": 0.29,
+      "max_tracking_error_drone": 1,
+      "max_tracking_error_at_s": 17.5,
+      "final_position_error_m": {
+        "0": 0.065,
+        "1": 0.056,
+        "2": 0.033
+      },
+      "gcs_reported_max_tracking_error_m": {
+        "0": 0.17,
+        "1": 0.207,
+        "2": 0.216
+      },
+      "gcs_minus_gazebo_mean_offset_m": {
+        "0": [
+          -0.02,
+          -0.02,
+          0.01
+        ],
+        "1": [
+          -0.03,
+          -0.0,
+          0.07
+        ],
+        "2": [
+          0.0,
+          0.01,
+          0.04
+        ]
+      }
+    }
+  },
+  "fleet_history": [
+    {
+      "time": "2026-11-02T11:21:29.152+00:00",
+      "from": "STAGED",
+      "to": "PREARM",
+      "trigger": "POST /api/launch",
+      "operator": "sitl172"
+    },
+    {
+      "time": "2026-11-02T11:21:31.375+00:00",
+      "from": "PREARM",
+      "to": "ARMED",
+      "trigger": "telemetry:first_drone_armed",
+      "operator": "system"
+    },
+    {
+      "time": "2026-11-02T11:21:34.389+00:00",
+      "from": "ARMED",
+      "to": "TAKEOFF",
+      "trigger": "telemetry:climbing",
+      "operator": "system"
+    },
+    {
+      "time": "2026-11-02T11:21:39.206+00:00",
+      "from": "TAKEOFF",
+      "to": "FORMATION_HOLD",
+      "trigger": "telemetry:formation_altitude_reached",
+      "operator": "system"
+    },
+    {
+      "time": "2026-11-02T11:21:42.280+00:00",
+      "from": "FORMATION_HOLD",
+      "to": "RUNNING",
+      "trigger": "POST /api/start-trajectory",
+      "operator": "sitl172"
+    },
+    {
+      "time": "2026-11-02T11:23:15.532+00:00",
+      "from": "RUNNING",
+      "to": "SHOW_COMPLETE",
+      "trigger": "trajectory_complete",
+      "operator": "system"
+    },
+    {
+      "time": "2026-11-02T11:23:36.105+00:00",
+      "from": "SHOW_COMPLETE",
+      "to": "LANDING",
+      "trigger": "POST /api/land",
+      "operator": "sitl172"
+    },
+    {
+      "time": "2026-11-02T11:23:40.710+00:00",
+      "from": "LANDING",
+      "to": "DISARMED",
+      "trigger": "telemetry:all_disarmed",
+      "operator": "system"
+    }
+  ],
+  "gazebo_reader_errors": [],
+  "run_context": {
+    "note": "post-F3 (#220 head), start transition leg",
+    "host_load_before": "3.95 6.04 4.37",
+    "host_load_at_start": "7.54 6.71 4.68",
+    "host_load_at_end": "9.20 8.14 5.52",
+    "other_running_containers": [
+      "hungry_gould",
+      "transmon-chain-hamiltonian-learn__7pewyga__env-main-1",
+      "transmon-chain-hamiltonian-learn__x6hbmkf__env-main-1",
+      "transmon-chain-hamiltonian-learn__rumkmcs__env-main-1"
+    ],
+    "fresh_container": true,
+    "microsd_dirs_before_stack": 0,
+    "remapper_skips_in_log": []
+  }
+}

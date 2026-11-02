@@ -349,6 +349,15 @@ def run(args) -> dict:
                                    "launch_gate": mstatus.get("launch_gate", {}).get("reason") or "ok"}
         if not mstatus.get("launch_gate", {}).get("ok"):
             raise RunError(f"launch gate closed after mission upload: {mstatus.get('launch_gate')}")
+        # A drone the GCS found unhealthy is dropped and its show slot handed to
+        # another drone, which then flies (and lands) somewhere the plan did not
+        # put it. Such a run measures the rig, not the show: refuse to score it.
+        if mstatus.get("verified_count") != n:
+            raise RunError(
+                f"only {mstatus.get('verified_count')} of {n} drones took the mission "
+                f"(excluded: {(mstatus.get('excluded') or mstatus.get('staged', {}).get('excluded'))}); "
+                f"the GCS re-mapped the show - rerun once every drone is healthy"
+            )
 
         # Ground truth starts before arming, to learn each model's resting z.
         recorder = GazeboRecorder(args.world, n)
@@ -374,16 +383,21 @@ def run(args) -> dict:
 
         # 5. Streamed start
         t_start_req = time.time()
-        gcs.must("POST", "/api/start-trajectory", {"mode": "LOCAL", "execution": "streamed"})
+        started = gcs.must("POST", "/api/start-trajectory", {"mode": "LOCAL", "execution": "streamed"})
         t_start_ack = time.time()
+        # Seconds the show's t=0 is behind the request: the streamed start first
+        # flies each drone from the formation hold to the show's first waypoint
+        # (issue #172 F3). Absent on a GCS without that leg.
+        bridge_s = float(started.get("bridge_s") or 0.0)
         # The playback clock starts when the GCS's loop task first runs, which
         # is inside the request; take the midpoint (the two are ~ms apart).
         t0 = (t_start_req + t_start_ack) / 2
-        steps["start"] = {"execution": "streamed", "mode": "LOCAL", "ack_latency_s": round(t_start_ack - t_start_req, 3)}
+        steps["start"] = {"execution": "streamed", "mode": "LOCAL", "ack_latency_s": round(t_start_ack - t_start_req, 3),
+                          "bridge_s": bridge_s}
 
         aborted_seen: set[int] = set()
         end_state = None
-        deadline = t0 + planned_duration + args.show_slack_s
+        deadline = t0 + bridge_s + planned_duration + args.show_slack_s
         while time.time() < deadline:
             s, st = gcs.call("GET", "/api/status", timeout=10)
             if s == 200:
@@ -399,7 +413,8 @@ def run(args) -> dict:
         if complete:
             # The GCS loop declares completion 1.0 s after the last waypoint.
             result["actual"]["show_complete_after_s"] = round(complete["ts"] - t0, 2)
-            result["actual"]["playback_duration_s"] = round(complete["ts"] - t0 - 1.0, 2)
+            result["actual"]["playback_duration_s"] = round(complete["ts"] - t0 - bridge_s - 1.0, 2)
+            result["actual"]["bridge_s"] = bridge_s
 
         # The GCS's own recorded view of the show (its 0.5 s telemetry log).
         s, csv_text = gcs.call("GET", f"/api/export-telemetry?filename=sitl172_{label}.csv")
@@ -427,7 +442,7 @@ def run(args) -> dict:
             if h["to"] in EMERGENCY_STATES and not (h["to"] == "LANDING" and h["trigger"] == "POST /api/land")
         ]
 
-        analyse(result, recorder, drones, rest_z, t0, planned_duration, gcs_rows, out_dir, label)
+        analyse(result, recorder, drones, rest_z, t0, planned_duration, gcs_rows, out_dir, label, bridge_s)
     except RunError as e:
         result["error"] = str(e)
     except Exception as e:  # keep the partial record; the traceback goes to stderr
@@ -447,9 +462,67 @@ def run(args) -> dict:
     return result
 
 
-def analyse(result, recorder, drones, rest_z, t0, duration, gcs_rows, out_dir: Path, label: str) -> None:
-    """Planned vs Gazebo: separation, tracking error, real-time factor, stalls."""
+def min_jerk(tau: float) -> float:
+    """Position fraction at normalised time tau (0..1) of the GCS's start
+    transition leg (tara_gcs.start_bridge): zero velocity at both ends."""
+    return tau**3 * (10.0 - 15.0 * tau + 6.0 * tau * tau)
+
+
+def make_planner(drones, bridge_s: float, holds: dict[int, tuple[float, float, float]]):
+    """``planned(i, t)``: where drone i should be ``t`` s after the start request.
+
+    With no leg (``bridge_s == 0``) that is the show itself. With one, it is the
+    GCS's minimum-jerk leg from where the drone hovered (``holds``, measured from
+    Gazebo just before the start) to the show's first waypoint, then the show
+    delayed by ``bridge_s``. Fleet frame, altitude up.
+    """
+    if bridge_s <= 0.0:
+        return lambda i, t: interpolate(drones[i], t)
+
+    def planned(i: int, t: float) -> tuple[float, float, float]:
+        if t >= bridge_s or i not in holds:
+            return interpolate(drones[i], max(0.0, t - bridge_s))
+        f = min_jerk(max(0.0, t) / bridge_s)
+        a, b = holds[i], interpolate(drones[i], 0.0)
+        return tuple(x + f * (y - x) for x, y in zip(a, b))
+
+    return planned
+
+
+def hold_positions(recorder, rest_z, t0: float, n: int) -> dict[int, tuple[float, float, float]]:
+    """Each drone's Gazebo position in the second before the start request."""
+    window = [s for s in recorder.samples if t0 - 1.0 <= s[0] <= t0 + 0.05 and len(s[2]) == n]
+    return {
+        i: tuple(statistics.median(to_fleet(s[2][i], rest_z[i])[a] for s in window) for a in range(3))
+        for i in range(n)
+    } if window else {}
+
+
+def start_descent_rate(show, rest_z, n: int, t0: float, window_s: float) -> dict[str, float]:
+    """Fastest downward speed (m/s, over >= 0.25 s) of each drone's Gazebo
+    altitude in the first ``window_s`` after the start request."""
+    out = {}
+    for i in range(n):
+        alts = [(w - t0, to_fleet(poses[i], rest_z[i])[2]) for w, _sim, poses in show if w - t0 <= window_s]
+        worst, k = 0.0, 0
+        for j, (t, z) in enumerate(alts):
+            while alts[k][0] < t - 0.25:
+                k += 1
+            if t - alts[k][0] >= 0.2:
+                worst = max(worst, (alts[k][1] - z) / (t - alts[k][0]))
+        out[str(i)] = round(worst, 2)
+    return out
+
+
+def analyse(result, recorder, drones, rest_z, t0, duration, gcs_rows, out_dir: Path, label: str, bridge_s: float = 0.0) -> None:
+    """Planned vs Gazebo: separation, tracking error, real-time factor, stalls.
+
+    ``bridge_s`` is the start transition leg the GCS flew before the show (see
+    make_planner); ``duration`` is the show's own length."""
     n = len(drones)
+    planned = make_planner(drones, bridge_s, hold_positions(recorder, rest_z, t0, n))
+    show_duration = duration
+    duration = duration + bridge_s
     show = [s for s in recorder.samples if t0 <= s[0] <= t0 + duration and len(s[2]) == n]
     actual = result["actual"]
     if not show:
@@ -488,7 +561,7 @@ def analyse(result, recorder, drones, rest_z, t0, duration, gcs_rows, out_dir: P
     # Planned separation at the same instants, so the two are comparable.
     planned_min = math.inf
     for wall, _sim, _p in show:
-        planned_pts = [interpolate(drones[i], wall - t0) for i in range(n)]
+        planned_pts = [planned(i, wall - t0) for i in range(n)]
         for i in range(n):
             for j in range(i + 1, n):
                 planned_min = min(planned_min, math.dist(planned_pts[i], planned_pts[j]))
@@ -501,7 +574,7 @@ def analyse(result, recorder, drones, rest_z, t0, duration, gcs_rows, out_dir: P
     for i in range(n):
         errs = []
         for wall, _sim, poses in show:
-            e = math.dist(to_fleet(poses[i], rest_z[i]), interpolate(drones[i], wall - t0))
+            e = math.dist(to_fleet(poses[i], rest_z[i]), planned(i, wall - t0))
             errs.append((wall - t0, e))
             if e > worst[0]:
                 worst = (e, i, wall - t0)
@@ -513,6 +586,8 @@ def analyse(result, recorder, drones, rest_z, t0, duration, gcs_rows, out_dir: P
             **start_transient(errs),
         }
     gz["tracking_error"] = per_drone
+    gz["bridge_s"] = bridge_s
+    gz["start_max_descent_rate_ms"] = start_descent_rate(show, rest_z, n, t0, bridge_s + 3.0)
     gz["max_tracking_error_m"] = round(worst[0], 3)
     gz["max_tracking_error_drone"] = worst[1]
     gz["max_tracking_error_at_s"] = round(worst[2], 1)
@@ -520,7 +595,7 @@ def analyse(result, recorder, drones, rest_z, t0, duration, gcs_rows, out_dir: P
     # Where each drone ended up vs its planned final point (its pad).
     last = recorder.samples[-1][2]
     gz["final_position_error_m"] = {
-        str(i): round(math.dist(to_fleet(last[i], rest_z[i]), interpolate(drones[i], duration)), 3)
+        str(i): round(math.dist(to_fleet(last[i], rest_z[i]), interpolate(drones[i], show_duration)), 3)
         for i in range(n) if i in last
     }
 
@@ -537,7 +612,7 @@ def analyse(result, recorder, drones, rest_z, t0, duration, gcs_rows, out_dir: P
             if i not in drones or not (t0 <= t <= t0 + duration):
                 continue
             g = (float(row["x"]), float(row["y"]), float(row["z"]))
-            e = math.dist(g, interpolate(drones[i], t - t0))
+            e = math.dist(g, planned(i, t - t0))
             gcs_err[str(i)] = max(gcs_err.get(str(i), 0.0), e)
             k = bisect.bisect_left(walls, t)
             if 0 < k < len(walls) and i in recorder.samples[k][2]:
@@ -561,7 +636,7 @@ def analyse(result, recorder, drones, rest_z, t0, duration, gcs_rows, out_dir: P
             last_kept = wall
             for i, p in sorted(poses.items()):
                 x, y, z = to_fleet(p, rest_z[i])
-                px, py, pz = interpolate(drones[i], wall - t0)
+                px, py, pz = planned(i, wall - t0)
                 w.writerow([f"{wall - t0:.2f}", f"{sim:.3f}", i, f"{x:.3f}", f"{y:.3f}", f"{z:.3f}",
                             f"{px:.3f}", f"{py:.3f}", f"{pz:.3f}"])
 
