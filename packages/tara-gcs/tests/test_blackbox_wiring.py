@@ -307,6 +307,51 @@ async def test_session_files_rotate_and_old_ones_are_pruned(tmp_path):
     assert read_blackbox(files[-1]).header["format"] == "tara-blackbox"  # newest may have just been opened
 
 
+async def test_stop_during_rotation_waits_for_rotated_out_session_close(tmp_path, monkeypatch):
+    """Regression test: stopping the service while a rotation is in flight
+    must not drop the gzip trailer or leave the rotated-out session truncated."""
+    dm = FakeDM(n=10)
+    svc = BlackboxService(
+        dm,
+        directory=str(tmp_path),
+        max_total_mb=10,
+        file_mb=1,
+        recorder_kwargs={"fsync_interval_s": None, "flush_interval_s": 0.05},
+    )
+    svc.start()
+    try:
+        await asyncio.sleep(0.1)
+        old_rec = svc.recorder
+        assert old_rec is not None
+        old_path = old_rec.path
+
+        orig_close = old_rec.close
+        close_started = asyncio.Event()
+
+        def slow_close():
+            close_started.set()
+            time.sleep(0.2)
+            return orig_close()
+
+        monkeypatch.setattr(old_rec, "close", slow_close)
+
+        # Trigger rotation
+        rotate_task = asyncio.create_task(svc._rotate())
+        await close_started.wait()
+
+        # Stop while rotation's finish_session is still closing old_rec
+        await svc.stop()
+        await rotate_task
+
+        assert old_rec.closed
+        log = read_blackbox(old_path)
+        assert log.header["format"] == "tara-blackbox"
+        assert not log.truncated
+    finally:
+        if svc.recorder and not svc.recorder.closed:
+            await svc.stop()
+
+
 async def test_a_disk_failure_is_swallowed_and_a_fresh_file_takes_over(tmp_path, monkeypatch, caplog):
     monkeypatch.setattr(bbs, "RETRY_AFTER_FAILURE_S", 0.2)
     dm = FakeDM(n=5)

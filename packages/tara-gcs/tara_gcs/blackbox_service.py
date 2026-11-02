@@ -160,11 +160,16 @@ class BlackboxService:
         if fsm is not None and self._on_fsm in fsm.observers:
             fsm.observers.remove(self._on_fsm)
         if self._finishing:
-            await asyncio.gather(*self._finishing, return_exceptions=True)
+            try:
+                await asyncio.wait_for(asyncio.gather(*self._finishing, return_exceptions=True), timeout=5.0)
+            except asyncio.TimeoutError:
+                logger.warning("Blackbox: timed out waiting for finishing sessions during stop")
         rec, self._rec = self._rec, None
         if rec is not None:
             try:
-                await asyncio.get_running_loop().run_in_executor(None, rec.close)
+                await asyncio.wait_for(asyncio.get_running_loop().run_in_executor(None, rec.close), timeout=5.0)
+            except asyncio.TimeoutError:
+                logger.warning("Blackbox: timed out closing live session during stop")
             except Exception:
                 logger.exception("Blackbox: error closing %s", rec.path)
 
