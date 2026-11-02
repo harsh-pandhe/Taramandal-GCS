@@ -28,6 +28,12 @@ export default function SimControlBar({
           <span className={`dot ${simHeartbeat.alive ? 'green' : 'red'}`}></span>
           NODES: {simHeartbeat.connected ?? 0}/{simNodeTotal}
         </div>
+        {simHeartbeat.armed_stale > 0 && (
+          <div className="status-badge">
+            <span className="dot red"></span>
+            ARMED, NO HEARTBEAT: {simHeartbeat.armed_stale}
+          </div>
+        )}
         <div className="status-badge">
           <span className={`dot ${simCpu > 85 ? 'red' : simCpu > 60 ? 'orange' : 'green'}`}></span>
           CPU: {simCpu.toFixed(0)}%

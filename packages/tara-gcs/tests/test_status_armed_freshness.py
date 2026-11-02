@@ -66,6 +66,49 @@ async def test_status_armed_count_still_counts_fresh_armed_drones(manager):
 
 
 @pytest.mark.asyncio
+async def test_status_reports_an_armed_drone_that_went_silent_as_armed_stale(manager):
+    """Review of #211, B-2: armed 0 read as disarmed for a drone that may be
+    spinning. It stays out of `armed` (that count is fresh-only) but must be
+    visible next to it."""
+    manager.telemetry = _telemetry(manager, armed_fresh=False, armed_stale=True)
+
+    status = await gcs_main.get_status()
+
+    assert status["armed"] == 0
+    assert status["armed_stale"] == 1
+    assert status["armed_stale_ids"] == [1]
+
+
+@pytest.mark.asyncio
+async def test_armed_stale_counts_only_the_stale_armed_drone(manager):
+    manager.telemetry = _telemetry(manager, armed_fresh=True, armed_stale=True)
+
+    status = await gcs_main.get_status()
+
+    assert (status["armed"], status["armed_stale"]) == (1, 1)
+    assert status["armed_stale_ids"] == [1]
+
+
+@pytest.mark.asyncio
+async def test_armed_stale_is_zero_when_a_silent_drone_was_disarmed_or_the_armed_one_is_fresh(manager):
+    manager.telemetry = _telemetry(manager, armed_fresh=True, armed_stale=False)
+
+    status = await gcs_main.get_status()
+
+    assert (status["armed"], status["armed_stale"], status["armed_stale_ids"]) == (1, 0, [])
+
+
+@pytest.mark.asyncio
+async def test_sim_status_heartbeat_reports_armed_stale(manager, monkeypatch, tmp_path):
+    monkeypatch.setattr(gcs_main, "sim_manager", SimManager(repo_root=tmp_path))
+    manager.telemetry = _telemetry(manager, armed_fresh=False, armed_stale=True)
+
+    heartbeat = (await gcs_main.sim_status(operator=COMMANDER))["heartbeat"]
+
+    assert (heartbeat["armed"], heartbeat["armed_stale"]) == (0, 1)
+
+
+@pytest.mark.asyncio
 async def test_sim_status_heartbeat_armed_count_ignores_a_stale_drone(manager, monkeypatch, tmp_path):
     monkeypatch.setattr(gcs_main, "sim_manager", SimManager(repo_root=tmp_path))
     manager.telemetry = _telemetry(manager, armed_fresh=True, armed_stale=True)

@@ -406,6 +406,22 @@ async def shutdown_event():
         logger.info("Stopping simulation processes started by this GCS...")
         await sim_manager.stop()
 
+def _armed_stale_ids() -> list[int]:
+    """Drones last seen armed whose heartbeat has since gone stale.
+
+    ``armed`` counts fresh drones only (issue #171), so a drone that went
+    silent while spinning reads 0 there, the same as a disarmed one (review of
+    #211, B-2). These are the ones that number leaves out: the flag is the last
+    value the dead link left behind, so it may be out of date - but it is the
+    only evidence there is, and "might be spinning" must not look "disarmed".
+    """
+    return sorted(
+        drone_id
+        for drone_id, t in drone_manager.telemetry.items()
+        if t.get("armed") and not drone_manager.is_heartbeat_fresh(t)
+    )
+
+
 @app.get("/api/status")
 async def get_status():
     """Point-in-time fleet health, for `tara status` and any scripted check.
@@ -416,6 +432,7 @@ async def get_status():
     control/safety loops for the drones' attention.
     """
     telemetry = drone_manager.telemetry
+    armed_stale_ids = _armed_stale_ids()
     return {
         "mode": current_operating_mode,
         "configured_mode": current_operating_mode,
@@ -434,6 +451,11 @@ async def get_status():
         # Same bar for armed (issue #171): after a PX4 process was killed
         # mid-hover this kept reporting armed: 1 off the dead link's last frame.
         "armed": sum(1 for t in telemetry.values() if drone_manager.is_heartbeat_fresh(t) and t.get("armed")),
+        # Armed when last heard, heartbeat now stale: NOT in "armed" above. A
+        # reader that looks at "armed" alone must also look here before it
+        # calls the fleet safe (review of #211, B-2).
+        "armed_stale": len(armed_stale_ids),
+        "armed_stale_ids": armed_stale_ids,
         "trajectory_running": drone_manager.is_running_trajectory,
         "fleet_state": drone_manager.fleet_fsm.state.value,
         # Drones aborted out of the show on their own (issue #59); per-drone
@@ -1191,6 +1213,8 @@ async def sim_status(operator: Viewer):
         "alive": connected > 0,
         "connected": connected,
         "armed": sum(1 for t in telemetry.values() if drone_manager.is_heartbeat_fresh(t) and t.get("armed")),
+        # Same split as /api/status: armed when last heard, link now stale.
+        "armed_stale": len(_armed_stale_ids()),
         "expected": len(drone_manager.ports),
         "home_locked": sum(
             1 for t in telemetry.values()

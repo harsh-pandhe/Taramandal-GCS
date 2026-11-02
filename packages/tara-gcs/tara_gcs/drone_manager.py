@@ -97,6 +97,15 @@ class OperatorTakeoverError(RuntimeError):
     """
 
 
+#: Flight modes the vehicle can legitimately report while this sequence's own
+#: landing is under way: still OFFBOARD until the mode switch lands, HOLD in
+#: between (``offboard.stop()``), LAND, then READY/LANDED on the ground. Any
+#: other mode (POSCTL, MANUAL, ALTCTL, ...) means a pilot or another commander
+#: now has the vehicle (issue #171, review of #211). UNKNOWN / None are not
+#: evidence of anything.
+LANDING_OWN_MODES = frozenset({"OFFBOARD", "HOLD", "LAND", "READY", "LANDED", "UNKNOWN"})
+
+
 #: Pads for the largest fleet we support, computed once. Indexing into a single
 #: fixed grid matters: deriving it per-drone from the current fleet size would
 #: move a drone's pad every time the fleet grew, because the grid's width is
@@ -1692,6 +1701,25 @@ class DroneManager:
             )
         return offboard_seen
 
+    def _check_landing_takeover(self, drone_id: int, tel: dict) -> None:
+        """Raise OperatorTakeoverError if, after we commanded the landing, the
+        vehicle reports a mode our own landing can't have put it in.
+
+        :meth:`_check_operator_takeover` only knows "left OFFBOARD", and the
+        sequence leaves OFFBOARD itself when it lands, so the landing wait needs
+        its own list of the modes that are ours (``LANDING_OWN_MODES``). Without
+        this check a pilot who took over during the descent was still on the
+        receiving end of ``_safe_recover``'s offboard.stop + land 10 s later
+        (review of #211, B-1).
+        """
+        mode = tel.get("flight_mode")
+        if mode is None or mode in LANDING_OWN_MODES:
+            return
+        raise OperatorTakeoverError(
+            f"Drone {drone_id}: operator took over during the landing (flight mode {mode}); "
+            "the sequence is yielding without commanding the vehicle"
+        )
+
     def _emergency_in_progress(self) -> bool:
         """True once the fleet FSM has already moved to an emergency state
         (RTL/LAND/ESTOP) - issue #145 review, B3: something else is already
@@ -1873,6 +1901,7 @@ class DroneManager:
                 ):
                     disarm_confirmed = True
                     break
+                self._check_landing_takeover(drone_id, tel)
                 await asyncio.sleep(0.1)
 
             # issue #145 review, B1: this fallback used to call disarm()

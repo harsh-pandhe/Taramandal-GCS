@@ -229,6 +229,24 @@ class TestRendering:
         assert "connected=5" in text
         assert "armed=3" in text
 
+    def test_armed_stale_is_reported_not_folded_into_armed(self, api_server, processes):
+        """`armed == 0` alone must never read as safe while a silent drone may be spinning (#171)."""
+        processes(RUNNING_PROCESSES)
+        port = api_server({**HEALTHY_PAYLOAD, "armed": 0, "armed_stale": 2})
+        snapshot = collect_status(_config(port))
+
+        assert (snapshot.armed, snapshot.armed_stale) == (0, 2)
+        assert json.loads(to_json(snapshot))["armed_stale"] == 2
+        text = to_text(snapshot)
+        assert "armed=0" in text
+        assert "2 drone(s) last seen ARMED" in text
+
+    def test_text_report_has_no_armed_warning_when_nothing_is_stale_armed(self, api_server, processes):
+        processes(RUNNING_PROCESSES)
+        text = to_text(collect_status(_config(api_server({**HEALTHY_PAYLOAD, "armed_stale": 0}))))
+
+        assert "ARMED" not in text
+
     def test_text_report_when_idle_says_nothing_running(self, processes):
         processes([])
         assert to_text(collect_status(_config(DEAD_PORT), timeout=DEAD_PORT_TIMEOUT_S)) == "[tara] nothing running."
