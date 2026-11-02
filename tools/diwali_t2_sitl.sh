@@ -34,6 +34,17 @@ if [ -n "$others" ]; then
   exit 3
 fi
 
+# Never remove a container this script did not create: with CONTAINER=<another tab's name> the `docker rm -f` below
+# would destroy that tab's stack (running or stopped, with its logs). Only a container carrying our label is ours.
+if docker inspect "$C" >/dev/null 2>&1 && [ "$(docker inspect -f '{{index .Config.Labels "tara.diwali-t2"}}' "$C")" != 1 ]; then
+  echo "REFUSING: container $C exists and was not created by this script; pick another CONTAINER name or remove it yourself." >&2
+  exit 3
+fi
+
+# The previous run's container (ours, by the label) is still up: the script leaves it for inspection. The idle check
+# below counts any tara-sitl-* container as a foreign SITL, so without this a second run refuses itself.
+docker rm -f "$C" >/dev/null 2>&1
+
 # Gate: a quiet CPU. FORCE_BUSY=1 runs anyway on a loaded (but SITL-free) host; the run then says it is not evidence.
 if ! "$ROOT/tools/diwali_cpu_check.sh"; then
   if [ "${FORCE_BUSY:-0}" != 1 ]; then
@@ -82,7 +93,7 @@ chmod +x "$SCRATCH/up.sh"
 docker rm -f "$C" >/dev/null 2>&1
 LOAD_BEFORE=$(cut -d' ' -f1-3 /proc/loadavg)
 echo "[$LABEL] host load before: $LOAD_BEFORE"
-docker run -d --name "$C" --network host -v "$SCRATCH":/scratch -v "$ROOT":/work -v "$VENV":/venv:ro \
+docker run -d --name "$C" --label tara.diwali-t2=1 --network host -v "$SCRATCH":/scratch -v "$ROOT":/work -v "$VENV":/venv:ro \
   "$IMAGE" sleep infinity >/dev/null || { echo "docker run failed: is Docker Desktop running and the image present?" >&2; exit 2; }
 docker exec -u root "$C" mkdir -p /usr/local/lib/node_modules
 docker cp -q "$(command -v node)" "$C:/usr/local/bin/node"
