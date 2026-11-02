@@ -1,0 +1,6 @@
+[   1.08s] ready: True
+[  20.31s] NOMINAL HTTP 200 {"status": "COMPLETED", "mode": "SIMULATION", "configured_mode": "SIMULATION", "active_backend": "px4", "vehicle": "SIMULATED", "steps": [{"step": "PREFLIGHT", "status": "PASSED", "time": 1793651182.4
+[  20.31s] modes seen: ['OFFBOARD', 'LAND', 'HOLD'] armed now: False
+[   1.07s] ready: True
+[  19.87s] NOMINAL HTTP 200 {"status": "COMPLETED", "mode": "SIMULATION", "configured_mode": "SIMULATION", "active_backend": "px4", "vehicle": "SIMULATED", "steps": [{"step": "PREFLIGHT", "status": "PASSED", "time": 1793651382.4
+[  19.87s] modes seen: ['HOLD', 'OFFBOARD', 'LAND'] armed now: True

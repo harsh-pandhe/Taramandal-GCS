@@ -1,0 +1,53 @@
+[   1.01s] OBS connected: True
+[   1.74s] preflight ready: True
+[   1.63s] OBS armed: True
+[   1.63s] OBS mode: HOLD
+[   1.63s] OBS landed_state: ON_GROUND
+[   2.63s] OBS mode: OFFBOARD
+[   3.63s] OBS landed_state: IN_AIR
+[  10.63s] OBS mode: LAND
+[  10.63s] OBS landed_state: LANDING
+[  11.15s] GCS landing under way: mode=LAND alt=3.87 ok=True
+[  11.45s] TAKEOVER start_position_control() alt=3.76
+[  11.61s] HOVER HTTP RESULT: 500 {"detail": "Landing failed: Drone 0: operator took over during the landing (flight mode POSCTL); the sequence is yielding without commanding the vehicle"}
+[  11.63s] OBS mode: POSCTL
+[  11.63s] OBS landed_state: IN_AIR
+[  12.47s] + 1.0s mode=POSCTL armed=True alt=3.49 landed=IN_AIR http_done=True
+[  13.47s] + 2.0s mode=POSCTL armed=True alt=3.45 landed=IN_AIR http_done=True
+[  14.47s] + 3.0s mode=POSCTL armed=True alt=3.44 landed=IN_AIR http_done=True
+[  15.47s] + 4.0s mode=POSCTL armed=True alt=3.44 landed=IN_AIR http_done=True
+[  16.47s] + 5.0s mode=POSCTL armed=True alt=3.45 landed=IN_AIR http_done=True
+[  17.48s] + 6.0s mode=POSCTL armed=True alt=3.45 landed=IN_AIR http_done=True
+[  18.48s] + 7.0s mode=POSCTL armed=True alt=3.45 landed=IN_AIR http_done=True
+[  19.48s] + 8.0s mode=POSCTL armed=True alt=3.45 landed=IN_AIR http_done=True
+[  20.48s] + 9.0s mode=POSCTL armed=True alt=3.45 landed=IN_AIR http_done=True
+[  21.48s] +10.0s mode=POSCTL armed=True alt=3.46 landed=IN_AIR http_done=True
+[  22.48s] +11.0s mode=POSCTL armed=True alt=3.46 landed=IN_AIR http_done=True
+[  23.48s] +12.0s mode=POSCTL armed=True alt=3.46 landed=IN_AIR http_done=True
+[  24.48s] +13.0s mode=POSCTL armed=True alt=3.45 landed=IN_AIR http_done=True
+[  25.48s] +14.0s mode=POSCTL armed=True alt=3.45 landed=IN_AIR http_done=True
+[  26.48s] +15.0s mode=POSCTL armed=True alt=3.45 landed=IN_AIR http_done=True
+[  27.48s] +16.0s mode=POSCTL armed=True alt=3.44 landed=IN_AIR http_done=True
+[  28.48s] +17.0s mode=POSCTL armed=True alt=3.44 landed=IN_AIR http_done=True
+[  29.48s] +18.0s mode=POSCTL armed=True alt=3.45 landed=IN_AIR http_done=True
+[  30.48s] +19.0s mode=POSCTL armed=True alt=3.45 landed=IN_AIR http_done=True
+[  31.48s] +20.0s mode=POSCTL armed=True alt=3.45 landed=IN_AIR http_done=True
+[  32.49s] +21.0s mode=POSCTL armed=True alt=3.45 landed=IN_AIR http_done=True
+[  33.49s] +22.0s mode=POSCTL armed=True alt=3.46 landed=IN_AIR http_done=True
+[  34.49s] +23.0s mode=POSCTL armed=True alt=3.46 landed=IN_AIR http_done=True
+[  35.49s] +24.0s mode=POSCTL armed=True alt=3.45 landed=IN_AIR http_done=True
+[  36.49s] +25.0s mode=POSCTL armed=True alt=3.45 landed=IN_AIR http_done=True
+[  36.49s] RESULT[fixed] mode_at_25s=POSCTL armed=True alt=3.45
+[  36.63s] OBS mode: LAND
+[  36.63s] OBS landed_state: LANDING
+[  43.63s] OBS landed_state: ON_GROUND
+[  45.63s] OBS armed: False
+[  45.63s] OBS mode: POSCTL
+  AUDIT {"backend": "px4", "event": "login", "fidelity": "px4-sitl", "operator": "cmdr", "origin_ip": "127.0.0.1", "role": "FLIGHT_COMMANDER", "ts": 1793650559.2992833}
+  AUDIT {"backend": "px4", "drone_id": 0, "event": "single_drone_hover_requested", "fidelity": "px4-sitl", "hover_duration_s": 2.0, "operator": "cmdr", "target_altitude_m": 4.0, "ts": 1793650559.3918595}
+  AUDIT {"backend": "px4", "drone_id": 0, "error": "Landing failed: Touchdown disarm could not be confirmed by telemetry", "event": "single_drone_hover_failed", "fidelity": "px4-sitl", "operator": "cmdr", "ts": 1793650585.2653267}
+  AUDIT {"backend": "px4", "event": "command", "fidelity": "px4-sitl", "method": "POST", "operator": "cmdr", "origin_ip": "127.0.0.1", "path": "/api/single-drone/hover-sequence", "role": "FLIGHT_COMMANDER", "status": 500, "ts": 1793650585.2710502}
+  AUDIT {"backend": "px4", "event": "login", "fidelity": "px4-sitl", "operator": "cmdr", "origin_ip": "127.0.0.1", "role": "FLIGHT_COMMANDER", "ts": 1793650873.6216254}
+  AUDIT {"backend": "px4", "drone_id": 0, "event": "single_drone_hover_requested", "fidelity": "px4-sitl", "hover_duration_s": 2.0, "operator": "cmdr", "target_altitude_m": 4.0, "ts": 1793650873.6766236}
+  AUDIT {"backend": "px4", "drone_id": 0, "error": "Landing failed: Drone 0: operator took over during the landing (flight mode POSCTL); the sequence is yielding without commanding the vehicle", "event": "single_drone_hover_failed", "fidelity": "px
+  AUDIT {"backend": "px4", "event": "command", "fidelity": "px4-sitl", "method": "POST", "operator": "cmdr", "origin_ip": "127.0.0.1", "path": "/api/single-drone/hover-sequence", "role": "FLIGHT_COMMANDER", "status": 500, "ts": 1793650883.5048816}

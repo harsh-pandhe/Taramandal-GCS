@@ -1,0 +1,49 @@
+[   1.02s] OBS connected: True
+[   1.98s] preflight ready: True
+[   1.76s] OBS armed: True
+[   1.76s] OBS mode: HOLD
+[   1.76s] OBS landed_state: ON_GROUND
+[   2.76s] OBS mode: OFFBOARD
+[   3.77s] OBS landed_state: IN_AIR
+[  10.77s] OBS mode: LAND
+[  10.77s] OBS landed_state: LANDING
+[  11.49s] GCS landing under way: mode=LAND alt=3.76 ok=True
+[  11.80s] TAKEOVER start_position_control() alt=3.53
+[  11.77s] OBS mode: POSCTL
+[  11.77s] OBS landed_state: IN_AIR
+[  12.81s] + 1.0s mode=POSCTL armed=True alt=3.34 landed=IN_AIR http_done=False
+[  13.81s] + 2.0s mode=POSCTL armed=True alt=3.30 landed=IN_AIR http_done=False
+[  14.82s] + 3.0s mode=POSCTL armed=True alt=3.31 landed=IN_AIR http_done=False
+[  15.82s] + 4.0s mode=POSCTL armed=True alt=3.32 landed=IN_AIR http_done=False
+[  16.82s] + 5.0s mode=POSCTL armed=True alt=3.32 landed=IN_AIR http_done=False
+[  17.82s] + 6.0s mode=POSCTL armed=True alt=3.31 landed=IN_AIR http_done=False
+[  18.82s] + 7.0s mode=POSCTL armed=True alt=3.31 landed=IN_AIR http_done=False
+[  19.82s] + 8.0s mode=POSCTL armed=True alt=3.30 landed=IN_AIR http_done=False
+[  20.82s] + 9.0s mode=POSCTL armed=True alt=3.31 landed=IN_AIR http_done=False
+[  20.77s] OBS mode: LAND
+[  20.77s] OBS landed_state: LANDING
+[  21.82s] +10.0s mode=LAND armed=True alt=3.08 landed=LANDING http_done=False
+[  22.82s] +11.0s mode=LAND armed=True alt=2.41 landed=LANDING http_done=False
+[  23.82s] +12.0s mode=LAND armed=True alt=1.74 landed=LANDING http_done=False
+[  24.83s] +13.0s mode=LAND armed=True alt=1.05 landed=LANDING http_done=False
+[  25.83s] +14.0s mode=LAND armed=True alt=0.35 landed=LANDING http_done=False
+[  26.83s] +15.0s mode=LAND armed=True alt=-0.03 landed=LANDING http_done=False
+[  27.83s] +16.0s mode=LAND armed=True alt=-0.00 landed=LANDING http_done=False
+[  27.90s] HOVER HTTP RESULT: 500 {"detail": "Landing failed: Touchdown disarm could not be confirmed by telemetry"}
+[  27.77s] OBS armed: False
+[  27.77s] OBS mode: HOLD
+[  27.77s] OBS landed_state: ON_GROUND
+[  28.83s] +17.0s mode=HOLD armed=False alt=-0.01 landed=ON_GROUND http_done=True
+[  29.83s] +18.0s mode=HOLD armed=False alt=-0.00 landed=ON_GROUND http_done=True
+[  30.83s] +19.0s mode=HOLD armed=False alt=0.00 landed=ON_GROUND http_done=True
+[  31.83s] +20.0s mode=HOLD armed=False alt=0.00 landed=ON_GROUND http_done=True
+[  32.83s] +21.0s mode=HOLD armed=False alt=0.02 landed=ON_GROUND http_done=True
+[  33.83s] +22.0s mode=HOLD armed=False alt=0.04 landed=ON_GROUND http_done=True
+[  34.84s] +23.0s mode=HOLD armed=False alt=0.03 landed=ON_GROUND http_done=True
+[  35.84s] +24.0s mode=HOLD armed=False alt=0.03 landed=ON_GROUND http_done=True
+[  36.84s] +25.0s mode=HOLD armed=False alt=0.02 landed=ON_GROUND http_done=True
+[  36.84s] RESULT[main] mode_at_25s=HOLD armed=False alt=0.02
+  AUDIT {"backend": "px4", "event": "login", "fidelity": "px4-sitl", "operator": "cmdr", "origin_ip": "127.0.0.1", "role": "FLIGHT_COMMANDER", "ts": 1793650559.2992833}
+  AUDIT {"backend": "px4", "drone_id": 0, "event": "single_drone_hover_requested", "fidelity": "px4-sitl", "hover_duration_s": 2.0, "operator": "cmdr", "target_altitude_m": 4.0, "ts": 1793650559.3918595}
+  AUDIT {"backend": "px4", "drone_id": 0, "error": "Landing failed: Touchdown disarm could not be confirmed by telemetry", "event": "single_drone_hover_failed", "fidelity": "px4-sitl", "operator": "cmdr", "ts": 1793650585.2653267}
+  AUDIT {"backend": "px4", "event": "command", "fidelity": "px4-sitl", "method": "POST", "operator": "cmdr", "origin_ip": "127.0.0.1", "path": "/api/single-drone/hover-sequence", "role": "FLIGHT_COMMANDER", "status": 500, "ts": 1793650585.2710502}
