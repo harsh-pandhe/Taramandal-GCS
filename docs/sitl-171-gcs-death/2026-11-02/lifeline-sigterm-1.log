@@ -1,0 +1,32 @@
+[   1.03s] OBS connected: True
+[   1.68s] OBS armed: False
+[   1.68s] OBS mode: HOLD
+[   1.68s] OBS landed_state: ON_GROUND
+[   2.37s] COM_OF_LOSS_T 1.0
+[   2.38s] NAV_DLL_ACT 2
+[   2.40s] COM_OBL_RC_ACT 0
+[   2.42s] COM_RC_IN_MODE 1
+[   2.42s] COM_RCL_EXCEPT 0
+[   2.66s] preflight ready True {'mode': 'SIMULATION', 'configured_mode': 'SIMULATION', 'backend': 'px4', 'fidelity': 'px4-sitl', 'active_backend': 'px4', 'hardware_flight_certified': False, 'hardware_flight_available': False, 'num_drones': 1, 'connected': 1, 'armed': 0, 'trajectory_running': False, 'fleet_state': 'STAGED', 'aborted': [], 'packet_drop_rate': None}
+[   2.68s] OBS armed: True
+[   3.68s] OBS mode: OFFBOARD
+[   4.69s] OBS landed_state: IN_AIR
+[  11.83s] pre-kill mode=OFFBOARD armed=True alt=1.89
+[  11.85s] gcs 1785 server [1821]
+[  11.85s] SENT SIGTERM alt 1.89
+[  11.96s]   + 0.1s mode=OFFBOARD armed=True alt=1.90 landed=IN_AIR server=[1821]
+[  16.86s]   + 5.0s mode=OFFBOARD armed=True alt=2.00 landed=IN_AIR server=[1821]
+[  21.90s]   +10.0s mode=OFFBOARD armed=True alt=2.00 landed=IN_AIR server=[1821]
+[  26.93s]   +15.1s mode=OFFBOARD armed=True alt=2.00 landed=IN_AIR server=[1821]
+[  31.96s]   +20.1s mode=OFFBOARD armed=True alt=2.00 landed=IN_AIR server=[1821]
+[  36.87s]   +25.0s mode=OFFBOARD armed=True alt=2.02 landed=IN_AIR server=[1821]
+[  40.75s] OBS mode: LAND
+[  40.75s] OBS landed_state: LANDING
+[  41.46s] PX4 left OFFBOARD for LAND +29.60s
+[  41.89s]   +30.0s mode=LAND armed=True alt=1.44 landed=LANDING server=[1821]
+[  44.81s] OBS landed_state: ON_GROUND
+[  46.95s]   +35.1s mode=LAND armed=True alt=0.00 landed=ON_GROUND server=[1821]
+[  46.81s] OBS armed: False
+[  46.81s] OBS mode: HOLD
+[  47.51s] disarmed +35.7s alt=0.01 landed=ON_GROUND
+{"signal": "SIGTERM", "server_gone_s": null, "left_offboard_s": 29.599115133285522, "final_mode": "HOLD", "armed": false, "alt": 0.01}

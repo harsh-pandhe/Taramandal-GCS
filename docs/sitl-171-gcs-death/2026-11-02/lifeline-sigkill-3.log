@@ -1,0 +1,28 @@
+[   0.98s] OBS connected: True
+[   1.35s] OBS armed: False
+[   1.35s] OBS mode: HOLD
+[   1.35s] OBS landed_state: ON_GROUND
+[   1.50s] COM_OF_LOSS_T 1.0
+[   1.51s] NAV_DLL_ACT 2
+[   1.52s] COM_OBL_RC_ACT 0
+[   1.53s] COM_RC_IN_MODE 1
+[   1.54s] COM_RCL_EXCEPT 0
+[   1.77s] preflight ready True {'mode': 'SIMULATION', 'configured_mode': 'SIMULATION', 'backend': 'px4', 'fidelity': 'px4-sitl', 'active_backend': 'px4', 'hardware_flight_certified': False, 'hardware_flight_available': False, 'num_drones': 1, 'connected': 1, 'armed': 0, 'trajectory_running': False, 'fleet_state': 'STAGED', 'aborted': [], 'packet_drop_rate': None}
+[   2.35s] OBS armed: True
+[   3.35s] OBS mode: OFFBOARD
+[   4.35s] OBS landed_state: IN_AIR
+[  10.84s] pre-kill mode=OFFBOARD armed=True alt=1.87
+[  10.86s] gcs 1592 server [1628]
+[  10.86s] SENT SIGKILL alt 1.87
+[  10.89s] hover http ended: RemoteDisconnected
+[  10.97s] server gone +0.10s
+[  10.97s]   + 0.1s mode=OFFBOARD armed=True alt=1.88 landed=IN_AIR server=[]
+[  12.36s] OBS mode: POSCTL
+[  12.49s] PX4 left OFFBOARD for POSCTL +1.63s
+[  15.93s]   + 5.1s mode=POSCTL armed=True alt=-0.02 landed=IN_AIR server=[]
+[  16.37s] OBS landed_state: ON_GROUND
+[  18.37s] OBS armed: False
+[  18.37s] OBS mode: OFFBOARD
+[  18.46s] disarmed +7.6s alt=-0.03 landed=ON_GROUND
+{"signal": "SIGKILL", "server_gone_s": 0.10140562057495117, "left_offboard_s": 1.626047134399414, "final_mode": "OFFBOARD", "armed": false, "alt": -0.03}
+[  19.37s] OBS mode: HOLD
