@@ -71,6 +71,13 @@ overrides. A busy CPU is also a refusal, except that `FORCE_BUSY=1` lets a rehea
 hours from unrelated jobs (other containers, `pytest`, an `ollama` server, a CPU-burner test), so the T2 runs
 had to wait for it (2.5). Expect to have to ask for the machine.
 
+**The SITL slot (team rule, from #172).** Only one person flies Gazebo on this machine at a time, and the
+claim is made in writing: before any T2 run, read the latest slot comment on #172. If it says "SITL slot taken",
+wait for "SITL slot free". Post "SITL slot taken (who, why)" before you start and "SITL slot free" when the
+container is gone. The script's `docker ps` refusal is a backstop, not the claim. The author's T2 runs of 3 Nov
+did not post these comments (the latest word on #172 was "free" and no `tara-sitl-*` container was running at
+any start), and a later claim on the slot by someone else ended the author's SITL use that night.
+
 ### 2.2 One-time setup (key, operator, config)
 
 ```bash
