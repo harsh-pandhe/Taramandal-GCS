@@ -1,5 +1,6 @@
 import { Clock, Users, Gauge, Film } from 'lucide-react';
 import { Badge } from '../common/index.jsx';
+import { exportGate } from '../../engine/exportGate.js';
 
 const fmtDuration = (s) => {
   const m = Math.floor(s / 60);
@@ -22,8 +23,9 @@ const fmtDuration = (s) => {
  */
 export default function SequencerHeader({
   sceneCount, numDrones, rate, predictedDuration, builtDuration, stale,
-  predictionRefused, refusalMessage, validation = null, validating = false,
+  predictionRefused, refusalMessage, hasShow = false, validation = null, validating = false,
 }) {
+  const gate = exportGate({ hasShow, validation });
   return (
     <div className="sequencer-header">
       <div className="seq-stat">
@@ -72,21 +74,29 @@ export default function SequencerHeader({
         </Badge>
       ) : null}
 
+      {/* Same predicate as the Transmit tab's buttons (engine/exportGate.js), and
+          worded to say what the buttons do, no more: "enabled", not "safe to fly" or
+          "will succeed" - the server still re-checks the show on export. */}
       {validating ? (
-        <Badge tone="default" title="Safety validation is running; export stays blocked until it passes">
+        <Badge tone="default" title="Safety validation is running">
           Validating…
         </Badge>
-      ) : validation?.status === 'PASSED' ? (
-        <Badge tone="ok" title="The show passed safety validation">
-          Safety passed · export open
+      ) : gate.kind === 'open' ? (
+        <Badge tone="ok" title="The Transmit tab's export buttons are enabled. The server re-checks the show when you export and can still refuse it.">
+          Safety passed · exports enabled
         </Badge>
-      ) : validation?.status === 'FAILED' ? (
-        <Badge tone="danger" title="Fix the violations in the Safety tab before exporting">
-          Safety failed · export blocked
+      ) : gate.kind === 'failed' ? (
+        <Badge
+          tone="danger"
+          title={gate.notFlightCertified
+            ? 'The show clears its hard limits but is not flight-certified (jerk or feasibility). Signed exports are locked; see the Transmit tab.'
+            : 'Fix the violations in the Safety tab before exporting.'}
+        >
+          {gate.notFlightCertified ? 'Not flight-certified' : 'Safety failed'} · exports locked
         </Badge>
-      ) : validation || builtDuration > 0 ? (
-        <Badge tone="warn" title="The show has not been verified; export stays blocked">
-          Unverified · export blocked
+      ) : gate.kind === 'unverified' ? (
+        <Badge tone="warn" title="There is no passing safety validation for this show yet; the export buttons are locked.">
+          Unverified · exports locked
         </Badge>
       ) : null}
     </div>

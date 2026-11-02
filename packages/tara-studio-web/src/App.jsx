@@ -318,7 +318,7 @@ export default function App() {
                 sceneCount: scenes.length, numDrones, rate,
                 predictedDuration, builtDuration, stale,
                 predictionRefused: prediction.refused, refusalMessage: prediction.message,
-                validation, validating,
+                hasShow: !!choreoData, validation, validating,
               }}
               viewMode={viewMode}
               onViewMode={setViewMode}

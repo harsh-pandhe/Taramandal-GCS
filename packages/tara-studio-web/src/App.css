@@ -315,7 +315,10 @@ input[type="number"] { font-family: var(--mono); font-variant-numeric: tabular-n
   font-size: var(--fs-md); font-weight: 600;
   cursor: pointer; transition: background 0.15s, border-color 0.15s;
 }
-.btn-secondary:hover { background: var(--bg-surface); border-color: var(--accent-line); color: var(--text); }
+.btn-secondary:hover:not(:disabled) { background: var(--bg-surface); border-color: var(--accent-line); color: var(--text); }
+/* Locked export buttons (the safety gate) must look locked: only .btn-primary
+   dimmed before, so JSON / CSV / .tara read as clickable while disabled. */
+.btn-secondary:disabled { opacity: 0.45; cursor: not-allowed; }
 
 /* Used by the audio zoom row, LED keyframes and the AI panel, but never styled,
    so those controls rendered as white browser-default buttons on the dark UI.

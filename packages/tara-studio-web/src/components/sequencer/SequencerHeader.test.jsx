@@ -52,39 +52,67 @@ describe('SequencerHeader', () => {
     expect(html).toContain('Built · 20.0s');
   });
 
-  // The header states the export gate's verdict (issue #132), mirroring
-  // App.jsx: only a PASSED validation opens export.
+  // The header states the export gate's verdict (issue #132) from the SAME
+  // predicate the Transmit tab's buttons use (engine/exportGate.js). Review of
+  // PR #210 found it saying "export open" while those buttons were locked.
   describe('validation / export state', () => {
-    it('says export is open only for a PASSED validation', () => {
-      const html = render({ builtDuration: 20, validation: { status: 'PASSED' } });
-      expect(html).toContain('Safety passed · export open');
+    const PASSED = { status: 'PASSED', violations: { proximity: [], velocity: [], acceleration: [], jerk: [] } };
+    const built = (props) => render({ builtDuration: 20, hasShow: true, ...props });
+
+    it('says exports are enabled for a PASSED, certified validation of a built show', () => {
+      const html = built({ validation: PASSED });
+      expect(html).toContain('Safety passed · exports enabled');
+      expect(html).not.toContain('locked');
     });
 
-    it('says export is blocked for a FAILED validation', () => {
-      const html = render({ builtDuration: 20, validation: { status: 'FAILED' } });
-      expect(html).toContain('Safety failed · export blocked');
-      expect(html).not.toContain('export open');
+    it('says exports are locked for a FAILED validation', () => {
+      const html = built({ validation: { ...PASSED, status: 'FAILED' } });
+      expect(html).toContain('Safety failed · exports locked');
+      expect(html).not.toContain('enabled');
     });
 
-    it('treats any other status as unverified and blocked', () => {
-      const html = render({ builtDuration: 20, validation: { status: 'UNVERIFIED' } });
-      expect(html).toContain('Unverified · export blocked');
+    it('does not say passed or enabled for PASSED with feasibility_certified false (the review finding)', () => {
+      const html = built({ validation: { ...PASSED, feasibility_certified: false } });
+      expect(html).toContain('Not flight-certified · exports locked');
+      expect(html).not.toContain('Safety passed');
+      expect(html).not.toContain('enabled');
     });
 
-    it('shows a built show that has no validation yet as unverified, not as open', () => {
-      const html = render({ builtDuration: 20, validation: null });
-      expect(html).toContain('Unverified · export blocked');
-      expect(html).not.toContain('export open');
+    it('does not say passed or enabled for PASSED with jerk violations', () => {
+      const html = built({
+        validation: { ...PASSED, violations: { ...PASSED.violations, jerk: [{ time: 3.1, drone: 2, jerk: 31 }] } },
+      });
+      expect(html).toContain('Not flight-certified · exports locked');
+      expect(html).not.toContain('Safety passed');
+      expect(html).not.toContain('enabled');
+    });
+
+    it('does not say passed or enabled for PASSED when no show is built', () => {
+      const html = render({ builtDuration: 0, hasShow: false, validation: PASSED });
+      expect(html).not.toContain('Safety passed');
+      expect(html).not.toContain('enabled');
+      expect(html).not.toContain('locked');
+    });
+
+    it('treats any other status as unverified and locked', () => {
+      const html = built({ validation: { status: 'UNVERIFIED' } });
+      expect(html).toContain('Unverified · exports locked');
+    });
+
+    it('shows a built show with no validation yet as unverified, not enabled', () => {
+      const html = built({ validation: null });
+      expect(html).toContain('Unverified · exports locked');
+      expect(html).not.toContain('enabled');
     });
 
     it('shows Validating… while the sweep runs, even over a previous PASSED result', () => {
-      const html = render({ builtDuration: 20, validating: true, validation: { status: 'PASSED' } });
+      const html = built({ validating: true, validation: PASSED });
       expect(html).toContain('Validating…');
-      expect(html).not.toContain('export open');
+      expect(html).not.toContain('enabled');
     });
 
     it('shows no validation badge before anything has been built', () => {
-      const html = render({ builtDuration: 0, validation: null });
+      const html = render({ builtDuration: 0, hasShow: false, validation: null });
       expect(html).not.toContain('export');
       expect(html).not.toContain('Validating');
     });
