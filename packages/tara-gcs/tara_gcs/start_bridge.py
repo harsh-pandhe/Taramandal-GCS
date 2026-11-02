@@ -80,10 +80,10 @@ def build_start_bridge(
         the same ``bridge_s`` and preceded by its leg. ``plan`` is not modified.
 
     Raises:
-        StartBridgeError: If a drone in ``plan`` has no entry in ``hold`` (and
-            a leg is needed, or no drone's position is known at all, so it
-            cannot be shown that none is). Or if the legs bring two drones
-            closer than the runtime separation limit
+        StartBridgeError: If a drone in ``plan`` has no entry in ``hold``: one
+            without a known position cannot be given a leg, and streaming it
+            anyway would step it to its first waypoint. Or if the legs bring
+            two drones closer than the runtime separation limit
             (``SafetyLimits.min_separation_m``) - the distance the live
             proximity monitor aborts on - at any instant, not just at the
             samples (see :func:`_leg_separation_errors`).
@@ -100,14 +100,15 @@ def build_start_bridge(
         goal = (first["x"], first["y"], first["z"])
         legs[drone_id] = (hold[drone_id], goal, first.get("yaw", 0.0))
 
-    longest = max((math.dist(start, goal) for start, goal, _ in legs.values()), default=0.0)
-    if unknown and (longest > BRIDGE_TOLERANCE_M or not legs):
+    if unknown:
         raise StartBridgeError(
             "Start refused: no current position for "
             + ", ".join(f"Drone {d}" for d in sorted(unknown))
             + " (not connected, no fresh telemetry, or never reported), so its transition from the "
             "formation hold to the show's first waypoint cannot be planned or checked."
         )
+
+    longest = max((math.dist(start, goal) for start, goal, _ in legs.values()), default=0.0)
     if longest <= BRIDGE_TOLERANCE_M:
         return plan, 0.0
 

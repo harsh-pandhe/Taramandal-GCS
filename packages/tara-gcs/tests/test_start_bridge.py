@@ -138,6 +138,20 @@ def test_every_drone_without_a_position_is_named():
     assert "Drone 0" not in str(refused.value)
 
 
+def test_unknown_drone_refuses_start_even_when_known_drones_need_no_bridge():
+    """B-2: if known drones are already at their first waypoints, an unknown
+    drone must still refuse the start rather than silently skipping the bridge."""
+    show = {
+        0: [{"time": 0.0, "x": 0.0, "y": 0.0, "z": -5.0, "yaw": 0.0}],
+        1: [{"time": 0.0, "x": 3.0, "y": 0.0, "z": -5.0, "yaw": 0.0}],
+        2: [{"time": 0.0, "x": 6.0, "y": 0.0, "z": -5.0, "yaw": 0.0}],
+    }
+    hold = {0: (0.0, 0.0, -5.0), 1: (3.0, 0.0, -5.0)}  # drone 2 unknown
+
+    with pytest.raises(StartBridgeError, match=r"Drone 2\b"):
+        build_start_bridge(show, hold)
+
+
 def test_a_fleet_with_no_known_position_at_all_is_refused_not_stepped():
     """Nothing says the show starts at the hold, so it is not assumed to."""
     with pytest.raises(StartBridgeError, match="Drone 0"):
