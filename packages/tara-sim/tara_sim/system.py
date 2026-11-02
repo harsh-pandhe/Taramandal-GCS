@@ -251,6 +251,14 @@ class _Ftp:
     async def create_directory(self, remote_dir: str):
         self._require_link("create_directory")
 
+    async def list_directory(self, remote_dir: str):
+        """Mirrors MAVSDK: the entries of ``remote_dir``. Simulated storage is a
+        flat path->bytes map with no directory entries, so every directory
+        "exists" once the drone is reachable and lists the files stored in it."""
+        self._require_link("list_directory")
+        prefix = remote_dir.rstrip("/") + "/"
+        return sorted(p[len(prefix):] for p in self._sys._fs.storage[self._sys.drone_id] if p.startswith(prefix))
+
     async def upload(self, local_file_path: str, remote_dir: str):
         """Mirrors MAVSDK: an async generator yielding progress until done."""
         self._require_link("upload")
