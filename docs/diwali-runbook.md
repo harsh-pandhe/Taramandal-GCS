@@ -141,8 +141,27 @@ node tools/diwali_to_vault.mjs --storyboard examples/diwali/storyboard_100.json 
 ```
 
 Then in the browser at `http://localhost:5174` (driven by Playwright at 1440x900 and checked on screenshots):
-open the project, **press GENERATE SEQUENCE first**, wait for "Built" and "Safety passed · export open",
-click **FULL-SCREEN PREVIEW**, press Play. `Esc` leaves full screen.
+open the project, **press GENERATE SEQUENCE first**, wait for "Built" and "Safety passed · exports enabled"
+in the header, click **FULL-SCREEN PREVIEW**, press Play. `Esc` leaves full screen.
+
+The header's safety badge (beside the Built badge) says what the **Transmit** tab's export buttons will let you
+do. Both read one rule, `exportGate()` (PR #226), so the badge cannot say more than the buttons allow. The
+buttons it governs are JSON, CSV, Compile .tara, Export Google Earth KML and Transmit to GCS Fleet. The
+sequence a walkthrough should show, and what to do at each state:
+
+| Header badge | What it means | Transmit buttons | What to do |
+|---|---|---|---|
+| (no safety badge) | No show is built yet | none to gate | Press Generate Sequence |
+| Validating… | The safety sweep is running (seconds at large fleet sizes) | locked | Wait. It replaces any earlier result while it runs |
+| **Safety passed · exports enabled** | Validation PASSED, feasibility not refused, no jerk violations | enabled | Continue. The tooltip says the server re-checks on export and can still refuse the show, so this is "the buttons are open", not "the show is flight-approved" |
+| Not flight-certified · exports locked | Passed its hard limits but jerk or feasibility refused it | locked (if jerk is the only failure the tab offers unsigned Preview JSON / CSV / .tara, never signed and never accepted by the GCS) | Do not present it as a certified show. Re-pace and rebuild |
+| Safety failed · exports locked | Validation FAILED | locked | Fix the violations in the Safety tab, then Generate Sequence again |
+| Unverified · exports locked | A show is built but there is no conclusive result yet | locked | Wait for validation, or Generate Sequence again |
+
+The wording is from PR #226, which checked the first four states live in Chromium at 1440x900 (badge and the JSON
+button agreed each time). "PASSED with no show built" is unit- and parity-tested only: a saved project rebuilds on
+load, so it cannot be reached in the running app. The measurements below were taken on `7a6ab70`, before #226, so
+that run saw the old wording ("export open"); this section has not been re-driven since.
 
 - A freshly opened project shows a red **Refused** badge and a 0.00 s timeline until you press Generate
   Sequence (seen at 35 drones; the tooltip read "cannot be made collision-free: two drones would have to swap
@@ -231,7 +250,7 @@ verdict. Results: `~/tara-sitl-demo-scratch/runs/<label>.json` and CSVs. Stop it
 - [ ] `tools/diwali_cpu_check.sh` says IDLE, and nothing else is flying on Gazebo.
 - [ ] `git rev-parse --short HEAD` noted; the clip's title card or filename carries it.
 - [ ] Stack restarted fresh (a finished run leaves the fleet `DISARMED`, and `diwali_t1_run.py` insists on `STAGED`).
-- [ ] Studio project open, **Generate Sequence pressed**, badge reads Built and Safety passed.
+- [ ] Studio project open, **Generate Sequence pressed**, badge reads Built and Safety passed · exports enabled (2.4).
 - [ ] GCS signed in; header shows `MODE: SIMULATION · tara_sim (kinematic)` (T1) or the px4-sitl label (T2).
 - [ ] The deviation panel is green (see 2.3). No red banner in frame.
 - [ ] Window exactly **1440x900**.
