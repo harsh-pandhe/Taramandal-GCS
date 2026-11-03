@@ -6,6 +6,10 @@ flights, not hardware.
 **Tool:** [`tools/sitl_planned_vs_actual.py`](../tools/sitl_planned_vs_actual.py).
 **Raw run records:** [`docs/sitl-planned-vs-actual/`](sitl-planned-vs-actual/), one JSON file per run.
 
+**Update 2026-11-03:** the same show was flown after the F3 fix: all 5 runs pass the
+tool's rule on `b435358`, see [section E](#e-after-f3-the-real-diwali-segment-on-b435358).
+Whether that meets #172's acceptance is Harsh's decision.
+
 **Update 2026-11-02:** F1 and F2 are now fixed on main. The real Diwali 3-drone
 segment passes 3 runs out of 3 on `7a6ab70` with no rig workarounds, with the F3
 start dive still present: see [section D](#d-baseline-f3-dive-present-the-real-diwali-segment-on-main).
@@ -210,6 +214,76 @@ SHOW_COMPLETE.
 
 Each JSON carries `run_context.note = "baseline, F3 dive present"`.
 
+### E. After F3: the real Diwali segment on `b435358`
+
+**Flown 2026-11-03 on `b435358`**, with #219 and #220 merged and CI green on that
+commit (7 of 7 jobs). The shows are byte-identical to section D's, so differences
+come from the GCS. `origin/main` was `6f18df0` by then. The only runtime change
+between the two is `blackbox.py` creating session files with mode 0600. The show
+and this tool are the same on both.
+
+Same setup as section D: signed re-export, no `--allow-unsigned`, no manual `mkdir`,
+no patched launcher, and a new container per run. No other containers were running,
+and 1-minute host load was under 4 before each run. No run was discarded.
+
+| Run | Commit | Drones | Tool verdict | Per-drone check | Studio min sep (m) | Gazebo min sep (m) | Start transient (s) | Max tracking error (m) | Worst landing error (m) | RTF | Start leg (s) | Peak descent (m/s) | Lowest alt. in start leg (m) | Abort / RTL | Final state | Host load before (1 / 5 / 15 min) |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| postf3-n3-p1 | `b435358` | 3 | PASS | ok | 2.20 | 2.119 | 0.00 | 0.279 | 0.216 | 0.999 | 8.0 | 1.38 | 0.00 | none | DISARMED | 1.17 / 0.76 / 0.58 |
+| postf3-n3-p2 | `b435358` | 3 | PASS | ok | 2.20 | 2.138 | 0.00 | 0.308 | 0.066 | 0.999 | 8.0 | 1.39 | 0.00 | none | DISARMED | 2.06 / 3.84 / 2.18 |
+| postf3-n3-p3 | `b435358` | 3 | PASS | ok | 2.20 | 2.167 | 0.01 | 0.322 | 0.031 | 0.999 | 8.0 | 1.37 | 0.00 | none | DISARMED | 1.47 / 4.32 / 3.03 |
+| postf3-n5-p1 | `b435358` | 5 | PASS (degraded: real-time factor 0.885) | ok | 2.20 | 2.123 | 0.00 | 0.532 | 0.066 | 0.885 | 13.3 | 1.48 | 0.00 | none | DISARMED | 1.78 / 4.43 / 3.54 |
+| postf3-n8-p1 | `b435358` | 8 | PASS | ok | 2.20 | 2.113 | 0.01 | 0.533 | 0.046 | 0.934 | 21.4 | 1.53 | 0.00 | none | DISARMED | 1.61 / 5.52 / 4.62 |
+
+Peak descent is measured over 0.25 s. Each JSON carries
+`run_context.note = "post-F3 (#219, #220 merged)"`.
+
+**Before and after F3 (section D, then this section):**
+
+| | 3 drones, D | 3 drones, E | 5 drones, D | 5 drones, E | 8 drones, D | 8 drones, E |
+|---|---|---|---|---|---|---|
+| Max tracking error (m) | 5.91–5.98 | 0.279–0.322 | 9.93 | 0.532 | 15.91 | 0.533 |
+| Worst landing error (m) | 0.083 | 0.216 | 0.054 | 0.066 | 0.048 | 0.046 |
+| Lowest altitude at the start (m) | 0.76–0.80 | 0.00 | 0.76 | 0.00 | 0.81 | 0.00 |
+| RTF | 0.993–1.000 | 0.999 | 0.980 | 0.885 | 0.913 | 0.934 |
+
+The two tracking rows are not the same measurement. D compares against the show
+alone, so it includes the dive. E compares against the start leg and then the show.
+The tool's "start transient" (under 0.02 s here) should be read the same way.
+
+**Reading the results:**
+
+- **The tracking error from the dive is gone.** The worst error over the whole flight
+  is now 0.28–0.32 m at 3 drones and 0.53 m at 5 and 8.
+- **The drones still go down to the pad.** The start leg is smooth (peak descent
+  1.37–1.53 m/s), but it ends at the show's first waypoint, at pad height, so
+  altitude reaches 0.00 m before the show climbs. Before F3 the low point was about
+  0.8 m. The leg also delays the show: 8.0 s at 3 drones, 13.3 s at 5, 21.4 s at 8.
+  PX4 did not treat this as a landing: each drone logged one takeoff and one landing,
+  with no failsafe.
+- **The 5-drone run is flagged degraded.** RTF 0.885 is under the tool's 0.9 line,
+  and it stayed at 0.86–0.90 for the whole flight, lower than the 8-drone run. The
+  host process list at the end of the run shows no other heavy job, so the cause is
+  unknown. Nothing stalled (longest 0.03 s) and tracking stayed at 0.53 m. It is one
+  run and was not rerun.
+- **Worst landing error is one event.** Drone 2 in `postf3-n3-p1` shifted about 0.2 m
+  sideways in its final landing and ended 0.216 m from its planned point. Every other
+  drone in these runs ended within 0.07 m.
+- **RTF falls after the show.** Once the drones are on the ground it drops as low as
+  0.43 at 8 drones. That is outside the scored window.
+
+**Per-drone check.** The tool's PASS does not check that every drone flew: `rb2-n5-r1`
+on #172 scored PASS with drone 3 still on its pad. So each run here also had a check
+outside the tool: OFFBOARD seen, peak altitude within 1 m of the planned peak, and
+maximum tracking error under 2 m. All drones in all 5 runs pass, and the result is in
+`run_context.per_drone_flight_check`. The drone-3 event did not recur, but 5 clean
+runs do not show it is gone. The tool's verdict is unchanged, because this is a
+docs-only change.
+
+**Records.** The JSON files are committed here. CSVs, signed shows, PX4 ulogs and
+console logs, and GCS black-box files are kept on the dev machine, in
+`~/Desktop/tara-sitl-scratch-172c`. An earlier 3-drone run on the same commit also
+passed, but it has no PX4 logs, so it is not counted or committed.
+
 ## Findings
 
 These are filed here and on #172. None was fixed in this PR, per the lane
@@ -274,8 +348,8 @@ on the pad (Studio/GCS interface).**
 ## Not done
 
 - **RViz and the recording** (see Setup).
-- **The acceptance rerun after F3.** Section D is the baseline with the dive
-  still present. Repeat it once #220 merges.
+- **The acceptance decision.** Sections D and E are evidence. Harsh decides whether
+  they meet #172.
 - **`execution="onboard"`.** Stock PX4 SITL has no onboard show executor (out
   of scope per #172).
 
