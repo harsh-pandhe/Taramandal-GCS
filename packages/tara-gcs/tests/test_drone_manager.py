@@ -296,7 +296,7 @@ async def test_start_trajectory_applies_the_shows_own_envelope(tmp_path):
 @pytest.mark.asyncio
 async def test_telemetry_fields_exist():
     manager = DroneManager(ports=[])
-    with patch('tara_gcs.drone_manager.System') as mock_system:
+    with patch('tara_gcs.drone_manager.GcsBoundSystem') as mock_system:
         mock_instance = mock_system.return_value
         mock_instance.connect = AsyncMock()
         

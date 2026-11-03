@@ -24,10 +24,10 @@ from tara_core import (
     sweep_times,
 )
 from tara_core.show import Show
-from mavsdk import System
 from mavsdk.offboard import PositionNedYaw, PositionGlobalYaw, OffboardError, VelocityNedYaw, AccelerationNed
 from tara_gcs.broadcast_manager import BROADCAST_SYSID
 from tara_gcs.preflight import GNSS_FIX_TYPES
+from tara_gcs.mavsdk_lifeline import GcsBoundSystem
 from tara_gcs.fleet_fsm import (
     AIRBORNE_STATES,
     DEFAULT_AUDIT_PATH,
@@ -556,8 +556,10 @@ class DroneManager:
                 drone = self._sim_fleet.system(drone_id)
                 await drone.connect()
             else:
-                # Use unique gRPC port for each drone to avoid conflicts
-                drone = System(port=50051 + drone_id)
+                # Use unique gRPC port for each drone to avoid conflicts. Bound
+                # to this process: a GCS that dies takes its mavsdk_server, and
+                # with it the offboard setpoint stream, along (issue #171).
+                drone = GcsBoundSystem(port=50051 + drone_id)
                 await drone.connect(system_address=f"udpin://127.0.0.1:{port}")
 
             self.drones[drone_id] = drone
