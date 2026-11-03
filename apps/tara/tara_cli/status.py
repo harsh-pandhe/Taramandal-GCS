@@ -47,7 +47,11 @@ class FleetStatus:
             process started with different flags.
         num_drones: Fleet size the running backend was started with.
         connected: Drones currently reporting a live link.
-        armed: Drones currently armed.
+        armed: Drones armed *and* reporting a fresh heartbeat. Not the whole
+            story: see ``armed_stale``.
+        armed_stale: Drones last seen armed whose heartbeat has gone stale -
+            possibly still spinning, which ``armed == 0`` alone would hide
+            (issue #171). ``None`` from a gcs-api that predates the field.
         trajectory_running: Whether a show is playing back right now.
         error: Why the probe failed, when it did.
     """
@@ -61,6 +65,7 @@ class FleetStatus:
     num_drones: int | None = None
     connected: int | None = None
     armed: int | None = None
+    armed_stale: int | None = None
     trajectory_running: bool | None = None
     error: str | None = None
 
@@ -110,6 +115,7 @@ def collect_status(config: TaraConfig, *, timeout: float = PROBE_TIMEOUT_S) -> F
         status.num_drones = payload.get("num_drones")
         status.connected = payload.get("connected")
         status.armed = payload.get("armed")
+        status.armed_stale = payload.get("armed_stale")
         status.trajectory_running = payload.get("trajectory_running")
     return status
 
@@ -132,6 +138,11 @@ def to_text(status: FleetStatus) -> str:
             f"[tara] gcs-api OK — backend={status.backend}, drones={status.num_drones}, "
             f"connected={status.connected}, armed={status.armed}"
         )
+        if status.armed_stale:
+            lines.append(
+                f"[tara] WARNING: {status.armed_stale} drone(s) last seen ARMED with no fresh heartbeat - "
+                "treat as possibly spinning, not disarmed."
+            )
         if status.trajectory_running:
             lines.append("[tara] a trajectory is currently playing back.")
     else:

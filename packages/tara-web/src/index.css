@@ -778,6 +778,8 @@ body {
 .status-tile-ready { background: var(--success-tint); color: var(--success); }
 .status-tile-armed { background: var(--warning-tint); color: var(--warning); }
 .status-tile-critical { background: var(--danger-tint); color: var(--danger); }
+/* Armed when the link dropped: louder than offline, it may still be flying. */
+.status-tile-armed-no-link { background: var(--danger-tint); color: var(--danger); border: 2px dashed var(--danger); }
 
 /* Fleet Cards Grid */
 .fleet-grid {

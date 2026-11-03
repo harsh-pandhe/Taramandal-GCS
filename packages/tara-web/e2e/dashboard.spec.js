@@ -61,7 +61,7 @@ const CHOREO = {
 };
 
 /** Opens the dashboard with `drones` streaming in; returns the requests the backend received. */
-async function openDashboard(page, drones, { launch = { status: 'success', message: 'ok' }, mode = null } = {}) {
+async function openDashboard(page, drones, { launch = { status: 'success', message: 'ok' }, mode = null, heartbeat = {} } = {}) {
   const requests = [];
   const record = (route) => { requests.push(new URL(route.request().url()).pathname); };
 
@@ -75,7 +75,7 @@ async function openDashboard(page, drones, { launch = { status: 'success', messa
   }
   await page.route('**/api/sim/status', (route) => route.fulfill({ json: {
     running: true, num_drones: drones.length, cpu_percent: 42, memory_mb: 2048,
-    heartbeat: { alive: true, connected: drones.length, expected: drones.length },
+    heartbeat: { alive: true, connected: drones.length, expected: drones.length, ...heartbeat },
   } }));
   await page.route('**/api/sim/stop', (route) => { record(route); return route.fulfill({ json: {
     status: 'success', sim: { running: false } } }); });
@@ -172,6 +172,27 @@ test('above twelve drones the fleet becomes a status matrix with a drill-down ca
   await page.getByTitle('Drone 7: ARMED').click();
   await expect(droneCard(page, '07')).toBeVisible();
   await expect(page.getByText('Click a tile above to inspect that drone.')).toHaveCount(0);
+});
+
+test('a drone armed when its link dropped is not shown as plain offline', async ({ page }) => {
+  // Issue #171 (review of #211): /api/status counts armed for fresh drones only,
+  // so the dashboard must not hide a silent-but-armed drone behind "offline".
+  await openDashboard(page, fleet(20, (i) => (i === 7 ? { armed: true, connected: false } : i === 8 ? { connected: false } : {})), {
+    heartbeat: { connected: 18, armed_stale: 1 },
+  });
+
+  await expect(page.getByTitle('Drone 7: ARMED NO LINK')).toBeVisible();
+  await expect(page.getByTitle('Drone 8: OFFLINE')).toBeVisible();
+  await expect(page.getByTestId('armed-no-link')).toContainText('1/20');
+  await expect(page.getByText('ARMED, NO HEARTBEAT: 1')).toBeVisible();
+  await page.screenshot({ path: process.env.ARMED_NO_LINK_SHOT || 'test-results/armed-no-link.png' });
+});
+
+test('no armed-no-link warning when every armed drone is reporting', async ({ page }) => {
+  await openDashboard(page, fleet(3, (i) => (i === 1 ? { armed: true } : {})));
+
+  await expect(page.getByTestId('armed-no-link')).toHaveCount(0);
+  await expect(page.getByText(/ARMED, NO HEARTBEAT/)).toHaveCount(0);
 });
 
 test('a refused command surfaces the backend message in the error banner', async ({ page }) => {

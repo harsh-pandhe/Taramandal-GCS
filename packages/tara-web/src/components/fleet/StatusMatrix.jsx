@@ -12,7 +12,7 @@ export default function StatusMatrix({ droneIds, telemetry, selectedDroneId, onS
             key={id}
             className={`status-tile status-tile-${status} ${selectedDroneId === id ? 'selected' : ''}`}
             onClick={() => onSelect(id)}
-            title={`Drone ${id}: ${status.toUpperCase()}`}
+            title={`Drone ${id}: ${status.replace(/-/g, ' ').toUpperCase()}`}
           >
             {String(id).padStart(2, '0')}
           </button>

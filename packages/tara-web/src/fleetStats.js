@@ -16,6 +16,9 @@ export function computeFleetStats(telemetry) {
   // Fleet-wide aggregates for the status strip, and the matrix/card layout switch.
   const useMatrixView = droneIds.length > MATRIX_THRESHOLD;
   const armedCount = droneIds.filter(id => telemetry[id].armed).length;
+  // Last seen armed, link now gone: "offline" must not hide that it may still
+  // be spinning (issue #171).
+  const armedNoLinkCount = droneIds.filter(id => telemetry[id].armed && !telemetry[id].connected).length;
   const gpsLockedCount = droneIds.filter(id => telemetry[id].gps_lock).length;
   const avgBattery = droneIds.length
     ? droneIds.reduce((sum, id) => sum + (telemetry[id].battery_percent || 0), 0) / droneIds.length
@@ -36,13 +39,15 @@ export function computeFleetStats(telemetry) {
 
   return {
     droneIds, connectedCount, totalDrones, allConnected, useMatrixView,
-    armedCount, gpsLockedCount, avgBattery, minBattery,
+    armedCount, armedNoLinkCount, gpsLockedCount, avgBattery, minBattery,
     allGpsLocked, allBatterySafe, checklistPassed,
   };
 }
 
 export function droneTileStatus(drone) {
-  if (!drone || !drone.connected) return 'offline';
+  if (!drone) return 'offline';
+  // Link lost while armed is not "offline": the last known state is armed.
+  if (!drone.connected) return drone.armed ? 'armed-no-link' : 'offline';
   if (drone.battery_percent != null && drone.battery_percent < 20) return 'critical';
   if (drone.armed) return 'armed';
   return 'ready';

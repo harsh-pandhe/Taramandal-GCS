@@ -2,7 +2,7 @@ import { getBatteryColor } from '../../fleetStats';
 
 /** Fleet-wide aggregates: connected, armed, GPS-locked, average and minimum battery. */
 export default function FleetHealthStrip({ stats }) {
-  const { droneIds, connectedCount, armedCount, gpsLockedCount, avgBattery, minBattery } = stats;
+  const { droneIds, connectedCount, armedCount, armedNoLinkCount, gpsLockedCount, avgBattery, minBattery } = stats;
   return (
     <div className="fleet-health-strip">
       <div className="fleet-stat">
@@ -15,6 +15,14 @@ export default function FleetHealthStrip({ stats }) {
           {armedCount}/{droneIds.length}
         </span>
       </div>
+      {armedNoLinkCount > 0 && (
+        <div className="fleet-stat" data-testid="armed-no-link">
+          <span className="fleet-stat-label">Armed, no link</span>
+          <span className="fleet-stat-value" style={{ color: 'var(--danger)' }}>
+            {armedNoLinkCount}/{droneIds.length}
+          </span>
+        </div>
+      )}
       <div className="fleet-stat">
         <span className="fleet-stat-label">GPS Locked</span>
         <span className="fleet-stat-value">{gpsLockedCount}/{droneIds.length}</span>

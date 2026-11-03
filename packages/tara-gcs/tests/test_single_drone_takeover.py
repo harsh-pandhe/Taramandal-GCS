@@ -137,6 +137,90 @@ async def test_takeover_during_the_climb_stops_the_sequence_without_commanding_t
         await manager.shutdown()
 
 
+def _force_landing_modes(manager, monkeypatch, calls, *, after_land, pilot_flying=False):
+    """OFFBOARD until the sequence has commanded its landing, then whatever
+    ``after_land(seconds_since_land)`` returns.
+
+    ``pilot_flying`` makes the land command a no-op (still recorded in
+    ``calls``): a vehicle in a pilot's hands does not descend because the GCS
+    asked, so the sim's own touchdown must not end the wait early.
+    """
+    original_ingest = manager._ingest_bulk_telemetry
+    state = {"landed_at": None}
+
+    def ingest(snap, include_slow):
+        original_ingest(snap, include_slow)
+        tel = manager.telemetry[0]
+        if not tel.get("armed"):
+            return
+        if not calls["land"]:
+            tel["flight_mode"] = "OFFBOARD"
+            return
+        state["landed_at"] = state["landed_at"] or time.monotonic()
+        tel["flight_mode"] = after_land(time.monotonic() - state["landed_at"])
+
+    monkeypatch.setattr(manager, "_ingest_bulk_telemetry", ingest)
+
+    if pilot_flying:
+        async def ignored_land(drone_id):
+            calls["land"].append(drone_id)
+            return None
+
+        manager._land_one = ignored_land
+    return state
+
+
+@pytest.mark.asyncio
+async def test_takeover_during_the_landing_wait_stops_the_sequence_without_recovering(
+    commander, manager, monkeypatch
+):
+    """Review of #211, B-1: the check ran once before the land command and not
+    in the wait loop, so a pilot who took over mid-descent had offboard.stop +
+    land re-sent over them by _safe_recover when the 10 s window ran out."""
+    try:
+        await manager.connect_all()
+        await asyncio.sleep(0.5)
+        calls = _track_commands(manager, monkeypatch)
+        _force_landing_modes(
+            manager, monkeypatch, calls, after_land=lambda since: "POSCTL", pilot_flying=True
+        )
+
+        started = time.monotonic()
+        with pytest.raises(HTTPException) as exc:
+            await _run(commander, hover_s=1.0)
+
+        assert exc.value.status_code == 500
+        assert "operator took over" in exc.value.detail
+        assert "POSCTL" in exc.value.detail
+        assert calls["land"] == [0]  # our own landing, once - and no second one
+        assert calls["recover"] == []  # never fought the pilot for the vehicle
+        assert manager.telemetry[0]["armed"] is True
+        assert 0 not in manager.single_drone_sequence_active  # guard released
+        assert time.monotonic() - started < 8.0, "waited out the landing window instead of yielding"
+    finally:
+        await manager.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_the_modes_our_own_landing_goes_through_are_not_a_takeover(commander, manager, monkeypatch):
+    """Control for the test above: offboard.stop() puts PX4 in HOLD, then land
+    puts it in LAND; neither is a pilot, and the landing must still complete."""
+    try:
+        await manager.connect_all()
+        await asyncio.sleep(0.5)
+        calls = _track_commands(manager, monkeypatch)
+        _force_landing_modes(
+            manager, monkeypatch, calls, after_land=lambda since: "HOLD" if since < 0.3 else "LAND"
+        )
+
+        result = await _run(commander, hover_s=1.0)
+
+        assert result["status"] == "COMPLETED"
+        assert calls["recover"] == []
+    finally:
+        await manager.shutdown()
+
+
 @pytest.mark.asyncio
 async def test_a_mode_other_than_offboard_before_offboard_engages_is_not_a_takeover(
     commander, manager, monkeypatch
