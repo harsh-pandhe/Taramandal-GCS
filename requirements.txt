@@ -23,6 +23,10 @@ pandas
 # Geometry ingest for the Studio voxelizer: font glyph outlines (matplotlib),
 # SVG path parsing (svgpathtools) and .obj/.stl meshes (trimesh)
 matplotlib
+# Raster (PNG/JPG/WebP) silhouette ingest for the Studio (issue #90); also a
+# matplotlib dependency, listed so the import does not rely on that
+pillow
+contourpy
 svgpathtools
 trimesh
 
