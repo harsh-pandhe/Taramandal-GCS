@@ -25,7 +25,7 @@ Every tier label below follows the fidelity convention #170 established:
 | Results matrix (T1 / T2 / T3) | Partially done — T1 filled, T2 partially filled (single-drone hover; the Diwali segment at 3 / 5 / 8 drones; #172's acceptance rerun after #220 open), T3 not started |
 | Test evidence table (SHA, PR, fleet size, timing, separation) | Done for everything flown so far |
 | Repeatable evidence checklist (commands that reproduce each result) | Done, [section 8](#8-repeatable-evidence-checklist); the human-gated items are listed there as blocked, not faked |
-| Recordings (Studio full-screen preview, GCS + Gazebo + RViz) | **Not done** — Harsh's hardware/recording pass, see [#171](https://github.com/harsh-pandhe/Taramandal-GCS/issues/171) |
+| Recordings (Studio full-screen preview, GCS + Gazebo + RViz) | **Partially done** — Studio full-screen walkthrough generated at `docs/recordings/taramandal-studio-walkthrough.mp4` via automated cursor tool `tools/record/record_studio_walkthrough.mjs` (#132); Gazebo+RViz recording script ready at `tools/record/record_desktop_gazebo.sh` ([#171](https://github.com/harsh-pandhe/Taramandal-GCS/issues/171), [#172](https://github.com/harsh-pandhe/Taramandal-GCS/issues/172)) |
 | Hardware BOM, wiring/configuration | **Not done** — owned by the hardware lead, not yet supplied |
 | Asset/music provenance and usage rights | **Not done** — blocked on sourcing a licensed track, see [#132](https://github.com/harsh-pandhe/Taramandal-GCS/issues/132) |
 | Limitations / next V2 steps | Done, below |
@@ -260,6 +260,7 @@ A10 together: 10 passed in about 104 s.
 | B3 | Visual baselines unchanged | `npm run test:e2e:docker` (Docker required; do not run Playwright natively, its fonts differ from CI) | 54 passed (took about 10.7 min) | yes, on `main` `b435358`, without `--update` |
 | B4 | A visual change is intentional | `npm run test:e2e:docker:update`, then review every changed PNG in `e2e/studio.spec.js-snapshots/`, then re-run B3 without `--update` | B3 passes; each changed image is justified in the PR | done for #210 (13 images) and #226 (10 images) |
 | B5 | The CI gates as CI runs them | `./scripts/ci` (or `--job lint-and-typecheck`, `frontend-tests`, `test-e2e`; `--list` prints the names) | all gates pass | no |
+| B6 | Studio automated walkthrough recording (#132) | `node tools/record/record_studio_walkthrough.mjs` | 1440x900 MP4 video recorded with animated cursor to `docs/recordings/taramandal-studio-walkthrough.mp4` (38s) covering 3D canvas, Sequencer, Light, Audio, AI, Safety, Swarm Fleet, and Project Vault | yes, verified on `main` |
 
 B1-B3 were re-run on `main` at `b435358`, which contains #210 and #226. A
 later change to Studio web needs them re-run again.
