@@ -58,6 +58,8 @@ from tara_studio.voxelizer import (
     GLYPH_FONT_SIZE,
     voxelize,
 )
+from tara_studio.raster_formation import RasterFormationError, raster_to_formation
+from tara_studio.music_analysis import MusicAnalysisError, analyze_audio
 from tara_core import DEFAULT_LIMITS, MAX_FLEET_SIZE
 from tara_core.validate import altitude_errors
 from tara_core.assignment import optimal_assignment
@@ -838,6 +840,66 @@ def api_ai_propose(req: AIProposeRequest):
     """
     result = ai_propose(req.prompt, svg_text=req.svg)
     return asdict(result)
+
+
+class RasterFormationRequest(BaseModel):
+    image_b64: str = Field(..., description="Base64-encoded image bytes (PNG, JPG, or WebP)")
+    n_drones: int = Field(..., ge=1, le=100, description="Fleet size, 1 to 100")
+    scale: float = Field(20.0, gt=0, description="Target formation scale in metres")
+    center_x: float = Field(0.0, description="X coordinate of formation centre")
+    altitude: float = Field(15.0, gt=0, description="Altitude of formation centre")
+    threshold: Optional[int] = Field(None, ge=0, le=255, description="Binary cut threshold (0-255); None for Otsu")
+    min_separation_m: Optional[float] = Field(None, description="Minimum separation floor (>= 2.0m)")
+    site_radius_m: Optional[float] = Field(None, description="Site boundary radius (<= 150m)")
+
+
+@app.post("/api/raster-formation")
+def api_raster_formation(req: RasterFormationRequest):
+    """Convert an uploaded raster image into drone formation geometry (issue #90)."""
+    try:
+        raw_bytes = base64.b64decode(req.image_b64)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"invalid base64 encoding: {e}")
+    try:
+        return raster_to_formation(
+            image_bytes=raw_bytes,
+            n_drones=req.n_drones,
+            scale=req.scale,
+            center=(req.center_x, req.altitude),
+            threshold=req.threshold,
+            min_separation_m=req.min_separation_m,
+            site_radius_m=req.site_radius_m,
+        )
+    except RasterFormationError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+class MusicAnalysisRequest(BaseModel):
+    wav_b64: str = Field(..., description="Base64-encoded WAV audio file bytes")
+    min_bpm: float = Field(60.0, gt=0, description="Minimum BPM search floor")
+    max_bpm: float = Field(200.0, gt=0, description="Maximum BPM search ceiling")
+    beats_per_bar: int = Field(4, ge=1, le=16, description="Beats per measure/bar")
+
+
+@app.post("/api/music/analyze")
+def api_music_analyze(req: MusicAnalysisRequest):
+    """Analyze an uploaded WAV track for tempo, beats, onsets, and bar grid (issue #91)."""
+    try:
+        raw_bytes = base64.b64decode(req.wav_b64)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"invalid base64 encoding: {e}")
+    try:
+        return analyze_audio(
+            wav_bytes=raw_bytes,
+            settings={
+                "min_bpm": req.min_bpm,
+                "max_bpm": req.max_bpm,
+                "beats_per_bar": req.beats_per_bar,
+            },
+        )
+    except MusicAnalysisError as e:
+        raise HTTPException(status_code=400, detail=f"{e.code}: {e}")
+
 
 
 if __name__ == "__main__":

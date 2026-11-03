@@ -206,6 +206,58 @@ export const proposeScene = async (prompt, svgText = null) => {
   return res.json();
 };
 
+/**
+ * Converts an uploaded raster image into drone formation geometry (issue #90).
+ */
+export const convertRasterToFormation = async ({
+  imageB64,
+  nDrones,
+  scale = 20.0,
+  centerX = 0.0,
+  altitude = 15.0,
+  threshold = null,
+  minSeparationM = null,
+  siteRadiusM = null,
+}) => {
+  const res = await postJson(`${API_BASE}/api/raster-formation`, {
+    image_b64: imageB64,
+    n_drones: nDrones,
+    scale,
+    center_x: centerX,
+    altitude,
+    threshold,
+    min_separation_m: minSeparationM,
+    site_radius_m: siteRadiusM,
+  });
+  if (!res.ok) {
+    const details = await res.json().catch(() => ({}));
+    throw new Error(typeof details.detail === 'string' ? details.detail : `Raster conversion failed (${res.status})`);
+  }
+  return res.json();
+};
+
+/**
+ * Analyzes an uploaded WAV audio track for rhythm, beats, and tempo grid (issue #91).
+ */
+export const analyzeAudioTrack = async ({
+  wavB64,
+  minBpm = 60.0,
+  maxBpm = 200.0,
+  beatsPerBar = 4,
+}) => {
+  const res = await postJson(`${API_BASE}/api/music/analyze`, {
+    wav_b64: wavB64,
+    min_bpm: minBpm,
+    max_bpm: maxBpm,
+    beats_per_bar: beatsPerBar,
+  });
+  if (!res.ok) {
+    const details = await res.json().catch(() => ({}));
+    throw new Error(typeof details.detail === 'string' ? details.detail : `Audio analysis failed (${res.status})`);
+  }
+  return res.json();
+};
+
 /** The message TransmitPanel shows after a preview export (issue #161) resolves. */
 export const previewExportSuccessMessage = (format) => `Preview exported (${format}) — unsigned, not flight-certified.`;
 

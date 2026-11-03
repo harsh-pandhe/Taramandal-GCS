@@ -1,5 +1,13 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { API_BASE, GCS_BASE, exportShow, proposeScene, sendShowToGCS } from './api.js';
+import {
+  API_BASE,
+  GCS_BASE,
+  analyzeAudioTrack,
+  convertRasterToFormation,
+  exportShow,
+  proposeScene,
+  sendShowToGCS,
+} from './api.js';
 
 const CHOREO = { drones: [{ id: 0, waypoints: [{ time: 0, x: 0, y: 0, z: 0, yaw: 0 }] }] };
 const TRACK = [{ pattern: 'STROBE', start_time: 0, duration: 10, color: '#ffffff', frequency_hz: 8 }];
@@ -138,3 +146,74 @@ describe('proposeScene (issue #133)', () => {
     await expect(proposeScene('x')).rejects.toThrow(/prompt too long/);
   });
 });
+
+describe('convertRasterToFormation (issue #90)', () => {
+  it('posts image_b64 and parameters to /api/raster-formation', async () => {
+    const calls = [];
+    vi.stubGlobal('fetch', vi.fn(async (url, init) => {
+      calls.push({ url, init });
+      return new Response(JSON.stringify({ status: 'success', drone_count: 10, coordinates: [] }), { status: 200 });
+    }));
+
+    const res = await convertRasterToFormation({
+      imageB64: 'abc123==',
+      nDrones: 10,
+      scale: 25.0,
+      centerX: 5.0,
+      altitude: 18.0,
+    });
+
+    expect(calls[0].url).toBe(`${API_BASE}/api/raster-formation`);
+    expect(JSON.parse(calls[0].init.body)).toMatchObject({
+      image_b64: 'abc123==',
+      n_drones: 10,
+      scale: 25.0,
+      center_x: 5.0,
+      altitude: 18.0,
+    });
+    expect(res.status).toBe('success');
+  });
+
+  it('throws with backend detail on error', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(
+      JSON.stringify({ detail: 'unsupported image format' }), { status: 400 },
+    )));
+    await expect(convertRasterToFormation({ imageB64: 'bad', nDrones: 5 }))
+      .rejects.toThrow(/unsupported image format/);
+  });
+});
+
+describe('analyzeAudioTrack (issue #91)', () => {
+  it('posts wav_b64 and parameters to /api/music/analyze', async () => {
+    const calls = [];
+    vi.stubGlobal('fetch', vi.fn(async (url, init) => {
+      calls.push({ url, init });
+      return new Response(JSON.stringify({ analyzer_version: '1', bpm: 120, beats: [] }), { status: 200 });
+    }));
+
+    const res = await analyzeAudioTrack({
+      wavB64: 'riff123==',
+      minBpm: 70.0,
+      maxBpm: 180.0,
+      beatsPerBar: 3,
+    });
+
+    expect(calls[0].url).toBe(`${API_BASE}/api/music/analyze`);
+    expect(JSON.parse(calls[0].init.body)).toEqual({
+      wav_b64: 'riff123==',
+      min_bpm: 70.0,
+      max_bpm: 180.0,
+      beats_per_bar: 3,
+    });
+    expect(res.bpm).toBe(120);
+  });
+
+  it('throws with backend detail on error', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(
+      JSON.stringify({ detail: 'silent: the audio is silent' }), { status: 400 },
+    )));
+    await expect(analyzeAudioTrack({ wavB64: 'silent' }))
+      .rejects.toThrow(/silent: the audio is silent/);
+  });
+});
+
