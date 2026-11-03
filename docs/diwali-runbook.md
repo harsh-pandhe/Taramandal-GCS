@@ -1,7 +1,15 @@
 # Diwali demo-day runbook (8 Nov 2026)
 
-Under #122. Written 2 Nov 2026 on `main` at `7a6ab70`. Every command below was run by the author on that
-tree unless it is marked **NOT VERIFIED**. A number is only quoted if a run produced it, and the run is named.
+Under #122. Written 2 Nov 2026 on `main` at `7a6ab70`; revised on 3 Nov after Vishal's review of #225
+and after #219, #220, #221, #222, #223, #224 and #225 merged. Every command below was run by the author unless it
+is marked **NOT VERIFIED**. A number is only quoted if a run produced it, and the run is named. The T2 numbers in
+2.5 were re-taken on `main` at `b435358` (after #220); the T1 numbers in 2.3 and the Studio numbers in 2.4 are
+still from `7a6ab70` and were not re-taken.
+
+**Platform: Linux only.** Everything here was run on Linux. Not supported on Windows: `tools/diwali_to_vault.mjs`
+fails there (`ERR_UNSUPPORTED_ESM_URL_SCHEME`: it passes an absolute path to `import()`) and
+`tools/diwali_t1_run.py` calls `os.getloadavg`, which Windows lacks. Neither is fixed; do not try this on a
+Windows laptop on the day.
 
 Two rules run through this whole document:
 
@@ -17,16 +25,19 @@ Two rules run through this whole document:
 | A | Studio **full-screen preview**, 35 and 100 drones | **Plan playback.** The designed trajectory drawn in 3D. No physics, nothing flew. Shown next to T1, but it is not itself a flight. | Works | Section 2.4 |
 | B | `tara_sim`, 35 drones, driven through the real GCS (signed upload, pre-arm latch, launch, onboard start, land) | **T1**, kinematic simulator. GCS header reads `MODE: SIMULATION · tara_sim (kinematic)` and `/api/status` says `fidelity: kinematic`. | Works | Section 2.3, runs below |
 | C | `tara_sim`, 100 drones | **T1**, but **not through the GCS dashboard**: the GCS refuses the 100-drone file (section 2.3). Flown by `tools/diwali_sim_scale.py`, which calls `DroneManager` directly. | Works, with the limits stated | Section 2.3 |
-| D | Gazebo flight, 3 to 8 drones, through the GCS | **T2**, PX4 SITL v1.16.2 + Gazebo Sim 8.15 in a container. Real flight dynamics, still simulated. `/api/status` says `fidelity: px4-sitl`. | Passed 5 of 5 baseline runs (PR #222, still open); **not runnable on this laptop without Docker and the image** | Section 2.5 |
-| E | Real one-drone hover | **T3**, hardware | **Not scheduled and not a given.** See below | none |
+| D | Gazebo flight, 3 to 8 drones, through the GCS | **T2**, PX4 SITL v1.16.2 + Gazebo Sim 8.15 in a container. Real flight dynamics, still simulated. `/api/status` says `fidelity: px4-sitl`. | On `b435358` (after #220): 3 drones 3 of 3 clean; 5 drones 2 of 3 clean, and **one run left drone 3 on the pad and still said PASS**; 8 drones 1 of 1 clean. **Not runnable on this laptop without Docker and the image** | Section 2.5 |
+| E | Real one-drone hover | **T3**, hardware | **NOT FLIGHT READY. Not scheduled and not a given.** See below and section 5.3 | none |
 | F | 500 drones | T1 | Ring and sphere only, 0.78 to 0.84 real time. Do not show as the greeting | #212, #216 |
 
 **What we cannot show, said plainly**
 
+- **NOT FLIGHT READY.** Nothing in this repository has flown hardware, and no software on this build can say
+  a real vehicle is ready: `GET /api/mode` hard-codes `rc_takeover_available: false` and `rc_status:
+  "UNVERIFIED"`, so RC takeover can only ever be confirmed by a person at the bench (section 5.3).
 - **No T3 anywhere.** On this build `/api/status` reports `hardware_flight_certified: false` and
   `hardware_flight_available: false` (read from a running GCS today). #135, the gate for a real hover, is
-  deferred behind the Gazebo acceptance and needs Harsh's sign-off on the airframe, bench checks, a pilot with
-  RC takeover and a permitted site. The firmware is also undecided: `/api/mode` lists an ArduPilot FMUv2
+  deferred behind the Gazebo acceptance and needs Harsh's sign-off on the airframe, bench checks, a **named**
+  pilot with RC takeover (nobody is named yet, section 5.3) and a permitted site. The firmware is also undecided: `/api/mode` lists an ArduPilot FMUv2
   hardware profile, while the single-drone hover path uses MAVSDK offboard, which is PX4-only. **Unless #135
   passes and Harsh says so, the demo is simulation only, and every clip says "simulation".**
 - **No readable lettering at 35 drones**, marginal at 100 (`examples/diwali/README.md`). The greeting is
@@ -36,7 +47,10 @@ Two rules run through this whole document:
   its CSVs, not a recording.
 - **No Gazebo above 8 drones.** On this machine 9 drones ran at 0.84 real time and 10 at 0.65 (PR #213 table C,
   stand-in show, before the F1 fix was merged). Show 3, 5 or 8.
-- **The first seconds of a T2 show include a descent** until #220 merges (finding F3, below).
+- **A T2 run can say PASS with a drone that never flew.** In a 5-drone run on 3 Nov, drone 3 stayed on the pad in
+  `HOLD` for the whole show, the fleet went on without it, and the tool printed `PASS` (its rule has no
+  per-drone tracking check). It did not repeat in the next two runs, and the cause is not known (section 2.5).
+  Read every drone's tracking error in the run record before counting any T2 run.
 
 ## 2. Commands, from a clean machine
 
@@ -50,10 +64,19 @@ tools/diwali_cpu_check.sh          # exit 0 = idle; exit 1 = busy, lists the bus
 tools/diwali_cpu_check.sh --wait   # block until idle
 ```
 
-Idle means no `tara-sitl-*` container and a 1-minute load average under 4 (override with `LOAD_MAX`). The
-T2 script refuses to start otherwise. On 2 Nov this laptop sat at a load of 20 to 28 for hours from unrelated
-jobs (other containers, `pytest`, an `ollama` server), so **the T2 runs of the day could not be taken**
-(section 2.5). Expect to have to ask for the machine.
+Idle means no `tara-sitl-*` container and a 1-minute load average under 4 (override with `LOAD_MAX`). The T2
+script has two separate gates. Another running `tara-sitl-*` container is a hard refusal that nothing
+overrides. A busy CPU is also a refusal, except that `FORCE_BUSY=1` lets a rehearsal go ahead; it then prints
+"NOT valid evidence" and the run must not be counted (2.5). On 2 Nov this laptop sat at a load of 16 to 28 for
+hours from unrelated jobs (other containers, `pytest`, an `ollama` server, a CPU-burner test), so the T2 runs
+had to wait for it (2.5). Expect to have to ask for the machine.
+
+**The SITL slot (team rule, from #172).** Only one person flies Gazebo on this machine at a time, and the
+claim is made in writing: before any T2 run, read the latest slot comment on #172. If it says "SITL slot taken",
+wait for "SITL slot free". Post "SITL slot taken (who, why)" before you start and "SITL slot free" when the
+container is gone. The script's `docker ps` refusal is a backstop, not the claim. The author's T2 runs of 3 Nov
+did not post these comments (the latest word on #172 was "free" and no `tara-sitl-*` container was running at
+any start), and a later claim on the slot by someone else ended the author's SITL use that night.
 
 ### 2.2 One-time setup (key, operator, config)
 
@@ -76,6 +99,13 @@ export GCS_OPERATORS_PATH=$D/operators.json STUDIO_VAULT_DIR=$D/vault
 export GCS_STATE_PATH=$D/state.json GCS_AUDIT_PATH=$D/audit.jsonl GCS_COMMAND_AUDIT_PATH=$D/cmd_audit.jsonl
 ```
 
+- **Secrets on a shared machine.** Anything on a command line shows up in the process list for every user.
+  Give the T1 script its passphrase through the `TARA_PASSPHRASE` environment variable, never `--passphrase`.
+  `tools/diwali_t2_sitl.sh` passes the demo operator's generated passphrase as an argument to a short
+  `python -c` once, when it first creates the operators file, so on a multi-user machine that one moment is
+  visible in `ps`. It also mounts the whole repository read-write into the container (`-v "$ROOT":/work`), so
+  anything running in the container can change your checkout. Neither matters on a single-user laptop; both
+  matter on a shared one.
 - The Studio backend signs every export with `STUDIO_SIGNING_KEY`; the GCS accepts it because that key is in
   its `trusted_keys`. A key not in `trusted_keys` is refused with 403.
 - **NOT VERIFIED on a truly clean machine:** `python3 -m venv .venv && .venv/bin/pip install -r
@@ -185,49 +215,76 @@ docker info --format '{{.OperatingSystem}} {{.NCPU}} cpus'      # Docker Desktop
 
 tools/diwali_cpu_check.sh --wait
 VENV=$PWD/.venv tools/diwali_t2_sitl.sh 3 myrun examples/diwali/segments/diwali_3drone_segment.json
-# 5 and 8 drones: build them from the same storyboard against a running Studio (`./tara up --backend sim -n 5`), then pass the file
-node tools/diwali_build.mjs --storyboard examples/diwali/storyboard_3.json --n 5 --tag n5 --api http://127.0.0.1:8001 --out $D/dist5
-VENV=$PWD/.venv tools/diwali_t2_sitl.sh 5 myrun5 $D/dist5/diwali_n5.json
+# 5 and 8 drones: build them from the same storyboard against a Studio backend (here a throwaway one on :8012),
+# into a folder INSIDE the repo (dist/ is git-ignored): the container sees only the repo, mounted at /work
+PYTHONPATH=packages/tara-core:packages/tara-gcs:packages/tara-sim:packages/tara-studio:apps:apps/tara STUDIO_SIGNING_KEY=$D/studio.pem \
+  .venv/bin/python -m uvicorn tara_studio.server:app --port 8012 --log-level warning &     # stop it afterwards
+node tools/diwali_build.mjs --storyboard examples/diwali/storyboard_3.json --n 5 --tag n5 --api http://127.0.0.1:8012 --out dist/diwali58
+node tools/diwali_build.mjs --storyboard examples/diwali/storyboard_3.json --n 8 --tag n8 --api http://127.0.0.1:8012 --out dist/diwali58
+VENV=$PWD/.venv tools/diwali_t2_sitl.sh 5 myrun5 dist/diwali58/diwali_n5.json
 ```
 
 The script starts a fresh container each run (so a missing mission directory cannot hide), copies Node in (the
 image has none), starts `./tara up --backend px4 -n N`, waits for N drones, then runs
 `tools/sitl_planned_vs_actual.py` (PR #213), which certifies, signs, uploads, launches, starts the show
 (`execution="streamed"`, since stock PX4 has no onboard executor), samples Gazebo's own poses and writes a
-verdict. Results: `~/tara-sitl-demo-scratch/runs/<label>.json` and CSVs. Stop it: `docker rm -f tara-sitl-demo`.
+verdict. Results: `~/tara-sitl-demo-scratch/runs/<label>.json` and CSVs. The container is left running afterwards; stop it with
+`docker rm -f tara-sitl-demo` (the script also removes its own previous container at the start of the next run).
 
 **What the author verified of this script**
 
 - Refuses while any other `tara-sitl-*` container runs, and `FORCE_BUSY=1` does not override that (tested
-  against another tab's container); refuses on a busy CPU unless `FORCE_BUSY=1` (its load comparison had a rounding bug, fixed in this PR: 3.63 was read as 4).
-- **One complete run through the script, 3 drones, the 3-drone segment, on this PR's tree (`a10c168`, plus the uncommitted load-check fix below):
-  PASS by the tool's rule.** Host load average 3.62 at the start (under the gate's 4). Stack up 3 of 3 in 24 s;
-  3 of 3 missions verified; launch to `FORMATION_HOLD` 10.7 s; playback 84.23 s of 84.2 s planned; Gazebo min
-  separation **2.192 m** (Studio 2.20); real-time factor **0.997**, no stall; start transient 1.38 / 2.56 /
-  3.57 s per drone and max error 5.90 m (the F3 start dive); landing errors 0.019 / 0.037 / 0.024 m; no abort,
-  no RTL, final state `DISARMED`. Load was 11.3 at the end, and I did not log it during the flight.
-- **One run is not a set.** The earlier forced attempts on a loaded host (load ~19 to 27) stopped at the launch
-  gate ("drone 2 holds a mission but is disconnected"), so a busy host can break the run before it starts.
-  **NOT VERIFIED:** 5 and 8 drones through the script, and three consecutive 3-drone runs. #222's five baseline
-  runs were taken with the equivalent hand-made rig scripts, which are not in the repository.
-- The 5- and 8-drone builds certify (84.8 s and 87.4 s, min sep 2.20 m, 0 violations). I did not diff them
-  against the files #222 flew.
+  against another tab's container); refuses on a busy CPU unless `FORCE_BUSY=1`. It also refuses to remove a
+  container it did not create: `CONTAINER=<someone else's name>` is refused (exit 3) and the container is left
+  alone, tested on 3 Nov against a label-less container. It removes only its own, labelled
+  `tara.diwali-t2=1`, including its own leftover from the previous run (without that, a second run refused itself,
+  because the idle check counts the old container as a foreign SITL; found and fixed on 3 Nov, tested with a
+  labelled dummy container, not yet seen across two real runs).
+- **Runs of 3 Nov on `main` `b435358` (after #220, #219, #223, #224, #221), through this script, idle gate passed.**
+  The 1-minute load average at each start was 3.19 / 3.30 / 3.21 for the 3-drone runs, 3.85 / 3.79 / 3.65 for the
+  5-drone runs and 3.76 for the 8-drone run (all under the gate's 4). **The 5-minute average at those moments
+  was 6.6 to 12.5 and the 15-minute average 8.4 to 16**, because another session's jobs had only just stopped,
+  and the 1-minute load then rose to 13 to 16 during each flight, which is the SITL stack itself. The run records carry `commit: b435358`; the script then lacked the container-removal fix
+  above. Load was sampled during the flights only for the first 3-drone run and the 5- and 8-drone runs.
+- **3 drones, three consecutive runs, all PASS** and all clean. **5 drones, three runs, all printed PASS, but one
+  of them was not a flight of five drones** (below). **8 drones, one run**, PASS and clean.
+- **Still NOT VERIFIED:** more than one 8-drone run; 5 and 8 drones with the #222 baseline files (the 5-drone
+  build is byte-identical to the 2 Nov one, checked with `cmp`; there is no earlier 8-drone file to compare);
+  anything over 8 drones; any run on a host that was not freshly idle.
+- The earlier forced attempts on a loaded host (load ~19 to 27) stopped at the launch gate ("drone 2 holds a
+  mission but is disconnected"), so a busy host can break the run before it starts.
 
-**Expected numbers (T2): PR #222, flown on `7a6ab70`, still open; all five runs PASS by the tool's rule**
+**Expected numbers (T2): `main` at `b435358`, 3 Nov, clean runs only**
 
-| Drones | Runs | Studio min sep | Gazebo min sep | Real-time factor | Start transient | Max error incl. start dive | Worst landing error |
-|---:|---:|---:|---:|---:|---:|---:|---:|
-| 3 | 3 | 2.20 m | 2.147 to 2.169 m | 0.993 to 1.000 | 3.5 to 3.7 s | 5.91 to 5.98 m | 0.044 to 0.083 m |
-| 5 | 1 | 2.20 m | 2.152 m | 0.980 | 5.52 s | 9.93 m | 0.054 m |
-| 8 | 1 | 2.20 m | 2.106 m | **0.913** | 7.67 s | 15.91 m | 0.048 m |
+| Drones | Clean runs | Studio min sep | Gazebo min sep | Real-time factor | Start transient | Max tracking error (all drones, whole show) | Worst landing error | Launch to `FORMATION_HOLD` |
+|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| 3 | 3 of 3 | 2.20 m | 2.155 to 2.176 m | 0.997 to 0.998 | 0.01 to 0.02 s | 0.29 to 0.32 m | 0.029 to 0.106 m | 10.2 to 10.7 s |
+| 5 | 2 of 3 | 2.20 m | 2.106 to 2.126 m | 0.976 to 0.984 | 0.01 s | 0.82 to 0.83 m | 0.038 to 0.053 m | 12.6 to 15.2 s |
+| 8 | 1 of 1 | 2.20 m | 2.114 m | 0.984 | 0.01 s | 0.56 m | 0.041 m | 22.8 s |
 
-- **These include the start dive (F3).** The F3 fix is #220, open and needing Harsh's approval. If it merges,
-  the three-run set has to be repeated; until then say "a descent in the first seconds is expected".
-- Pass rule (`docs/sitl-planned-vs-actual.md`): certified, signed, started streamed; `SHOW_COMPLETE` with no
+- **The start dive is gone.** Before #220 (PR #222, flown on `7a6ab70`) the start transient was 3.5 to 7.7 s and
+  the max error 5.9 to 15.9 m, from a descent in the first seconds. Now the start transient is 0.01 to 0.02 s
+  and the max error stays under 1 m. **Do not tell the audience about a descent any more; do not quote the
+  old numbers.** The 2 Nov numbers (RTF 0.993 to 1.000 at 3, 0.980 at 5, **0.913 at 8**) are in PR #222 only.
+- **8 drones ran at 0.984, not 0.913.** One run each time, on different code, so I cannot say what changed.
+  It is better, not proven better. Prefer 3 or 5 for anything that must look smooth, and do not promise 0.98 at 8.
+- **The 5-drone run that did not fly five drones (`rb2-n5-r1`).** The tool printed `PASS`: certified, signed,
+  streamed start, `SHOW_COMPLETE`, no abort, Gazebo separation 2.132 m, all disarmed, RTF 0.928. But drone 3
+  stayed at altitude 0.00 m on the pad for the whole show (its tracking error: rms 7.8 m, max 10.5 m, against
+  0.28 to 0.50 m for the other four). The GCS's own telemetry shows drone 3 in `HOLD` at z about 0 throughout,
+  so it is not a Gazebo pose artefact. The GCS log says drone 3 armed, entered OFFBOARD and "climbing to 8.0 m",
+  and then the fleet went `TAKEOFF -> FORMATION_HOLD` ("formation_altitude_reached") with it still on the pad,
+  and the show started. It did not repeat in the next two 5-drone runs (hold 12.6 s and 15.2 s; this one waited
+  18.8 s). **Cause NOT known; not investigated beyond the logs.** Two things are wrong, and neither is fixed
+  here: the fleet state machine declared formation altitude with a drone on the ground, and the tool's pass
+  rule (`verdict()` in `tools/sitl_planned_vs_actual.py`) cannot see a drone that never flew. Reported on #122.
+- **Pass rule** (`docs/sitl-planned-vs-actual.md`): certified, signed, started streamed; `SHOW_COMPLETE` with no
   aborted drone and no RTL/ESTOP/LANDING; Gazebo separation at or above 1.5 m; all disarmed; sim live with no
-  gap over 2 s. A pass at real-time factor under 0.9 is marked degraded.
-- The Gazebo separation (2.1 to 2.17 m) is slightly under Studio's 2.20 m. Quote the Gazebo number, not Studio's.
-- 8 drones at 0.913 is near the edge. Prefer 3 or 5 for anything that must look smooth.
+  gap over 2 s. A pass at real-time factor under 0.9 is marked degraded. **Add this by hand until the tool does
+  it: every drone's `max_m` in `actual.gazebo.tracking_error` is under 1.5 m** (a proposed threshold; the 3-,
+  5- and 8-drone clean runs are 0.28 to 0.83 m, a drone left on the pad reads 8 to 10 m). Only then count it.
+  One quick check: `python3 -c "import json,sys; d=json.load(open(sys.argv[1]))['actual']['gazebo']['tracking_error']; print({k:v['max_m'] for k,v in d.items()})" <label>.json`.
+- The Gazebo separation (2.1 to 2.18 m) is slightly under Studio's 2.20 m. Quote the Gazebo number, not Studio's.
 
 ## 3. Where the files are
 
@@ -278,8 +335,8 @@ screen recorder and `ffmpeg` were **NOT VERIFIED** (`ffmpeg` is not installed he
 ### 4.3 Naming and storage
 
 `diwali2026_<tier>_<N>drones_<what>_<YYYYMMDD>_<sha7>.<ext>`, for example
-`diwali2026_T1_35drones_gcs-dashboard_20261105_7a6ab70.webm` and
-`diwali2026_plan_100drones_studio-fullscreen_20261105_7a6ab70.webm`. Tier is one of `plan`, `T1`, `T2`.
+`diwali2026_T1_35drones_gcs-dashboard_20261105_b435358.webm` and
+`diwali2026_plan_100drones_studio-fullscreen_20261105_b435358.webm`. Tier is one of `plan`, `T1`, `T2`.
 There is no `T3`. Next to every clip keep its `<label>.json` run record (T2) or the terminal log (T1).
 
 - **Not in git.** Clips are large, and the evidence pack says it must not contain a simulated recording
@@ -296,11 +353,11 @@ Roles are from the 1 Nov ownership split and the issues; the recording split is 
 
 | | Harsh | Vishal | Dhiraj |
 |---|---|---|---|
-| Decisions | Storyboard sign-off; whether #135 is attempted; firmware; approves #220 and any fix to the upload limit or the snapshot; the shared recording location; music rights | Studio calls | none |
-| Review | Super-review before every merge; frozen from Sat 7 Nov | Reviews #216, #219, #222 and this PR; Studio PRs | Does not merge |
+| Decisions | Storyboard sign-off; whether #135 is attempted; firmware; approves any fix to the upload limit, the snapshot, or the 5-drone no-takeoff finding (2.5); the shared recording location; music rights | Studio calls | none |
+| Review | Super-review before every merge; frozen from Sat 7 Nov | Reviews the follow-up PRs to this runbook; Studio PRs | Does not merge |
 | Studio side | | Full-screen preview and operator UX (#132); Studio walkthrough recording (proposed) | Shows are built and certified |
-| GCS, sim, Gazebo | | | T1 and T2 runs, run records, evidence-pack rows; #219, #220 |
-| Hardware / RViz / Gazebo window | #135, RViz, the machine with a display (proposed) | | Supplies the commands in this document |
+| GCS, sim, Gazebo | | | T1 and T2 runs, run records, evidence-pack rows |
+| Hardware / RViz / Gazebo window | #135, RViz, the machine with a display (proposed); **names the RC pilot (5.3)** | | Supplies the commands in this document |
 
 ### 5.2 Abort and rollback
 
@@ -316,10 +373,62 @@ same as the dashboard's EMERGENCY RTL, EMER LAND and E-STOP (KILL). E-STOP kills
 | **Docker dies** | Verified after a reboot: `docker ps` says it cannot connect to the daemon. `systemctl --user start docker-desktop` restored it in ~25 s; images stayed, containers were gone. | Start Docker Desktop, then rerun in a **new** container (the script does that). A T2 run that lost its container is discarded. T1 does not use Docker and is unaffected. |
 | **Stuck stack** | `Ctrl+C` in the `./tara up` terminal stops the stack (verified with SIGINT). | `./tara reset` runs `pkill -9` on `px4`, `mavsdk_server`, `gz sim`, `uvicorn tara_gcs`/`tara_studio` and `vite` on ports 5173/5174. **It will kill another tab's stack on the same machine. NOT RUN by the author for that reason.** Use it only when nothing else is running, or inside the T2 container. `sim/px4/stop_fleet.sh` also kills every `mavsdk_server`, including a running GCS's. |
 
-**Rollback.** The last commit with a full recorded set of T2 passes is `7a6ab70` (PR #222). If `main` changes
-after #220 or any other merge and a rerun does not match the section 2.5 table, record from a checkout of
-`7a6ab70` and say that the start descent is visible. **Nothing merges on Sat 7 Nov**; the 8 Nov recording uses
-the commit that passed the Saturday dry run, and that SHA is in every filename.
+### 5.3 Real-drone abort and RC takeover (only if Harsh signs #135; otherwise skip this section)
+
+**NOT FLIGHT READY.** This build is not cleared to fly hardware, and this section does not clear it. It is the
+procedure that must exist, with a name filled in, *before* a real hover is attempted on Sun 8 Nov. It was
+written from #135 (sections B and D), the GCS code and the simulator runs. **No step in it has been run on a
+real vehicle.** The airframe, flight controller and firmware are not recorded anywhere (#135 section A is
+still open) and the firmware is undecided, so anything that depends on them is left as a blank to fill, not
+guessed.
+
+**People.** Nobody is named for the pilot role in #135, in any other issue, or in this repository.
+
+| Role | Name | Duty |
+|---|---|---|
+| **RC pilot** | **NOT YET NAMED. Harsh (owner of #135) writes the name here.** | Holds the transmitter, thumbs on the sticks, from arming to disarm. The only person who can abort when the telemetry link is down. Calls ABORT. |
+| Flight sign-off | Harsh | Signs #135 before any propeller is fitted; decides go / no-go on the day. |
+| GCS operator | Dhiraj (proposed) | Watches `/api/mode` and telemetry, presses the GCS abort the pilot calls. Never touches the sticks. |
+| Safety observer | NOT YET NAMED | Keeps people out of the test area. |
+
+**Hard rule: no name in the RC pilot row, no flight.** The named pilot must have read this section.
+
+**Before propellers are fitted** (all of #135 section B, propellers removed; any ambiguity stops the day):
+
+- [ ] RC link works. The pilot flips the takeover switch and the new mode shows on the GCS. This is the only
+      confirmation of takeover there is, because the GCS cannot verify it (`rc_takeover_available` is hard-coded false).
+- [ ] The kill / disarm switch is mapped, and the pilot has used it on the bench.
+- [ ] Loss-of-RC and loss-of-link failsafes are configured and their behaviour is written down here: `__________`
+- [ ] The autopilot's return-to-launch altitude is read off the vehicle and written here: `______ m`
+- [ ] Geofence and battery failsafes are configured. Telemetry shows `FRESH` (under 2.5 s old).
+- [ ] The software commit is noted and the run is rehearsed in T2 first (the hover path, `POST /api/single-drone/hover-sequence`).
+
+**Abort criteria** (from #135 section D; anyone present may call it, nobody argues): oscillation, unexpected
+drift, stale telemetry, a rejected command, an unexpected mode change, or RC takeover or failsafe in doubt.
+
+**Abort ladder** (try the first that applies; speed matters more than choosing the nicest one):
+
+| # | Action | Who | Status |
+|---|---|---|---|
+| 1 | **Take over on the RC** (switch to the manual or position-hold mode agreed on the bench) and land by hand. The sequence notices the vehicle has left OFFBOARD and stops commanding it (`OperatorTakeoverError`). | RC pilot | The software yield was seen in PX4 SITL with a *simulated* RC stream (#171, #145). **Never with a physical transmitter or a real vehicle: NOT VERIFIED.** Mode names depend on the firmware, which is undecided. |
+| 2 | **GCS LAND** (`POST /api/drone/0/land`, the EMER LAND button): descend in place. | GCS operator | The fleet `POST /api/land` ended every T1 and T2 run here; the per-drone route `/api/drone/0/land` itself was **not called** by the author. **Not run on hardware.** Needs a live link. |
+| 3 | **GCS RTL** (`POST /api/drone/0/rtl`). **Do not use at a 1 m hover** until the return altitude is written above: an autopilot RTL may climb to its configured return altitude first. | GCS operator | Fleet `POST /api/rtl` and `/api/drone/7/rtl` were called in T1 only (5.2). T2 and hardware behaviour **NOT VERIFIED**. |
+| 4 | **Kill** (the mapped kill switch, or E-STOP (KILL) in the GCS). Motors stop and the vehicle falls from wherever it is. Last resort, only over clear ground. | RC pilot, or GCS operator | **E-STOP was NOT tested by the author, in sim or on hardware.** |
+
+**If the link drops** (telemetry goes `STALE`, or the GCS stops answering): rungs 2 to 4 may not reach the
+vehicle. The hover code raises on a stale heartbeat and tries to recover, but that needs a link too. The
+vehicle's own failsafe and the RC pilot are the abort. Keep the transmitter in hand until the motors are off.
+
+**After any abort:** do not re-arm. Keep `/api/fleet-state` history, the GCS and audit logs and the video;
+write down what was seen and what was pressed; Harsh decides whether any further flight happens that day.
+Label everything *hardware, aborted*, never as a pass.
+
+**Rollback.** The last commit with a full recorded T2 set after #220 is `b435358` (3 Nov): 3 drones three times,
+5 drones twice clean (a third run left a drone on the pad), 8 drones once. If `main` changes after that and a
+rerun does not match the section 2.5 table, record from a checkout of `b435358`. `7a6ab70` (PR #222) is the older
+baseline and **has the start descent**; use it only if something after #220 breaks and say that the descent is
+visible. **Nothing merges on Sat 7 Nov**; the 8 Nov recording uses the commit that passed the Saturday dry run,
+and that SHA is in every filename. Re-run the section 2.5 set on that commit before the dry run, not just on the day.
 
 ## 6. Day by day, 2 to 8 Nov
 
@@ -327,9 +436,9 @@ Only items that exist today. Owners are proposed. Every item that needs a merge 
 
 | Day | Item | Owner | Depends on |
 |---|---|---|---|
-| Mon 2 | Review this PR and #222, #219, #220, #216; Harsh decides whether #135 is in play and whether #220 goes in | Vishal, Harsh | PRs exist |
+| Mon 2 | Done: #216, #219, #220, #222, #225 merged. Still open for Harsh: whether #135 is in play | Harsh | none |
 | Mon 2 | Harsh names the machine for the Gazebo window and RViz, or confirms the T2 clip is dashboard plus run record | Harsh | decision |
-| Tue 3 | If #220 merged: rerun the 3-drone ×3, 5 and 8 baseline with `tools/diwali_t2_sitl.sh` on an idle machine and compare with 2.5. (The script has one clean 3-drone pass so far.) | Dhiraj | #220, idle machine |
+| Tue 3 | Done early (night of 2 to 3 Nov): 3-drone ×3, 5-drone ×3, 8-drone ×1 on `b435358`, table in 2.5. **Open:** the 5-drone run where drone 3 never took off, 8 drones repeated, and the same set again on the commit that will be recorded | Dhiraj | idle machine; Harsh on the 5-drone finding |
 | Tue 3 | Studio preview at 35 and 100: confirm the Generate-first step on a real GPU session | Vishal | none |
 | Wed 4 | T1 35 drones through the GCS on an idle machine, three clean runs, logs kept; rehearse the dashboard button path once | Dhiraj | idle machine |
 | Wed 4 | 100-drone clip plan: `diwali_sim_scale.py`, start after settling | Dhiraj | none |
@@ -337,7 +446,7 @@ Only items that exist today. Owners are proposed. Every item that needs a merge 
 | Thu 5 | Recording pass 1: T2 3 drones (Gazebo + RViz + dashboard if Harsh's machine exists, else dashboard + run record) | Harsh, Dhiraj | Mon decision |
 | Fri 6 | Retakes of anything that aborted, stalled or went red; evidence-pack rows with the SHA (#134); music decision (#132) or silent | Dhiraj, Harsh | none |
 | Sat 7 | **Freeze**: no merges. Full dry run of this document from a stopped machine, top to bottom | Dhiraj | Fri |
-| Sun 8 | Demo day. Real hover only if Harsh has signed #135; otherwise the demo is simulation and says so | Harsh | #135 |
+| Sun 8 | Demo day. Real hover only if Harsh has signed #135 **and 5.3 has a named RC pilot**; otherwise the demo is simulation and says so | Harsh | #135, 5.3 |
 
 ## 7. Verification log (2 Nov 2026)
 
@@ -351,8 +460,12 @@ Only items that exist today. Owners are proposed. Every item that needs a merge 
 | Studio preview 35 and 100 | OK (Playwright, headless Chromium, 1440x900) |
 | GCS dashboard sign-in, Operations, Earth, Night Sky | Rendered; clicks on upload and PRE-ARM buttons not made |
 | Single-drone RTL and fleet RTL mid-show (T1) | Fleet-wide proximity RTL after drone 7's abort; fleet RTL reached DISARMED |
-| T2 through `diwali_t2_sitl.sh`, 3 drones, one run | PASS: Gazebo min sep 2.192 m, RTF 0.997, landing under 4 cm. 5 and 8 drones, and a 3-run set, **NOT VERIFIED** |
+| T2 through `diwali_t2_sitl.sh`, 2 Nov, 3 drones, one run, before #220 | PASS: Gazebo min sep 2.192 m, RTF 0.997, landing under 4 cm, start dive 5.9 m |
+| T2 through `diwali_t2_sitl.sh`, 3 Nov, `b435358` | 3 drones ×3 clean; 5 drones ×3 (2 clean, 1 with a drone left on the pad, still `PASS`); 8 drones ×1 clean. Numbers in 2.5. Dive gone. |
+| T2 script guards, 3 Nov | Foreign container named by `CONTAINER` refused and untouched; own labelled container removed; the idle check no longer counts it. Tested with dummy containers, not yet across two real runs after the fix |
 | Gazebo window, RViz, GNOME/ffmpeg recording, E-STOP, clean `pip`/`npm install`, `./tara reset` | **NOT VERIFIED** |
+| Real-drone abort and RC takeover (5.3), a named RC pilot, GCS LAND on hardware, any hardware flight | **NOT VERIFIED. NOT FLIGHT READY.** |
+| Windows | Does not work (Platform note at the top); not fixed |
 
 **Overlap disclosure.** Four of the author's runs shared the machine with another tab's `tara-sitl-171fix`
 (Gazebo): a headless browser for about 70 s from 04:35; the last ~1 minute of the 05:32 T1 run (the container
