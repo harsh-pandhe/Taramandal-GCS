@@ -1,0 +1,278 @@
+{
+  "label": "postf3-n3-p1",
+  "started_utc": "2026-11-03T12:49:45Z",
+  "commit": "b435358ad7a19ff85c8727b012ed2b22764893b7",
+  "gcs": "http://127.0.0.1:8090",
+  "studio": "http://127.0.0.1:8001",
+  "steps": {
+    "validate": "certified",
+    "export": "signed",
+    "upload_trajectory": {
+      "signature": {
+        "verified": true,
+        "signer": "Studio SITL #172",
+        "key_id": "7fa30d7106e1dfbf",
+        "signed_at": "2026-11-03T12:49:46+00:00"
+      },
+      "geofence": {
+        "soft_warning_radius_m": 16.405903527216125,
+        "hard_geofence_radius_m": 21.405903527216125
+      }
+    },
+    "upload_mission": {
+      "all_verified": true,
+      "verified_count": 3,
+      "launch_gate": "ok"
+    },
+    "preflight": {
+      "launch_permitted": true,
+      "blocking_reasons": []
+    },
+    "launch": {
+      "drone_ids": [
+        0,
+        1,
+        2
+      ],
+      "excluded": []
+    },
+    "formation_hold_after_s": 10.6,
+    "start": {
+      "execution": "streamed",
+      "mode": "LOCAL",
+      "ack_latency_s": 0.045,
+      "bridge_s": 8.0
+    },
+    "land": {
+      "status": 200,
+      "detail": "ok"
+    }
+  },
+  "verdict": "PASS",
+  "show_source": "/work/examples/diwali/segments/diwali_3drone_segment.json",
+  "num_drones": 3,
+  "planned": {
+    "duration_s": 84.2,
+    "studio_status": "PASSED",
+    "feasibility_certified": true,
+    "min_separation_m": 2.2,
+    "max_velocity_m_s": 1.3,
+    "max_jerk_m_s3": 15.0,
+    "max_altitude_m": 14.67,
+    "limits": {
+      "min_separation_m": 1.5,
+      "design_separation_m": 2.0,
+      "pad_spacing_m": 2.2,
+      "max_velocity_ms": 6.0,
+      "max_accel_ms2": 50.0,
+      "max_yaw_rate_dps": 300.0,
+      "geofence_radius_m": 30.0,
+      "max_altitude_m": 120.0,
+      "geofence_soft_warning_buffer_m": 10.0,
+      "geofence_hard_buffer_m": 15.0,
+      "max_jerk_ms3": 20.0
+    }
+  },
+  "gcs_status_before": {
+    "mode": "SIMULATION",
+    "configured_mode": "SIMULATION",
+    "backend": "px4",
+    "fidelity": "px4-sitl",
+    "active_backend": "px4",
+    "hardware_flight_certified": false,
+    "hardware_flight_available": false,
+    "num_drones": 3,
+    "connected": 3,
+    "armed": 0,
+    "trajectory_running": false,
+    "fleet_state": "STAGED",
+    "aborted": [],
+    "packet_drop_rate": null
+  },
+  "actual": {
+    "end_state": "SHOW_COMPLETE",
+    "show_complete_after_s": 93.25,
+    "playback_duration_s": 84.25,
+    "bridge_s": 8.0,
+    "final_state": "DISARMED",
+    "aborted_drones": [],
+    "emergency_transitions": [],
+    "gazebo": {
+      "samples_in_show": 4642,
+      "sample_rate_hz": 50.4,
+      "real_time_factor": 0.999,
+      "longest_stall_s": 0.02,
+      "sim_stalled": false,
+      "min_separation_m": 2.119,
+      "min_separation_pair": [
+        0,
+        1
+      ],
+      "min_separation_at_s": 91.8,
+      "planned_min_separation_same_instants_m": 2.2,
+      "tracking_error": {
+        "0": {
+          "max_m": 0.249,
+          "rms_m": 0.102,
+          "p95_m": 0.182,
+          "start_transient_s": 0.0,
+          "max_after_transient_m": 0.249
+        },
+        "1": {
+          "max_m": 0.279,
+          "rms_m": 0.137,
+          "p95_m": 0.245,
+          "start_transient_s": 0.0,
+          "max_after_transient_m": 0.279
+        },
+        "2": {
+          "max_m": 0.24,
+          "rms_m": 0.117,
+          "p95_m": 0.214,
+          "start_transient_s": 0.0,
+          "max_after_transient_m": 0.24
+        }
+      },
+      "bridge_s": 8.0,
+      "start_max_descent_rate_ms": {
+        "0": 0.46,
+        "1": 0.93,
+        "2": 1.38
+      },
+      "max_tracking_error_m": 0.279,
+      "max_tracking_error_drone": 1,
+      "max_tracking_error_at_s": 15.3,
+      "final_position_error_m": {
+        "0": 0.021,
+        "1": 0.024,
+        "2": 0.216
+      },
+      "gcs_reported_max_tracking_error_m": {
+        "0": 0.174,
+        "1": 0.21,
+        "2": 0.183
+      },
+      "gcs_minus_gazebo_mean_offset_m": {
+        "0": [
+          -0.0,
+          -0.02,
+          -0.01
+        ],
+        "1": [
+          -0.02,
+          0.02,
+          0.02
+        ],
+        "2": [
+          0.0,
+          0.0,
+          0.03
+        ]
+      }
+    }
+  },
+  "fleet_history": [
+    {
+      "time": "2026-11-03T12:49:47.806+00:00",
+      "from": "STAGED",
+      "to": "PREARM",
+      "trigger": "POST /api/launch",
+      "operator": "sitl172"
+    },
+    {
+      "time": "2026-11-03T12:49:49.200+00:00",
+      "from": "PREARM",
+      "to": "ARMED",
+      "trigger": "telemetry:first_drone_armed",
+      "operator": "system"
+    },
+    {
+      "time": "2026-11-03T12:49:52.818+00:00",
+      "from": "ARMED",
+      "to": "TAKEOFF",
+      "trigger": "telemetry:climbing",
+      "operator": "system"
+    },
+    {
+      "time": "2026-11-03T12:49:58.276+00:00",
+      "from": "TAKEOFF",
+      "to": "FORMATION_HOLD",
+      "trigger": "telemetry:formation_altitude_reached",
+      "operator": "system"
+    },
+    {
+      "time": "2026-11-03T12:50:01.462+00:00",
+      "from": "FORMATION_HOLD",
+      "to": "RUNNING",
+      "trigger": "POST /api/start-trajectory",
+      "operator": "sitl172"
+    },
+    {
+      "time": "2026-11-03T12:51:34.711+00:00",
+      "from": "RUNNING",
+      "to": "SHOW_COMPLETE",
+      "trigger": "trajectory_complete",
+      "operator": "system"
+    },
+    {
+      "time": "2026-11-03T12:51:55.354+00:00",
+      "from": "SHOW_COMPLETE",
+      "to": "LANDING",
+      "trigger": "POST /api/land",
+      "operator": "sitl172"
+    },
+    {
+      "time": "2026-11-03T12:52:00.217+00:00",
+      "from": "LANDING",
+      "to": "DISARMED",
+      "trigger": "telemetry:all_disarmed",
+      "operator": "system"
+    }
+  ],
+  "gazebo_reader_errors": [],
+  "run_context": {
+    "note": "post-F3 (#219, #220 merged)",
+    "host_load_before": "1.17 0.76 0.58",
+    "host_load_at_start": "5.85 2.14 1.06",
+    "host_load_at_end": "10.44 5.32 2.40",
+    "other_running_containers": [],
+    "fresh_container": true,
+    "microsd_dirs_before_stack": 0,
+    "remapper_skips_in_log": [],
+    "per_drone_flight_check": {
+      "ok": true,
+      "drones_failing": [],
+      "drones": {
+        "0": {
+          "peak_alt_m": 12.02,
+          "planned_peak_alt_m": 12.0,
+          "max_tracking_m": 0.249,
+          "modes_seen": [
+            "OFFBOARD"
+          ]
+        },
+        "1": {
+          "peak_alt_m": 14.67,
+          "planned_peak_alt_m": 14.67,
+          "max_tracking_m": 0.279,
+          "modes_seen": [
+            "OFFBOARD"
+          ]
+        },
+        "2": {
+          "peak_alt_m": 9.3,
+          "planned_peak_alt_m": 9.33,
+          "max_tracking_m": 0.24,
+          "modes_seen": [
+            "OFFBOARD"
+          ]
+        }
+      },
+      "rule": "OFFBOARD seen, peak within 1 m of planned peak, max tracking error under 2 m; computed outside the tool's verdict"
+    },
+    "lowest_altitude_start_leg_m": 0.0,
+    "flown_commit_note": "Flown on b435358 as instructed. origin/main was 6f18df0 at run time; the only runtime change between them is packages/tara-gcs/tara_gcs/blackbox.py (session files created with mode 0600). The show, storyboard_3 and this tool are identical on both.",
+    "main_head_at_run": "6f18df03cce1172bf5af4720c08bc11570138273",
+    "px4_logs_kept_locally": true
+  }
+}
