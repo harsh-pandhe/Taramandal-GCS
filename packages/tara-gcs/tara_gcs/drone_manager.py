@@ -415,6 +415,10 @@ class DroneManager:
         self.drones = {}  # drone_id -> System (real or SimSystem)
         self.telemetry = {}  # drone_id -> status dict
         self._tasks = []
+        # Per drone: the telemetry streams currently down, and the lock that
+        # makes its monitors respawn a dead mavsdk_server once (issue #171).
+        self._streams_down: dict[int, set[str]] = {}
+        self._respawn_locks: dict[int, asyncio.Lock] = {}
         self.trajectory_task = None
         self.is_running_trajectory = False
         # Drone IDs with a single-drone bench/demo sequence (issue #131, #135)
@@ -622,6 +626,13 @@ class DroneManager:
                 # apart from a genuinely fresh ON_GROUND (issue #145 review).
                 "landed_state": None,
                 "landed_state_at": None,
+                # What the vehicle last said about the link (connection_state).
+                # "connected" is this AND every telemetry stream up: while any
+                # stream is down (issue #171) the drone is stale, its last
+                # values are history, and stale_streams names the ones down.
+                "link_up": False,
+                "telemetry_stale": False,
+                "stale_streams": [],
             }
 
             # On the sim backend one fleet-wide task fills this in instead
@@ -756,6 +767,9 @@ class DroneManager:
             else:
                 tel["link_stable_since"] = None
             tel["connected"] = is_conn
+            # The sim is in-process: no gRPC stream to drop (issue #171), so
+            # the link the vehicle reports is the whole story.
+            tel["link_up"] = is_conn
             if hasattr(self, "_sim_fleet") and self._sim_fleet is not None:
                 armable = bool(self._sim_fleet.state.is_armable(drone_id))
                 tel["health_armable"] = armable
@@ -806,110 +820,212 @@ class DroneManager:
             # measure, which is also what the latency probe read here (~0ms).
             tel["comm_latency_ms"] = 0.0
 
+    # --- Telemetry stream supervision (issue #171) ---
+
+    #: First wait before resubscribing to a dropped telemetry stream; doubles
+    #: on every failure in a row up to STREAM_RETRY_MAX_S, and resets as soon
+    #: as the stream delivers again.
+    STREAM_RETRY_INITIAL_S = 0.5
+    STREAM_RETRY_MAX_S = 5.0
+
+    @staticmethod
+    def _vehicle_address(port: int) -> str:
+        """The address _connect_drone connects a px4-backend drone to."""
+        return f"udpin://127.0.0.1:{port}"
+
+    async def _supervise_stream(self, drone_id: int, name: str, subscribe, on_item) -> None:
+        """Feed one MAVSDK telemetry stream into ``on_item`` for the life of the GCS.
+
+        The streams used to end for good on the first gRPC error, which is
+        what a killed or restarted mavsdk_server looks like (issue #171): the
+        drone then kept its last values with ``connected`` stuck, until the
+        GCS was restarted. Now a dropped stream marks the drone stale at once
+        (see _mark_stream_down), brings a dead server back, and resubscribes
+        with backoff. ``subscribe`` is called afresh each time, because a
+        respawned server comes with new plugin objects.
+        """
+        backoff = self.STREAM_RETRY_INITIAL_S
+        while True:
+            try:
+                async for item in subscribe():
+                    on_item(item)
+                    self._mark_stream_up(drone_id, name)
+                    backoff = self.STREAM_RETRY_INITIAL_S
+                reason = "stream ended"
+            except asyncio.CancelledError:
+                raise
+            except Exception as e:
+                reason = f"{type(e).__name__}: {str(e).splitlines()[0] if str(e) else ''}"
+            self._mark_stream_down(drone_id, name, reason, retry_in_s=backoff)
+            await self._respawn_dead_server(drone_id)
+            await asyncio.sleep(backoff)
+            backoff = min(backoff * 2, self.STREAM_RETRY_MAX_S)
+
+    def _mark_stream_down(self, drone_id: int, name: str, reason: str, retry_in_s: float) -> None:
+        """The drone's last values are now history: it must not read as fresh.
+
+        ``connected`` drops with the stream, so every gate and staleness check
+        that already reads it (is_heartbeat_fresh, the pre-arm link gate, the
+        flight-command checks) refuses the drone without being changed.
+        ``link_up`` keeps what the vehicle itself last said about the link.
+        """
+        tel = self.telemetry[drone_id]
+        down = self._streams_down.setdefault(drone_id, set())
+        if name not in down:
+            logging.warning(f"Drone {drone_id}: telemetry stream {name} dropped ({reason}); drone marked stale.")
+        down.add(name)
+        tel["telemetry_stale"] = True
+        tel["stale_streams"] = sorted(down)
+        tel["connected"] = False
+        tel["link_stable_since"] = None
+        logging.info(f"Drone {drone_id}: resubscribing to {name} in {retry_in_s:.1f}s.")
+
+    def _mark_stream_up(self, drone_id: int, name: str) -> None:
+        """Clear ``name``'s outage once it has really delivered data again.
+
+        Being resubscribed says nothing about the value, and another stream's
+        data says nothing about this one's, so only this stream's own item
+        clears it. The drone is fresh again only when no stream is down.
+        """
+        down = self._streams_down.get(drone_id)
+        if not down or name not in down:
+            return
+        down.discard(name)
+        tel = self.telemetry[drone_id]
+        tel["stale_streams"] = sorted(down)
+        if down:
+            return
+        tel["telemetry_stale"] = False
+        link_up = tel.get("link_up", False)
+        tel["connected"] = link_up
+        # An outage breaks heartbeat continuity: the pre-arm window starts over.
+        tel["link_stable_since"] = time.monotonic() if link_up else None
+        logging.info(f"Drone {drone_id}: all telemetry streams reporting again.")
+
+    async def _respawn_dead_server(self, drone_id: int) -> None:
+        """Start a new mavsdk_server if this drone's has exited.
+
+        Only an exited server: System.connect() stops a running one first,
+        which would cut a live offboard setpoint stream over one dropped
+        telemetry stream. A respawn sends the vehicle nothing; it only gives
+        the streams something to resubscribe to. The lock makes the drone's
+        ten monitors respawn it once between them.
+        """
+        # _server_process is None on the sim backend, and also for about a
+        # second inside a respawn: connect() resets the System before it
+        # starts the new server. Either way there is nothing to do here.
+        drone = self.drones.get(drone_id)
+        process = getattr(drone, "_server_process", None)
+        if process is None or process.poll() is None:
+            return
+        lock = self._respawn_locks.setdefault(drone_id, asyncio.Lock())
+        async with lock:
+            if drone._server_process is not process:
+                return  # another monitor already respawned it
+            logging.warning(
+                f"Drone {drone_id}: mavsdk_server exited (code {process.poll()}); starting a new one."
+            )
+            await drone.connect(system_address=self._vehicle_address(self.telemetry[drone_id]["port"]))
+            logging.info(f"Drone {drone_id}: mavsdk_server restarted.")
+
     async def _monitor_connection(self, drone_id):
-        try:
-            drone = self.drones[drone_id]
-            async for state in drone.core.connection_state():
-                tel = self.telemetry[drone_id]
-                if state.is_connected:
-                    tel["last_heartbeat"] = time.time()
-                    if tel["link_stable_since"] is None:
-                        tel["link_stable_since"] = time.monotonic()
-                elif not state.is_connected:
-                    tel["link_stable_since"] = None
-                tel["connected"] = state.is_connected
-        except asyncio.CancelledError:
-            pass
-        except Exception as e:
-            logging.error(f"Error in _monitor_connection for Drone {drone_id}: {e}")
+        def on_state(state):
+            tel = self.telemetry[drone_id]
+            tel["link_up"] = state.is_connected
+            if state.is_connected:
+                tel["last_heartbeat"] = time.time()
+            if tel.get("telemetry_stale"):
+                # _mark_stream_up sets connected once every stream is back.
+                return
+            if not state.is_connected:
+                tel["link_stable_since"] = None
+            elif tel["link_stable_since"] is None:
+                tel["link_stable_since"] = time.monotonic()
+            tel["connected"] = state.is_connected
+
+        await self._supervise_stream(
+            drone_id, "connection_state", lambda: self.drones[drone_id].core.connection_state(), on_state
+        )
 
     async def _monitor_battery(self, drone_id):
-        try:
-            drone = self.drones[drone_id]
-            async for battery in drone.telemetry.battery():
-                # MAVSDK's remaining_percent is already in the 0-100 range, not a 0-1 fraction.
-                self.telemetry[drone_id]["battery_percent"] = round(battery.remaining_percent, 1)
-                self.telemetry[drone_id]["battery_voltage"] = round(battery.voltage_v, 2)
-        except asyncio.CancelledError:
-            pass
-        except Exception as e:
-            logging.error(f"Error in _monitor_battery for Drone {drone_id}: {e}")
+        def on_battery(battery):
+            # MAVSDK's remaining_percent is already in the 0-100 range, not a 0-1 fraction.
+            self.telemetry[drone_id]["battery_percent"] = round(battery.remaining_percent, 1)
+            self.telemetry[drone_id]["battery_voltage"] = round(battery.voltage_v, 2)
+
+        await self._supervise_stream(
+            drone_id, "battery", lambda: self.drones[drone_id].telemetry.battery(), on_battery
+        )
 
     async def _monitor_flight_mode(self, drone_id):
-        try:
-            drone = self.drones[drone_id]
-            async for fm in drone.telemetry.flight_mode():
-                self.telemetry[drone_id]["flight_mode"] = str(fm)
-        except asyncio.CancelledError:
-            pass
-        except Exception as e:
-            logging.error(f"Error in _monitor_flight_mode for Drone {drone_id}: {e}")
+        def on_mode(fm):
+            self.telemetry[drone_id]["flight_mode"] = str(fm)
+
+        await self._supervise_stream(
+            drone_id, "flight_mode", lambda: self.drones[drone_id].telemetry.flight_mode(), on_mode
+        )
 
     async def _monitor_gps(self, drone_id):
-        try:
-            drone = self.drones[drone_id]
-            async for gps in drone.telemetry.gps_info():
-                self.telemetry[drone_id]["satellites"] = gps.num_satellites
-                # Arbitrary check for GPS lock
-                self.telemetry[drone_id]["gps_lock"] = gps.num_satellites >= 6
-                self.telemetry[drone_id]["gps_fix_type"] = str(gps.fix_type)
-        except asyncio.CancelledError:
-            pass
-        except Exception as e:
-            logging.error(f"Error in _monitor_gps for Drone {drone_id}: {e}")
+        def on_gps(gps):
+            self.telemetry[drone_id]["satellites"] = gps.num_satellites
+            # Arbitrary check for GPS lock
+            self.telemetry[drone_id]["gps_lock"] = gps.num_satellites >= 6
+            self.telemetry[drone_id]["gps_fix_type"] = str(gps.fix_type)
+
+        await self._supervise_stream(
+            drone_id, "gps_info", lambda: self.drones[drone_id].telemetry.gps_info(), on_gps
+        )
 
     async def _monitor_position(self, drone_id):
-        try:
-            drone = self.drones[drone_id]
-            pad_x_off, pad_y_off = _pad_offset(drone_id)
-            async for pos in drone.telemetry.position_velocity_ned():
-                # issue #145 review, item 1: on hardware, last_heartbeat was
-                # only ever refreshed by _monitor_connection's
-                # core.connection_state() stream, which (like landed_state(),
-                # per Harsh's own SITL-cadence note) may only emit on an
-                # actual state change rather than periodically - meaning a
-                # connection that never flaps would go "stale" after 2.5s
-                # regardless of how healthy the link actually is. This
-                # telemetry stream only emits while MAVLink data is actually
-                # arriving, so each tick is itself live-link evidence,
-                # independent of connection_state()'s emission cadence.
-                # TODO(SITL): confirm position_velocity_ned()'s real rate on
-                # the target flight-controller stack before relying on this
-                # as the primary heartbeat source in HARDWARE mode.
-                self.telemetry[drone_id]["last_heartbeat"] = time.time()
-                local_x = round(pos.position.north_m, 2)
-                local_y = round(pos.position.east_m, 2)
-                # NED: convert Down (negative) back to Altitude (positive) for frontend display
-                local_z = round(-pos.position.down_m, 2)
-                self.telemetry[drone_id]["local_x"] = local_x
-                self.telemetry[drone_id]["local_y"] = local_y
-                self.telemetry[drone_id]["local_z"] = local_z
-                # Fleet frame: per-drone local position shifted into the shared
-                # trajectory/fleet coordinate space (see LAUNCH_PAD_SPACING_Y_M above).
-                self.telemetry[drone_id]["fleet_x"] = round(local_x + pad_x_off, 2)
-                self.telemetry[drone_id]["fleet_y"] = round(local_y + pad_y_off, 2)
-                self.telemetry[drone_id]["fleet_z"] = local_z
-                self.telemetry[drone_id]["position_at"] = time.time()
-        except asyncio.CancelledError:
-            pass
-        except Exception as e:
-            logging.error(f"Error in _monitor_position for Drone {drone_id}: {e}")
+        pad_x_off, pad_y_off = _pad_offset(drone_id)
+
+        def on_position(pos):
+            # issue #145 review, item 1: on hardware, last_heartbeat was
+            # only ever refreshed by _monitor_connection's
+            # core.connection_state() stream, which (like landed_state(),
+            # per Harsh's own SITL-cadence note) may only emit on an
+            # actual state change rather than periodically - meaning a
+            # connection that never flaps would go "stale" after 2.5s
+            # regardless of how healthy the link actually is. This
+            # telemetry stream only emits while MAVLink data is actually
+            # arriving, so each tick is itself live-link evidence,
+            # independent of connection_state()'s emission cadence.
+            # TODO(SITL): confirm position_velocity_ned()'s real rate on
+            # the target flight-controller stack before relying on this
+            # as the primary heartbeat source in HARDWARE mode.
+            self.telemetry[drone_id]["last_heartbeat"] = time.time()
+            local_x = round(pos.position.north_m, 2)
+            local_y = round(pos.position.east_m, 2)
+            # NED: convert Down (negative) back to Altitude (positive) for frontend display
+            local_z = round(-pos.position.down_m, 2)
+            self.telemetry[drone_id]["local_x"] = local_x
+            self.telemetry[drone_id]["local_y"] = local_y
+            self.telemetry[drone_id]["local_z"] = local_z
+            # Fleet frame: per-drone local position shifted into the shared
+            # trajectory/fleet coordinate space (see LAUNCH_PAD_SPACING_Y_M above).
+            self.telemetry[drone_id]["fleet_x"] = round(local_x + pad_x_off, 2)
+            self.telemetry[drone_id]["fleet_y"] = round(local_y + pad_y_off, 2)
+            self.telemetry[drone_id]["fleet_z"] = local_z
+            self.telemetry[drone_id]["position_at"] = time.time()
+
+        await self._supervise_stream(
+            drone_id, "position_velocity_ned",
+            lambda: self.drones[drone_id].telemetry.position_velocity_ned(), on_position,
+        )
 
     async def _monitor_armed_state(self, drone_id):
-        try:
-            drone = self.drones[drone_id]
-            async for armed in drone.telemetry.armed():
-                prev_armed = self.telemetry[drone_id]["armed"]
-                self.telemetry[drone_id]["armed"] = armed
-                # Reset geofence breach tracking when drone disarms
-                if prev_armed and not armed:
-                    if drone_id in self.geofence_breaches:
-                        self.geofence_breaches[drone_id] = False
-                        logging.info(f"Drone {drone_id} disarmed — geofence breach state reset.")
-        except asyncio.CancelledError:
-            pass
-        except Exception as e:
-            logging.error(f"Error in _monitor_armed_state for Drone {drone_id}: {e}")
+        def on_armed(armed):
+            prev_armed = self.telemetry[drone_id]["armed"]
+            self.telemetry[drone_id]["armed"] = armed
+            # Reset geofence breach tracking when drone disarms
+            if prev_armed and not armed:
+                if drone_id in self.geofence_breaches:
+                    self.geofence_breaches[drone_id] = False
+                    logging.info(f"Drone {drone_id} disarmed — geofence breach state reset.")
+
+        await self._supervise_stream(
+            drone_id, "armed", lambda: self.drones[drone_id].telemetry.armed(), on_armed
+        )
 
     async def _monitor_landed_state(self, drone_id):
         """Tracks MAVSDK's own ground-contact state (issue #145).
@@ -921,15 +1037,13 @@ class DroneManager:
         ``TAKING_OFF``, ``LANDING``), independent of the arm/disarm command
         path, so this is observed state, not an assumption.
         """
-        try:
-            drone = self.drones[drone_id]
-            async for state in drone.telemetry.landed_state():
-                self.telemetry[drone_id]["landed_state"] = str(state)
-                self.telemetry[drone_id]["landed_state_at"] = time.time()
-        except asyncio.CancelledError:
-            pass
-        except Exception as e:
-            logging.error(f"Error in _monitor_landed_state for Drone {drone_id}: {e}")
+        def on_landed(state):
+            self.telemetry[drone_id]["landed_state"] = str(state)
+            self.telemetry[drone_id]["landed_state_at"] = time.time()
+
+        await self._supervise_stream(
+            drone_id, "landed_state", lambda: self.drones[drone_id].telemetry.landed_state(), on_landed
+        )
 
     async def _measure_latency_loop(self, drone_id):
         try:
@@ -957,16 +1071,14 @@ class DroneManager:
             logging.error(f"Error in _measure_latency_loop for Drone {drone_id}: {e}")
 
     async def _monitor_home(self, drone_id):
-        try:
-            drone = self.drones[drone_id]
-            async for home in drone.telemetry.home():
-                self.telemetry[drone_id]["home_lat"] = home.latitude_deg
-                self.telemetry[drone_id]["home_lon"] = home.longitude_deg
-                self.telemetry[drone_id]["home_alt"] = home.absolute_altitude_m
-        except asyncio.CancelledError:
-            pass
-        except Exception as e:
-            logging.error(f"Error in _monitor_home for Drone {drone_id}: {e}")
+        def on_home(home):
+            self.telemetry[drone_id]["home_lat"] = home.latitude_deg
+            self.telemetry[drone_id]["home_lon"] = home.longitude_deg
+            self.telemetry[drone_id]["home_alt"] = home.absolute_altitude_m
+
+        await self._supervise_stream(
+            drone_id, "home", lambda: self.drones[drone_id].telemetry.home(), on_home
+        )
 
     # --- Show staging: per-drone mission upload (issue #47) ---
 
@@ -1180,15 +1292,13 @@ class DroneManager:
 
     async def _monitor_health(self, drone_id):
         """Mirrors the two health flags _launch_one waits on, for the pre-arm checklist."""
-        try:
-            drone = self.drones[drone_id]
-            async for health in drone.telemetry.health():
-                self.telemetry[drone_id]["health_armable"] = bool(health.is_armable)
-                self.telemetry[drone_id]["health_home_ok"] = bool(health.is_home_position_ok)
-        except asyncio.CancelledError:
-            pass
-        except Exception as e:
-            logging.error(f"Error in _monitor_health for Drone {drone_id}: {e}")
+        def on_health(health):
+            self.telemetry[drone_id]["health_armable"] = bool(health.is_armable)
+            self.telemetry[drone_id]["health_home_ok"] = bool(health.is_home_position_ok)
+
+        await self._supervise_stream(
+            drone_id, "health", lambda: self.drones[drone_id].telemetry.health(), on_health
+        )
 
     # --- Flight commands ---
 
