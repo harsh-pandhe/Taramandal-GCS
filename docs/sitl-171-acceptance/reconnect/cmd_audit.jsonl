@@ -1,0 +1,5 @@
+{"backend": "px4", "event": "login", "fidelity": "px4-sitl", "operator": "cmdr", "origin_ip": "127.0.0.1", "role": "FLIGHT_COMMANDER", "ts": 1793776292.3674376}
+{"backend": "px4", "event": "login", "fidelity": "px4-sitl", "operator": "chor", "origin_ip": "127.0.0.1", "role": "CHOREOGRAPHER", "ts": 1793776292.3978755}
+{"backend": "px4", "drone_id": 0, "event": "single_drone_hover_requested", "fidelity": "px4-sitl", "hover_duration_s": 3.0, "operator": "cmdr", "target_altitude_m": 1.0, "ts": 1793776306.8155975}
+{"backend": "px4", "drone_id": 0, "error": "Hover dwell failed: Drone 0 drifted outside the hover altitude band during dwell (observed 0.59 m, target 1.0 m)", "event": "single_drone_hover_failed", "fidelity": "px4-sitl", "operator": "cmdr", "ts": 1793776308.3147209}
+{"backend": "px4", "event": "command", "fidelity": "px4-sitl", "method": "POST", "operator": "cmdr", "origin_ip": "127.0.0.1", "path": "/api/single-drone/hover-sequence", "role": "FLIGHT_COMMANDER", "status": 500, "ts": 1793776308.3173928}
