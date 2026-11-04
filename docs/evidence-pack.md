@@ -22,14 +22,15 @@ Every tier label below follows the fidelity convention #170 established:
 |---|---|
 | Environment setup / run / test / recovery checklist | Done — links existing docs, below |
 | Architecture diagram with trust/safety boundaries | Done, this document |
-| Results matrix (T1 / T2 / T3) | Partially done — T1 filled, T2 partially filled (single-drone hover; the Diwali segment at 3 / 5 / 8 drones; #172's acceptance rerun after #220 open), T3 not started |
+| Results matrix (T1 / T2 / T3) | Partially done — T1 filled, T2 partially filled (single-drone hover; the Diwali segment at 3 / 5 / 8 drones; #171 and #172 acceptance both PENDING, see [section 9](#9-134-acceptance-audit)), T3 not started |
 | Test evidence table (SHA, PR, fleet size, timing, separation) | Done for everything flown so far |
 | Repeatable evidence checklist (commands that reproduce each result) | Done, [section 8](#8-repeatable-evidence-checklist); the human-gated items are listed there as blocked, not faked |
-| Recordings (Studio full-screen preview, GCS + Gazebo + RViz) | **Partially done** — Studio full-screen walkthrough generated at `docs/recordings/taramandal-studio-walkthrough.mp4` via automated cursor tool `tools/record/record_studio_walkthrough.mjs` (#132); Gazebo+RViz recording script ready at `tools/record/record_desktop_gazebo.sh` ([#171](https://github.com/harsh-pandhe/Taramandal-GCS/issues/171), [#172](https://github.com/harsh-pandhe/Taramandal-GCS/issues/172)) |
+| Recordings (Studio full-screen preview, GCS + Gazebo + RViz) | **Partially done** — the only recording is an automated Studio UI tour, `docs/recordings/taramandal-studio-walkthrough.mp4` (made by `tools/record/record_studio_walkthrough.mjs`, #132). It does not include the full-screen preview or an export, and the script answers the validate, energy, signing and chain-assignment calls with canned responses. No GCS + Gazebo + RViz recording exists: `tools/record/record_desktop_gazebo.sh` is written but has not been run ([#171](https://github.com/harsh-pandhe/Taramandal-GCS/issues/171), [#172](https://github.com/harsh-pandhe/Taramandal-GCS/issues/172)). Human steps: [recording-checklist.md](recording-checklist.md) |
 | Hardware BOM, wiring/configuration | **Not done** — owned by the hardware lead, not yet supplied |
 | Asset/music provenance and usage rights | **Not done** — blocked on sourcing a licensed track, see [#132](https://github.com/harsh-pandhe/Taramandal-GCS/issues/132) |
 | Limitations / next V2 steps | Done, below |
 | Reviewed by Harsh before external sharing | **Not done** |
+| Audit of this pack against #134's acceptance criteria | Done 2026-11-04 on `d7e7b2e`, [section 9](#9-134-acceptance-audit) |
 
 ## 1. Environment setup, run, test and recovery checklist
 
@@ -134,7 +135,7 @@ flowchart TB
 |---|---|---|---|
 | **Scale demonstrated** | 35 / 100 / 500 / 1000 drones | 1 drone (hover/climb/land cycle); 3 / 5 / 8 drones flying the real Diwali segment (#222, #220) | Not started |
 | **What's proven** | Real-time factor ≥0.98 up to 1000 drones, zero late ticks, zero proximity/geofence/altitude violations across all 5 formation generators (circle, helix, heart, cube, spline). Studio-built shows now certify through the real `/api/export` jerk gate (#160, 5 reference shows). A 3-drone Studio-built show runs the whole software chain on the sim backend: signed export, GCS upload and staging, `preview_only` refusal, onboard refused before takeoff, streamed start reaches RUNNING (#172, T1 half). Sim-only fault tools exist for failsafe testing: distance-based + burst RF loss (#62) and RTK / battery / deviation / motor-failure injection (#63) | A full PREFLIGHT→ARM→climb-to-hover→dwell→land→disarm cycle against real PX4 flight-control code and Gazebo physics; the #145 climb-stall fix confirmed against real liftoff-ramp delay (observed 0.86 m vs 1.0 m target, within the `max(0.15, 0.1×target)` tolerance); a concurrent duplicate-hover request cleanly rejected without disturbing the original flight; pilot takeover mid-hover yielded to rather than fought (#211). A Studio-built show, the real Diwali 3-drone segment, flown through the GCS (signed, streamed start): 3 of 3 baseline runs pass, plus one run each at 5 and 8 drones (#222), and after the start-leg fix (#220) 3 of 3 pass with the start transient down from up to 3.7 s to 0.01 s and max tracking error from about 5.9 m to about 0.3 m | — |
-| **What's outstanding** | — | The acceptance rerun of [#172](https://github.com/harsh-pandhe/Taramandal-GCS/issues/172) on `main` after #220 merged: the Diwali segment has been flown on PX4 SITL + Gazebo (before #220 at 3 / 5 / 8 drones, after it on the PR branch at 3), but #172 is not accepted from those runs; the human-witnessed Gazebo+RViz+GCS-dashboard recording and the remaining fault-matrix cases ([#171](https://github.com/harsh-pandhe/Taramandal-GCS/issues/171), owned by Harsh) | Safety approval, bench test, supervised hover/landing ([#135](https://github.com/harsh-pandhe/Taramandal-GCS/issues/135), explicitly deferred behind #171) |
+| **What's outstanding** | — | **Acceptance PENDING** for [#172](https://github.com/harsh-pandhe/Taramandal-GCS/issues/172) and [#171](https://github.com/harsh-pandhe/Taramandal-GCS/issues/171): post-F3 runs of the Diwali segment on `b435358` are recorded (PR #236, in section 4), but #172 is not accepted until Harsh decides, and the #171 acceptance run has no merged record yet; the human-witnessed Gazebo+RViz+GCS-dashboard recording and the remaining fault-matrix cases ([#171](https://github.com/harsh-pandhe/Taramandal-GCS/issues/171), owned by Harsh) | Safety approval, bench test, supervised hover/landing ([#135](https://github.com/harsh-pandhe/Taramandal-GCS/issues/135), explicitly deferred behind #171) |
 | **Evidence** | [docs/fleet-scale-benchmark.md](fleet-scale-benchmark.md), [docs/validate-latency-benchmark.md](validate-latency-benchmark.md) | [Findings comment on #171](https://github.com/harsh-pandhe/Taramandal-GCS/issues/171#issuecomment-6533695510) | — |
 
 The 35-drone near-term Dandiya show (NAVRATRI / diya / dandiya sticks /
@@ -149,7 +150,7 @@ claim (`/api/validate`), not a physical flight claim.**
 
 | Area | Evidence | SHA / PR | Fleet size | Result |
 |---|---|---|---|---|
-| Python test suite (all packages) | `pytest` | current `main` | — | 1517 tests collected, full suite (including `slow`-marked) passes |
+| Python test suite (all packages) | `pytest` (full run, including `slow`-marked) | `d7e7b2e` | — | 1881 passed. Run by Dhiraj on `d7e7b2e`; **not re-run when this row was written**. A first run showed one failure that came from starting the suite under `nohup` (which ignores SIGHUP), not from the code; started normally it passes (per the run's author) |
 | `/api/validate` latency | [docs/validate-latency-benchmark.md](validate-latency-benchmark.md) | #164, pinned by #189 (`bedd65f`) | 100 / 500 / 1000 | ~1.7 s / ~8 s / ~21 s via HTTP; near-linear growth, not the old superlinear blow-up |
 | `tara_sim` real-time factor | [docs/fleet-scale-benchmark.md](fleet-scale-benchmark.md) | #51 | 100 / 500 / 1000 | xRT 1.00, 0.0% late ticks at every size tested |
 | Formation generators, zero-violation | `packages/tara-studio/tests/test_generator_regression.py` | current `main` | 50 / 100 per shape × 5 shapes | 0 proximity / geofence / altitude violations |
@@ -204,15 +205,17 @@ track has been sourced. Placeholder section.
 - **No real multi-drone flight evidence yet, only simulated.** T2 is PX4
   SITL + Gazebo: a single drone's hover cycle (#171) and the real Diwali
   3-drone segment, with one run each at 5 and 8 drones (#222), which is a
-  small fleet, not the 35 / 100 / 500 the T1 results cover. #172's acceptance
-  rerun on `main` after #220 is still open, as is Harsh's own #171
-  hardware/recording pass.
+  small fleet, not the 35 / 100 / 500 the T1 results cover. #172 and #171 acceptance
+  are both PENDING (section 9), and Harsh's own hardware/recording pass is
+  still open.
 - **No real hardware evidence at all** — T3 is entirely future work,
   explicitly post-V1 per #135.
-- **No recordings exist yet** for the pack's "Recordings" deliverable
-  (Studio full-screen preview; GCS with Gazebo and RViz both visible).
-  These require a human at the keyboard with a screen recorder, not
-  something to simulate or fabricate.
+- **Recordings are mostly missing.** The only one is an automated Studio UI
+  tour (`docs/recordings/taramandal-studio-walkthrough.mp4`) that does not
+  show the full-screen preview or an export and uses canned API answers. No
+  GCS with Gazebo and RViz recording exists. Those need a human at the
+  keyboard with a screen recorder, not something to simulate or fabricate:
+  see [recording-checklist.md](recording-checklist.md).
 - **#167** (widen the shared launch-pad grid from 2.0 m to 2.2 m) is
   implemented and merged (`8d5f209`) but kept open pending a maintainer
   decision on whether pre-#167 `.tara` files need a migration/version gate
@@ -260,7 +263,7 @@ A10 together: 10 passed in about 104 s.
 | B3 | Visual baselines unchanged | `npm run test:e2e:docker` (Docker required; do not run Playwright natively, its fonts differ from CI) | 54 passed (took about 10.7 min) | yes, on `main` `b435358`, without `--update` |
 | B4 | A visual change is intentional | `npm run test:e2e:docker:update`, then review every changed PNG in `e2e/studio.spec.js-snapshots/`, then re-run B3 without `--update` | B3 passes; each changed image is justified in the PR | done for #210 (13 images) and #226 (10 images) |
 | B5 | The CI gates as CI runs them | `./scripts/ci` (or `--job lint-and-typecheck`, `frontend-tests`, `test-e2e`; `--list` prints the names) | all gates pass | no |
-| B6 | Studio automated walkthrough recording (#132) | `node tools/record/record_studio_walkthrough.mjs` | 1440x900 MP4 video recorded with animated cursor to `docs/recordings/taramandal-studio-walkthrough.mp4` (38s) covering 3D canvas, Sequencer, Light, Audio, AI, Safety, Swarm Fleet, and Project Vault | yes, verified on `main` |
+| B6 | Studio automated walkthrough recording (#132) | `node tools/record/record_studio_walkthrough.mjs` | 1440x900 MP4 video recorded with animated cursor to `docs/recordings/taramandal-studio-walkthrough.mp4` (38s) covering 3D canvas, Sequencer, Light, Audio, AI, Safety, Swarm Fleet, and Project Vault. **Not validation evidence:** the script answers `/api/validate`, `/api/validate-energy`, `/api/signing` and `/api/assign-chain` with canned responses, and no step opens the full-screen preview or clicks an export | yes, verified on `main` (by the PR author; not re-run for the section 9 audit) |
 
 B1-B3 were re-run on `main` at `b435358`, which contains #210 and #226. A
 later change to Studio web needs them re-run again.
@@ -299,10 +302,68 @@ login setup is demonstrated in `packages/tara-gcs/tests/test_show_resume.py`.
 
 | Item | Blocked on | Why |
 |---|---|---|
-| #132 walkthrough recording (Studio create, build, validate, full-screen preview, export, no terminal) | a human with a screen recorder | The pack must not contain a simulated recording. Repeatable once someone does it: start `./tara up --backend sim -n 20`, open Studio, follow the walkthrough in #132's acceptance list, and record at 1440x900. The Studio steps, including the header safety states a recording should show (`Safety passed · exports enabled` and the locked states from #226), are in [docs/diwali-runbook.md section 2.4](diwali-runbook.md#24-studio-full-screen-preview-35-and-100-drones) |
-| Gazebo + RViz + GCS dashboard recording (#171) | Harsh (owns the run); RViz and a display are not available here | Acceptance needs all three visible simultaneously |
+| #132 walkthrough recording (Studio create, build, validate, full-screen preview, export, no terminal) | a human with a screen recorder | The pack must not contain a simulated recording. Repeatable once someone does it: start `./tara up --backend sim -n 20`, open Studio, follow the walkthrough in #132's acceptance list, and record at 1440x900. The Studio steps, including the header safety states a recording should show (`Safety passed · exports enabled` and the locked states from #226), are in [docs/diwali-runbook.md section 2.4](diwali-runbook.md#24-studio-full-screen-preview-35-and-100-drones); a step-by-step human checklist is [docs/recording-checklist.md](recording-checklist.md) |
+| Gazebo + RViz + GCS dashboard recording (#171) | Harsh (owns the run); RViz and a display are not available here | Acceptance needs all three visible simultaneously. Steps: [docs/recording-checklist.md](recording-checklist.md) |
 | Music track and usage rights (#132) | Harsh to approve a licensed source | No track has been chosen; do not add one without recorded rights |
 | Hardware (T3), BOM, wiring (#135) | Safety approval; hardware lead; Harsh's PX4-vs-ArduCopter answer | Nothing exists to run |
+
+## 9. #134 acceptance audit
+
+Audited on 2026-11-04 against `main` at `d7e7b2e`, using [#134's body](https://github.com/harsh-pandhe/Taramandal-GCS/issues/134)
+(deliverables and acceptance) and Harsh's 2026-10-26 update in it. Method: this pack, the files it links,
+`docs/recordings/` and `tools/record/` (added by `c047f82`), and the live state of #171, #172 and #132. No tests,
+SITL runs or recordings were run for the audit. The video was **not watched** (`ffmpeg` is not installed where this
+was written), so what it says here about the video comes from the script that makes it.
+
+States: **DONE**; **PARTIAL**; **MISSING**; **PENDING**, meaning an acceptance that is not yet recorded or decided,
+or an item Harsh's update says to mark pending rather than missing.
+
+### 9.1 Every criterion
+
+| # | Criterion (from #134) | State | Evidence, or exactly what is missing |
+|---|---|---|---|
+| D1 | One README/checklist for setup, run, test, configuration and recovery | DONE | [Section 1](#1-environment-setup-run-test-and-recovery-checklist) (README Quickstart, `sim/px4/README.md`, `docs/local-ci.md`, `test_show_resume.py`) and [section 8](#8-repeatable-evidence-checklist). Setup on a truly clean machine is not verified: see A1 |
+| D2 | Architecture diagram: Studio, Core, GCS, simulation, local model, physical flight controller; trust boundaries | PARTIAL | [Section 2](#2-architecture) has every box except one: `tara-core` is not a node, and its generator/validator functions are drawn inside the `tara-studio` box. Missing: a `tara-core` node |
+| D3 | Results matrix separating unit/integration tests, simulation evidence and physical tests | PARTIAL | [Section 3](#3-results-matrix) separates T1, T2 and T3. Unit and integration tests have no column or section of their own; they are rows in section 4 beside simulation rows. Missing: that separation |
+| D4a | Recording: Studio full-screen show preview | PARTIAL | `docs/recordings/taramandal-studio-walkthrough.mp4` exists (38 s, per Harsh's #132 comment), made by `tools/record/record_studio_walkthrough.mjs`. The script has a synthetic cursor and answers `/api/validate`, `/api/validate-energy`, `/api/signing` and `/api/assign-chain` with canned responses (lines 115-160), so its Safety and battery panels are not results. No step opens **FULL-SCREEN PREVIEW** or clicks an export, there is no audio, and no tier caption. Missing: a recording of the real full-screen preview, [Recording 2](recording-checklist.md#recording-2-studio-full-screen-preview-tier-plan-playback-nothing-flew) |
+| D4b | Recording: GCS simulation, with Gazebo and RViz both visible (#171, #172) | MISSING | `docs/recordings/` holds only the Studio file. `tools/record/record_desktop_gazebo.sh` exists but has not been run (needs `ffmpeg` and X11, records the whole display, writes into the tracked `docs/recordings/`). Missing: the recording, [Recording 1](recording-checklist.md#recording-1-gazebo--rviz--gcs-dashboard-t2-3-drones). Human only |
+| D4c | Recording: bench/integration | MISSING | No bench exists; hardware-gated ([#135](https://github.com/harsh-pandhe/Taramandal-GCS/issues/135)). Missing: hardware and the hardware lead |
+| D4d | Recording: real hover/landing, only if safely approved and actually completed | PENDING | Harsh's update: optional and post-V1, "pending, not missing". #135 has no safety approval; nothing has flown |
+| D5 | Test evidence: SHA, PR/CI links, fleet size, hardware/software versions, duration, validation time, min separation, peak speed/acceleration, memory/file size, issues | PARTIAL | [Section 4](#4-test-evidence) gives SHA and PR for every row and fleet size for most. Missing as fields: **CI run links** (the pack has none); hardware versions (PX4 v1.16.2 and Gazebo Sim 8.15 appear in a few rows; host specs only in `docs/diwali-runbook.md` 2.5); duration, validation time, peak speed/acceleration, memory/file size and observed issues, which appear only where an author put them in the Result text. Missing: those columns, or a per-run table for the T2 runs |
+| D6 | Hardware BOM, wiring/configuration, owner notes | MISSING | [Section 5](#5-hardware-bom-wiring-and-configuration) is a placeholder. Owner: the hardware lead; nothing supplied |
+| D7 | Asset/music provenance and usage rights | MISSING | [Section 6](#6-asset--music-provenance-and-usage-rights) is a placeholder; no track chosen, no licence recorded ([#132](https://github.com/harsh-pandhe/Taramandal-GCS/issues/132)). Human and Harsh |
+| D8 | Limitations, uncompleted items, next V2 steps | DONE | [Section 7](#7-limitations-uncompleted-items-and-next-v2-steps), brought in line with the recording and acceptance facts by this change |
+| U1 | Every result carries one tier label (Harsh's update) | PARTIAL | 22 of the 37 section-4 rows have no tier in the Area cell: Python test suite; `/api/validate` latency; `tara_sim` real-time factor; Formation generators; Circle-orbit pacing; Single-drone PX4 SITL + Gazebo hover cycle; PX4 SITL world generation; GCS crash-recovery; Studio-web focus/motion accessibility; Studio-built shows certify the jerk gate; Studio typography pass; Certified Diwali 2026 shows & scale runner; High-rate incident recorder; Show-scale real-time factor profiling; Diwali demo-day runbook; Black-box recorder wired into the GCS; Shared export-gate predicate; Figures-only Diwali fallback; Stop-mid-rotation blackbox test; Diwali runbook review fixes; Core raster converter; Core music analysis engine. Several are plainly T1 or T2 (hover cycle, world generation, RTF, scale runner); the rest are software tests where a tier may not apply, which the pack does not say. Missing: a tier, or "n/a (software test)", on each |
+| U2 | Results matrix filled from #171, #172 and the 35/100/500 benchmarks | PARTIAL | T1 from the benchmarks and T2 from #171/#172 are filled with merged evidence ([section 3](#3-results-matrix)). The two acceptances are P1 and P2 |
+| U3 | Required recordings: Studio full-screen preview; GCS with Gazebo and RViz | PARTIAL | See D4a (partial) and D4b (missing) |
+| U4 | Diagram marks RViz visualization-only and shows `tara_sim` vs PX4 + Gazebo | DONE | [Section 2](#2-architecture): RViz hangs off PX4 + Gazebo by a dashed edge labelled "visualization only, no ROS in the command path"; both backends are boxes |
+| U5 | Every recording or log states its backend and tier on screen or in a header (#170) | PARTIAL | Logs: the SITL run records carry `gcs_status_before.fidelity` (`px4-sitl`) and `commit` (checked in `postf3-n3-p1.json`). Recordings: the Studio video has no tier caption (its script adds none). Missing: a tier title card on every clip, in [the checklist](recording-checklist.md) |
+| A1 | Another team member can repeat the software/simulation demonstration from the instructions | PARTIAL | [Section 8](#8-repeatable-evidence-checklist) A-rows were run by one person; nobody else has reproduced them. A1, A12 and the C-rows were not re-run. Setup on a clean machine is **NOT VERIFIED** (runbook 2.2), as is any 8-drone result beyond one run (runbook 2.5). Missing: a second person running section 8 A and the runbook from a clean checkout |
+| A2 | Every performance and readiness claim points to evidence and labels simulated vs real | PARTIAL | Known gaps are listed in [section 8D](#d-known-gaps-in-reproducibility-not-hidden): the `/api/validate` latency table (throwaway script, not committed), the Dandiya 2.000000 m figure (a comment, no command), the original #160 reference-show parameters. T3 claims: none are made |
+| A3 | No fabricated or unverified flight claims | PARTIAL | No hardware-flight claim is made. Two items need a decision, in 9.3: the Studio video's canned validation, and the #236 row's "5/5 runs PASS" |
+| A4 | Pack reviewed by Harsh before external sharing | MISSING | Status table: "Not done" |
+| P1 | [#171](https://github.com/harsh-pandhe/Taramandal-GCS/issues/171) single-drone acceptance: arm, ~1 m hover, slow landing, fault matrix | PENDING | An acceptance run on `d7e7b2e` (3 nominal passes, then the fault matrix) was claimed on #171 on 2026-11-04; **no record is merged**. Merged supporting fixes only: #211, #223, #224, #231, #232, #233. No result is stated here |
+| P2 | [#172](https://github.com/harsh-pandhe/Taramandal-GCS/issues/172) Studio-built show flown in SITL, planned vs actual | PENDING | Post-F3 runs on `b435358` are recorded in PR #236 (`01d178a`, merged): all 5 runs pass the tool's rule, the 5-drone run flagged degraded (real-time factor 0.885). The #172 comment says Harsh decides whether that meets #172, and the RViz recording is open. Not accepted |
+
+### 9.2 Only a human can do these
+
+| Item | Needs | Owner | Steps |
+|---|---|---|---|
+| Gazebo + RViz + GCS dashboard recording (D4b, P1, P2) | A machine with a display, native PX4 v1.16.2 + Gazebo Sim 8, ROS 2 Jazzy, `rviz2` | Harsh names the machine | [Recording 1](recording-checklist.md#recording-1-gazebo--rviz--gcs-dashboard-t2-3-drones) |
+| Operator walkthrough of the full-screen preview (D4a) | A person at the keyboard; a real GPU session for the frame rate | Vishal (proposed) | [Recording 2](recording-checklist.md#recording-2-studio-full-screen-preview-tier-plan-playback-nothing-flew) |
+| Music track and licence (D7) | A chosen track and a recorded licence | Harsh approves | none until a track exists |
+| Hardware gate, bench and real hover (D4c, D4d, D6) | Airframe, bench, named RC pilot, site, firmware decision | Harsh; the hardware lead | none: not scheduled, clips say "simulation" |
+| Review before external sharing (A4) | Harsh's read of the whole pack | Harsh | none |
+
+Everything else in 9.1 that is not DONE (D2, D3, D5, U1, and the pack-side part of A2) is documentation work an agent can do; A1 needs a second person.
+
+### 9.3 For Harsh to decide
+
+- **The Studio video.** It is a real render of the real Studio, but its Safety, battery and signing panels show
+  canned values, and it skips the preview and export. Keep it as a UI tour, labelled as that, or replace it with a
+  human walkthrough. It should not be cited as validation evidence. The pack's Status row and the B6 row now say so.
+- **The #236 row says "5/5 runs PASS".** Its source says the 5-drone run is degraded and that Harsh decides
+  acceptance. The row was added in `cba5cf5` and is left as written here; a short qualifier may be wanted.
 
 ---
 
