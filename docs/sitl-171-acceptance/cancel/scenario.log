@@ -1,0 +1,25 @@
+[   1.11s] OBS connected: True
+[   1.49s] CHECK PASS preflight ready before the run | {'connected': 1, 'armed': 0, 'armed_stale': 0, 'armed_stale_ids': [], 'fleet_state': 'STAGED'}
+Received ack for not-existing command: 400! Ignoring... (mavlink_command_sender.cpp:304)
+[   1.51s] OBS armed: True
+[   1.51s] OBS mode: HOLD
+[   1.51s] OBS landed_state: ON_GROUND
+Received ack for not-existing command: 176! Ignoring... (mavlink_command_sender.cpp:304)
+Received ack for not-existing command: 176! Ignoring... (mavlink_command_sender.cpp:304)
+[   2.51s] OBS mode: OFFBOARD
+[   3.51s] OBS landed_state: IN_AIR
+[  10.45s] CLIENT DISCONNECT mid-hover alt 0.88
+[  11.46s] CHECK PASS a second hover right after the disconnect is refused (409, guard held) | 409 {"detail": "A single-drone sequence is already running on drone 0."}
+Received ack for not-existing command: 176! Ignoring... (mavlink_command_sender.cpp:304)
+Received ack for not-existing command: 176! Ignoring... (mavlink_command_sender.cpp:304)
+Received ack for not-existing command: 21! Ignoring... (mavlink_command_sender.cpp:304)
+[  20.56s] OBS mode: LAND
+[  20.56s] OBS landed_state: LANDING
+[  23.56s] OBS landed_state: ON_GROUND
+[  25.56s] OBS armed: False
+[  25.56s] OBS mode: HOLD
+[  25.69s] NOTE seconds_from_disconnect_to_disarm = 15.2
+[  25.69s] CHECK PASS the abandoned sequence still lands and disarms safely | armed=False landed=ON_GROUND
+[  25.70s] CHECK FAIL guard released afterwards: GCS idle | {'connected': 1, 'armed': 1, 'armed_stale': 0, 'armed_stale_ids': [], 'fleet_state': 'STAGED'}
+[  25.70s] NOTE limit = "client disconnect only: the in-process CancelledError path cannot be triggered from outside and is covered by the unit test"
+[  25.70s] VERDICT FAIL

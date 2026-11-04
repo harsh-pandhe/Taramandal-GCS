@@ -1,0 +1,88 @@
+{
+  "checks": [
+    {
+      "name": "preflight ready before the run",
+      "ok": true,
+      "detail": "{'connected': 1, 'armed': 0, 'armed_stale': 0, 'armed_stale_ids': [], 'fleet_state': 'STAGED'}"
+    },
+    {
+      "name": "a second hover right after the disconnect is refused (409, guard held)",
+      "ok": true,
+      "detail": "409 {\"detail\": \"A single-drone sequence is already running on drone 0.\"}"
+    },
+    {
+      "name": "the abandoned sequence still lands and disarms safely",
+      "ok": true,
+      "detail": "armed=False landed=ON_GROUND"
+    },
+    {
+      "name": "guard released afterwards: GCS idle",
+      "ok": false,
+      "detail": "{'connected': 1, 'armed': 1, 'armed_stale': 0, 'armed_stale_ids': [], 'fleet_state': 'STAGED'}"
+    }
+  ],
+  "notes": {
+    "seconds_from_disconnect_to_disarm": 15.2,
+    "limit": "client disconnect only: the in-process CancelledError path cannot be triggered from outside and is covered by the unit test"
+  },
+  "case": "cancel",
+  "exception": null,
+  "verdict": "FAIL",
+  "observer_events": [
+    [
+      1.11,
+      "connected",
+      true
+    ],
+    [
+      1.51,
+      "armed",
+      true
+    ],
+    [
+      1.51,
+      "mode",
+      "HOLD"
+    ],
+    [
+      1.51,
+      "landed_state",
+      "ON_GROUND"
+    ],
+    [
+      2.51,
+      "mode",
+      "OFFBOARD"
+    ],
+    [
+      3.51,
+      "landed_state",
+      "IN_AIR"
+    ],
+    [
+      20.56,
+      "mode",
+      "LAND"
+    ],
+    [
+      20.56,
+      "landed_state",
+      "LANDING"
+    ],
+    [
+      23.56,
+      "landed_state",
+      "ON_GROUND"
+    ],
+    [
+      25.56,
+      "armed",
+      false
+    ],
+    [
+      25.56,
+      "mode",
+      "HOLD"
+    ]
+  ]
+}

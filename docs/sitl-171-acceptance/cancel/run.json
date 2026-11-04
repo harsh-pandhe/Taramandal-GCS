@@ -1,0 +1,135 @@
+{
+  "run_id": "cancel",
+  "case": "cancel",
+  "verdict": "FAIL",
+  "context": {
+    "run_id": "cancel",
+    "case": "cancel",
+    "stack": "tara up --backend px4 -n 1 (headless)",
+    "allow_unsigned": false,
+    "commit": "536fd45a7bf60675143e83c3ea7c9d1837b1e7f4",
+    "started_utc": "2026-11-04T07:12:53Z",
+    "host_load_before": "5.69 6.01 3.65",
+    "host_load_at_start": "5.70 5.98 3.72",
+    "host_load_at_end": "5.79 5.99 3.79",
+    "other_running_containers": [],
+    "fresh_container": true,
+    "microsd_dirs_before_stack": 0,
+    "px4_version": "v1.16.2",
+    "image_id": "sha256:424c464813742ee541ad2a554ee4bfa5e709beeeaebfb1dbfe9384459d92d3cb",
+    "docker_server": "29.8.0 on linux/amd64",
+    "host_cpus": "16",
+    "host_kernel": "7.0.0-38-generic",
+    "headless": true,
+    "gazebo_window": false,
+    "rviz": false,
+    "recording": false,
+    "px4_ulogs_saved": 1,
+    "scenario_exit_code": 0
+  },
+  "checks": [
+    {
+      "name": "preflight ready before the run",
+      "ok": true,
+      "detail": "{'connected': 1, 'armed': 0, 'armed_stale': 0, 'armed_stale_ids': [], 'fleet_state': 'STAGED'}"
+    },
+    {
+      "name": "a second hover right after the disconnect is refused (409, guard held)",
+      "ok": true,
+      "detail": "409 {\"detail\": \"A single-drone sequence is already running on drone 0.\"}"
+    },
+    {
+      "name": "the abandoned sequence still lands and disarms safely",
+      "ok": true,
+      "detail": "armed=False landed=ON_GROUND"
+    },
+    {
+      "name": "guard released afterwards: GCS idle",
+      "ok": false,
+      "detail": "{'connected': 1, 'armed': 1, 'armed_stale': 0, 'armed_stale_ids': [], 'fleet_state': 'STAGED'}"
+    }
+  ],
+  "notes": {
+    "seconds_from_disconnect_to_disarm": 15.2,
+    "limit": "client disconnect only: the in-process CancelledError path cannot be triggered from outside and is covered by the unit test"
+  },
+  "exception": null,
+  "cadence": {
+    "landed_state": {
+      "items": 41,
+      "span_s": 36.9,
+      "mean_hz": 1.09,
+      "median_interval_s": 1.0,
+      "p99_interval_s": 1.017,
+      "max_gap_s": 1.027,
+      "gaps_over_2_5s": 0,
+      "longest_run_of_identical_values": 18
+    },
+    "position_velocity_ned": {
+      "items": 1118,
+      "span_s": 37.3,
+      "mean_hz": 29.95,
+      "median_interval_s": 0.0323,
+      "p99_interval_s": 0.038,
+      "max_gap_s": 0.051,
+      "gaps_over_2_5s": 0
+    }
+  },
+  "observer_events": [
+    [
+      1.11,
+      "connected",
+      true
+    ],
+    [
+      1.51,
+      "armed",
+      true
+    ],
+    [
+      1.51,
+      "mode",
+      "HOLD"
+    ],
+    [
+      1.51,
+      "landed_state",
+      "ON_GROUND"
+    ],
+    [
+      2.51,
+      "mode",
+      "OFFBOARD"
+    ],
+    [
+      3.51,
+      "landed_state",
+      "IN_AIR"
+    ],
+    [
+      20.56,
+      "mode",
+      "LAND"
+    ],
+    [
+      20.56,
+      "landed_state",
+      "LANDING"
+    ],
+    [
+      23.56,
+      "landed_state",
+      "ON_GROUND"
+    ],
+    [
+      25.56,
+      "armed",
+      false
+    ],
+    [
+      25.56,
+      "mode",
+      "HOLD"
+    ]
+  ]
+}
