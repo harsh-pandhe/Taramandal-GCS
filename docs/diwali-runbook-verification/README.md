@@ -26,7 +26,8 @@ the method per step is below, and the raw results are in `studio-header-states.j
 | E-STOP (KILL) on the sim backend | **PASS for the command path** (see limits), run twice | `dashboard-11`, `dashboard-12`, `dashboard-13` |
 | `./tara reset` | **PASS** on a stack killed with `kill -9` | below |
 | `Ctrl+C` (SIGINT) stops the stack | PASS (again) | below |
-| T1 35 and 100 drones, 35/100-drone Studio preview, `tools/diwali_t1_run.py` | **NOT RUN** (the brief says 3 drones only) | |
+| `tools/diwali_t1_run.py`, 3 drones, sim backend (run later, 4 Nov) | **PASS**: exit 0, `FORMATION_HOLD` 4 s after launch, 86.3 s wall for 84.2 s planned, landed and disarmed. A second run on the same stack, a wrong passphrase and a missing `.sig.json` were each refused with a clear message | runbook 2.3 |
+| T1 35 and 100 drones, 35/100-drone Studio preview | **NOT RUN**: they need no SITL but load the host heavily while other sessions fly Gazebo (the brief was 3 drones) | |
 | Anything with Gazebo, PX4, Docker, RViz, recording, Windows, a real GPU | **NOT RUN** | |
 
 ### Studio header states (2.4), 3 drones
@@ -47,7 +48,7 @@ I tried to reach states 4 and 5 for real by editing hold, morph and layer-gap fi
 edit still certified (the sequencer re-paces), so those two states were not reached without a stub. No console
 errors on any Studio page.
 
-## Findings (none fixed)
+## Findings (none fixed; item 4 withdrawn, see below)
 
 1. **Dashboard telemetry cards print unrounded floats and overflow their box** (real, cosmetic). On the sim
    backend `components/fleet/DroneCard.jsx` renders `${drone.local_x}m` unformatted, so the card shows
@@ -56,13 +57,14 @@ errors on any Studio page.
    shows it. Where the long number comes from (the sim payload) I did not trace.
 2. **The runbook said the dashboard flow has a two-step latch; on the sim backend it has none.** The checklist
    shows "Operator confirmation latch: N/A, Not checked under SIMULATION" (`dashboard-4-preflight-flight.png`),
-   so the modal goes straight to LAUNCH FLEET. `tools/diwali_t1_run.py` still calls the latch endpoints; the
-   dashboard on a PX4 backend was not tried (needs SITL).
+   so the modal goes straight to LAUNCH FLEET. `tools/diwali_t1_run.py` still calls the latch endpoints, and
+   they return 200 on the sim backend (script run, below). The dashboard on a PX4 backend was not tried (needs SITL).
 3. **The only landing button is the emergency one.** After SHOW_COMPLETE the dashboard offers EMER LAND (two
    clicks, "CONFIRM LAND?") and nothing named plain Land (`dashboard-9-land-confirm.png`). It worked
    (`SHOW_COMPLETE > LANDING > DISARMED`). Say so on camera or use the T1 runner for a clean landing.
-4. **`POST /api/upload-mission` is sent twice** per upload in the dashboard flow (once automatically after the
-   trajectory upload and once from my click on "Upload"). Both returned 200.
+4. **Correction (5 Nov):** the first version of this README listed `POST /api/upload-mission` being sent twice
+   as a finding. It is not a bug: `useMission.js` stages the mission automatically 0.5 s after a trajectory
+   upload, and the second call was my own extra click on the "Upload" button. Both returned 200. Nothing to fix.
 5. **A console error appears at every sign-in:** `WebSocket error: Event`, from the first telemetry socket being
    closed before it connects; a new socket opens 0.1 s later and telemetry works. Invisible on camera.
 6. **The "freshly opened project shows a red Refused badge" sentence in 2.4 did not hold at 3 drones.** The saved

@@ -6,7 +6,7 @@ is marked **NOT VERIFIED**. A number is only quoted if a run produced it, and th
 2.5 were re-taken on `main` at `b435358` (after #220); the T1 numbers in 2.3 and the Studio numbers in 2.4 are
 still from `7a6ab70` and were not re-taken.
 On 4 Nov the steps that need no SITL were re-run at 3 drones on `origin/main` `d7e7b2e`; see
-`docs/diwali-runbook-verification/README.md` (screenshots, what was stubbed, eight findings, none fixed).
+`docs/diwali-runbook-verification/README.md` (screenshots, what was stubbed, seven findings, none fixed).
 
 **Platform: Linux only.** Everything here was run on Linux. Not supported on Windows: `tools/diwali_to_vault.mjs`
 fails there (`ERR_UNSUPPORTED_ESM_URL_SCHEME`: it passes an absolute path to `import()`) and
@@ -141,9 +141,16 @@ were clicked on 4 Nov, at 3 drones on the sim backend** (`docs/diwali-runbook-ve
 TAKEOFF, LAUNCH FLEET, START SHOW, then `STAGED > ... > RUNNING > SHOW_COMPLETE`, then EMER LAND with its
 confirm click, then `DISARMED`. Three things differ from the script's path: the sim backend's checklist shows
 "Operator confirmation latch: N/A under SIMULATION", so there is **no latch step in the modal** (the script
-still calls the latch endpoints); **the only landing button is EMER LAND** (two clicks); and the upload sends
-`/api/upload-mission` twice (both 200). **NOT VERIFIED:** the same click path at 35 drones, on a PX4 backend, or
-on a real GPU. Rehearse it once before recording.
+still calls the latch endpoints, and they return 200 on the sim backend); **the only landing button is EMER LAND**
+(two clicks); and **the dashboard stages the mission onto the fleet by itself** 0.5 s after the trajectory upload
+(the second Upload button only re-sends it; do not click it for a normal take).
+
+**`diwali_t1_run.py` itself was run on 4 Nov at 3 drones** (`origin/main` `d7e7b2e`, sim backend, load 12):
+exit 0, `FORMATION_HOLD` 4 s after launch, show 86.3 s wall for 84.2 s planned, no aborts, landed and
+disarmed. Run again against the same stack it refused with "fleet is DISARMED, not STAGED: restart the stack
+between runs"; a wrong passphrase and a missing `.sig.json` were each refused with a clear message and exit 1.
+**NOT VERIFIED:** the same click path or runner at 35 drones since `7a6ab70`, on a PX4 backend, or on a real GPU.
+Rehearse the click path once before recording.
 
 **Why CSV:** the GCS refuses an upload over 5 MB and a CSV over 100,000 rows, and accepts only `.json`, `.csv`
 and `.skyc` (not `.tara`). The 35-drone JSON is 9.4 MB (refused), the CSV 1.96 MB (accepted).
@@ -332,6 +339,11 @@ verdict. Results: `~/tara-sitl-demo-scratch/runs/<label>.json` and CSVs. The con
 - [ ] GCS signed in; header shows `MODE: SIMULATION · tara_sim (kinematic)` (T1) or the px4-sitl label (T2).
 - [ ] The deviation panel is green (see 2.3). No red banner in frame.
 - [ ] Window exactly **1440x900**.
+- [ ] Know the T1 dashboard click path (4 Nov, 3 drones): sign in; click the upload box and select the show CSV and
+  its `.sig.json` together (the mission stages itself, 0.5 s later); PRE-ARM CHECK & TAKEOFF, LAUNCH FLEET (no
+  latch step on the sim backend); wait for `FLEET: FORMATION_HOLD`; START SHOW; after `SHOW_COMPLETE` the landing
+  control is EMER LAND then CONFIRM LAND? (there is no plain Land). Keep the first screen in frame: the Fleet
+  Telemetry cards below it print unrounded numbers that overflow their boxes (reported on #122, not fixed).
 
 ### 4.2 What must be visible, and the limits of this rig
 
@@ -485,7 +497,7 @@ Only items that exist today. Owners are proposed. Every item that needs a merge 
 | T1 100 drones, `diwali_sim_scale.py` | RTF 0.936, settled 14.3 s, flown min sep 2.042 m |
 | Studio preview 35 and 100 | OK (Playwright, headless Chromium, 1440x900) |
 | GCS dashboard sign-in, Operations, Earth, Night Sky | Rendered; clicks on upload and PRE-ARM buttons not made (2 Nov) |
-| 4 Nov, `origin/main` `d7e7b2e`, fresh clone, 3 drones, sim backend, no Docker (`docs/diwali-runbook-verification/`) | Clean `pip`/`npm install` and `./tara doctor` PASS (warm caches); 3-drone build and signed CSV PASS; Studio six header states PASS (Not flight-certified and Safety failed with a stubbed validation response, Validating with a held request); Studio Generate, full-screen preview, Play, `Esc` PASS; dashboard button path sign-in to `DISARMED` PASS (no latch step on the sim backend; only EMER LAND lands); E-STOP command path PASS (twice); `./tara reset` PASS; `Ctrl+C` PASS |
+| 4 Nov, `origin/main` `d7e7b2e`, fresh clone, 3 drones, sim backend, no Docker (`docs/diwali-runbook-verification/`) | Clean `pip`/`npm install` and `./tara doctor` PASS (warm caches); 3-drone build and signed CSV PASS; Studio six header states PASS (Not flight-certified and Safety failed with a stubbed validation response, Validating with a held request); Studio Generate, full-screen preview, Play, `Esc` PASS; dashboard button path sign-in to `DISARMED` PASS (no latch step on the sim backend; only EMER LAND lands; the mission stages itself); `diwali_t1_run.py` at 3 drones PASS, 5 Nov; E-STOP command path PASS (twice); `./tara reset` PASS; `Ctrl+C` PASS |
 | Single-drone RTL and fleet RTL mid-show (T1) | Fleet-wide proximity RTL after drone 7's abort; fleet RTL reached DISARMED |
 | T2 through `diwali_t2_sitl.sh`, 2 Nov, 3 drones, one run, before #220 | PASS: Gazebo min sep 2.192 m, RTF 0.997, landing under 4 cm, start dive 5.9 m |
 | T2 through `diwali_t2_sitl.sh`, 3 Nov, `b435358` | 3 drones ×3 clean; 5 drones ×3 (2 clean, 1 with a drone left on the pad, still `PASS`); 8 drones ×1 clean. Numbers in 2.5. Dive gone. |
