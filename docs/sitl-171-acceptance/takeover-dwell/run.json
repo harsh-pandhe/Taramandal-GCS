@@ -1,0 +1,147 @@
+{
+  "run_id": "takeover-dwell",
+  "case": "takeover_dwell",
+  "verdict": "PASS",
+  "context": {
+    "run_id": "takeover-dwell",
+    "case": "takeover_dwell",
+    "stack": "tara up --backend px4 -n 1 (headless)",
+    "allow_unsigned": false,
+    "commit": "856e5f461feadbd63f4e110350699e9eafb4939d",
+    "started_utc": "2026-11-04T07:07:27Z",
+    "host_load_before": "4.23 3.63 2.08",
+    "host_load_at_start": "5.45 3.96 2.24",
+    "host_load_at_end": "7.47 4.61 2.51",
+    "other_running_containers": [],
+    "fresh_container": true,
+    "microsd_dirs_before_stack": 0,
+    "px4_version": "v1.16.2",
+    "image_id": "sha256:424c464813742ee541ad2a554ee4bfa5e709beeeaebfb1dbfe9384459d92d3cb",
+    "docker_server": "29.8.0 on linux/amd64",
+    "host_cpus": "16",
+    "host_kernel": "7.0.0-38-generic",
+    "headless": true,
+    "gazebo_window": false,
+    "rviz": false,
+    "recording": false,
+    "px4_ulogs_saved": 1,
+    "scenario_exit_code": 0
+  },
+  "checks": [
+    {
+      "name": "preflight ready before the run",
+      "ok": true,
+      "detail": "{'connected': 1, 'armed': 0, 'armed_stale': 0, 'armed_stale_ids': [], 'fleet_state': 'STAGED'}"
+    },
+    {
+      "name": "PX4 stays in POSCTL and armed 15 s after the switch",
+      "ok": true,
+      "detail": "mode=POSCTL armed=True alt=0.93"
+    },
+    {
+      "name": "GCS sent no LAND or other mode change after the takeover",
+      "ok": true,
+      "detail": "['POSCTL']"
+    },
+    {
+      "name": "hover-sequence stops with 500 'operator took over'",
+      "ok": true,
+      "detail": "500 {\"detail\": \"Hover dwell failed: Drone 0: operator took over (flight mode left OFFBOARD for POSCTL); the sequence is yielding without commanding the vehicle\"}"
+    },
+    {
+      "name": "sequence stopped within 2 s of the switch",
+      "ok": true,
+      "detail": "0.14 s"
+    }
+  ],
+  "notes": {
+    "method": "MAVSDK manual_control MANUAL_CONTROL stream, then start_position_control() (OFFBOARD to POSCTL)",
+    "mode_events_after_takeover": [
+      "POSCTL"
+    ]
+  },
+  "exception": null,
+  "cadence": {
+    "landed_state": {
+      "items": 50,
+      "span_s": 45.8,
+      "mean_hz": 1.07,
+      "median_interval_s": 1.0,
+      "p99_interval_s": 1.0047,
+      "max_gap_s": 1.026,
+      "gaps_over_2_5s": 0,
+      "longest_run_of_identical_values": 24
+    },
+    "position_velocity_ned": {
+      "items": 1383,
+      "span_s": 46.1,
+      "mean_hz": 29.97,
+      "median_interval_s": 0.0324,
+      "p99_interval_s": 0.0371,
+      "max_gap_s": 0.055,
+      "gaps_over_2_5s": 0
+    }
+  },
+  "observer_events": [
+    [
+      1.06,
+      "connected",
+      true
+    ],
+    [
+      1.42,
+      "armed",
+      true
+    ],
+    [
+      1.42,
+      "mode",
+      "HOLD"
+    ],
+    [
+      1.42,
+      "landed_state",
+      "ON_GROUND"
+    ],
+    [
+      2.41,
+      "mode",
+      "OFFBOARD"
+    ],
+    [
+      3.41,
+      "landed_state",
+      "IN_AIR"
+    ],
+    [
+      12.41,
+      "mode",
+      "POSCTL"
+    ],
+    [
+      27.44,
+      "mode",
+      "LAND"
+    ],
+    [
+      27.44,
+      "landed_state",
+      "LANDING"
+    ],
+    [
+      30.45,
+      "landed_state",
+      "ON_GROUND"
+    ],
+    [
+      32.45,
+      "armed",
+      false
+    ],
+    [
+      32.45,
+      "mode",
+      "POSCTL"
+    ]
+  ]
+}
