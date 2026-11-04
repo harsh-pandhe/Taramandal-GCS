@@ -1,0 +1,31 @@
+[   2.47s] OBS connected: True
+[   2.81s] CHECK PASS preflight ready before the run | {'connected': 1, 'armed': 0, 'armed_stale': 0, 'armed_stale_ids': [], 'fleet_state': 'STAGED'}
+Received ack for not-existing command: 400! Ignoring... (mavlink_command_sender.cpp:304)
+[   2.98s] OBS armed: True
+[   2.98s] OBS mode: HOLD
+[   2.98s] OBS landed_state: ON_GROUND
+Received ack for not-existing command: 176! Ignoring... (mavlink_command_sender.cpp:304)
+Received ack for not-existing command: 176! Ignoring... (mavlink_command_sender.cpp:304)
+[   3.98s] OBS mode: OFFBOARD
+[   4.97s] OBS landed_state: IN_AIR
+Received ack for not-existing command: 176! Ignoring... (mavlink_command_sender.cpp:304)
+Received ack for not-existing command: 176! Ignoring... (mavlink_command_sender.cpp:304)
+Received ack for not-existing command: 21! Ignoring... (mavlink_command_sender.cpp:304)
+[  12.01s] OBS mode: LAND
+[  12.01s] OBS landed_state: LANDING
+[  12.11s] CHECK PASS GCS had put PX4 in LAND | alt 3.87
+[  12.61s] TAKEOVER start_position_control() alt=3.60 mode=LAND
+Received ack for not-existing command: 176! Ignoring... (mavlink_command_sender.cpp:304)
+[  13.01s] OBS mode: POSCTL
+[  13.01s] OBS landed_state: IN_AIR
+[  13.29s] HOVER HTTP RESULT: 500 {"detail": "Landing failed: Drone 0: operator took over during the landing (flight mode POSCTL); the sequence is yielding without commanding the vehicle"}
+[  37.62s] NOTE mode_events_after_takeover = ["POSCTL"]
+[  37.62s] CHECK PASS PX4 stays in POSCTL, armed and airborne for 25 s (the GCS does not re-send land) | mode=POSCTL armed=True alt=3.36
+[  37.62s] CHECK PASS hover-sequence stops with 500 'operator took over during the landing' | 500 {"detail": "Landing failed: Drone 0: operator took over during the landing (flight mode POSCTL); the sequence is yielding without commanding the vehicle"}
+[  38.01s] OBS mode: LAND
+[  38.01s] OBS landed_state: LANDING
+[  45.01s] OBS landed_state: ON_GROUND
+[  47.01s] OBS armed: False
+[  47.01s] OBS mode: POSCTL
+Received ack for not-existing command: 176! Ignoring... (mavlink_command_sender.cpp:304)
+[  47.15s] VERDICT PASS
