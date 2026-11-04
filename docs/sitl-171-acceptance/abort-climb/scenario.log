@@ -1,0 +1,26 @@
+[   0.92s] OBS connected: True
+[   1.81s] CHECK PASS preflight ready before the run | {'connected': 1, 'armed': 0, 'armed_stale': 0, 'armed_stale_ids': [], 'fleet_state': 'STAGED'}
+Received ack for not-existing command: 400! Ignoring... (mavlink_command_sender.cpp:304)
+Received ack for not-existing command: 176! Ignoring... (mavlink_command_sender.cpp:304)
+Received ack for not-existing command: 176! Ignoring... (mavlink_command_sender.cpp:304)
+[   2.15s] OBS armed: True
+[   2.15s] OBS mode: OFFBOARD
+[   2.15s] OBS landed_state: ON_GROUND
+[   4.15s] OBS landed_state: IN_AIR
+[   5.85s] ABORT: POST /api/land mid-climb alt=0.57
+Received ack for not-existing command: 176! Ignoring... (mavlink_command_sender.cpp:304)
+Received ack for not-existing command: 176! Ignoring... (mavlink_command_sender.cpp:304)
+Received ack for not-existing command: 21! Ignoring... (mavlink_command_sender.cpp:304)
+[   5.89s] NOTE land_response = {"http": 200, "body": "{\"status\": \"success\", \"message\": \"Emergency landing commanded to active backend (px4).\", \"backend\": \"px4\", \"mode\": \"SIMULATION\"}"}
+[   5.90s] NOTE alt_at_abort = 0.65
+[   5.93s] HOVER HTTP RESULT: 500 {"detail": "Hover climb failed: Drone 0: yielding to fleet emergency state LANDING instead of continuing the climb"}
+[   6.15s] OBS mode: LAND
+[   6.15s] OBS landed_state: LANDING
+[  11.15s] OBS landed_state: ON_GROUND
+[  13.15s] OBS armed: False
+[  13.15s] OBS mode: HOLD
+[  13.67s] CHECK PASS the vehicle lands and disarms after the abort | armed=False landed=ON_GROUND
+[  13.67s] CHECK PASS it never reached the target altitude (peak well under 3 m) | peak 1.69 m
+[  13.67s] CHECK PASS hover-sequence does not report COMPLETED after an abort | 500 {"detail": "Hover climb failed: Drone 0: yielding to fleet emergency state LANDING instead of continuing the climb"}
+[  13.68s] NOTE fleet_after = {"connected": 1, "armed": 1, "armed_stale": 0, "armed_stale_ids": [], "fleet_state": "LANDING"}
+[  13.68s] VERDICT PASS

@@ -1,0 +1,2 @@
+{"backend": "px4", "fidelity": "px4-sitl", "seq": 1, "ts": 1793776824.090192, "time": "2026-11-04T07:20:24.090+00:00", "accepted": true, "from": "STAGED", "to": "LANDING", "operator": "cmdr", "trigger": "POST /api/land"}
+{"backend": "px4", "fidelity": "px4-sitl", "seq": 2, "ts": 1793776832.4398654, "time": "2026-11-04T07:20:32.439+00:00", "accepted": true, "from": "LANDING", "to": "DISARMED", "operator": "system", "trigger": "telemetry:all_disarmed"}

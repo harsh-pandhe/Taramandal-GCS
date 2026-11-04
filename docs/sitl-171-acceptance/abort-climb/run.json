@@ -1,0 +1,140 @@
+{
+  "run_id": "abort-climb",
+  "case": "abort_climb",
+  "verdict": "PASS",
+  "context": {
+    "run_id": "abort-climb",
+    "case": "abort_climb",
+    "stack": "tara up --backend px4 -n 1 (headless)",
+    "allow_unsigned": false,
+    "commit": "3b9e6ff5857cfec510bc619eeef2bdfbd68165dd",
+    "started_utc": "2026-11-04T07:19:49Z",
+    "host_load_before": "6.95 7.78 5.38",
+    "host_load_at_start": "6.70 7.67 5.42",
+    "host_load_at_end": "7.23 7.72 5.47",
+    "other_running_containers": [],
+    "fresh_container": true,
+    "microsd_dirs_before_stack": 0,
+    "px4_version": "v1.16.2",
+    "image_id": "sha256:424c464813742ee541ad2a554ee4bfa5e709beeeaebfb1dbfe9384459d92d3cb",
+    "docker_server": "29.8.0 on linux/amd64",
+    "host_cpus": "16",
+    "host_kernel": "7.0.0-38-generic",
+    "headless": true,
+    "gazebo_window": false,
+    "rviz": false,
+    "recording": false,
+    "px4_ulogs_saved": 1,
+    "scenario_exit_code": 0
+  },
+  "checks": [
+    {
+      "name": "preflight ready before the run",
+      "ok": true,
+      "detail": "{'connected': 1, 'armed': 0, 'armed_stale': 0, 'armed_stale_ids': [], 'fleet_state': 'STAGED'}"
+    },
+    {
+      "name": "the vehicle lands and disarms after the abort",
+      "ok": true,
+      "detail": "armed=False landed=ON_GROUND"
+    },
+    {
+      "name": "it never reached the target altitude (peak well under 3 m)",
+      "ok": true,
+      "detail": "peak 1.69 m"
+    },
+    {
+      "name": "hover-sequence does not report COMPLETED after an abort",
+      "ok": true,
+      "detail": "500 {\"detail\": \"Hover climb failed: Drone 0: yielding to fleet emergency state LANDING instead of continuing the climb\"}"
+    }
+  ],
+  "notes": {
+    "land_response": {
+      "http": 200,
+      "body": "{\"status\": \"success\", \"message\": \"Emergency landing commanded to active backend (px4).\", \"backend\": \"px4\", \"mode\": \"SIMULATION\"}"
+    },
+    "alt_at_abort": 0.65,
+    "fleet_after": {
+      "connected": 1,
+      "armed": 1,
+      "armed_stale": 0,
+      "armed_stale_ids": [],
+      "fleet_state": "LANDING"
+    }
+  },
+  "exception": null,
+  "cadence": {
+    "landed_state": {
+      "items": 30,
+      "span_s": 25.8,
+      "mean_hz": 1.12,
+      "median_interval_s": 0.9999,
+      "p99_interval_s": 1.0055,
+      "max_gap_s": 1.012,
+      "gaps_over_2_5s": 0,
+      "longest_run_of_identical_values": 18
+    },
+    "position_velocity_ned": {
+      "items": 778,
+      "span_s": 25.9,
+      "mean_hz": 29.98,
+      "median_interval_s": 0.0324,
+      "p99_interval_s": 0.0373,
+      "max_gap_s": 0.042,
+      "gaps_over_2_5s": 0
+    }
+  },
+  "observer_events": [
+    [
+      0.92,
+      "connected",
+      true
+    ],
+    [
+      2.15,
+      "armed",
+      true
+    ],
+    [
+      2.15,
+      "mode",
+      "OFFBOARD"
+    ],
+    [
+      2.15,
+      "landed_state",
+      "ON_GROUND"
+    ],
+    [
+      4.15,
+      "landed_state",
+      "IN_AIR"
+    ],
+    [
+      6.15,
+      "mode",
+      "LAND"
+    ],
+    [
+      6.15,
+      "landed_state",
+      "LANDING"
+    ],
+    [
+      11.15,
+      "landed_state",
+      "ON_GROUND"
+    ],
+    [
+      13.15,
+      "armed",
+      false
+    ],
+    [
+      13.15,
+      "mode",
+      "HOLD"
+    ]
+  ]
+}
