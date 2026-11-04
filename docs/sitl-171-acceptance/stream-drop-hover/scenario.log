@@ -1,0 +1,31 @@
+[   1.18s] OBS connected: True
+[   1.72s] CHECK PASS preflight ready before the run | {'connected': 1, 'armed': 0, 'armed_stale': 0, 'armed_stale_ids': [], 'fleet_state': 'STAGED'}
+Received ack for not-existing command: 400! Ignoring... (mavlink_command_sender.cpp:304)
+[   2.01s] OBS armed: True
+[   2.01s] OBS mode: HOLD
+[   2.01s] OBS landed_state: ON_GROUND
+Received ack for not-existing command: 176! Ignoring... (mavlink_command_sender.cpp:304)
+Received ack for not-existing command: 176! Ignoring... (mavlink_command_sender.cpp:304)
+[   3.01s] OBS mode: OFFBOARD
+[   4.01s] OBS landed_state: IN_AIR
+[  11.59s] GCS mavsdk_server SIGKILL mid-hover
+[  11.70s] HOVER HTTP RESULT: 500 {"detail": "Hover dwell failed: Drone 0 disconnected during hover dwell"}
+Received ack for not-existing command: 512! Ignoring... (mavlink_command_sender.cpp:304)
+[  13.05s] OBS mode: POSCTL
+Received ack for not-existing command: 512! Ignoring... (mavlink_command_sender.cpp:304)
+Received ack for not-existing command: 511! Ignoring... (mavlink_command_sender.cpp:304)
+[  17.05s] OBS landed_state: ON_GROUND
+[  19.06s] OBS armed: False
+[  19.06s] OBS mode: OFFBOARD
+[  19.53s] NOTE seconds_to_connected_0 = 0.2629234790802002
+[  19.53s] NOTE seconds_to_PX4_left_OFFBOARD = 2.044139862060547
+[  19.53s] NOTE seconds_to_connected_1_again = 4.348398447036743
+[  19.53s] NOTE seconds_to_disarm = 7.941468000411987
+[  19.53s] NOTE mode_events_after_drop = [["mode", "POSCTL"], ["landed_state", "ON_GROUND"], ["armed", false], ["mode", "OFFBOARD"]]
+[  19.53s] NOTE end_state = {"mode": "OFFBOARD", "armed": false, "alt": 0.03, "landed": "ON_GROUND"}
+[  19.53s] NOTE hover_result = {"http": 500, "detail": "{\"detail\": \"Hover dwell failed: Drone 0 disconnected during hover dwell\"}"}
+[  19.53s] CHECK PASS hover-sequence fails closed (not 200 COMPLETED) | 500 {"detail": "Hover dwell failed: Drone 0 disconnected during hover dwell"}
+[  19.53s] CHECK PASS connected falls to 0 while the stream is down | 0.2629234790802002
+[  19.53s] CHECK PASS PX4 is not left hovering in OFFBOARD: leaves OFFBOARD within 15 s | 2.044139862060547
+[  19.53s] CHECK PASS PX4 ends disarmed on the ground within 90 s | disarmed_at=7.941468000411987 mode=OFFBOARD alt=0.03
+[  19.55s] VERDICT PASS
