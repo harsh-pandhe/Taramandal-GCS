@@ -146,8 +146,10 @@ def _decode_wav(data: bytes) -> tuple[np.ndarray, int]:
             raw = wf.readframes(frames)
     except MusicAnalysisError:
         raise
-    except (wave.Error, EOFError) as exc:
-        raise MusicAnalysisError("corrupt", f"unreadable WAV: {exc}") from exc
+    except (wave.Error, EOFError, RuntimeError) as exc:
+        # RuntimeError: wave.Chunk.seek() raises a bare one for a chunk size that
+        # runs past the end of the file (a header claiming 4 GB, say).
+        raise MusicAnalysisError("corrupt", f"unreadable WAV: {exc or 'malformed chunk header'}") from exc
 
     if len(raw) != frames * channels * width:
         raise MusicAnalysisError("corrupt", "the audio data is truncated")

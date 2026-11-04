@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import io
 import math
+import re
 from dataclasses import dataclass
 
 import numpy as np
@@ -55,6 +56,19 @@ MAX_IMAGE_PIXELS = 16_000_000
 #: formation cares about.
 MASK_MAX_SIDE = 1024
 
+#: At most this many contours are kept, longest first (by vertex count, which is
+#: cheap), before any per-contour work. A silhouette has a handful; a checkerboard
+#: or noise field has hundreds of thousands, and the per-contour length and
+#: resampling work below is Python-level: an unbounded count turned a few-KB PNG
+#: into tens of seconds of CPU.
+MAX_CONTOURS = 1000
+
+#: If the requested scale is below this fraction of what the site allows, the
+#: search for a scale that holds the count starts here instead of at the request.
+#: Growing from 1e-300 by 15% a step is thousands of pointless attempts, and the
+#: result is the same: the smallest scale that fits is nowhere near that small.
+MIN_START_SCALE_FRACTION = 1e-3
+
 #: Alpha above this counts as shape when the image has real transparency.
 ALPHA_THRESHOLD = 128
 
@@ -72,6 +86,10 @@ SCALE_GROWTH_STEP = 1.15
 
 #: Candidate grid spacing for interior points, as a fraction of the separation.
 INNER_GRID_FRACTION = 0.5
+
+#: Modes Image.reduce() cannot handle (it raises "image has wrong mode"); they are
+#: converted first. Everything else reduces as it always has.
+_NO_REDUCE_MODES = {"1", "P", "PA", "I", "I;16", "I;16L", "I;16B", "F"}
 
 _PNG_MAGIC = b"\x89PNG\r\n\x1a\n"
 _ALLOWED_FORMATS = {"PNG", "JPEG", "WEBP"}
@@ -102,6 +120,18 @@ def _sniff_format(data: bytes) -> str:
     )
 
 
+_OBJECT_REPR = re.compile(r"<[^<>]*\bobject at 0x[0-9a-fA-F]+>")
+
+
+def _scrub(exc: BaseException) -> str:
+    """A decoder's message with interpreter object reprs removed.
+
+    Pillow's "cannot identify image file <_io.BytesIO object at 0x7f...>" would
+    otherwise put a memory address in the response body.
+    """
+    return _OBJECT_REPR.sub("the uploaded data", str(exc))
+
+
 def _open_image(data: bytes) -> Image.Image:
     """Validate untrusted bytes and return a fully decoded, size-bounded image."""
     if not isinstance(data, (bytes, bytearray)):
@@ -118,7 +148,7 @@ def _open_image(data: bytes) -> Image.Image:
     try:
         img = Image.open(io.BytesIO(data), formats=sorted(_ALLOWED_FORMATS))
     except (UnidentifiedImageError, Image.DecompressionBombError, OSError, ValueError) as exc:
-        raise RasterFormationError(f"image could not be decoded: {exc}") from exc
+        raise RasterFormationError(f"image could not be decoded: {_scrub(exc)}") from exc
 
     if img.format != expected:
         raise RasterFormationError(
@@ -141,7 +171,7 @@ def _open_image(data: bytes) -> Image.Image:
     try:
         img.load()
     except (Image.DecompressionBombError, OSError, ValueError, SyntaxError) as exc:
-        raise RasterFormationError(f"image could not be decoded: {exc}") from exc
+        raise RasterFormationError(f"image could not be decoded: {_scrub(exc)}") from exc
     return img
 
 
@@ -165,13 +195,15 @@ def _otsu_threshold(gray: np.ndarray) -> int:
 
 def _binary_mask(img: Image.Image, threshold: int | None) -> _Mask:
     """Shape mask: alpha when the image is really transparent, else a threshold."""
-    if max(img.size) > MASK_MAX_SIDE:
-        factor = math.ceil(max(img.size) / MASK_MAX_SIDE)
-        img = img.reduce(factor)  # box filter, deterministic
-
     has_alpha = img.mode in ("RGBA", "LA", "PA") or (
         img.mode == "P" and "transparency" in img.info
     )
+    if max(img.size) > MASK_MAX_SIDE:
+        if img.mode in _NO_REDUCE_MODES:
+            # The same conversion the code below applies afterwards, done first.
+            img = img.convert("RGBA" if has_alpha else "L")
+        factor = math.ceil(max(img.size) / MASK_MAX_SIDE)
+        img = img.reduce(factor)  # box filter, deterministic
     if has_alpha:
         alpha = np.asarray(img.convert("RGBA"))[:, :, 3]
         if alpha.min() < 255:
@@ -200,8 +232,12 @@ def _extract_contours(mask: np.ndarray) -> list[np.ndarray]:
     import contourpy
 
     padded = np.pad(mask.astype(np.float64), 1)
-    lines = contourpy.contour_generator(z=padded).lines(0.5)
-    contours = [np.asarray(line, dtype=float) - 1.0 for line in lines if len(line) >= 3]
+    lines = [line for line in contourpy.contour_generator(z=padded).lines(0.5) if len(line) >= 3]
+    if len(lines) > MAX_CONTOURS:
+        sizes = np.fromiter((len(line) for line in lines), dtype=np.int64, count=len(lines))
+        keep = np.sort(np.argsort(-sizes, kind="stable")[:MAX_CONTOURS])  # longest first, original order kept
+        lines = [lines[i] for i in keep]
+    contours = [np.asarray(line, dtype=float) - 1.0 for line in lines]
     if not contours:
         return []
     lengths = [_contour_length(c) for c in contours]
@@ -248,7 +284,9 @@ def _interior_points(
     """
     from scipy.spatial import cKDTree
 
-    step = max(1, int(round(min_sep * INNER_GRID_FRACTION / pixel_m)))
+    # Clamped to the mask: a tiny scale (hence a tiny pixel size) made this an
+    # int too large for numpy's indexing arithmetic.
+    step = max(1, min(int(round(min_sep * INNER_GRID_FRACTION / pixel_m)), max(mask.shape)))
     rows, cols = np.nonzero(mask[::step, ::step])
     candidates = to_local(np.column_stack([cols * step, rows * step]).astype(float))
     if len(candidates) == 0:
@@ -404,7 +442,7 @@ def raster_to_formation(
     # Try the requested size first. If the count cannot be held at the required
     # spacing, grow in fixed steps up to what the site allows (never beyond),
     # and report the size actually used. Failure at the ceiling is final.
-    applied = min(float(scale), ceiling)
+    applied = min(max(float(scale), ceiling * MIN_START_SCALE_FRACTION), ceiling)
     while True:
         try:
             local, n_outline, n_inner = _build_at_scale(
