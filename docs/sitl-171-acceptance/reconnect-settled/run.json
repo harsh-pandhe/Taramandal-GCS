@@ -1,0 +1,161 @@
+{
+  "run_id": "reconnect-settled",
+  "case": "reconnect_settled",
+  "verdict": "PASS",
+  "context": {
+    "run_id": "reconnect-settled",
+    "case": "reconnect_settled",
+    "stack": "tara up --backend px4 -n 1 (headless)",
+    "allow_unsigned": false,
+    "commit": "1086372bf711a801536481a15fa13314d5d2e8e1",
+    "started_utc": "2026-11-04T07:20:50Z",
+    "host_load_before": "6.78 7.59 5.47",
+    "host_load_at_start": "11.17 8.56 5.85",
+    "host_load_at_end": "10.58 8.93 6.12",
+    "other_running_containers": [],
+    "fresh_container": true,
+    "microsd_dirs_before_stack": 0,
+    "px4_version": "v1.16.2",
+    "image_id": "sha256:424c464813742ee541ad2a554ee4bfa5e709beeeaebfb1dbfe9384459d92d3cb",
+    "docker_server": "29.8.0 on linux/amd64",
+    "host_cpus": "16",
+    "host_kernel": "7.0.0-38-generic",
+    "headless": true,
+    "gazebo_window": false,
+    "rviz": false,
+    "recording": false,
+    "px4_ulogs_saved": 1,
+    "scenario_exit_code": 0
+  },
+  "checks": [
+    {
+      "name": "preflight ready before the run",
+      "ok": true,
+      "detail": "{'connected': 1, 'armed': 0, 'armed_stale': 0, 'armed_stale_ids': [], 'fleet_state': 'STAGED'}"
+    },
+    {
+      "name": "baseline connected 1 before the freeze",
+      "ok": true,
+      "detail": "{'connected': 1, 'armed': 0, 'armed_stale': 0, 'armed_stale_ids': [], 'fleet_state': 'STAGED'}"
+    },
+    {
+      "name": "connected drops during an 8 s freeze (within 5 s)",
+      "ok": true,
+      "detail": "2.5299670696258545"
+    },
+    {
+      "name": "connected is back within 15 s of SIGCONT",
+      "ok": true,
+      "detail": "0.2543036937713623"
+    },
+    {
+      "name": "preflight green again after the reconnect",
+      "ok": true,
+      "detail": "{'connected': 1, 'armed': 0, 'armed_stale': 0, 'armed_stale_ids': [], 'fleet_state': 'STAGED'}"
+    },
+    {
+      "name": "PX4's altitude estimate settles to the ground (|alt|<0.15 m, |vd|<0.1 m/s for 3 s)",
+      "ok": true,
+      "detail": "alt=-0.04 vd=0.04"
+    },
+    {
+      "name": "a hover after the reconnect completes",
+      "ok": true,
+      "detail": "200"
+    }
+  ],
+  "notes": {
+    "seconds_frozen_until_connected_0": 2.5299670696258545,
+    "seconds_after_SIGCONT_until_connected_1": 0.2543036937713623,
+    "px4_estimate_when_preflight_went_green": {
+      "alt_m": -0.23,
+      "vel_down_m_s": 0.02,
+      "armed": false
+    },
+    "seconds_for_px4_estimate_to_settle_after_SIGCONT": 18.5
+  },
+  "exception": null,
+  "cadence": {
+    "landed_state": {
+      "items": 57,
+      "span_s": 55.8,
+      "mean_hz": 1.0,
+      "median_interval_s": 0.9998,
+      "p99_interval_s": 1.038,
+      "max_gap_s": 8.945,
+      "gaps_over_2_5s": 1,
+      "longest_run_of_identical_values": 42
+    },
+    "position_velocity_ned": {
+      "items": 1527,
+      "span_s": 56.7,
+      "mean_hz": 26.92,
+      "median_interval_s": 0.0322,
+      "p99_interval_s": 0.0379,
+      "max_gap_s": 8.068,
+      "gaps_over_2_5s": 1
+    }
+  },
+  "observer_events": [
+    [
+      0.84,
+      "connected",
+      true
+    ],
+    [
+      9.04,
+      "armed",
+      false
+    ],
+    [
+      9.04,
+      "mode",
+      "HOLD"
+    ],
+    [
+      9.04,
+      "landed_state",
+      "ON_GROUND"
+    ],
+    [
+      28.06,
+      "armed",
+      true
+    ],
+    [
+      29.06,
+      "mode",
+      "OFFBOARD"
+    ],
+    [
+      30.06,
+      "landed_state",
+      "IN_AIR"
+    ],
+    [
+      39.07,
+      "mode",
+      "LAND"
+    ],
+    [
+      39.07,
+      "landed_state",
+      "LANDING"
+    ],
+    [
+      42.07,
+      "landed_state",
+      "ON_GROUND"
+    ],
+    [
+      44.09,
+      "armed",
+      false
+    ],
+    [
+      44.09,
+      "mode",
+      "HOLD"
+    ]
+  ]
+}
