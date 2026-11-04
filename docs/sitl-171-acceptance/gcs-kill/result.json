@@ -1,0 +1,104 @@
+{
+  "checks": [
+    {
+      "name": "preflight ready before the run",
+      "ok": true,
+      "detail": "{'connected': 1, 'armed': 0, 'armed_stale': 0, 'armed_stale_ids': [], 'fleet_state': 'STAGED'}"
+    },
+    {
+      "name": "PX4 leaves OFFBOARD within 10 s of the GCS dying (lifeline stops the orphaned server)",
+      "ok": true,
+      "detail": "1.7545032501220703"
+    },
+    {
+      "name": "PX4 ends disarmed on the ground within 60 s",
+      "ok": true,
+      "detail": "disarmed_at=6.77729058265686 landed=ON_GROUND"
+    }
+  ],
+  "notes": {
+    "mavsdk_servers_before_kill": [
+      "614 /venv/lib/python3.12/site-packages/mavsdk/bin/mavsdk_server -p 50051 --sysid 245 --compid 190 udpin://127.0.0.1:14540",
+      "696 /venv/lib/python3.12/site-packages/mavsdk/bin/mavsdk_server -p 50099 --sysid 245 --compid 190 udpin://0.0.0.0:14550"
+    ],
+    "seconds_until_PX4_left_OFFBOARD": 1.7545032501220703,
+    "seconds_until_disarmed": 6.77729058265686,
+    "mode_events_after_kill": [
+      [
+        "mode",
+        "POSCTL"
+      ],
+      [
+        "landed_state",
+        "ON_GROUND"
+      ],
+      [
+        "armed",
+        false
+      ],
+      [
+        "mode",
+        "OFFBOARD"
+      ]
+    ],
+    "mavsdk_servers_after_kill": [
+      "614 [mavsdk_server] <defunct>",
+      "696 /venv/lib/python3.12/site-packages/mavsdk/bin/mavsdk_server -p 50099 --sysid 245 --compid 190 udpin://0.0.0.0:14550"
+    ]
+  },
+  "case": "gcs_kill",
+  "exception": null,
+  "verdict": "PASS",
+  "observer_events": [
+    [
+      1.02,
+      "connected",
+      true
+    ],
+    [
+      1.76,
+      "armed",
+      true
+    ],
+    [
+      1.76,
+      "mode",
+      "HOLD"
+    ],
+    [
+      1.76,
+      "landed_state",
+      "ON_GROUND"
+    ],
+    [
+      2.76,
+      "mode",
+      "OFFBOARD"
+    ],
+    [
+      3.76,
+      "landed_state",
+      "IN_AIR"
+    ],
+    [
+      12.78,
+      "mode",
+      "POSCTL"
+    ],
+    [
+      15.8,
+      "landed_state",
+      "ON_GROUND"
+    ],
+    [
+      17.8,
+      "armed",
+      false
+    ],
+    [
+      17.8,
+      "mode",
+      "OFFBOARD"
+    ]
+  ]
+}
