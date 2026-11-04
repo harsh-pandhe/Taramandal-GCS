@@ -1,0 +1,190 @@
+{
+ "results": [
+  {
+   "state": "no safety badge (no show built)",
+   "how": "real: Project Vault > New Show, nothing generated",
+   "badges": [],
+   "buttons": [
+    {
+     "text": "JSON",
+     "disabled": true
+    },
+    {
+     "text": "CSV",
+     "disabled": true
+    },
+    {
+     "text": "Compile .tara (binary)",
+     "disabled": true
+    },
+    {
+     "text": "Export Google Earth KML",
+     "disabled": true
+    },
+    {
+     "text": "Transmit to GCS Fleet",
+     "disabled": true
+    }
+   ],
+   "screenshot": "studio-1-no-badge.png"
+  },
+  {
+   "state": "Validating…",
+   "how": "real backend; /api/validate held back by the test until after the screenshot",
+   "badges": [
+    "Validating — Running pre-flight safety and dynamics checks, this can take several seconds at large fleet sizes.",
+    "Built · 1m 24.2s",
+    "Validating…"
+   ],
+   "buttons": [
+    {
+     "text": "JSON",
+     "disabled": true
+    },
+    {
+     "text": "CSV",
+     "disabled": true
+    },
+    {
+     "text": "Compile .tara (binary)",
+     "disabled": true
+    },
+    {
+     "text": "Export Google Earth KML",
+     "disabled": true
+    },
+    {
+     "text": "Transmit to GCS Fleet",
+     "disabled": true
+    }
+   ],
+   "screenshot": "studio-2-validating.png"
+  },
+  {
+   "state": "Safety passed · exports enabled",
+   "how": "real: Generate Sequence, real /api/validate (PASSED, certified)",
+   "badges": [
+    "Built · 1m 24.2s",
+    "Safety passed · exports enabled"
+   ],
+   "buttons": [
+    {
+     "text": "JSON",
+     "disabled": false
+    },
+    {
+     "text": "CSV",
+     "disabled": false
+    },
+    {
+     "text": "Compile .tara (binary)",
+     "disabled": false
+    },
+    {
+     "text": "Export Google Earth KML",
+     "disabled": false
+    },
+    {
+     "text": "Transmit to GCS Fleet",
+     "disabled": false
+    }
+   ],
+   "screenshot": "studio-3-safety-passed.png"
+  },
+  {
+   "state": "Not flight-certified · exports locked",
+   "how": "STUBBED: real response with feasibility_certified set to false (as in #226)",
+   "badges": [
+    "Built · 1m 24.2s",
+    "Not flight-certified · exports locked"
+   ],
+   "buttons": [
+    {
+     "text": "JSON",
+     "disabled": true
+    },
+    {
+     "text": "CSV",
+     "disabled": true
+    },
+    {
+     "text": "Compile .tara (binary)",
+     "disabled": true
+    },
+    {
+     "text": "Export Google Earth KML",
+     "disabled": true
+    },
+    {
+     "text": "Transmit to GCS Fleet",
+     "disabled": true
+    }
+   ],
+   "screenshot": "studio-4-not-flight-certified.png"
+  },
+  {
+   "state": "Safety failed · exports locked",
+   "how": "STUBBED: real response with status set to FAILED (as in #226)",
+   "badges": [
+    "Built · 1m 24.2s",
+    "Safety failed · exports locked"
+   ],
+   "buttons": [
+    {
+     "text": "JSON",
+     "disabled": true
+    },
+    {
+     "text": "CSV",
+     "disabled": true
+    },
+    {
+     "text": "Compile .tara (binary)",
+     "disabled": true
+    },
+    {
+     "text": "Export Google Earth KML",
+     "disabled": true
+    },
+    {
+     "text": "Transmit to GCS Fleet",
+     "disabled": true
+    }
+   ],
+   "screenshot": "studio-5-safety-failed.png"
+  },
+  {
+   "state": "Unverified · exports locked",
+   "how": "real: the saved project as opened, before Generate Sequence",
+   "badges": [
+    "Unverified Trajectory — Pre-flight safety validation required before export.",
+    "Rebuild needed",
+    "Unverified · exports locked"
+   ],
+   "buttons": [
+    {
+     "text": "JSON",
+     "disabled": true
+    },
+    {
+     "text": "CSV",
+     "disabled": true
+    },
+    {
+     "text": "Compile .tara (binary)",
+     "disabled": true
+    },
+    {
+     "text": "Export Google Earth KML",
+     "disabled": true
+    },
+    {
+     "text": "Transmit to GCS Fleet",
+     "disabled": true
+    }
+   ],
+   "screenshot": "studio-6-unverified.png"
+  }
+ ],
+ "consoleErrors": []
+}
