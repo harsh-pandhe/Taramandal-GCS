@@ -1,0 +1,29 @@
+[   1.13s] OBS connected: True
+[   1.97s] CHECK PASS preflight ready before the run | {'connected': 1, 'armed': 0, 'armed_stale': 0, 'armed_stale_ids': [], 'fleet_state': 'STAGED'}
+Received ack for not-existing command: 400! Ignoring... (mavlink_command_sender.cpp:304)
+[   1.79s] OBS armed: True
+[   1.79s] OBS mode: HOLD
+[   1.79s] OBS landed_state: ON_GROUND
+Received ack for not-existing command: 176! Ignoring... (mavlink_command_sender.cpp:304)
+Received ack for not-existing command: 176! Ignoring... (mavlink_command_sender.cpp:304)
+[   2.79s] OBS mode: OFFBOARD
+[   3.83s] OBS landed_state: IN_AIR
+Received ack for not-existing command: 176! Ignoring... (mavlink_command_sender.cpp:304)
+Received ack for not-existing command: 176! Ignoring... (mavlink_command_sender.cpp:304)
+Received ack for not-existing command: 21! Ignoring... (mavlink_command_sender.cpp:304)
+[  16.87s] OBS mode: LAND
+[  16.87s] OBS landed_state: LANDING
+[  19.87s] OBS landed_state: ON_GROUND
+[  21.87s] OBS armed: False
+[  21.87s] OBS mode: HOLD
+[  22.48s] HOVER HTTP RESULT: 200 {"status": "COMPLETED", "mode": "SIMULATION", "configured_mode": "SIMULATION", "active_backend": "px4", "vehicle": "SIMULATED", "steps": [{"step": "PREFLIGHT", "status": "PASSED", "time": 1793775950.9478478, "drone_id": 0}, {"step": "ARM", "status": "ARMED", "time": 1793775951.3786526}, {"step": "HOVER_REACHED", "status": "HOLDING", "altitude_m": 0.86, "time": 1793775960.884209}, {"step": "HOVER_HOLD_COMPLETE", "status": "STABLE", "dwell_s": 5.06, "time": 1793775965.9411962}, {"step": "LANDING_C
+[  22.48s] CHECK PASS hover-sequence returns 200 COMPLETED | 200 COMPLETED
+[  22.48s] NOTE steps = {"PREFLIGHT": {"step": "PREFLIGHT", "status": "PASSED", "drone_id": 0}, "ARM": {"step": "ARM", "status": "ARMED"}, "HOVER_REACHED": {"step": "HOVER_REACHED", "status": "HOLDING", "altitude_m": 0.86}, "HOVER_HOLD_COMPLETE": {"step": "HOVER_HOLD_COMPLETE", "status": "STABLE", "dwell_s": 5.06}, "LANDIN
+[  22.48s] CHECK PASS every step present | ['PREFLIGHT', 'ARM', 'HOVER_REACHED', 'HOVER_HOLD_COMPLETE', 'LANDING_COMMANDED', 'TOUCHDOWN_DISARM']
+[  24.48s] CHECK PASS reached about 1 m (0.8 to 1.4 m on PX4's own estimate) | peak 1.01 m
+[  24.48s] CHECK PASS PX4 ends ON_GROUND and disarmed | landed=ON_GROUND armed=False
+[  24.48s] NOTE landing_max_descent_m_s = 0.738
+[  24.48s] CHECK PASS slow landing: peak descent rate <= 1.0 m/s (PX4 MPC_LAND_SPEED is 0.7) | peak 0.74 m/s over 7 samples
+[  24.49s] CHECK PASS GCS agrees: armed 0, armed_stale 0, connected 1 | {'connected': 1, 'armed': 0, 'armed_stale': 0, 'armed_stale_ids': [], 'fleet_state': 'STAGED'}
+[  24.49s] NOTE total_s = 20.5
+[  24.50s] VERDICT PASS

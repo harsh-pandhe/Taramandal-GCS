@@ -1,0 +1,181 @@
+{
+  "run_id": "nominal-2",
+  "case": "nominal",
+  "verdict": "PASS",
+  "context": {
+    "run_id": "nominal-2",
+    "case": "nominal",
+    "stack": "tara up --backend px4 -n 1 (headless)",
+    "allow_unsigned": false,
+    "commit": "1114f3a9b409c743f16f38ba2505f00bc6293b0b",
+    "started_utc": "2026-11-04T07:05:18Z",
+    "host_load_before": "3.78 2.78 1.58",
+    "host_load_at_start": "5.62 3.26 1.78",
+    "host_load_at_end": "7.14 3.82 2.00",
+    "other_running_containers": [],
+    "fresh_container": true,
+    "microsd_dirs_before_stack": 0,
+    "px4_version": "v1.16.2",
+    "image_id": "sha256:424c464813742ee541ad2a554ee4bfa5e709beeeaebfb1dbfe9384459d92d3cb",
+    "docker_server": "29.8.0 on linux/amd64",
+    "host_cpus": "16",
+    "host_kernel": "7.0.0-38-generic",
+    "headless": true,
+    "gazebo_window": false,
+    "rviz": false,
+    "recording": false,
+    "px4_ulogs_saved": 1,
+    "scenario_exit_code": 0
+  },
+  "checks": [
+    {
+      "name": "preflight ready before the run",
+      "ok": true,
+      "detail": "{'connected': 1, 'armed': 0, 'armed_stale': 0, 'armed_stale_ids': [], 'fleet_state': 'STAGED'}"
+    },
+    {
+      "name": "hover-sequence returns 200 COMPLETED",
+      "ok": true,
+      "detail": "200 COMPLETED"
+    },
+    {
+      "name": "every step present",
+      "ok": true,
+      "detail": "['PREFLIGHT', 'ARM', 'HOVER_REACHED', 'HOVER_HOLD_COMPLETE', 'LANDING_COMMANDED', 'TOUCHDOWN_DISARM']"
+    },
+    {
+      "name": "reached about 1 m (0.8 to 1.4 m on PX4's own estimate)",
+      "ok": true,
+      "detail": "peak 1.01 m"
+    },
+    {
+      "name": "PX4 ends ON_GROUND and disarmed",
+      "ok": true,
+      "detail": "landed=ON_GROUND armed=False"
+    },
+    {
+      "name": "slow landing: peak descent rate <= 1.0 m/s (PX4 MPC_LAND_SPEED is 0.7)",
+      "ok": true,
+      "detail": "peak 0.74 m/s over 7 samples"
+    },
+    {
+      "name": "GCS agrees: armed 0, armed_stale 0, connected 1",
+      "ok": true,
+      "detail": "{'connected': 1, 'armed': 0, 'armed_stale': 0, 'armed_stale_ids': [], 'fleet_state': 'STAGED'}"
+    }
+  ],
+  "notes": {
+    "steps": {
+      "PREFLIGHT": {
+        "step": "PREFLIGHT",
+        "status": "PASSED",
+        "drone_id": 0
+      },
+      "ARM": {
+        "step": "ARM",
+        "status": "ARMED"
+      },
+      "HOVER_REACHED": {
+        "step": "HOVER_REACHED",
+        "status": "HOLDING",
+        "altitude_m": 0.86
+      },
+      "HOVER_HOLD_COMPLETE": {
+        "step": "HOVER_HOLD_COMPLETE",
+        "status": "STABLE",
+        "dwell_s": 5.06
+      },
+      "LANDING_COMMANDED": {
+        "step": "LANDING_COMMANDED",
+        "status": "LANDING",
+        "landing_control": "AUTOPILOT_DELEGATED",
+        "note": "Descent rate is governed by autopilot landing parameters"
+      },
+      "TOUCHDOWN_DISARM": {
+        "step": "TOUCHDOWN_DISARM",
+        "status": "DISARMED"
+      }
+    },
+    "landing_max_descent_m_s": 0.738,
+    "total_s": 20.5
+  },
+  "exception": null,
+  "cadence": {
+    "landed_state": {
+      "items": 41,
+      "span_s": 36.9,
+      "mean_hz": 1.08,
+      "median_interval_s": 0.9999,
+      "p99_interval_s": 1.015,
+      "max_gap_s": 1.05,
+      "gaps_over_2_5s": 0,
+      "longest_run_of_identical_values": 20
+    },
+    "position_velocity_ned": {
+      "items": 1135,
+      "span_s": 37.9,
+      "mean_hz": 29.92,
+      "median_interval_s": 0.0324,
+      "p99_interval_s": 0.0385,
+      "max_gap_s": 0.084,
+      "gaps_over_2_5s": 0
+    }
+  },
+  "observer_events": [
+    [
+      1.13,
+      "connected",
+      true
+    ],
+    [
+      1.79,
+      "armed",
+      true
+    ],
+    [
+      1.79,
+      "mode",
+      "HOLD"
+    ],
+    [
+      1.79,
+      "landed_state",
+      "ON_GROUND"
+    ],
+    [
+      2.79,
+      "mode",
+      "OFFBOARD"
+    ],
+    [
+      3.83,
+      "landed_state",
+      "IN_AIR"
+    ],
+    [
+      16.87,
+      "mode",
+      "LAND"
+    ],
+    [
+      16.87,
+      "landed_state",
+      "LANDING"
+    ],
+    [
+      19.87,
+      "landed_state",
+      "ON_GROUND"
+    ],
+    [
+      21.87,
+      "armed",
+      false
+    ],
+    [
+      21.87,
+      "mode",
+      "HOLD"
+    ]
+  ]
+}
