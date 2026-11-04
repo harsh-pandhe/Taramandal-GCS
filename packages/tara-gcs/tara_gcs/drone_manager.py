@@ -499,6 +499,18 @@ class DroneManager:
         # lifecycle monitor give an arm that has not reached telemetry yet a
         # moment before calling the launch failed (see LAUNCH_ARM_GRACE_S).
         self._launch_finished_at: float | None = None
+        # The launch's own record of which drones it set out to fly and how
+        # each one is doing (issue #171). FORMATION_HOLD is judged over the
+        # plan, not over whoever is still armed: a planned drone that dropped
+        # out must stop the show, not shrink the fleet it is judged against.
+        # launch_failures maps drone id -> why that drone did not get up; it
+        # is kept until the next launch so the operator can still read it.
+        self._launch_planned: set[int] = set()
+        self.launch_failures: dict[int, str] = {}
+        # drone id -> {"target_m", "deadline", "budget_s", "reached"} from the
+        # climb command until the fleet reaches FORMATION_HOLD.
+        self._climbs: dict[int, dict] = {}
+        self._launch_failure_tasks: set[asyncio.Task] = set()
 
     async def connect_all(self) -> None:
         """Connects to all drones concurrently."""
@@ -1315,6 +1327,16 @@ class DroneManager:
     # load bounded as fleet size grows, instead of one drone at a time.
     LAUNCH_BATCH_SIZE = 5
 
+    #: How long a drone gets, after offboard.start() returns, for its own
+    #: flight-mode telemetry to read OFFBOARD (issue #171). start() returning
+    #: is not the vehicle switching: on PX4 SITL one drone stayed in HOLD after
+    #: a clean return. PX4 reports the mode in its 1 Hz heartbeat.
+    OFFBOARD_CONFIRM_TIMEOUT_S = 3.0
+    #: Climb budget from the climb command: a fixed allowance plus this much
+    #: per metre of hover altitude, a third of PX4's default 3 m/s climb cap.
+    TAKEOFF_BUDGET_BASE_S = 15.0
+    TAKEOFF_BUDGET_S_PER_M = 1.0
+
     def start_launch_sequence(self, drone_ids: list[int] | None = None, require_ekf_health: bool = True) -> asyncio.Task:
         """Run launch_sequence() in the background and keep its task.
 
@@ -1394,6 +1416,9 @@ class DroneManager:
                 if not gate["ok"]:
                     raise LaunchGateError(gate["reason"])
                 drone_ids = [d for d in drone_ids if d in gate["armable"]]
+        self._launch_planned = set(drone_ids)
+        self.launch_failures = {}
+        self._climbs = {}
         logging.info("Launching fleet (batched, concurrent)...")
         for batch_start in range(0, len(drone_ids), self.LAUNCH_BATCH_SIZE):
             batch = drone_ids[batch_start:batch_start + self.LAUNCH_BATCH_SIZE]
@@ -1406,11 +1431,14 @@ class DroneManager:
         """Arms, engages offboard, and climbs a single drone. Safe to re-call on an already-armed drone (no-op)."""
         if self.telemetry[drone_id]["armed"]:
             logging.info(f"Drone {drone_id} already armed — skipping (idempotent launch).")
+            # Still part of the plan: hold it to the same climb check.
+            self._track_climb(drone_id, _hover_altitude(drone_id))
             return
 
         drone = self.drones[drone_id]
         if not self.telemetry[drone_id]["connected"]:
             logging.warning(f"Skipping Drone {drone_id}: Disconnected")
+            self._record_launch_failure(drone_id, "not connected at launch")
             return
 
         # Clear the aborted flag if this drone is being explicitly relaunched
@@ -1470,6 +1498,9 @@ class DroneManager:
                         f"Drone {drone_id} did not become armable with home lock within "
                         f"{HOME_LOCK_TIMEOUT_S}s — skipping (retry later via /api/launch)."
                     )
+                    self._record_launch_failure(
+                        drone_id, f"did not become armable with home lock within {HOME_LOCK_TIMEOUT_S}s"
+                    )
                     return
 
             if self._launch_preempted(drone_id):
@@ -1481,6 +1512,7 @@ class DroneManager:
                 logging.info(f"Drone {drone_id} ARMED.")
             except Exception as e:
                 logging.error(f"Arming Drone {drone_id} failed: {e}")
+                self._record_launch_failure(drone_id, f"arming failed: {e}")
                 return
 
             # Set initial position NED (0,0,0) before offboard
@@ -1488,6 +1520,8 @@ class DroneManager:
                 await drone.offboard.set_position_ned(PositionNedYaw(0.0, 0.0, 0.0, 0.0))
             except Exception as e:
                 logging.error(f"Setting initial position NED failed for Drone {drone_id}: {e}")
+                self._record_launch_failure(drone_id, f"initial offboard setpoint failed: {e}")
+                await self._disarm_on_pad(drone_id)
                 return
 
             if self._launch_preempted(drone_id):
@@ -1496,15 +1530,28 @@ class DroneManager:
             # Start offboard mode
             try:
                 await drone.offboard.start()
-                logging.info(f"Drone {drone_id} entered OFFBOARD mode.")
             except OffboardError as e:
                 logging.error(f"Offboard start failed for Drone {drone_id}: {e._result.result}")
+                self._record_launch_failure(drone_id, f"offboard start failed: {e._result.result}")
                 await drone.action.disarm()
                 return
             except Exception as e:
                 logging.error(f"Offboard start failed for Drone {drone_id}: {e}")
+                self._record_launch_failure(drone_id, f"offboard start failed: {e}")
                 await drone.action.disarm()
                 return
+
+            # start() returning only means the call did not raise (issue #171).
+            # Nothing goes up until the vehicle itself reports OFFBOARD; until
+            # then it is on its pad holding the (0, 0, 0) setpoint.
+            not_offboard = await self._confirm_offboard(drone_id)
+            if not_offboard == "preempted":
+                return
+            if not_offboard:
+                self._record_launch_failure(drone_id, not_offboard)
+                await self._disarm_on_pad(drone_id)
+                return
+            logging.info(f"Drone {drone_id} entered OFFBOARD mode (confirmed from telemetry).")
 
             if self._launch_preempted(drone_id):
                 return
@@ -1516,10 +1563,144 @@ class DroneManager:
                 await drone.offboard.set_position_ned(PositionNedYaw(0.0, 0.0, -alt, 0.0))
             except Exception as e:
                 logging.error(f"Climbing to target altitude failed for Drone {drone_id}: {e}")
+                self._record_launch_failure(drone_id, f"climb command failed: {e}")
+                await self._disarm_on_pad(drone_id)
                 return
+            self._track_climb(drone_id, alt)
 
         except Exception as e:
             logging.error(f"Unexpected error launching Drone {drone_id}: {e}")
+            # State unknown: the climb check decides what, if anything, to send.
+            self._record_launch_failure(drone_id, f"unexpected launch error: {e}", recover=True)
+
+    # --- Launch confirmation (issue #171) ---
+
+    async def _confirm_offboard(self, drone_id: int) -> str | None:
+        """None once fresh telemetry shows the drone armed and in OFFBOARD;
+        "preempted" if an emergency took over meanwhile; else why not."""
+        deadline = time.monotonic() + self.OFFBOARD_CONFIRM_TIMEOUT_S
+        while True:
+            if self.fleet_fsm.state in EMERGENCY_STATES:
+                return "preempted"
+            tel = self.telemetry[drone_id]
+            fresh = self.is_heartbeat_fresh(tel)
+            if fresh and tel.get("armed") and tel.get("flight_mode") == "OFFBOARD":
+                return None
+            if time.monotonic() >= deadline:
+                return (
+                    f"did not enter OFFBOARD: flight mode {tel.get('flight_mode')} "
+                    f"{self.OFFBOARD_CONFIRM_TIMEOUT_S:.0f}s after offboard start"
+                    + ("" if fresh else " (telemetry stale)")
+                )
+            await asyncio.sleep(0.1)
+
+    def _track_climb(self, drone_id: int, target_m: float) -> None:
+        budget_s = self.TAKEOFF_BUDGET_BASE_S + self.TAKEOFF_BUDGET_S_PER_M * target_m
+        self._climbs[drone_id] = {
+            "target_m": target_m,
+            "budget_s": budget_s,
+            "deadline": time.monotonic() + budget_s,
+            "reached": False,
+        }
+
+    def _record_launch_failure(self, drone_id: int, reason: str, recover: bool = False) -> None:
+        """Name the drone that did not get up; it blocks FORMATION_HOLD.
+
+        With ``recover``, also bring it down: disarm if it is confirmed on the
+        ground, land if it is still ours in the air (see _recover_failed_launch).
+        """
+        if drone_id in self.launch_failures:
+            return
+        self.launch_failures[drone_id] = reason
+        self._climbs.pop(drone_id, None)
+        logging.error(f"Drone {drone_id} launch failed: {reason}. The show cannot start without it.")
+        if not recover:
+            return
+        try:
+            task = asyncio.get_running_loop().create_task(self._recover_failed_launch(drone_id))
+        except RuntimeError:
+            logging.error(f"Drone {drone_id}: no event loop to bring it down from; land it manually.")
+            return
+        self._launch_failure_tasks.add(task)
+        task.add_done_callback(self._launch_failure_tasks.discard)
+
+    async def _disarm_on_pad(self, drone_id: int) -> None:
+        """Disarm a drone that was never sent up: it is still on its pad."""
+        try:
+            await self.drones[drone_id].action.disarm()
+            logging.info(f"Drone {drone_id} disarmed on its pad after a failed launch.")
+        except Exception as e:
+            logging.error(f"Failed to disarm Drone {drone_id} after a failed launch: {e}")
+
+    def _on_ground_now(self, tel: dict) -> bool:
+        """Fresh telemetry says ON_GROUND. Unknown or stale is not on the ground."""
+        landed_at = tel.get("landed_state_at")
+        return (
+            self.is_heartbeat_fresh(tel)
+            and tel.get("landed_state") == "ON_GROUND"
+            and landed_at is not None
+            and time.time() - landed_at <= self.HEARTBEAT_STALE_S
+        )
+
+    async def _recover_failed_launch(self, drone_id: int) -> None:
+        """Bring down a drone whose climb failed, without dropping it.
+
+        Disarm only when it is confirmed on the ground; disarming in the air
+        cuts the motors. In the air and still in OFFBOARD (ours), land it. Out
+        of OFFBOARD someone else has it, a pilot or a PX4 failsafe, and the GCS
+        sends nothing (the same yield as the single-drone takeover check).
+        """
+        if self.fleet_fsm.state in EMERGENCY_STATES:
+            return  # the emergency command already covers this drone
+        tel = self.telemetry[drone_id]
+        if not tel.get("armed"):
+            return
+        if self._on_ground_now(tel):
+            await self._disarm_on_pad(drone_id)
+        elif tel.get("flight_mode") == "OFFBOARD":
+            logging.warning(f"Drone {drone_id}: launch failed in the air; commanding LAND.")
+            await self._land_one(drone_id)
+        else:
+            logging.warning(
+                f"Drone {drone_id}: launch failed with the drone in {tel.get('flight_mode')}; "
+                "sending nothing, it is not under GCS control."
+            )
+
+    def _check_climbs(self) -> None:
+        """Turn a climb that went wrong into a named launch failure (5 Hz).
+
+        Disarmed before reaching altitude, or out of OFFBOARD, at any point up
+        to FORMATION_HOLD; short of altitude only once its budget has run out.
+        """
+        for drone_id, climb in list(self._climbs.items()):
+            tel = self.telemetry.get(drone_id)
+            if tel is None:
+                continue
+            z = tel.get("fleet_z", 0.0)
+            target = climb["target_m"]
+            mode = tel.get("flight_mode")
+            if not tel.get("armed"):
+                self._record_launch_failure(
+                    drone_id, f"disarmed at {z:.2f} m before the fleet reached formation (hover altitude {target:g} m)"
+                )
+            elif mode != "OFFBOARD":
+                self._record_launch_failure(drone_id, f"left OFFBOARD for {mode} during the climb, at {z:.2f} m")
+            elif z >= target - self.FORMATION_ALT_TOLERANCE_M:
+                climb["reached"] = True
+            elif not climb["reached"] and time.monotonic() > climb["deadline"]:
+                self._record_launch_failure(
+                    drone_id,
+                    f"reached only {z:.2f} m of its {target:g} m hover altitude within {climb['budget_s']:.0f}s",
+                    recover=True,
+                )
+
+    def _in_formation(self, drone_id: int) -> bool:
+        tel = self.telemetry.get(drone_id, {})
+        return (
+            bool(tel.get("armed"))
+            and tel.get("flight_mode") == "OFFBOARD"
+            and tel.get("fleet_z", 0.0) >= _hover_altitude(drone_id) - self.FORMATION_ALT_TOLERANCE_M
+        )
 
     async def trigger_rtl(self, operator: str = SYSTEM_OPERATOR, trigger: str = "rtl"):
         """Trigger RTL for all connected drones.
@@ -3001,6 +3182,9 @@ class DroneManager:
             fsm.transition(LifecycleState.DISARMED, operator=SYSTEM_OPERATOR, trigger="telemetry:all_disarmed")
             return
 
+        if self._climbs and state in (LifecycleState.PREARM, LifecycleState.ARMED, LifecycleState.TAKEOFF):
+            self._check_climbs()
+
         if state is LifecycleState.PREARM:
             if armed_ids:
                 fsm.advance(state, LifecycleState.ARMED, trigger="telemetry:first_drone_armed")
@@ -3012,13 +3196,25 @@ class DroneManager:
             if any(self.telemetry[d_id].get("fleet_z", 0.0) >= self.TAKEOFF_DETECT_ALT_M for d_id in armed_ids):
                 fsm.advance(state, LifecycleState.TAKEOFF, trigger="telemetry:climbing")
         elif state is LifecycleState.TAKEOFF:
-            at_altitude = all(
-                self.telemetry[d_id].get("fleet_z", 0.0)
-                >= _hover_altitude(d_id) - self.FORMATION_ALT_TOLERANCE_M
-                for d_id in armed_ids
-            )
+            if self._launch_planned:
+                # Every drone the launch set out to fly, armed, in OFFBOARD and
+                # at altitude; any named failure keeps the fleet here (issue
+                # #171). Judging over armed_ids instead let a drone that
+                # disarmed on its pad drop out and the show start without it.
+                at_altitude = not self.launch_failures and all(
+                    self._in_formation(d_id) for d_id in self._launch_planned
+                )
+            else:
+                # No launch on record (e.g. the FSM was driven by hand): the
+                # armed fleet is all there is to judge.
+                at_altitude = all(
+                    self.telemetry[d_id].get("fleet_z", 0.0)
+                    >= _hover_altitude(d_id) - self.FORMATION_ALT_TOLERANCE_M
+                    for d_id in armed_ids
+                )
             if at_altitude and not launching:
                 fsm.advance(state, LifecycleState.FORMATION_HOLD, trigger="telemetry:formation_altitude_reached")
+                self._climbs.clear()
 
     def remap_trajectory_to_healthy_drones(self, trajectory_data: dict) -> dict:
         """
