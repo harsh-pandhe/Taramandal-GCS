@@ -1395,6 +1395,11 @@ class DroneManager:
         Raises:
             LaunchGateError: If the gate does not pass.
         """
+        # Every launch attempt starts clean, including one the gate refuses
+        # below: nothing from an earlier launch may be judged as this one's.
+        self._launch_planned = set()
+        self.launch_failures = {}
+        self._climbs = {}
         if drone_ids is None:
             gate = self.launch_gate()
             if not gate["ok"]:
@@ -1417,8 +1422,6 @@ class DroneManager:
                     raise LaunchGateError(gate["reason"])
                 drone_ids = [d for d in drone_ids if d in gate["armable"]]
         self._launch_planned = set(drone_ids)
-        self.launch_failures = {}
-        self._climbs = {}
         logging.info("Launching fleet (batched, concurrent)...")
         for batch_start in range(0, len(drone_ids), self.LAUNCH_BATCH_SIZE):
             batch = drone_ids[batch_start:batch_start + self.LAUNCH_BATCH_SIZE]

@@ -298,3 +298,57 @@ async def test_a_new_launch_starts_with_a_clean_slate(fleet):
         assert manager.launch_failures == {}
     finally:
         await manager.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_a_relaunch_is_refused_while_the_fleet_is_held_in_takeoff(fleet):
+    """No partial relaunch can shrink the plan: LAUNCH is not legal from TAKEOFF."""
+    manager = fleet(N)
+    try:
+        await _connect(manager)
+        _never_enters_offboard(manager, FAULTY)
+        await gcs_main.launch_fleet(operator=COMMANDER)
+        await manager.launch_task
+        assert FAULTY in manager.launch_failures
+        failures = dict(manager.launch_failures)
+
+        with pytest.raises(HTTPException) as exc:
+            await gcs_main.launch_fleet(operator=COMMANDER)
+
+        assert exc.value.status_code == 409
+        assert exc.value.detail["state"] == "TAKEOFF"
+        assert manager.launch_failures == failures
+        assert manager._launch_planned == set(range(N))
+    finally:
+        await manager.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_a_failed_launch_does_not_leak_into_a_hover_or_the_next_launch(fleet):
+    """Failed launch, land, single-drone hover, then a healthy relaunch on the same manager."""
+    manager = fleet(N)
+    try:
+        await _connect(manager)
+        _never_enters_offboard(manager, FAULTY)
+        await gcs_main.launch_fleet(operator=COMMANDER)
+        await manager.launch_task
+        assert FAULTY in manager.launch_failures
+
+        await gcs_main.trigger_land(operator=COMMANDER)
+        await _wait_for_state(manager, S.DISARMED, timeout=30.0)
+        assert FAULTY in manager.launch_failures  # still readable after landing
+
+        result = await gcs_main.run_single_drone_sequence(
+            gcs_main.SingleDroneSequenceRequest(target_altitude_m=0.3, hover_duration_s=1.0), operator=COMMANDER,
+        )
+        assert result["status"] == "COMPLETED"
+        assert manager.fleet_fsm.state is S.DISARMED
+
+        # Drone 1 behaves again (drop the instance overrides), and the next launch is judged on its own.
+        del manager.drones[FAULTY].offboard.start
+        del manager.drones[FAULTY].offboard.set_position_ned
+        await gcs_main.launch_fleet(operator=COMMANDER)
+        await _wait_for_state(manager, S.FORMATION_HOLD)
+        assert manager.launch_failures == {}
+    finally:
+        await manager.shutdown()
