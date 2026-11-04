@@ -1,0 +1,145 @@
+{
+  "run_id": "armed-silent-2",
+  "case": "armed_silent",
+  "verdict": "PASS",
+  "context": {
+    "run_id": "armed-silent-2",
+    "case": "armed_silent",
+    "stack": "tara up --backend px4 -n 1 (headless)",
+    "allow_unsigned": false,
+    "commit": "8dd2b17151f82ba69b3aa60d3e1e911104c3ba98",
+    "started_utc": "2026-11-04T07:23:40Z",
+    "host_load_before": "17.06 11.67 7.37",
+    "host_load_at_start": "20.44 12.95 7.93",
+    "host_load_at_end": "13.89 12.46 8.08",
+    "other_running_containers": [],
+    "fresh_container": true,
+    "microsd_dirs_before_stack": 0,
+    "px4_version": "v1.16.2",
+    "image_id": "sha256:424c464813742ee541ad2a554ee4bfa5e709beeeaebfb1dbfe9384459d92d3cb",
+    "docker_server": "29.8.0 on linux/amd64",
+    "host_cpus": "16",
+    "host_kernel": "7.0.0-38-generic",
+    "headless": true,
+    "gazebo_window": false,
+    "rviz": false,
+    "recording": false,
+    "px4_ulogs_saved": 1,
+    "scenario_exit_code": 0
+  },
+  "checks": [
+    {
+      "name": "preflight ready before the run",
+      "ok": true,
+      "detail": "{'connected': 1, 'armed': 0, 'armed_stale': 0, 'armed_stale_ids': [], 'fleet_state': 'STAGED'}"
+    },
+    {
+      "name": "armed on the ground and fresh: armed 1, armed_stale 0",
+      "ok": true,
+      "detail": "{'connected': 1, 'armed': 1, 'armed_stale': 0, 'armed_stale_ids': [], 'fleet_state': 'STAGED'}"
+    },
+    {
+      "name": "silent and armed: armed 0 but armed_stale 1 (never reads as disarmed)",
+      "ok": true,
+      "detail": "{'connected': 0, 'armed': 0, 'armed_stale': 1, 'armed_stale_ids': [0], 'fleet_state': 'STAGED'}"
+    },
+    {
+      "name": "it shows within 6 s",
+      "ok": true,
+      "detail": "3.021967649459839"
+    },
+    {
+      "name": "after SIGCONT the drone reads armed 1, armed_stale 0 again within 20 s",
+      "ok": true,
+      "detail": "0.26110291481018066"
+    },
+    {
+      "name": "disarmed again: armed 0, armed_stale 0",
+      "ok": true,
+      "detail": "{'connected': 1, 'armed': 0, 'armed_stale': 0, 'armed_stale_ids': [], 'fleet_state': 'STAGED'}"
+    }
+  ],
+  "notes": {
+    "seconds_to_armed_stale_1": 3.021967649459839,
+    "status_while_silent": {
+      "connected": 0,
+      "armed": 0,
+      "armed_stale": 1,
+      "armed_stale_ids": [
+        0
+      ],
+      "fleet_state": "STAGED"
+    },
+    "seconds_after_SIGCONT_until_armed_1_stale_0": 0.26110291481018066,
+    "px4_landed_state_settled_after_resume": false
+  },
+  "exception": null,
+  "cadence": {
+    "landed_state": {
+      "items": 68,
+      "span_s": 68.7,
+      "mean_hz": 0.98,
+      "median_interval_s": 0.9999,
+      "p99_interval_s": 1.0513,
+      "max_gap_s": 10.829,
+      "gaps_over_2_5s": 1,
+      "longest_run_of_identical_values": 39
+    },
+    "position_velocity_ned": {
+      "items": 1888,
+      "span_s": 68.9,
+      "mean_hz": 27.39,
+      "median_interval_s": 0.0322,
+      "p99_interval_s": 0.038,
+      "max_gap_s": 10.171,
+      "gaps_over_2_5s": 1
+    }
+  },
+  "observer_events": [
+    [
+      0.98,
+      "connected",
+      true
+    ],
+    [
+      1.27,
+      "armed",
+      true
+    ],
+    [
+      1.27,
+      "mode",
+      "HOLD"
+    ],
+    [
+      1.27,
+      "landed_state",
+      "ON_GROUND"
+    ],
+    [
+      13.67,
+      "landed_state",
+      "IN_AIR"
+    ],
+    [
+      14.49,
+      "mode",
+      "UNKNOWN"
+    ],
+    [
+      19.49,
+      "landed_state",
+      "ON_GROUND"
+    ],
+    [
+      21.54,
+      "armed",
+      false
+    ],
+    [
+      53.81,
+      "timeout",
+      "ON_GROUND after the resume"
+    ]
+  ]
+}
