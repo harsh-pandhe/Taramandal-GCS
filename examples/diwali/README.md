@@ -7,7 +7,7 @@ A storyboard for the 8 Nov demo, built with Studio's existing engine only (no en
 | `storyboard_35.json` | 35 | diya, rangoli, ring, sphere burst | the near-term show |
 | `storyboard_35_lettering.json` | 35 | DIWALI, then the above | certified, but lettering is not legible (see below) |
 | `storyboard_100.json` | 100 | HAPPY, DIWALI, diya, rangoli, sphere burst | the full greeting |
-| `storyboard_35_figures.json` | 35 | diya, rangoli, sphere burst, diya | **figures-only fallback**, no spelled greeting |
+| `storyboard_35_figures.json` | 35 | diya, sphere burst, diya | **figures-only fallback**, no spelled greeting |
 | `storyboard_100_figures.json` | 100 | diya, rangoli, sphere burst, diya | **figures-only fallback**, no spelled greeting |
 | `storyboard_500.json` | 500 | ring, sphere burst | sim scale run only |
 | `storyboard_3.json` | 3 | ring, sphere burst, ring | segment for Gazebo/PX4, see `segments/README.md` |
@@ -43,18 +43,20 @@ Once the fleet is on the plan it stays on it: separation never fell below 2.04 m
 
 ## Figures-only fallback (no spelled greeting)
 
-For the case where the lettering is dropped. Same engine, same fixtures, no text: diya, rangoli, sphere burst, then the diya again as the finale. The 35-drone show uses the stock `diya_flame.svg`; the 100-drone show uses `diya_festive.svg` (the stock diya is refused at 100). Previews: `previews/figures_only_35_drones.png`, `previews/figures_only_100_drones.png`.
+**Real show lengths: 198 s at 35 drones and 270 s at 100 drones, against a nominal 76 s and 82 s** (the typed hold and transition times). The flown show is 2.6x to 3.3x longer because the velocity, acceleration and jerk limits stretch every leg; plan the demo slot from the real length, not the nominal one.
+
+For the case where the lettering is dropped. Same engine, same fixtures, no text. At 100 drones: diya, rangoli, sphere burst, then the diya again as the finale. At 35 drones the rangoli is left out, because it reads as a scatter of points at that size, and its time goes to the diya and the sphere: diya, sphere burst, diya. The 35-drone show uses the stock `diya_flame.svg`; the 100-drone show uses `diya_festive.svg` (the stock diya is refused at 100). Previews: `previews/figures_only_35_drones.png`, `previews/figures_only_100_drones.png`.
 
 Both certify through the real `/api/export` as flight exports (json and tara, HTTP 200, `preview_only: false`, 0 violations, `results/certify_*_figures.json`).
 
 | Drones | Duration | Min separation | Peak altitude | Max velocity / accel / jerk | .tara size |
 |---:|---:|---:|---:|---|---:|
-| 35 | 216.2 s | 2.05 m | 34.4 m | 2.0 m/s / 2.45 m/s² / 17.3 m/s³ | 1.2 MB |
+| 35 | 197.8 s | 2.05 m | 34.1 m | 1.75 m/s / 2.45 m/s² / 17.3 m/s³ | 1.1 MB |
 | 100 | 269.6 s | 2.05 m | 62.8 m | 2.6 m/s / 3.0 m/s² / 17.3 m/s³ | 4.3 MB |
 
-T1 `tara_sim` flight (`results/sim_*_figures.json`): no proximity breach and no geofence breach at either size; flown minimum separation after settling 2.045 m at both; tracking error after settling 0.04 m mean and 0.25 m p99 at 35, 0.08 m mean and 0.96 m p99 at 100 (max 5.0 m and 4.1 m). The launch-layer dive described below is present here too (settles in 6.6 s at 35, 15.3 s at 100). **The real-time factors, 0.96 at 35 and 0.88 at 100, were measured on a loaded host** (load average about 25 on 16 cores, other jobs running) and are lower bounds; the earlier idle-host runs of the lettered shows gave 0.98 and 0.93.
+T1 `tara_sim` flight (`results/sim_*_figures.json`): no proximity breach and no geofence breach at either size; flown minimum separation after settling 2.046 m at 35 and 2.045 m at 100; tracking error after settling 0.03 m mean and 0.14 m p99 at 35, 0.08 m mean and 0.96 m p99 at 100 (max 4.4 m and 4.1 m). The launch-layer dive described below is present here too (settles in 6.7 s at 35, 15.3 s at 100). Real-time factors: 0.98 at 35 (re-run at `nice -n 19`, load average about 6 on 16 cores) and 0.88 at 100 (measured on a loaded host, load average about 25, so a lower bound); the earlier idle-host runs of the lettered shows gave 0.98 and 0.93.
 
-What reads and what does not, from the previews: the diya, the rangoli and the sphere read clearly at 100 drones. At 35 the diya and sphere read; the rangoli is sparse (about 35 points on a flower). The heart and the ring were left out: Studio lays them out flat in plan view, so from a front audience view they are a grid of dots. They only read from above (for example the full-screen preview camera).
+What reads and what does not, from the previews: the diya, the rangoli and the sphere read clearly at 100 drones. At 35 the diya and sphere read; the rangoli (35 points on a flower) did not, which is why it is out of the 35-drone show. The heart and the ring were left out: Studio lays them out flat in plan view, so from a front audience view they are a grid of dots. They only read from above (for example the full-screen preview camera).
 
 ## What did not work, and why
 
@@ -80,5 +82,7 @@ python tools/diwali_make_lettering.py            # regenerate the SVG fixtures
 tools/diwali_run_all.sh                          # build + certify every storyboard into dist/diwali/
 python tools/diwali_sim_scale.py dist/diwali/diwali_100.json dist/diwali/diwali_500.json
 ```
+
+**Set `PYTHON` to the repo venv** (for example `PYTHON=.venv/bin/python tools/diwali_run_all.sh`). In a fresh worktree there is no `.venv`, the script falls back to the system `python3`, which has no uvicorn, and the backend never starts (the build then fails with a connection-refused error).
 
 `tools/diwali_run_all.sh` starts its own Studio backend and stops it afterwards; `DIWALI_SIZES="35 100"` limits it to some storyboards. Builds are deterministic: the committed 3-drone segment is byte-identical to a fresh build. The sim runs take real time (the 500-drone run is about 11 minutes, 400 s of it the launch stagger).
