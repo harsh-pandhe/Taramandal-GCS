@@ -148,7 +148,11 @@ def test_a_noise_image_with_huge_numbers_of_contours_does_bounded_work(monkeypat
 def test_a_large_image_in_any_png_mode_is_not_a_server_error(mode):
     """Anything over 1024 px is downsampled first, and Image.reduce() raises for these modes."""
     img = Image.fromarray(_disc(1100), "L").convert(mode)
-    r = _raster(_png(img))
+    try:
+        png = _png(img)
+    except OSError as e:  # older Pillow cannot write every mode (e.g. "I") as PNG
+        pytest.skip(f"this Pillow cannot build a {mode} PNG: {e}")
+    r = _raster(png)
     assert r.status_code != 500, r.text
     assert r.status_code == 200, r.text
 
