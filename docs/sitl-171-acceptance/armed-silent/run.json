@@ -1,0 +1,124 @@
+{
+  "run_id": "armed-silent",
+  "case": "armed_silent",
+  "verdict": "FAIL",
+  "context": {
+    "run_id": "armed-silent",
+    "case": "armed_silent",
+    "stack": "tara up --backend px4 -n 1 (headless)",
+    "allow_unsigned": false,
+    "commit": "2c368b1d4e652ba8ff49e76bb44780a94f5934e6",
+    "started_utc": "2026-11-04T07:17:45Z",
+    "host_load_before": "8.16 7.71 4.99",
+    "host_load_at_start": "10.38 8.20 5.23",
+    "host_load_at_end": "10.01 8.21 5.28",
+    "other_running_containers": [],
+    "fresh_container": true,
+    "microsd_dirs_before_stack": 0,
+    "px4_version": "v1.16.2",
+    "image_id": "sha256:424c464813742ee541ad2a554ee4bfa5e709beeeaebfb1dbfe9384459d92d3cb",
+    "docker_server": "29.8.0 on linux/amd64",
+    "host_cpus": "16",
+    "host_kernel": "7.0.0-38-generic",
+    "headless": true,
+    "gazebo_window": false,
+    "rviz": false,
+    "recording": false,
+    "px4_ulogs_saved": 1,
+    "scenario_exit_code": 0
+  },
+  "checks": [
+    {
+      "name": "preflight ready before the run",
+      "ok": true,
+      "detail": "{'connected': 1, 'armed': 0, 'armed_stale': 0, 'armed_stale_ids': [], 'fleet_state': 'STAGED'}"
+    },
+    {
+      "name": "armed on the ground and fresh: armed 1, armed_stale 0",
+      "ok": true,
+      "detail": "{'connected': 1, 'armed': 1, 'armed_stale': 0, 'armed_stale_ids': [], 'fleet_state': 'STAGED'}"
+    },
+    {
+      "name": "silent and armed: armed 0 but armed_stale 1 (never reads as disarmed)",
+      "ok": true,
+      "detail": "{'connected': 0, 'armed': 0, 'armed_stale': 1, 'armed_stale_ids': [0], 'fleet_state': 'STAGED'}"
+    },
+    {
+      "name": "it shows within 6 s",
+      "ok": true,
+      "detail": "3.050093650817871"
+    },
+    {
+      "name": "after SIGCONT the drone reads armed 1, armed_stale 0 again within 20 s",
+      "ok": true,
+      "detail": "0.26088452339172363"
+    },
+    {
+      "name": "scenario ran to the end without an exception",
+      "ok": false,
+      "detail": "ActionError: COMMAND_DENIED: 'Command Denied'; origin: disarm(); params: ()"
+    }
+  ],
+  "notes": {
+    "seconds_to_armed_stale_1": 3.050093650817871,
+    "status_while_silent": {
+      "connected": 0,
+      "armed": 0,
+      "armed_stale": 1,
+      "armed_stale_ids": [
+        0
+      ],
+      "fleet_state": "STAGED"
+    },
+    "seconds_after_SIGCONT_until_armed_1_stale_0": 0.26088452339172363
+  },
+  "exception": "ActionError: COMMAND_DENIED: 'Command Denied'; origin: disarm(); params: ()",
+  "cadence": {
+    "landed_state": {
+      "items": 25,
+      "span_s": 26.0,
+      "mean_hz": 0.92,
+      "median_interval_s": 1.0,
+      "p99_interval_s": 1.0123,
+      "max_gap_s": 11.004,
+      "gaps_over_2_5s": 1,
+      "longest_run_of_identical_values": 20
+    },
+    "position_velocity_ned": {
+      "items": 615,
+      "span_s": 26.7,
+      "mean_hz": 23.01,
+      "median_interval_s": 0.0322,
+      "p99_interval_s": 0.0412,
+      "max_gap_s": 10.22,
+      "gaps_over_2_5s": 1
+    }
+  },
+  "observer_events": [
+    [
+      0.96,
+      "connected",
+      true
+    ],
+    [
+      1.48,
+      "armed",
+      true
+    ],
+    [
+      1.48,
+      "mode",
+      "HOLD"
+    ],
+    [
+      1.48,
+      "landed_state",
+      "ON_GROUND"
+    ],
+    [
+      13.83,
+      "landed_state",
+      "IN_AIR"
+    ]
+  ]
+}
