@@ -1,0 +1,101 @@
+[tara] starting 5 services — backend=px4, drones=1, rviz=False
+[tara]   GCS dashboard    http://localhost:5173
+[tara]   Studio           http://localhost:5174
+[tara]   GCS API docs     http://localhost:8090/docs
+[tara]   Studio API docs  http://localhost:8001/docs
+[36m[fleet][0m =========================================
+[36m[fleet][0m Starting multi-drone SITL simulation...
+[36m[fleet][0m   Number of drones: 1
+[36m[fleet][0m   Headless mode: 1
+[36m[fleet][0m   Autopilot Path: /home/px4/PX4-Autopilot
+[36m[fleet][0m   Home origin:    47.397742, 8.545594 @ 488.0m
+[36m[fleet][0m =========================================
+[36m[fleet][0m =========================================
+[36m[fleet][0m Stopping PX4 SITL and Gazebo Fleet...
+[36m[fleet][0m =========================================
+[36m[fleet][0m All simulation processes killed.
+[36m[fleet][0m Installing drone_show_field.sdf into /home/px4/PX4-Autopilot/Tools/simulation/gz/worlds...
+[36m[fleet][0m Sourcing Gazebo Sim environment...
+[36m[fleet][0m Launching host drone (instance 0) at EAST_OFFSET = 0m...
+[36m[fleet][0m Waiting 10 seconds for Gazebo Sim server to initialize...
+[36m[fleet][0m =========================================
+[36m[fleet][0m Fleet launch complete. Active instances:
+[36m[fleet][0m 38
+[36m[fleet][0m 71
+[36m[fleet][0m 87
+[36m[fleet][0m 290
+[36m[fleet][0m =========================================
+[36m[fleet][0m Simulation running. Blocked on background processes. Stop/Kill task to exit.
+[35m[gcs-api][0m /work/packages/tara-gcs/sitecustomize.py:14: FutureWarning: The 'mavsdk' package has been renamed to 'mavsdk-grpc'. This is the last release of the gRPC wrapper under the 'mavsdk' name: that name now refers to the native MAVSDK binding, which has a different API.
+[35m[gcs-api][0m   To carry on with this API, install 'mavsdk-grpc' and use 'import mavsdk_grpc as mavsdk'. The code is identical, development continues there (including releases for MAVSDK v4), and it installs under a separate import name so it cannot collide with the native binding.
+[35m[gcs-api][0m   To freeze instead, pin 'mavsdk<4' (no further updates).
+[35m[gcs-api][0m   To migrate, see https://mavsdk.mavlink.io/main/en/python/migration.html
+[35m[gcs-api][0m   import mavsdk.telemetry as T
+[32m[studio-api][0m INFO:     Started server process [544]
+[32m[studio-api][0m INFO:     Waiting for application startup.
+[32m[studio-api][0m INFO:     Application startup complete.
+[32m[studio-api][0m INFO:     Uvicorn running on http://127.0.0.1:8001 (Press CTRL+C to quit)
+[35m[gcs-api][0m INFO:TaramandalGCS:Show signing: 1 trusted key(s); unsigned trajectories rejected.
+[35m[gcs-api][0m INFO:TaramandalGCS:Pre-arm safety profile: SIMULATION
+[35m[gcs-api][0m INFO:     Started server process [542]
+[35m[gcs-api][0m INFO:     Waiting for application startup.
+[35m[gcs-api][0m INFO:TaramandalGCS:Initializing Ground Control Station...
+[35m[gcs-api][0m INFO:TaramandalGCS:Blackbox: recording to /scratch/out/cancel-2/blackbox/blackbox_20261104T072232_542.jsonl.gz
+[35m[gcs-api][0m INFO:root:Connecting to 1 drones (backend=px4) on ports: [14540]
+[35m[gcs-api][0m INFO:     Application startup complete.
+[35m[gcs-api][0m INFO:     Uvicorn running on http://0.0.0.0:8090 (Press CTRL+C to quit)
+[35m[gcs-api][0m INFO:mavsdk_server:MAVSDK version: v3.17.4 (mavsdk_impl.cpp:35)
+[35m[gcs-api][0m INFO:mavsdk_server:Waiting to discover system on udpin://127.0.0.1:14540... (connection_initiator.h:20)
+[35m[gcs-api][0m INFO:mavsdk_server:New system on: 127.0.0.1:14580 (system ID: 1) (udp_connection.cpp:263)
+[33m[gcs-web][0m 
+[33m[gcs-web][0m > frontend@0.0.0 dev
+[33m[gcs-web][0m > vite --port 5173
+[33m[gcs-web][0m 
+[35m[gcs-api][0m INFO:mavsdk_server:System discovered (connection_initiator.h:62)
+[35m[gcs-api][0m INFO:mavsdk_server:Server started (grpc_server.cpp:177)
+[35m[gcs-api][0m INFO:mavsdk_server:Server set to listen on 0.0.0.0:50051 (grpc_server.cpp:178)
+[34m[studio-web][0m 
+[34m[studio-web][0m > frontend@0.0.0 dev
+[34m[studio-web][0m > vite --port 5174
+[34m[studio-web][0m 
+[33m[gcs-web][0m 
+[33m[gcs-web][0m   VITE v8.1.3  ready in 550 ms
+[33m[gcs-web][0m 
+[33m[gcs-web][0m   ➜  Local:   http://localhost:5173/
+[33m[gcs-web][0m   ➜  Network: use --host to expose
+[34m[studio-web][0m 
+[34m[studio-web][0m   VITE v8.1.3  ready in 482 ms
+[34m[studio-web][0m 
+[34m[studio-web][0m   ➜  Local:   http://localhost:5174/
+[34m[studio-web][0m   ➜  Network: use --host to expose
+[35m[gcs-api][0m INFO:root:Proximity safety monitor active.
+[35m[gcs-api][0m INFO:root:Geofence monitor active (soft warning: Nonem, hard RTL: 30.0m).
+[35m[gcs-api][0m INFO:root:Fleet lifecycle monitor active.
+[35m[gcs-api][0m INFO:     127.0.0.1:59954 - "GET /api/status HTTP/1.1" 200 OK
+[35m[gcs-api][0m WARNING:mavsdk_server:Received ack for not-existing command: 512! Ignoring... (mavlink_command_sender.cpp:304)
+[35m[gcs-api][0m INFO:TaramandalGCS.preflight:AUDIT {"backend": "px4", "event": "login", "fidelity": "px4-sitl", "operator": "cmdr", "origin_ip": "127.0.0.1", "role": "FLIGHT_COMMANDER", "ts": 1793776966.2262404}
+[35m[gcs-api][0m INFO:     127.0.0.1:58832 - "POST /api/auth/login HTTP/1.1" 200 OK
+[35m[gcs-api][0m INFO:TaramandalGCS.preflight:AUDIT {"backend": "px4", "event": "login", "fidelity": "px4-sitl", "operator": "chor", "origin_ip": "127.0.0.1", "role": "CHOREOGRAPHER", "ts": 1793776966.2823348}
+[35m[gcs-api][0m INFO:     127.0.0.1:58836 - "POST /api/auth/login HTTP/1.1" 200 OK
+[35m[gcs-api][0m INFO:     127.0.0.1:58840 - "GET /api/preflight-check HTTP/1.1" 200 OK
+[35m[gcs-api][0m INFO:     127.0.0.1:58852 - "GET /api/status HTTP/1.1" 200 OK
+[35m[gcs-api][0m INFO:TaramandalGCS.preflight:AUDIT {"backend": "px4", "drone_id": 0, "event": "single_drone_hover_requested", "fidelity": "px4-sitl", "hover_duration_s": 10.0, "operator": "cmdr", "target_altitude_m": 1.0, "ts": 1793776966.2965636}
+[35m[gcs-api][0m WARNING:mavsdk_server:Received ack for not-existing command: 512! Ignoring... (mavlink_command_sender.cpp:304)
+[35m[gcs-api][0m WARNING:mavsdk_server:Received ack for not-existing command: 176! Ignoring... (mavlink_command_sender.cpp:304)
+[35m[gcs-api][0m INFO:TaramandalGCS.preflight:AUDIT {"backend": "px4", "event": "command", "fidelity": "px4-sitl", "method": "POST", "operator": "cmdr", "origin_ip": "127.0.0.1", "path": "/api/single-drone/hover-sequence", "role": "FLIGHT_COMMANDER", "status": 409, "ts": 1793776975.8521972}
+[35m[gcs-api][0m INFO:     127.0.0.1:58876 - "POST /api/single-drone/hover-sequence HTTP/1.1" 409 Conflict
+[35m[gcs-api][0m WARNING:mavsdk_server:Received ack for not-existing command: 176! Ignoring... (mavlink_command_sender.cpp:304)
+[35m[gcs-api][0m Drone 0 commanded to Land.
+[35m[gcs-api][0m INFO:     127.0.0.1:63142 - "GET /api/status HTTP/1.1" 200 OK
+[35m[gcs-api][0m INFO:TaramandalGCS.preflight:AUDIT {"backend": "px4", "drone_id": 0, "event": "single_drone_hover_completed", "fidelity": "px4-sitl", "operator": "cmdr", "ts": 1793776990.158387}
+[35m[gcs-api][0m INFO:TaramandalGCS.preflight:AUDIT {"backend": "px4", "event": "command", "fidelity": "px4-sitl", "method": "POST", "operator": "cmdr", "origin_ip": "127.0.0.1", "path": "/api/single-drone/hover-sequence", "role": "FLIGHT_COMMANDER", "status": 200, "ts": 1793776990.1639376}
+[35m[gcs-api][0m INFO:     127.0.0.1:63144 - "GET /api/status HTTP/1.1" 200 OK
+[35m[gcs-api][0m INFO:     127.0.0.1:63152 - "GET /api/status HTTP/1.1" 200 OK
+[35m[gcs-api][0m INFO:     127.0.0.1:63160 - "GET /api/status HTTP/1.1" 200 OK
+[35m[gcs-api][0m INFO:TaramandalGCS.preflight:AUDIT {"backend": "px4", "drone_id": 0, "event": "single_drone_hover_requested", "fidelity": "px4-sitl", "hover_duration_s": 3.0, "operator": "cmdr", "target_altitude_m": 1.0, "ts": 1793776990.1776876}
+[35m[gcs-api][0m WARNING:mavsdk_server:Received ack for not-existing command: 176! Ignoring... (mavlink_command_sender.cpp:304)
+[35m[gcs-api][0m WARNING:mavsdk_server:Received ack for not-existing command: 176! Ignoring... (mavlink_command_sender.cpp:304)
+[35m[gcs-api][0m INFO:TaramandalGCS.preflight:AUDIT {"backend": "px4", "drone_id": 0, "event": "single_drone_hover_completed", "fidelity": "px4-sitl", "operator": "cmdr", "ts": 1793777007.1380773}
+[35m[gcs-api][0m INFO:TaramandalGCS.preflight:AUDIT {"backend": "px4", "event": "command", "fidelity": "px4-sitl", "method": "POST", "operator": "cmdr", "origin_ip": "127.0.0.1", "path": "/api/single-drone/hover-sequence", "role": "FLIGHT_COMMANDER", "status": 200, "ts": 1793777007.1439927}
+[35m[gcs-api][0m Drone 0 commanded to Land.
+[35m[gcs-api][0m INFO:     127.0.0.1:63174 - "POST /api/single-drone/hover-sequence HTTP/1.1" 200 OK

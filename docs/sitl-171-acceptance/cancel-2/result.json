@@ -1,0 +1,134 @@
+{
+  "checks": [
+    {
+      "name": "preflight ready before the run",
+      "ok": true,
+      "detail": "{'connected': 1, 'armed': 0, 'armed_stale': 0, 'armed_stale_ids': [], 'fleet_state': 'STAGED'}"
+    },
+    {
+      "name": "a second hover right after the disconnect is refused (409, guard held)",
+      "ok": true,
+      "detail": "409 {\"detail\": \"A single-drone sequence is already running on drone 0.\"}"
+    },
+    {
+      "name": "the abandoned sequence still lands and disarms safely",
+      "ok": true,
+      "detail": "armed=False landed=ON_GROUND"
+    },
+    {
+      "name": "GCS armed count follows PX4's disarm within 8 s",
+      "ok": true,
+      "detail": "{'connected': 1, 'armed': 0, 'armed_stale': 0, 'armed_stale_ids': [], 'fleet_state': 'STAGED'}"
+    },
+    {
+      "name": "guard released afterwards: a new hover request is accepted and completes",
+      "ok": true,
+      "detail": "200 {\"status\": \"COMPLETED\", \"mode\": \"SIMULATION\", \"configured_mode\": \"SIMULATION\", \"active_backend\": \"px4\", \"vehicle\": \"SIMU"
+    }
+  ],
+  "notes": {
+    "seconds_from_disconnect_to_disarm": 15.1,
+    "seconds_for_GCS_armed_to_follow_PX4_disarm": 0.2,
+    "limit": "client disconnect only: the in-process CancelledError path cannot be triggered from outside and is covered by the unit test"
+  },
+  "case": "cancel",
+  "exception": null,
+  "verdict": "PASS",
+  "observer_events": [
+    [
+      0.88,
+      "connected",
+      true
+    ],
+    [
+      1.56,
+      "armed",
+      true
+    ],
+    [
+      1.56,
+      "mode",
+      "HOLD"
+    ],
+    [
+      1.56,
+      "landed_state",
+      "ON_GROUND"
+    ],
+    [
+      2.56,
+      "mode",
+      "OFFBOARD"
+    ],
+    [
+      3.58,
+      "landed_state",
+      "IN_AIR"
+    ],
+    [
+      19.61,
+      "mode",
+      "LAND"
+    ],
+    [
+      19.61,
+      "landed_state",
+      "LANDING"
+    ],
+    [
+      22.62,
+      "landed_state",
+      "ON_GROUND"
+    ],
+    [
+      24.62,
+      "armed",
+      false
+    ],
+    [
+      24.62,
+      "mode",
+      "HOLD"
+    ],
+    [
+      25.62,
+      "armed",
+      true
+    ],
+    [
+      26.62,
+      "mode",
+      "OFFBOARD"
+    ],
+    [
+      27.62,
+      "landed_state",
+      "IN_AIR"
+    ],
+    [
+      36.62,
+      "mode",
+      "LAND"
+    ],
+    [
+      36.62,
+      "landed_state",
+      "LANDING"
+    ],
+    [
+      39.62,
+      "landed_state",
+      "ON_GROUND"
+    ],
+    [
+      41.62,
+      "armed",
+      false
+    ],
+    [
+      41.62,
+      "mode",
+      "HOLD"
+    ]
+  ]
+}
