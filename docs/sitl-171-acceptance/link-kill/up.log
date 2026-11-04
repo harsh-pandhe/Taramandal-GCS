@@ -1,0 +1,149 @@
+[tara] starting 5 services — backend=px4, drones=1, rviz=False
+[tara]   GCS dashboard    http://localhost:5173
+[tara]   Studio           http://localhost:5174
+[tara]   GCS API docs     http://localhost:8090/docs
+[tara]   Studio API docs  http://localhost:8001/docs
+[36m[fleet][0m =========================================
+[36m[fleet][0m Starting multi-drone SITL simulation...
+[36m[fleet][0m   Number of drones: 1
+[36m[fleet][0m   Headless mode: 1
+[36m[fleet][0m   Autopilot Path: /home/px4/PX4-Autopilot
+[36m[fleet][0m   Home origin:    47.397742, 8.545594 @ 488.0m
+[36m[fleet][0m =========================================
+[36m[fleet][0m =========================================
+[36m[fleet][0m Stopping PX4 SITL and Gazebo Fleet...
+[36m[fleet][0m =========================================
+[36m[fleet][0m All simulation processes killed.
+[36m[fleet][0m Installing drone_show_field.sdf into /home/px4/PX4-Autopilot/Tools/simulation/gz/worlds...
+[36m[fleet][0m Sourcing Gazebo Sim environment...
+[36m[fleet][0m Launching host drone (instance 0) at EAST_OFFSET = 0m...
+[36m[fleet][0m Waiting 10 seconds for Gazebo Sim server to initialize...
+[36m[fleet][0m =========================================
+[36m[fleet][0m Fleet launch complete. Active instances:
+[36m[fleet][0m 40
+[36m[fleet][0m 73
+[36m[fleet][0m 94
+[36m[fleet][0m 297
+[36m[fleet][0m 444
+[36m[fleet][0m =========================================
+[36m[fleet][0m Simulation running. Blocked on background processes. Stop/Kill task to exit.
+[35m[gcs-api][0m /work/packages/tara-gcs/sitecustomize.py:14: FutureWarning: The 'mavsdk' package has been renamed to 'mavsdk-grpc'. This is the last release of the gRPC wrapper under the 'mavsdk' name: that name now refers to the native MAVSDK binding, which has a different API.
+[35m[gcs-api][0m   To carry on with this API, install 'mavsdk-grpc' and use 'import mavsdk_grpc as mavsdk'. The code is identical, development continues there (including releases for MAVSDK v4), and it installs under a separate import name so it cannot collide with the native binding.
+[35m[gcs-api][0m   To freeze instead, pin 'mavsdk<4' (no further updates).
+[35m[gcs-api][0m   To migrate, see https://mavsdk.mavlink.io/main/en/python/migration.html
+[35m[gcs-api][0m   import mavsdk.telemetry as T
+[32m[studio-api][0m INFO:     Started server process [539]
+[32m[studio-api][0m INFO:     Waiting for application startup.
+[32m[studio-api][0m INFO:     Application startup complete.
+[32m[studio-api][0m INFO:     Uvicorn running on http://127.0.0.1:8001 (Press CTRL+C to quit)
+[35m[gcs-api][0m INFO:TaramandalGCS:Show signing: 1 trusted key(s); unsigned trajectories rejected.
+[35m[gcs-api][0m INFO:TaramandalGCS:Pre-arm safety profile: SIMULATION
+[35m[gcs-api][0m INFO:     Started server process [537]
+[35m[gcs-api][0m INFO:     Waiting for application startup.
+[35m[gcs-api][0m INFO:TaramandalGCS:Initializing Ground Control Station...
+[35m[gcs-api][0m INFO:TaramandalGCS:Blackbox: recording to /scratch/out/link-kill/blackbox/blackbox_20261104T071028_537.jsonl.gz
+[35m[gcs-api][0m INFO:root:Connecting to 1 drones (backend=px4) on ports: [14540]
+[35m[gcs-api][0m INFO:     Application startup complete.
+[35m[gcs-api][0m INFO:     Uvicorn running on http://0.0.0.0:8090 (Press CTRL+C to quit)
+[35m[gcs-api][0m INFO:mavsdk_server:MAVSDK version: v3.17.4 (mavsdk_impl.cpp:35)
+[35m[gcs-api][0m INFO:mavsdk_server:Waiting to discover system on udpin://127.0.0.1:14540... (connection_initiator.h:20)
+[35m[gcs-api][0m INFO:mavsdk_server:New system on: 127.0.0.1:14580 (system ID: 1) (udp_connection.cpp:263)
+[34m[studio-web][0m 
+[34m[studio-web][0m > frontend@0.0.0 dev
+[34m[studio-web][0m > vite --port 5174
+[34m[studio-web][0m 
+[33m[gcs-web][0m 
+[33m[gcs-web][0m > frontend@0.0.0 dev
+[33m[gcs-web][0m > vite --port 5173
+[33m[gcs-web][0m 
+[33m[gcs-web][0m 
+[33m[gcs-web][0m   VITE v8.1.3  ready in 324 ms
+[33m[gcs-web][0m 
+[33m[gcs-web][0m   ➜  Local:   http://localhost:5173/
+[33m[gcs-web][0m   ➜  Network: use --host to expose
+[34m[studio-web][0m 
+[34m[studio-web][0m   VITE v8.1.3  ready in 336 ms
+[34m[studio-web][0m 
+[34m[studio-web][0m   ➜  Local:   http://localhost:5174/
+[34m[studio-web][0m   ➜  Network: use --host to expose
+[35m[gcs-api][0m INFO:mavsdk_server:System discovered (connection_initiator.h:62)
+[35m[gcs-api][0m INFO:mavsdk_server:Server started (grpc_server.cpp:177)
+[35m[gcs-api][0m INFO:mavsdk_server:Server set to listen on 0.0.0.0:50051 (grpc_server.cpp:178)
+[35m[gcs-api][0m INFO:root:Proximity safety monitor active.
+[35m[gcs-api][0m INFO:root:Geofence monitor active (soft warning: Nonem, hard RTL: 30.0m).
+[35m[gcs-api][0m INFO:root:Fleet lifecycle monitor active.
+[35m[gcs-api][0m INFO:     127.0.0.1:63708 - "GET /api/status HTTP/1.1" 200 OK
+[35m[gcs-api][0m WARNING:mavsdk_server:Received ack for not-existing command: 512! Ignoring... (mavlink_command_sender.cpp:304)
+[35m[gcs-api][0m INFO:TaramandalGCS.preflight:AUDIT {"backend": "px4", "event": "login", "fidelity": "px4-sitl", "operator": "cmdr", "origin_ip": "127.0.0.1", "role": "FLIGHT_COMMANDER", "ts": 1793776242.5238006}
+[35m[gcs-api][0m INFO:     127.0.0.1:61104 - "POST /api/auth/login HTTP/1.1" 200 OK
+[35m[gcs-api][0m INFO:TaramandalGCS.preflight:AUDIT {"backend": "px4", "event": "login", "fidelity": "px4-sitl", "operator": "chor", "origin_ip": "127.0.0.1", "role": "CHOREOGRAPHER", "ts": 1793776242.665072}
+[35m[gcs-api][0m INFO:     127.0.0.1:61112 - "POST /api/auth/login HTTP/1.1" 200 OK
+[35m[gcs-api][0m INFO:     127.0.0.1:61116 - "GET /api/preflight-check HTTP/1.1" 200 OK
+[35m[gcs-api][0m INFO:     127.0.0.1:61126 - "GET /api/status HTTP/1.1" 200 OK
+[35m[gcs-api][0m INFO:TaramandalGCS.preflight:AUDIT {"backend": "px4", "drone_id": 0, "event": "single_drone_hover_requested", "fidelity": "px4-sitl", "hover_duration_s": 30.0, "operator": "cmdr", "target_altitude_m": 1.0, "ts": 1793776242.6863458}
+[35m[gcs-api][0m WARNING:mavsdk_server:Received ack for not-existing command: 512! Ignoring... (mavlink_command_sender.cpp:304)
+[35m[gcs-api][0m WARNING:mavsdk_server:Received ack for not-existing command: 176! Ignoring... (mavlink_command_sender.cpp:304)
+[35m[gcs-api][0m INFO:     127.0.0.1:63904 - "GET /api/status HTTP/1.1" 200 OK
+[35m[gcs-api][0m INFO:     127.0.0.1:63912 - "GET /api/status HTTP/1.1" 200 OK
+[36m[fleet][0m /work/sim/px4/launch_fleet.sh: line 217:    94 Killed                  PX4_SYS_AUTOSTART=4001 PX4_SIM_MODEL=gz_x500 PX4_GZ_MODEL_POSE="0,0,0.2,0,0,0" ./build/px4_sitl_default/bin/px4 -d -i 0 > /tmp/px4_0.log 2>&1
+[36m[fleet][0m 
+[36m[fleet][0m =========================================
+[36m[fleet][0m Stopping fleet and cleaning up background processes...
+[36m[fleet][0m =========================================
+[36m[fleet][0m Stopping PX4 SITL and Gazebo Fleet...
+[36m[fleet][0m =========================================
+[35m[gcs-api][0m WARNING:root:Drone 0: telemetry stream armed dropped (AioRpcError: <AioRpcError of RPC that terminated with:); drone marked stale.
+[35m[gcs-api][0m INFO:root:Drone 0: resubscribing to armed in 0.5s.
+[35m[gcs-api][0m WARNING:root:Drone 0: mavsdk_server exited (code -9); starting a new one.
+[35m[gcs-api][0m WARNING:root:Drone 0: telemetry stream battery dropped (AioRpcError: <AioRpcError of RPC that terminated with:); drone marked stale.
+[35m[gcs-api][0m INFO:root:Drone 0: resubscribing to battery in 0.5s.
+[35m[gcs-api][0m WARNING:root:Drone 0: telemetry stream connection_state dropped (AioRpcError: <AioRpcError of RPC that terminated with:); drone marked stale.
+[35m[gcs-api][0m INFO:root:Drone 0: resubscribing to connection_state in 0.5s.
+[35m[gcs-api][0m WARNING:root:Drone 0: telemetry stream flight_mode dropped (AioRpcError: <AioRpcError of RPC that terminated with:); drone marked stale.
+[35m[gcs-api][0m INFO:root:Drone 0: resubscribing to flight_mode in 0.5s.
+[35m[gcs-api][0m WARNING:root:Drone 0: telemetry stream position_velocity_ned dropped (AioRpcError: <AioRpcError of RPC that terminated with:); drone marked stale.
+[35m[gcs-api][0m INFO:root:Drone 0: resubscribing to position_velocity_ned in 0.5s.
+[35m[gcs-api][0m WARNING:root:Drone 0: telemetry stream landed_state dropped (AioRpcError: <AioRpcError of RPC that terminated with:); drone marked stale.
+[35m[gcs-api][0m INFO:root:Drone 0: resubscribing to landed_state in 0.5s.
+[35m[gcs-api][0m WARNING:root:Drone 0: telemetry stream gps_info dropped (AioRpcError: <AioRpcError of RPC that terminated with:); drone marked stale.
+[35m[gcs-api][0m INFO:root:Drone 0: resubscribing to gps_info in 0.5s.
+[35m[gcs-api][0m WARNING:root:Drone 0: telemetry stream health dropped (AioRpcError: <AioRpcError of RPC that terminated with:); drone marked stale.
+[35m[gcs-api][0m INFO:root:Drone 0: resubscribing to health in 0.5s.
+[35m[gcs-api][0m WARNING:root:Drone 0: telemetry stream home dropped (AioRpcError: <AioRpcError of RPC that terminated with:); drone marked stale.
+[35m[gcs-api][0m INFO:root:Drone 0: resubscribing to home in 0.5s.
+[35m[gcs-api][0m WARNING:root:Safe-recovery ground confirmation after a failed hover dwell for drone 0: Drone 0 disconnected during safe recovery (after a failed hover dwell)
+[35m[gcs-api][0m ERROR:TaramandalGCS:Single drone sequence failed: Hover dwell failed: Drone 0 disconnected during hover dwell
+[35m[gcs-api][0m INFO:TaramandalGCS.preflight:AUDIT {"backend": "px4", "drone_id": 0, "error": "Hover dwell failed: Drone 0 disconnected during hover dwell", "event": "single_drone_hover_failed", "fidelity": "px4-sitl", "operator": "cmdr", "ts": 1793776252.5402768}
+[36m[fleet][0m All simulation processes killed.
+[36m[fleet][0m =========================================
+[35m[gcs-api][0m INFO:TaramandalGCS.preflight:AUDIT {"backend": "px4", "event": "command", "fidelity": "px4-sitl", "method": "POST", "operator": "cmdr", "origin_ip": "127.0.0.1", "path": "/api/single-drone/hover-sequence", "role": "FLIGHT_COMMANDER", "status": 500, "ts": 1793776252.548041}
+[35m[gcs-api][0m Failed to command Landing on Drone 0: Action plugin has not been initialized! Did you run `System.connect()`?
+[35m[gcs-api][0m INFO:     127.0.0.1:61132 - "POST /api/single-drone/hover-sequence HTTP/1.1" 500 Internal Server Error
+[35m[gcs-api][0m INFO:     127.0.0.1:63928 - "GET /api/status HTTP/1.1" 200 OK
+[35m[gcs-api][0m INFO:     127.0.0.1:63932 - "GET /api/status HTTP/1.1" 200 OK
+[35m[gcs-api][0m INFO:     127.0.0.1:63934 - "GET /api/status HTTP/1.1" 200 OK
+[35m[gcs-api][0m INFO:     127.0.0.1:63944 - "GET /api/status HTTP/1.1" 200 OK
+[tara] 'fleet' exited unexpectedly (code 0) — stopping the rest of the stack.
+[35m[gcs-api][0m INFO:root:Drone 0: resubscribing to battery in 1.0s.
+[35m[gcs-api][0m INFO:root:Drone 0: resubscribing to connection_state in 1.0s.
+[35m[gcs-api][0m INFO:root:Drone 0: resubscribing to flight_mode in 1.0s.
+[35m[gcs-api][0m INFO:root:Drone 0: resubscribing to position_velocity_ned in 1.0s.
+[35m[gcs-api][0m INFO:root:Drone 0: resubscribing to landed_state in 1.0s.
+[35m[gcs-api][0m INFO:root:Drone 0: resubscribing to gps_info in 1.0s.
+[35m[gcs-api][0m INFO:root:Drone 0: resubscribing to health in 1.0s.
+[35m[gcs-api][0m INFO:root:Drone 0: resubscribing to home in 1.0s.
+[35m[gcs-api][0m INFO:     Shutting down
+[32m[studio-api][0m INFO:     Shutting down
+[35m[gcs-api][0m INFO:     Waiting for application shutdown.
+[35m[gcs-api][0m INFO:TaramandalGCS:Shutting down Ground Control Station...
+[35m[gcs-api][0m INFO:root:Shutting down DroneManager...
+[35m[gcs-api][0m INFO:root:Disarming Drone 0 during GCS shutdown...
+[35m[gcs-api][0m ERROR:root:Failed to disarm Drone 0 on shutdown: Action plugin has not been initialized! Did you run `System.connect()`?
+[35m[gcs-api][0m INFO:root:Proximity safety monitor stopped.
+[35m[gcs-api][0m INFO:root:Geofence monitor stopped.
+[35m[gcs-api][0m INFO:root:Fleet lifecycle monitor stopped.
+[32m[studio-api][0m INFO:     Waiting for application shutdown.
+[32m[studio-api][0m INFO:     Application shutdown complete.
+[32m[studio-api][0m INFO:     Finished server process [539]
+[35m[gcs-api][0m INFO:     Application shutdown complete.
+[35m[gcs-api][0m INFO:     Finished server process [537]
