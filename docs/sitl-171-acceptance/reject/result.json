@@ -1,0 +1,110 @@
+{
+  "checks": [
+    {
+      "name": "preflight becomes green",
+      "ok": true,
+      "detail": "{'connected': 1, 'armed': 0, 'armed_stale': 0, 'armed_stale_ids': [], 'fleet_state': 'STAGED'}"
+    },
+    {
+      "name": "hover is refused while PX4 is in LAND mode, naming the flight mode",
+      "ok": true,
+      "detail": "412 {\"detail\": {\"message\": \"Single-drone sequence refused: pre-arm gates are red.\", \"profile\": \"SIMULATION\", \"blocking_reasons\": [\"EKF health & home lock \\u2014 Not armable; PX4 is in LAND, which can block arming even with a healthy EKF: set HO"
+    },
+    {
+      "name": "and PX4 stays disarmed",
+      "ok": true,
+      "detail": "armed=False"
+    },
+    {
+      "name": "land on the ground gets a definite answer (success or a stated rejection), never a silent one",
+      "ok": true,
+      "detail": "200 {\"status\": \"success\", \"message\": \"Drone 0 landing commanded on active backend (px4).\", \"backend\": \"px4\", \"mode\": \"land\", \"drone_id\": 0, \"commanded\": true, \"error\": null, \"clearance\": {\"clear\": true, \""
+    },
+    {
+      "name": "after restoring HOLD the preflight is green and a hover completes",
+      "ok": true,
+      "detail": "{'connected': 1, 'armed': 0, 'armed_stale': 0, 'armed_stale_ids': [], 'fleet_state': 'STAGED'}"
+    },
+    {
+      "name": "control hover completes",
+      "ok": true,
+      "detail": "200"
+    }
+  ],
+  "notes": {
+    "preflight_at_first_request": {
+      "http": 200,
+      "ready": true,
+      "blocking": []
+    },
+    "arm_before_preflight_green": "not exercised: preflight was already green at the first request",
+    "hover_while_px4_in_LAND_mode": {
+      "http": 412,
+      "detail": "{\"detail\": {\"message\": \"Single-drone sequence refused: pre-arm gates are red.\", \"profile\": \"SIMULATION\", \"blocking_reasons\": [\"EKF health & home lock \\u2014 Not armable; PX4 is in LAND, which can block arming even with a healthy EKF: set HOLD and re-check\"]}}"
+    },
+    "land_requested_on_the_ground_disarmed": {
+      "http": 200,
+      "body": "{\"status\": \"success\", \"message\": \"Drone 0 landing commanded on active backend (px4).\", \"backend\": \"px4\", \"mode\": \"land\", \"drone_id\": 0, \"commanded\": true, \"error\": null, \"clearance\": {\"clear\": true, \"threshold_m\": 2.0, \"mode\": \"land\", \"model\": \"vertical descent from current position (0.5-1.5 m/s)\", "
+    }
+  },
+  "case": "reject",
+  "exception": null,
+  "verdict": "PASS",
+  "observer_events": [
+    [
+      1.09,
+      "connected",
+      true
+    ],
+    [
+      1.97,
+      "armed",
+      false
+    ],
+    [
+      1.97,
+      "mode",
+      "LAND"
+    ],
+    [
+      1.97,
+      "landed_state",
+      "ON_GROUND"
+    ],
+    [
+      4.96,
+      "mode",
+      "HOLD"
+    ],
+    [
+      6.96,
+      "armed",
+      true
+    ],
+    [
+      7.96,
+      "mode",
+      "OFFBOARD"
+    ],
+    [
+      8.96,
+      "landed_state",
+      "IN_AIR"
+    ],
+    [
+      17.96,
+      "mode",
+      "LAND"
+    ],
+    [
+      17.96,
+      "landed_state",
+      "LANDING"
+    ],
+    [
+      20.96,
+      "landed_state",
+      "ON_GROUND"
+    ]
+  ]
+}

@@ -1,0 +1,157 @@
+{
+  "run_id": "reject",
+  "case": "reject",
+  "verdict": "PASS",
+  "context": {
+    "run_id": "reject",
+    "case": "reject",
+    "stack": "tara up --backend px4 -n 1 (headless)",
+    "allow_unsigned": false,
+    "commit": "80d0fcbd5cfd92c8594ff43704c26bbb55bc67ce",
+    "started_utc": "2026-11-04T07:11:54Z",
+    "host_load_before": "8.85 6.44 3.62",
+    "host_load_at_start": "7.80 6.38 3.69",
+    "host_load_at_end": "6.27 6.13 3.67",
+    "other_running_containers": [],
+    "fresh_container": true,
+    "microsd_dirs_before_stack": 0,
+    "px4_version": "v1.16.2",
+    "image_id": "sha256:424c464813742ee541ad2a554ee4bfa5e709beeeaebfb1dbfe9384459d92d3cb",
+    "docker_server": "29.8.0 on linux/amd64",
+    "host_cpus": "16",
+    "host_kernel": "7.0.0-38-generic",
+    "headless": true,
+    "gazebo_window": false,
+    "rviz": false,
+    "recording": false,
+    "px4_ulogs_saved": 1,
+    "scenario_exit_code": 0
+  },
+  "checks": [
+    {
+      "name": "preflight becomes green",
+      "ok": true,
+      "detail": "{'connected': 1, 'armed': 0, 'armed_stale': 0, 'armed_stale_ids': [], 'fleet_state': 'STAGED'}"
+    },
+    {
+      "name": "hover is refused while PX4 is in LAND mode, naming the flight mode",
+      "ok": true,
+      "detail": "412 {\"detail\": {\"message\": \"Single-drone sequence refused: pre-arm gates are red.\", \"profile\": \"SIMULATION\", \"blocking_reasons\": [\"EKF health & home lock \\u2014 Not armable; PX4 is in LAND, which can block arming even with a healthy EKF: set HO"
+    },
+    {
+      "name": "and PX4 stays disarmed",
+      "ok": true,
+      "detail": "armed=False"
+    },
+    {
+      "name": "land on the ground gets a definite answer (success or a stated rejection), never a silent one",
+      "ok": true,
+      "detail": "200 {\"status\": \"success\", \"message\": \"Drone 0 landing commanded on active backend (px4).\", \"backend\": \"px4\", \"mode\": \"land\", \"drone_id\": 0, \"commanded\": true, \"error\": null, \"clearance\": {\"clear\": true, \""
+    },
+    {
+      "name": "after restoring HOLD the preflight is green and a hover completes",
+      "ok": true,
+      "detail": "{'connected': 1, 'armed': 0, 'armed_stale': 0, 'armed_stale_ids': [], 'fleet_state': 'STAGED'}"
+    },
+    {
+      "name": "control hover completes",
+      "ok": true,
+      "detail": "200"
+    }
+  ],
+  "notes": {
+    "preflight_at_first_request": {
+      "http": 200,
+      "ready": true,
+      "blocking": []
+    },
+    "arm_before_preflight_green": "not exercised: preflight was already green at the first request",
+    "hover_while_px4_in_LAND_mode": {
+      "http": 412,
+      "detail": "{\"detail\": {\"message\": \"Single-drone sequence refused: pre-arm gates are red.\", \"profile\": \"SIMULATION\", \"blocking_reasons\": [\"EKF health & home lock \\u2014 Not armable; PX4 is in LAND, which can block arming even with a healthy EKF: set HOLD and re-check\"]}}"
+    },
+    "land_requested_on_the_ground_disarmed": {
+      "http": 200,
+      "body": "{\"status\": \"success\", \"message\": \"Drone 0 landing commanded on active backend (px4).\", \"backend\": \"px4\", \"mode\": \"land\", \"drone_id\": 0, \"commanded\": true, \"error\": null, \"clearance\": {\"clear\": true, \"threshold_m\": 2.0, \"mode\": \"land\", \"model\": \"vertical descent from current position (0.5-1.5 m/s)\", "
+    }
+  },
+  "exception": null,
+  "cadence": {
+    "landed_state": {
+      "items": 38,
+      "span_s": 33.8,
+      "mean_hz": 1.1,
+      "median_interval_s": 1.0,
+      "p99_interval_s": 1.0123,
+      "max_gap_s": 1.023,
+      "gaps_over_2_5s": 0,
+      "longest_run_of_identical_values": 22
+    },
+    "position_velocity_ned": {
+      "items": 1030,
+      "span_s": 34.3,
+      "mean_hz": 29.96,
+      "median_interval_s": 0.0322,
+      "p99_interval_s": 0.0374,
+      "max_gap_s": 0.089,
+      "gaps_over_2_5s": 0
+    }
+  },
+  "observer_events": [
+    [
+      1.09,
+      "connected",
+      true
+    ],
+    [
+      1.97,
+      "armed",
+      false
+    ],
+    [
+      1.97,
+      "mode",
+      "LAND"
+    ],
+    [
+      1.97,
+      "landed_state",
+      "ON_GROUND"
+    ],
+    [
+      4.96,
+      "mode",
+      "HOLD"
+    ],
+    [
+      6.96,
+      "armed",
+      true
+    ],
+    [
+      7.96,
+      "mode",
+      "OFFBOARD"
+    ],
+    [
+      8.96,
+      "landed_state",
+      "IN_AIR"
+    ],
+    [
+      17.96,
+      "mode",
+      "LAND"
+    ],
+    [
+      17.96,
+      "landed_state",
+      "LANDING"
+    ],
+    [
+      20.96,
+      "landed_state",
+      "ON_GROUND"
+    ]
+  ]
+}
