@@ -63,6 +63,13 @@ MASK_MAX_SIDE = 1024
 #: into tens of seconds of CPU.
 MAX_CONTOURS = 1000
 
+#: An image with more than this many times MAX_CONTOURS separate shapes is refused
+#: ("no clear silhouette") rather than reduced to its 1000 longest. A logo has a
+#: handful of contours, a headline a few dozen, a speckled or noisy-JPEG logo a few
+#: thousand; a photo, a noise field or a page of dense text has tens of thousands,
+#: and a formation made from the longest 1000 of those is valid but meaningless.
+REFUSE_CONTOURS_FACTOR = 10
+
 #: If the requested scale is below this fraction of what the site allows, the
 #: search for a scale that holds the count starts here instead of at the request.
 #: Growing from 1e-300 by 15% a step is thousands of pointless attempts, and the
@@ -233,6 +240,12 @@ def _extract_contours(mask: np.ndarray) -> list[np.ndarray]:
 
     padded = np.pad(mask.astype(np.float64), 1)
     lines = [line for line in contourpy.contour_generator(z=padded).lines(0.5) if len(line) >= 3]
+    if len(lines) > MAX_CONTOURS * REFUSE_CONTOURS_FACTOR:
+        raise RasterFormationError(
+            f"image has no clear silhouette: {len(lines)} separate shapes were found "
+            f"(more than {MAX_CONTOURS * REFUSE_CONTOURS_FACTOR}). Use a simple, high-contrast "
+            "image with a distinct outline, or raise the threshold to cut the background noise"
+        )
     if len(lines) > MAX_CONTOURS:
         sizes = np.fromiter((len(line) for line in lines), dtype=np.int64, count=len(lines))
         keep = np.sort(np.argsort(-sizes, kind="stable")[:MAX_CONTOURS])  # longest first, original order kept

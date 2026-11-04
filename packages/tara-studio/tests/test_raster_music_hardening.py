@@ -141,6 +141,52 @@ def test_a_noise_image_with_huge_numbers_of_contours_does_bounded_work(monkeypat
     assert calls["n"] < 10_000, f"{calls['n']} contour-length evaluations for one small image"
 
 
+def _contours_of(data: bytes) -> int:
+    import contourpy
+
+    mask = raster_formation._binary_mask(raster_formation._open_image(data), None).mask
+    return len([ln for ln in contourpy.contour_generator(z=np.pad(mask.astype(float), 1)).lines(0.5) if len(ln) >= 3])
+
+
+def test_an_image_with_no_clear_silhouette_is_refused_not_turned_into_a_meaningless_formation():
+    limit = raster_formation.MAX_CONTOURS * raster_formation.REFUSE_CONTOURS_FACTOR
+    checker = _png(Image.fromarray((((np.indices((256, 256)).sum(0)) % 2) * 255).astype(np.uint8), "L"))
+    assert _contours_of(checker) > limit
+    r = _raster(checker)
+    assert r.status_code == 400
+    assert "no clear silhouette" in r.json()["detail"]
+    # Gaussian-noise "photo": same refusal, with the number found in the message.
+    rng = np.random.default_rng(0)
+    yy, xx = np.mgrid[:700, :700]
+    photo = (128 + 60 * np.sin(xx / 37.0) + 60 * np.cos(yy / 23.0) + rng.normal(0, 18, (700, 700))).clip(0, 255).astype(np.uint8)
+    r = _raster(_png(Image.fromarray(photo, "L")))
+    assert r.status_code == 400 and "no clear silhouette" in r.json()["detail"]
+
+
+def test_a_speckled_but_clearly_shaped_image_still_works_between_the_cap_and_the_refusal():
+    """3,000 stray pixels around a disc is over the 1000-contour cap but a real silhouette:
+    the cap keeps the disc's outline (the longest contours) and the result is valid."""
+    rng = np.random.default_rng(1)
+    g = _disc(600).copy()
+    speck = rng.random((600, 600)) < 0.012
+    g[speck & (g == 0)] = 255
+    data = _png(Image.fromarray(g, "L"))
+    n = _contours_of(data)
+    assert raster_formation.MAX_CONTOURS < n <= raster_formation.MAX_CONTOURS * raster_formation.REFUSE_CONTOURS_FACTOR, n
+    r = _raster(data)
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["drone_count"] == 12 and body["min_separation_m"] >= 2.0
+
+
+@pytest.mark.parametrize("fmt,kw", [("PNG", {}), ("JPEG", {"quality": 10}), ("WEBP", {"quality": 10})])
+def test_clean_logos_are_never_refused_however_hard_they_are_compressed(fmt, kw):
+    buf = io.BytesIO()
+    Image.fromarray(_disc(1000), "L").convert("RGB").save(buf, format=fmt, **kw)
+    assert _contours_of(buf.getvalue()) < 50
+    assert _raster(buf.getvalue()).status_code == 200
+
+
 # ----------------------------------------------- 3. ordinary inputs, never a 500
 
 
