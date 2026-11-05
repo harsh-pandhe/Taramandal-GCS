@@ -1,0 +1,3017 @@
+{
+ "label": "d3-n5-r10",
+ "verdict": "CLEAN",
+ "tool_verdict": "PASS",
+ "tool_error": null,
+ "commit": "d7e7b2eb25af2f3e46db9156719089909e978f5a",
+ "run_context": {
+  "label": "d3-n5-r10",
+  "attempt": 10,
+  "commit": "d7e7b2eb25af2f3e46db9156719089909e978f5a",
+  "drones": 5,
+  "host_load_before": "2.06 6.13 6.98",
+  "host_load_at_start": "6.56 6.67 7.11",
+  "host_load_at_end": "11.00 8.82 7.87",
+  "invalid": null,
+  "planned_peaks_m": {
+   "0": 10.4,
+   "1": 13.6,
+   "2": 15.2,
+   "3": 10.5,
+   "4": 12
+  },
+  "memory": {
+   "samples": 101,
+   "vm_mem_total_mib": 3737,
+   "vm_swap_total_mib": 1023,
+   "min_available_mib": 2093,
+   "swap_out_pages_during_run": 0
+  }
+ },
+ "rule": "per drone: OFFBOARD seen by the GCS, Gazebo peak within 1.0 m of planned peak, max tracking error under 2.0 m",
+ "drones_not_flown": [],
+ "mav_sys_id_by_drone": {
+  "0": 1,
+  "1": 2,
+  "2": 3,
+  "3": 4,
+  "4": 5
+ },
+ "key_params_by_drone": {
+  "0": {
+   "COM_DISARM_PRFLT": 10.0,
+   "COM_DISARM_LAND": 2.0,
+   "COM_OF_LOSS_T": 1.0,
+   "COM_OBL_RC_ACT": 0,
+   "COM_RC_IN_MODE": 1,
+   "COM_RCL_EXCEPT": 0,
+   "NAV_RCL_ACT": 2,
+   "NAV_DLL_ACT": 2,
+   "COM_DL_LOSS_T": 10,
+   "COM_ARM_WO_GPS": 1,
+   "COM_PREARM_MODE": 0,
+   "COM_LOW_BAT_ACT": 3,
+   "COM_POS_FS_DELAY": null,
+   "COM_ARM_EKF_POS": null,
+   "COM_ARM_EKF_VEL": null,
+   "MPC_TKO_SPEED": 1.5,
+   "MPC_Z_VEL_MAX_DN": 1.5,
+   "MPC_Z_VEL_MAX_UP": 3.0,
+   "MIS_TAKEOFF_ALT": 2.5,
+   "SDLOG_MODE": 1,
+   "MAV_SYS_ID": 1,
+   "SYS_AUTOSTART": 4001
+  },
+  "1": {
+   "COM_DISARM_PRFLT": 10.0,
+   "COM_DISARM_LAND": 2.0,
+   "COM_OF_LOSS_T": 1.0,
+   "COM_OBL_RC_ACT": 0,
+   "COM_RC_IN_MODE": 1,
+   "COM_RCL_EXCEPT": 0,
+   "NAV_RCL_ACT": 2,
+   "NAV_DLL_ACT": 2,
+   "COM_DL_LOSS_T": 10,
+   "COM_ARM_WO_GPS": 1,
+   "COM_PREARM_MODE": 0,
+   "COM_LOW_BAT_ACT": 3,
+   "COM_POS_FS_DELAY": null,
+   "COM_ARM_EKF_POS": null,
+   "COM_ARM_EKF_VEL": null,
+   "MPC_TKO_SPEED": 1.5,
+   "MPC_Z_VEL_MAX_DN": 1.5,
+   "MPC_Z_VEL_MAX_UP": 3.0,
+   "MIS_TAKEOFF_ALT": 2.5,
+   "SDLOG_MODE": 1,
+   "MAV_SYS_ID": 2,
+   "SYS_AUTOSTART": 4001
+  },
+  "2": {
+   "COM_DISARM_PRFLT": 10.0,
+   "COM_DISARM_LAND": 2.0,
+   "COM_OF_LOSS_T": 1.0,
+   "COM_OBL_RC_ACT": 0,
+   "COM_RC_IN_MODE": 1,
+   "COM_RCL_EXCEPT": 0,
+   "NAV_RCL_ACT": 2,
+   "NAV_DLL_ACT": 2,
+   "COM_DL_LOSS_T": 10,
+   "COM_ARM_WO_GPS": 1,
+   "COM_PREARM_MODE": 0,
+   "COM_LOW_BAT_ACT": 3,
+   "COM_POS_FS_DELAY": null,
+   "COM_ARM_EKF_POS": null,
+   "COM_ARM_EKF_VEL": null,
+   "MPC_TKO_SPEED": 1.5,
+   "MPC_Z_VEL_MAX_DN": 1.5,
+   "MPC_Z_VEL_MAX_UP": 3.0,
+   "MIS_TAKEOFF_ALT": 2.5,
+   "SDLOG_MODE": 1,
+   "MAV_SYS_ID": 3,
+   "SYS_AUTOSTART": 4001
+  },
+  "3": {
+   "COM_DISARM_PRFLT": 10.0,
+   "COM_DISARM_LAND": 2.0,
+   "COM_OF_LOSS_T": 1.0,
+   "COM_OBL_RC_ACT": 0,
+   "COM_RC_IN_MODE": 1,
+   "COM_RCL_EXCEPT": 0,
+   "NAV_RCL_ACT": 2,
+   "NAV_DLL_ACT": 2,
+   "COM_DL_LOSS_T": 10,
+   "COM_ARM_WO_GPS": 1,
+   "COM_PREARM_MODE": 0,
+   "COM_LOW_BAT_ACT": 3,
+   "COM_POS_FS_DELAY": null,
+   "COM_ARM_EKF_POS": null,
+   "COM_ARM_EKF_VEL": null,
+   "MPC_TKO_SPEED": 1.5,
+   "MPC_Z_VEL_MAX_DN": 1.5,
+   "MPC_Z_VEL_MAX_UP": 3.0,
+   "MIS_TAKEOFF_ALT": 2.5,
+   "SDLOG_MODE": 1,
+   "MAV_SYS_ID": 4,
+   "SYS_AUTOSTART": 4001
+  },
+  "4": {
+   "COM_DISARM_PRFLT": 10.0,
+   "COM_DISARM_LAND": 2.0,
+   "COM_OF_LOSS_T": 1.0,
+   "COM_OBL_RC_ACT": 0,
+   "COM_RC_IN_MODE": 1,
+   "COM_RCL_EXCEPT": 0,
+   "NAV_RCL_ACT": 2,
+   "NAV_DLL_ACT": 2,
+   "COM_DL_LOSS_T": 10,
+   "COM_ARM_WO_GPS": 1,
+   "COM_PREARM_MODE": 0,
+   "COM_LOW_BAT_ACT": 3,
+   "COM_POS_FS_DELAY": null,
+   "COM_ARM_EKF_POS": null,
+   "COM_ARM_EKF_VEL": null,
+   "MPC_TKO_SPEED": 1.5,
+   "MPC_Z_VEL_MAX_DN": 1.5,
+   "MPC_Z_VEL_MAX_UP": 3.0,
+   "MIS_TAKEOFF_ALT": 2.5,
+   "SDLOG_MODE": 1,
+   "MAV_SYS_ID": 5,
+   "SYS_AUTOSTART": 4001
+  }
+ },
+ "params_differing_between_drones": {},
+ "param_changes_during_log": {
+  "0": [
+   {
+    "name": "COM_ARM_MAG_STR",
+    "from": 2,
+    "to": 0
+   },
+   {
+    "name": "EKF2_MAG_CHECK",
+    "from": 1,
+    "to": 0
+   },
+   {
+    "name": "COM_ARM_IMU_ACC",
+    "from": 0.699999988079071,
+    "to": 10.0
+   },
+   {
+    "name": "COM_ARM_IMU_GYR",
+    "from": 0.25,
+    "to": 10.0
+   }
+  ],
+  "1": [
+   {
+    "name": "COM_ARM_MAG_STR",
+    "from": 2,
+    "to": 0
+   },
+   {
+    "name": "EKF2_MAG_CHECK",
+    "from": 1,
+    "to": 0
+   },
+   {
+    "name": "COM_ARM_IMU_ACC",
+    "from": 0.699999988079071,
+    "to": 10.0
+   },
+   {
+    "name": "COM_ARM_IMU_GYR",
+    "from": 0.25,
+    "to": 10.0
+   }
+  ],
+  "2": [
+   {
+    "name": "COM_ARM_MAG_STR",
+    "from": 2,
+    "to": 0
+   },
+   {
+    "name": "EKF2_MAG_CHECK",
+    "from": 1,
+    "to": 0
+   },
+   {
+    "name": "COM_ARM_IMU_ACC",
+    "from": 0.699999988079071,
+    "to": 10.0
+   },
+   {
+    "name": "COM_ARM_IMU_GYR",
+    "from": 0.25,
+    "to": 10.0
+   }
+  ],
+  "3": [
+   {
+    "name": "COM_ARM_MAG_STR",
+    "from": 2,
+    "to": 0
+   },
+   {
+    "name": "EKF2_MAG_CHECK",
+    "from": 1,
+    "to": 0
+   },
+   {
+    "name": "COM_ARM_IMU_ACC",
+    "from": 0.699999988079071,
+    "to": 10.0
+   },
+   {
+    "name": "COM_ARM_IMU_GYR",
+    "from": 0.25,
+    "to": 10.0
+   }
+  ],
+  "4": [
+   {
+    "name": "COM_ARM_MAG_STR",
+    "from": 2,
+    "to": 0
+   },
+   {
+    "name": "EKF2_MAG_CHECK",
+    "from": 1,
+    "to": 0
+   },
+   {
+    "name": "COM_ARM_IMU_ACC",
+    "from": 0.699999988079071,
+    "to": 10.0
+   },
+   {
+    "name": "COM_ARM_IMU_GYR",
+    "from": 0.25,
+    "to": 10.0
+   }
+  ]
+ },
+ "blackbox_notes": [
+  "blackbox_20261104T082304_677.jsonl.gz: truncated stream (decoded what was readable)"
+ ],
+ "blackbox_events": [
+  {
+   "utc": "08:23:42.58",
+   "t": 38132,
+   "wall": 1793780622.587499,
+   "kind": "audit",
+   "backend": "px4",
+   "fidelity": "px4-sitl",
+   "operating_mode": "SIMULATION",
+   "audit_event": "login",
+   "operator": "sitl172",
+   "role": "FLIGHT_COMMANDER",
+   "origin_ip": "127.0.0.1"
+  },
+  {
+   "utc": "08:23:42.79",
+   "t": 38337,
+   "wall": 1793780622.793061,
+   "kind": "command",
+   "backend": "px4",
+   "fidelity": "px4-sitl",
+   "operating_mode": "SIMULATION",
+   "command": "/api/upload-trajectory",
+   "trigger": "POST /api/upload-trajectory",
+   "accepted": true,
+   "status": 200,
+   "operator": "sitl172",
+   "role": "FLIGHT_COMMANDER",
+   "origin_ip": "127.0.0.1"
+  },
+  {
+   "utc": "08:23:42.97",
+   "t": 38522,
+   "wall": 1793780622.9778404,
+   "kind": "command",
+   "backend": "px4",
+   "fidelity": "px4-sitl",
+   "operating_mode": "SIMULATION",
+   "command": "/api/upload-mission",
+   "trigger": "POST /api/upload-mission",
+   "accepted": true,
+   "status": 200,
+   "operator": "sitl172",
+   "role": "FLIGHT_COMMANDER",
+   "origin_ip": "127.0.0.1"
+  },
+  {
+   "utc": "08:23:44.27",
+   "t": 39819,
+   "wall": 1793780624.274701,
+   "kind": "audit",
+   "backend": "px4",
+   "fidelity": "px4-sitl",
+   "operating_mode": "SIMULATION",
+   "audit_event": "latch_requested",
+   "profile": "SIMULATION",
+   "operator": "sitl172",
+   "rules": [],
+   "reason": ""
+  },
+  {
+   "utc": "08:23:44.27",
+   "t": 39823,
+   "wall": 1793780624.2790039,
+   "kind": "command",
+   "backend": "px4",
+   "fidelity": "px4-sitl",
+   "operating_mode": "SIMULATION",
+   "command": "/api/preflight/latch/request",
+   "trigger": "POST /api/preflight/latch/request",
+   "accepted": true,
+   "status": 200,
+   "operator": "sitl172",
+   "role": "FLIGHT_COMMANDER",
+   "origin_ip": "127.0.0.1"
+  },
+  {
+   "utc": "08:23:44.31",
+   "t": 39858,
+   "wall": 1793780624.3136857,
+   "kind": "audit",
+   "backend": "px4",
+   "fidelity": "px4-sitl",
+   "operating_mode": "SIMULATION",
+   "audit_event": "latch_confirmed",
+   "profile": "SIMULATION",
+   "operator": "sitl172",
+   "requested_by": "sitl172",
+   "rules": [],
+   "reason": "",
+   "gates": {
+    "launch_permitted": true,
+    "blocking_reasons": []
+   }
+  },
+  {
+   "utc": "08:23:44.31",
+   "t": 39862,
+   "wall": 1793780624.3176162,
+   "kind": "command",
+   "backend": "px4",
+   "fidelity": "px4-sitl",
+   "operating_mode": "SIMULATION",
+   "command": "/api/preflight/latch/confirm",
+   "trigger": "POST /api/preflight/latch/confirm",
+   "accepted": true,
+   "status": 200,
+   "operator": "sitl172",
+   "role": "FLIGHT_COMMANDER",
+   "origin_ip": "127.0.0.1"
+  },
+  {
+   "utc": "08:23:44.33",
+   "t": 39881,
+   "wall": 1793780624.337035,
+   "kind": "audit",
+   "backend": "px4",
+   "fidelity": "px4-sitl",
+   "operating_mode": "SIMULATION",
+   "audit_event": "launch_authorized",
+   "profile": "SIMULATION",
+   "operator": "sitl172",
+   "drone_ids": [
+    0,
+    1,
+    2,
+    3,
+    4
+   ],
+   "excluded": [],
+   "overridden_rules": [],
+   "show_hash": "c3f31281390d9a4885a9e5cd1c896a40ff9d85de2e370e9ade5b2ba8ab953444"
+  },
+  {
+   "utc": "08:23:44.34",
+   "t": 39888,
+   "wall": 1793780624.3441238,
+   "kind": "fsm_transition",
+   "backend": "px4",
+   "fidelity": "px4-sitl",
+   "operating_mode": "SIMULATION",
+   "seq": 1,
+   "accepted": true,
+   "from": "STAGED",
+   "to": "PREARM",
+   "operator": "sitl172",
+   "trigger": "POST /api/launch"
+  },
+  {
+   "utc": "08:23:44.35",
+   "t": 39900,
+   "wall": 1793780624.356241,
+   "kind": "command",
+   "backend": "px4",
+   "fidelity": "px4-sitl",
+   "operating_mode": "SIMULATION",
+   "command": "/api/launch",
+   "trigger": "POST /api/launch",
+   "accepted": true,
+   "status": 200,
+   "operator": "sitl172",
+   "role": "FLIGHT_COMMANDER",
+   "origin_ip": "127.0.0.1"
+  },
+  {
+   "utc": "08:23:47.48",
+   "t": 43032,
+   "wall": 1793780627.4880486,
+   "kind": "fsm_transition",
+   "backend": "px4",
+   "fidelity": "px4-sitl",
+   "operating_mode": "SIMULATION",
+   "seq": 2,
+   "accepted": true,
+   "from": "PREARM",
+   "to": "ARMED",
+   "operator": "system",
+   "trigger": "telemetry:first_drone_armed"
+  },
+  {
+   "utc": "08:23:52.31",
+   "t": 47858,
+   "wall": 1793780632.31353,
+   "kind": "fsm_transition",
+   "backend": "px4",
+   "fidelity": "px4-sitl",
+   "operating_mode": "SIMULATION",
+   "seq": 3,
+   "accepted": true,
+   "from": "ARMED",
+   "to": "TAKEOFF",
+   "operator": "system",
+   "trigger": "telemetry:climbing"
+  },
+  {
+   "utc": "08:23:59.14",
+   "t": 54691,
+   "wall": 1793780639.145695,
+   "kind": "fsm_transition",
+   "backend": "px4",
+   "fidelity": "px4-sitl",
+   "operating_mode": "SIMULATION",
+   "seq": 4,
+   "accepted": true,
+   "from": "TAKEOFF",
+   "to": "FORMATION_HOLD",
+   "operator": "system",
+   "trigger": "telemetry:formation_altitude_reached"
+  },
+  {
+   "utc": "08:24:02.57",
+   "t": 58119,
+   "wall": 1793780642.5736282,
+   "kind": "fsm_transition",
+   "backend": "px4",
+   "fidelity": "px4-sitl",
+   "operating_mode": "SIMULATION",
+   "seq": 5,
+   "accepted": true,
+   "from": "FORMATION_HOLD",
+   "to": "RUNNING",
+   "operator": "sitl172",
+   "trigger": "POST /api/start-trajectory"
+  },
+  {
+   "utc": "08:24:02.58",
+   "t": 58124,
+   "wall": 1793780642.5789802,
+   "kind": "command",
+   "backend": "px4",
+   "fidelity": "px4-sitl",
+   "operating_mode": "SIMULATION",
+   "command": "/api/start-trajectory",
+   "trigger": "POST /api/start-trajectory",
+   "accepted": true,
+   "status": 200,
+   "operator": "sitl172",
+   "role": "FLIGHT_COMMANDER",
+   "origin_ip": "127.0.0.1"
+  },
+  {
+   "utc": "08:25:41.88",
+   "t": 157429,
+   "wall": 1793780741.8830795,
+   "kind": "fsm_transition",
+   "backend": "px4",
+   "fidelity": "px4-sitl",
+   "operating_mode": "SIMULATION",
+   "seq": 6,
+   "accepted": true,
+   "from": "RUNNING",
+   "to": "SHOW_COMPLETE",
+   "operator": "system",
+   "trigger": "trajectory_complete"
+  },
+  {
+   "utc": "08:26:02.55",
+   "t": 178099,
+   "wall": 1793780762.5528533,
+   "kind": "fsm_transition",
+   "backend": "px4",
+   "fidelity": "px4-sitl",
+   "operating_mode": "SIMULATION",
+   "seq": 7,
+   "accepted": true,
+   "from": "SHOW_COMPLETE",
+   "to": "LANDING",
+   "operator": "sitl172",
+   "trigger": "POST /api/land"
+  },
+  {
+   "utc": "08:26:02.61",
+   "t": 178163,
+   "wall": 1793780762.6162095,
+   "kind": "command",
+   "backend": "px4",
+   "fidelity": "px4-sitl",
+   "operating_mode": "SIMULATION",
+   "command": "/api/land",
+   "trigger": "POST /api/land",
+   "accepted": true,
+   "status": 200,
+   "operator": "sitl172",
+   "role": "FLIGHT_COMMANDER",
+   "origin_ip": "127.0.0.1"
+  },
+  {
+   "utc": "08:26:09.07",
+   "t": 184615,
+   "wall": 1793780769.0680501,
+   "kind": "fsm_transition",
+   "backend": "px4",
+   "fidelity": "px4-sitl",
+   "operating_mode": "SIMULATION",
+   "seq": 8,
+   "accepted": true,
+   "from": "LANDING",
+   "to": "DISARMED",
+   "operator": "system",
+   "trigger": "telemetry:all_disarmed"
+  }
+ ],
+ "drones": {
+  "0": {
+   "flew_show": true,
+   "offboard_seen_by_gcs": true,
+   "climbed": true,
+   "climb_source": "gazebo",
+   "peak_alt_m": 10.41,
+   "planned_peak_alt_m": 10.4,
+   "max_tracking_error_m": 0.35,
+   "gcs_modes_seen": [
+    "OFFBOARD"
+   ],
+   "blackbox": {
+    "changes": [
+     {
+      "utc": "08:23:05.56",
+      "t": 1793780585.57,
+      "connected": true,
+      "armed": false,
+      "mode": "UNKNOWN",
+      "z_m": 0.03
+     },
+     {
+      "utc": "08:23:05.87",
+      "t": 1793780585.88,
+      "connected": true,
+      "armed": false,
+      "mode": "HOLD",
+      "z_m": 0.05
+     },
+     {
+      "utc": "08:23:47.50",
+      "t": 1793780627.51,
+      "connected": true,
+      "armed": true,
+      "mode": "OFFBOARD",
+      "z_m": 0.02
+     },
+     {
+      "utc": "08:26:03.67",
+      "t": 1793780763.67,
+      "connected": true,
+      "armed": true,
+      "mode": "LAND",
+      "z_m": 0.02
+     },
+     {
+      "utc": "08:26:08.68",
+      "t": 1793780768.69,
+      "connected": true,
+      "armed": false,
+      "mode": "HOLD",
+      "z_m": 0.04
+     }
+    ],
+    "modes_seen": [
+     "HOLD",
+     "LAND",
+     "OFFBOARD",
+     "UNKNOWN"
+    ],
+    "max_z_m": 10.42,
+    "first_armed_utc": 1793780627.5072176
+   },
+   "px4_reading": {
+    "first_abnormal_event": "PX4 WARN: [health_and_arming_checks] Preflight Fail: No connection to the ground control station",
+    "first_abnormal_event_detail": {
+     "t_s": 0.772,
+     "level": "WARN",
+     "text": "[health_and_arming_checks] Preflight Fail: No connection to the ground control station",
+     "utc": "08:23:18.37"
+    },
+    "abnormal_events": [
+     "PX4 WARN: [health_and_arming_checks] Preflight Fail: No connection to the ground control station",
+     "disarmed by PX4, reason auto_disarm_land"
+    ],
+    "offboard_requests_received_by_px4": 1,
+    "offboard_request_acks": [
+     "ACCEPTED",
+     "ACCEPTED",
+     "ACCEPTED",
+     "ACCEPTED"
+    ],
+    "px4_reached_offboard": true,
+    "px4_auto_disarmed_preflight": false,
+    "px4_rejected_offboard": false,
+    "px4_never_got_offboard_request": false
+   },
+   "gcs_log_lines": [
+    "\u001b[35m[gcs-api]\u001b[0m INFO:root:Swarm re-mapper: Trajectory slot 0 \u2192 Drone 0",
+    "\u001b[35m[gcs-api]\u001b[0m INFO:root:Drone 0 waiting to become armable with home lock...",
+    "\u001b[35m[gcs-api]\u001b[0m INFO:root:Drone 0 is now armable with home position locked.",
+    "\u001b[35m[gcs-api]\u001b[0m INFO:root:Drone 0 ARMED.",
+    "\u001b[35m[gcs-api]\u001b[0m INFO:root:Drone 0 entered OFFBOARD mode.",
+    "\u001b[35m[gcs-api]\u001b[0m INFO:root:Drone 0 climbing to target hover altitude: 2.0m...",
+    "\u001b[35m[gcs-api]\u001b[0m INFO:root:Swarm re-mapper: Trajectory slot 0 \u2192 Drone 0",
+    "\u001b[35m[gcs-api]\u001b[0m Drone 0 commanded to Land."
+   ],
+   "px4": {
+    "ulogs": [
+     {
+      "file": "08_23_02.ulg",
+      "truncated": false,
+      "ver_sw": "54f0455ffcd755534539a7cf33a09a20bf71d29d",
+      "clock": "aligned on arming (GCS black-box, 0.1 s)",
+      "n_params": 1013
+     }
+    ],
+    "console_lines": [
+     "35: INFO  [init] Spawning model at position: 0 0 0.2",
+     "36: INFO  [init] Spawning model",
+     "37: INFO  [gz_bridge] world: drone_show_field, model: x500_0",
+     "40: WARN  [health_and_arming_checks] Preflight Fail: ekf2 missing data",
+     "41: WARN  [health_and_arming_checks] Preflight Fail: No connection to the ground control station",
+     "44: INFO  [mavlink] mode: Normal, data rate: 4000000 B/s on udp port 18570 remote port 14550",
+     "45: INFO  [mavlink] mode: Onboard, data rate: 4000000 B/s on udp port 14580 remote port 14540",
+     "46: INFO  [mavlink] mode: Onboard, data rate: 4000 B/s on udp port 14280 remote port 14030",
+     "47: INFO  [mavlink] mode: Gimbal, data rate: 400000 B/s on udp port 13030 remote port 13280",
+     "48: INFO  [logger] logger started (mode=all)",
+     "55: WARN  [health_and_arming_checks] Preflight Fail: No connection to the ground control station",
+     "58: INFO  [commander] Armed by external command",
+     "60: INFO  [commander] Takeoff detected",
+     "61: INFO  [commander] Landing at current position",
+     "62: INFO  [commander] Landing detected",
+     "63: INFO  [commander] Disarmed by landing"
+    ],
+    "commands": [
+     {
+      "t_s": -0.588,
+      "command": "DO_SET_ACTUATOR?",
+      "param1": -1028956052520960.0,
+      "param2": 1.0,
+      "source_system": 43,
+      "from_external": false,
+      "utc": "08:23:17.01"
+     },
+     {
+      "t_s": 29.904,
+      "command": "COMPONENT_ARM_DISARM",
+      "param1": 1.0,
+      "param2": NaN,
+      "source_system": 245,
+      "from_external": true,
+      "utc": "08:23:47.50"
+     },
+     {
+      "t_s": 29.924,
+      "command": "DO_SET_MODE",
+      "param1": 1.0,
+      "param2": 6.0,
+      "source_system": 245,
+      "from_external": true,
+      "utc": "08:23:47.52"
+     },
+     {
+      "t_s": 148.148,
+      "command": "DO_SET_MODE",
+      "param1": 129.0,
+      "param2": 4.0,
+      "source_system": 245,
+      "from_external": true,
+      "utc": "08:25:45.74"
+     },
+     {
+      "t_s": 148.156,
+      "command": "NAV_LAND",
+      "param1": NaN,
+      "param2": NaN,
+      "source_system": 245,
+      "from_external": true,
+      "utc": "08:25:45.75"
+     },
+     {
+      "t_s": 148.18,
+      "command": "INTERNAL_1001",
+      "param1": 1.0,
+      "param2": 1.0,
+      "source_system": 1,
+      "from_external": false,
+      "utc": "08:25:45.77"
+     },
+     {
+      "t_s": 148.18,
+      "command": "INTERNAL_1000",
+      "param1": NaN,
+      "param2": NaN,
+      "source_system": 1,
+      "from_external": false,
+      "utc": "08:25:45.77"
+     },
+     {
+      "t_s": 148.18,
+      "command": "INTERNAL_1001",
+      "param1": -3.0,
+      "param2": -3.0,
+      "source_system": 1,
+      "from_external": false,
+      "utc": "08:25:45.77"
+     }
+    ],
+    "acks": [
+     {
+      "t_s": -0.584,
+      "command": "DO_SET_ACTUATOR?",
+      "result": "IN_PROGRESS",
+      "result_param1": 255,
+      "utc": "08:23:17.01"
+     },
+     {
+      "t_s": 0.512,
+      "command": "DO_SET_ACTUATOR?",
+      "result": "ACCEPTED",
+      "result_param1": 0,
+      "utc": "08:23:18.11"
+     },
+     {
+      "t_s": 1.964,
+      "command": "REQUEST_MESSAGE",
+      "result": "ACCEPTED",
+      "result_param1": 0,
+      "utc": "08:23:19.56"
+     },
+     {
+      "t_s": 2.66,
+      "command": "REQUEST_MESSAGE",
+      "result": "ACCEPTED",
+      "result_param1": 0,
+      "utc": "08:23:20.25"
+     },
+     {
+      "t_s": 3.664,
+      "command": "SET_MESSAGE_INTERVAL",
+      "result": "ACCEPTED",
+      "result_param1": 0,
+      "utc": "08:23:21.26"
+     },
+     {
+      "t_s": 29.908,
+      "command": "COMPONENT_ARM_DISARM",
+      "result": "ACCEPTED",
+      "result_param1": 0,
+      "utc": "08:23:47.50"
+     },
+     {
+      "t_s": 29.924,
+      "command": "DO_SET_MODE",
+      "result": "ACCEPTED",
+      "result_param1": 0,
+      "utc": "08:23:47.52"
+     },
+     {
+      "t_s": 29.932,
+      "command": "DO_SET_MODE",
+      "result": "ACCEPTED",
+      "result_param1": 0,
+      "utc": "08:23:47.53"
+     },
+     {
+      "t_s": 148.148,
+      "command": "DO_SET_MODE",
+      "result": "ACCEPTED",
+      "result_param1": 0,
+      "utc": "08:25:45.74"
+     },
+     {
+      "t_s": 148.156,
+      "command": "DO_SET_MODE",
+      "result": "ACCEPTED",
+      "result_param1": 0,
+      "utc": "08:25:45.75"
+     },
+     {
+      "t_s": 148.168,
+      "command": "NAV_LAND",
+      "result": "ACCEPTED",
+      "result_param1": 0,
+      "utc": "08:25:45.76"
+     }
+    ],
+    "status_changes": [
+     {
+      "t_s": -0.444,
+      "arming_state": "DISARMED",
+      "nav_state": "AUTO_LOITER(HOLD)",
+      "nav_state_user_intention": "AUTO_LOITER(HOLD)",
+      "latest_arming_reason": "transition_to_standby",
+      "latest_disarming_reason": "transition_to_standby",
+      "failsafe": false,
+      "utc": "08:23:17.15"
+     },
+     {
+      "t_s": 29.908,
+      "arming_state": "ARMED",
+      "nav_state": "AUTO_LOITER(HOLD)",
+      "nav_state_user_intention": "AUTO_LOITER(HOLD)",
+      "latest_arming_reason": "command_external",
+      "latest_disarming_reason": "transition_to_standby",
+      "failsafe": false,
+      "utc": "08:23:47.50"
+     },
+     {
+      "t_s": 29.944,
+      "arming_state": "ARMED",
+      "nav_state": "OFFBOARD",
+      "nav_state_user_intention": "OFFBOARD",
+      "latest_arming_reason": "command_external",
+      "latest_disarming_reason": "transition_to_standby",
+      "failsafe": false,
+      "utc": "08:23:47.54"
+     },
+     {
+      "t_s": 148.168,
+      "arming_state": "ARMED",
+      "nav_state": "AUTO_LOITER(HOLD)",
+      "nav_state_user_intention": "AUTO_LOITER(HOLD)",
+      "latest_arming_reason": "command_external",
+      "latest_disarming_reason": "transition_to_standby",
+      "failsafe": false,
+      "utc": "08:25:45.76"
+     },
+     {
+      "t_s": 148.18,
+      "arming_state": "ARMED",
+      "nav_state": "AUTO_LAND",
+      "nav_state_user_intention": "AUTO_LAND",
+      "latest_arming_reason": "command_external",
+      "latest_disarming_reason": "transition_to_standby",
+      "failsafe": false,
+      "utc": "08:25:45.77"
+     },
+     {
+      "t_s": 151.6,
+      "arming_state": "DISARMED",
+      "nav_state": "AUTO_LOITER(HOLD)",
+      "nav_state_user_intention": "AUTO_LOITER(HOLD)",
+      "latest_arming_reason": "command_external",
+      "latest_disarming_reason": "auto_disarm_land",
+      "failsafe": false,
+      "utc": "08:25:49.19"
+     }
+    ],
+    "messages": [
+     {
+      "t_s": -0.004,
+      "level": "INFO",
+      "text": "[logger] logger started (mode=all)",
+      "utc": "08:23:17.59"
+     },
+     {
+      "t_s": 0.0,
+      "level": "INFO",
+      "text": "[logger] Start file log (type: full)",
+      "utc": "08:23:17.59"
+     },
+     {
+      "t_s": 0.0,
+      "level": "INFO",
+      "text": "[logger] [logger] ./log/2026-11-04/08_23_02.ulg",
+      "utc": "08:23:17.59"
+     },
+     {
+      "t_s": 0.0,
+      "level": "INFO",
+      "text": "[logger] Opened full log file: ./log/2026-11-04/08_23_02.ulg",
+      "utc": "08:23:17.59"
+     },
+     {
+      "t_s": 0.004,
+      "level": "INFO",
+      "text": "[mavlink] MAVLink only on localhost (set param MAV_{i}_BROADCAST = 1 to enable network)",
+      "utc": "08:23:17.60"
+     },
+     {
+      "t_s": 0.004,
+      "level": "INFO",
+      "text": "[mavlink] MAVLink only on localhost (set param MAV_{i}_BROADCAST = 1 to enable network)",
+      "utc": "08:23:17.60"
+     },
+     {
+      "t_s": 0.02,
+      "level": "INFO",
+      "text": "[px4] Startup script returned successfully",
+      "utc": "08:23:17.61"
+     },
+     {
+      "t_s": 0.772,
+      "level": "WARN",
+      "text": "[health_and_arming_checks] Preflight Fail: No connection to the ground control station",
+      "utc": "08:23:18.37"
+     },
+     {
+      "t_s": 1.664,
+      "level": "INFO",
+      "text": "[mavlink] partner IP: 127.0.0.1",
+      "utc": "08:23:19.26"
+     },
+     {
+      "t_s": 1.672,
+      "level": "INFO",
+      "text": "[commander] \u001b[32mReady for takeoff!\u001b[0m",
+      "utc": "08:23:19.27"
+     },
+     {
+      "t_s": 29.908,
+      "level": "INFO",
+      "text": "[commander] Armed by external command",
+      "utc": "08:23:47.50"
+     },
+     {
+      "t_s": 29.908,
+      "level": "INFO",
+      "text": "[tone_alarm] arming warning",
+      "utc": "08:23:47.50"
+     },
+     {
+      "t_s": 31.66,
+      "level": "INFO",
+      "text": "[commander] Takeoff detected",
+      "utc": "08:23:49.25"
+     },
+     {
+      "t_s": 148.168,
+      "level": "INFO",
+      "text": "[commander] Landing at current position",
+      "utc": "08:25:45.76"
+     },
+     {
+      "t_s": 149.596,
+      "level": "INFO",
+      "text": "[commander] Landing detected",
+      "utc": "08:25:47.19"
+     },
+     {
+      "t_s": 151.6,
+      "level": "INFO",
+      "text": "[commander] Disarmed by landing",
+      "utc": "08:25:49.19"
+     },
+     {
+      "t_s": 151.6,
+      "level": "INFO",
+      "text": "[tone_alarm] notify neutral",
+      "utc": "08:25:49.19"
+     }
+    ],
+    "key_params": {
+     "COM_DISARM_PRFLT": 10.0,
+     "COM_DISARM_LAND": 2.0,
+     "COM_OF_LOSS_T": 1.0,
+     "COM_OBL_RC_ACT": 0,
+     "COM_RC_IN_MODE": 1,
+     "COM_RCL_EXCEPT": 0,
+     "NAV_RCL_ACT": 2,
+     "NAV_DLL_ACT": 2,
+     "COM_DL_LOSS_T": 10,
+     "COM_ARM_WO_GPS": 1,
+     "COM_PREARM_MODE": 0,
+     "COM_LOW_BAT_ACT": 3,
+     "COM_POS_FS_DELAY": null,
+     "COM_ARM_EKF_POS": null,
+     "COM_ARM_EKF_VEL": null,
+     "MPC_TKO_SPEED": 1.5,
+     "MPC_Z_VEL_MAX_DN": 1.5,
+     "MPC_Z_VEL_MAX_UP": 3.0,
+     "MIS_TAKEOFF_ALT": 2.5,
+     "SDLOG_MODE": 1,
+     "MAV_SYS_ID": 1,
+     "SYS_AUTOSTART": 4001
+    },
+    "param_changes_during_log": [
+     {
+      "name": "COM_ARM_MAG_STR",
+      "from": 2,
+      "to": 0
+     },
+     {
+      "name": "EKF2_MAG_CHECK",
+      "from": 1,
+      "to": 0
+     },
+     {
+      "name": "COM_ARM_IMU_ACC",
+      "from": 0.699999988079071,
+      "to": 10.0
+     },
+     {
+      "name": "COM_ARM_IMU_GYR",
+      "from": 0.25,
+      "to": 10.0
+     }
+    ]
+   }
+  },
+  "1": {
+   "flew_show": true,
+   "offboard_seen_by_gcs": true,
+   "climbed": true,
+   "climb_source": "gazebo",
+   "peak_alt_m": 13.62,
+   "planned_peak_alt_m": 13.6,
+   "max_tracking_error_m": 0.4,
+   "gcs_modes_seen": [
+    "OFFBOARD"
+   ],
+   "blackbox": {
+    "changes": [
+     {
+      "utc": "08:23:13.70",
+      "t": 1793780593.7,
+      "connected": true,
+      "armed": false,
+      "mode": "UNKNOWN",
+      "z_m": 0.03
+     },
+     {
+      "utc": "08:23:15.29",
+      "t": 1793780595.3,
+      "connected": true,
+      "armed": false,
+      "mode": "HOLD",
+      "z_m": 0.03
+     },
+     {
+      "utc": "08:23:47.87",
+      "t": 1793780627.87,
+      "connected": true,
+      "armed": true,
+      "mode": "OFFBOARD",
+      "z_m": -0.02
+     },
+     {
+      "utc": "08:26:03.98",
+      "t": 1793780763.99,
+      "connected": true,
+      "armed": true,
+      "mode": "LAND",
+      "z_m": -0.02
+     },
+     {
+      "utc": "08:26:09.09",
+      "t": 1793780769.1,
+      "connected": true,
+      "armed": false,
+      "mode": "HOLD",
+      "z_m": -0.02
+     }
+    ],
+    "modes_seen": [
+     "HOLD",
+     "LAND",
+     "OFFBOARD",
+     "UNKNOWN"
+    ],
+    "max_z_m": 13.61,
+    "first_armed_utc": 1793780627.8702176
+   },
+   "px4_reading": {
+    "first_abnormal_event": "disarmed by PX4, reason auto_disarm_land",
+    "first_abnormal_event_detail": {
+     "t_s": 145.44,
+     "arming_state": "DISARMED",
+     "nav_state": "AUTO_LOITER(HOLD)",
+     "nav_state_user_intention": "AUTO_LOITER(HOLD)",
+     "latest_arming_reason": "command_external",
+     "latest_disarming_reason": "auto_disarm_land",
+     "failsafe": false,
+     "utc": "08:25:49.46"
+    },
+    "abnormal_events": [
+     "disarmed by PX4, reason auto_disarm_land"
+    ],
+    "offboard_requests_received_by_px4": 1,
+    "offboard_request_acks": [
+     "ACCEPTED",
+     "ACCEPTED",
+     "ACCEPTED",
+     "ACCEPTED"
+    ],
+    "px4_reached_offboard": true,
+    "px4_auto_disarmed_preflight": false,
+    "px4_rejected_offboard": false,
+    "px4_never_got_offboard_request": false
+   },
+   "gcs_log_lines": [
+    "\u001b[35m[gcs-api]\u001b[0m INFO:root:Swarm re-mapper: Trajectory slot 1 \u2192 Drone 1",
+    "\u001b[35m[gcs-api]\u001b[0m INFO:root:Drone 1 waiting to become armable with home lock...",
+    "\u001b[35m[gcs-api]\u001b[0m INFO:root:Drone 1 is now armable with home position locked.",
+    "\u001b[35m[gcs-api]\u001b[0m INFO:root:Drone 1 ARMED.",
+    "\u001b[35m[gcs-api]\u001b[0m INFO:root:Drone 1 entered OFFBOARD mode.",
+    "\u001b[35m[gcs-api]\u001b[0m INFO:root:Drone 1 climbing to target hover altitude: 4.0m...",
+    "\u001b[35m[gcs-api]\u001b[0m INFO:root:Swarm re-mapper: Trajectory slot 1 \u2192 Drone 1",
+    "\u001b[35m[gcs-api]\u001b[0m Drone 1 commanded to Land."
+   ],
+   "px4": {
+    "ulogs": [
+     {
+      "file": "08_23_09.ulg",
+      "truncated": false,
+      "ver_sw": "54f0455ffcd755534539a7cf33a09a20bf71d29d",
+      "clock": "aligned on arming (GCS black-box, 0.1 s)",
+      "n_params": 1013
+     }
+    ],
+    "console_lines": [
+     "37: INFO  [init] Spawning model at position: 2.2 0 0.2",
+     "38: INFO  [init] Spawning model",
+     "40: INFO  [gz_bridge] world: drone_show_field, model: x500_1",
+     "42: WARN  [health_and_arming_checks] Preflight Fail: ekf2 missing data",
+     "43: WARN  [health_and_arming_checks] Preflight Fail: No connection to the ground control station",
+     "46: INFO  [mavlink] mode: Normal, data rate: 4000000 B/s on udp port 18571 remote port 14550",
+     "47: INFO  [mavlink] mode: Onboard, data rate: 4000000 B/s on udp port 14581 remote port 14541",
+     "49: INFO  [mavlink] mode: Onboard, data rate: 4000 B/s on udp port 14281 remote port 14031",
+     "50: INFO  [mavlink] mode: Gimbal, data rate: 400000 B/s on udp port 13031 remote port 13281",
+     "51: INFO  [logger] logger started (mode=all)",
+     "59: INFO  [commander] Armed by external command",
+     "61: INFO  [commander] Takeoff detected",
+     "62: INFO  [commander] Landing at current position",
+     "63: INFO  [commander] Landing detected",
+     "64: INFO  [commander] Disarmed by landing"
+    ],
+    "commands": [
+     {
+      "t_s": -0.456,
+      "command": "DO_SET_ACTUATOR?",
+      "param1": 2.061214967400773e-28,
+      "param2": 1.0,
+      "source_system": 4,
+      "from_external": false,
+      "utc": "08:23:23.57"
+     },
+     {
+      "t_s": 23.84,
+      "command": "COMPONENT_ARM_DISARM",
+      "param1": 1.0,
+      "param2": NaN,
+      "source_system": 245,
+      "from_external": true,
+      "utc": "08:23:47.86"
+     },
+     {
+      "t_s": 23.86,
+      "command": "DO_SET_MODE",
+      "param1": 1.0,
+      "param2": 6.0,
+      "source_system": 245,
+      "from_external": true,
+      "utc": "08:23:47.88"
+     },
+     {
+      "t_s": 141.888,
+      "command": "DO_SET_MODE",
+      "param1": 129.0,
+      "param2": 4.0,
+      "source_system": 245,
+      "from_external": true,
+      "utc": "08:25:45.91"
+     },
+     {
+      "t_s": 141.9,
+      "command": "NAV_LAND",
+      "param1": NaN,
+      "param2": NaN,
+      "source_system": 245,
+      "from_external": true,
+      "utc": "08:25:45.92"
+     },
+     {
+      "t_s": 141.924,
+      "command": "INTERNAL_1001",
+      "param1": 2.0,
+      "param2": 1.0,
+      "source_system": 2,
+      "from_external": false,
+      "utc": "08:25:45.95"
+     },
+     {
+      "t_s": 141.924,
+      "command": "INTERNAL_1000",
+      "param1": NaN,
+      "param2": NaN,
+      "source_system": 2,
+      "from_external": false,
+      "utc": "08:25:45.95"
+     },
+     {
+      "t_s": 141.924,
+      "command": "INTERNAL_1001",
+      "param1": -3.0,
+      "param2": -3.0,
+      "source_system": 2,
+      "from_external": false,
+      "utc": "08:25:45.95"
+     }
+    ],
+    "acks": [
+     {
+      "t_s": -0.452,
+      "command": "DO_SET_ACTUATOR?",
+      "result": "IN_PROGRESS",
+      "result_param1": 255,
+      "utc": "08:23:23.57"
+     },
+     {
+      "t_s": 0.644,
+      "command": "DO_SET_ACTUATOR?",
+      "result": "ACCEPTED",
+      "result_param1": 0,
+      "utc": "08:23:24.67"
+     },
+     {
+      "t_s": 0.88,
+      "command": "REQUEST_MESSAGE",
+      "result": "ACCEPTED",
+      "result_param1": 0,
+      "utc": "08:23:24.90"
+     },
+     {
+      "t_s": 2.9,
+      "command": "REQUEST_MESSAGE",
+      "result": "ACCEPTED",
+      "result_param1": 0,
+      "utc": "08:23:26.92"
+     },
+     {
+      "t_s": 3.428,
+      "command": "SET_MESSAGE_INTERVAL",
+      "result": "ACCEPTED",
+      "result_param1": 0,
+      "utc": "08:23:27.45"
+     },
+     {
+      "t_s": 23.844,
+      "command": "COMPONENT_ARM_DISARM",
+      "result": "ACCEPTED",
+      "result_param1": 0,
+      "utc": "08:23:47.87"
+     },
+     {
+      "t_s": 23.86,
+      "command": "DO_SET_MODE",
+      "result": "ACCEPTED",
+      "result_param1": 0,
+      "utc": "08:23:47.88"
+     },
+     {
+      "t_s": 23.868,
+      "command": "DO_SET_MODE",
+      "result": "ACCEPTED",
+      "result_param1": 0,
+      "utc": "08:23:47.89"
+     },
+     {
+      "t_s": 141.888,
+      "command": "DO_SET_MODE",
+      "result": "ACCEPTED",
+      "result_param1": 0,
+      "utc": "08:25:45.91"
+     },
+     {
+      "t_s": 141.9,
+      "command": "DO_SET_MODE",
+      "result": "ACCEPTED",
+      "result_param1": 0,
+      "utc": "08:25:45.92"
+     },
+     {
+      "t_s": 141.912,
+      "command": "NAV_LAND",
+      "result": "ACCEPTED",
+      "result_param1": 0,
+      "utc": "08:25:45.93"
+     }
+    ],
+    "status_changes": [
+     {
+      "t_s": -0.156,
+      "arming_state": "DISARMED",
+      "nav_state": "AUTO_LOITER(HOLD)",
+      "nav_state_user_intention": "AUTO_LOITER(HOLD)",
+      "latest_arming_reason": "transition_to_standby",
+      "latest_disarming_reason": "transition_to_standby",
+      "failsafe": false,
+      "utc": "08:23:23.87"
+     },
+     {
+      "t_s": 23.844,
+      "arming_state": "ARMED",
+      "nav_state": "AUTO_LOITER(HOLD)",
+      "nav_state_user_intention": "AUTO_LOITER(HOLD)",
+      "latest_arming_reason": "command_external",
+      "latest_disarming_reason": "transition_to_standby",
+      "failsafe": false,
+      "utc": "08:23:47.87"
+     },
+     {
+      "t_s": 23.88,
+      "arming_state": "ARMED",
+      "nav_state": "OFFBOARD",
+      "nav_state_user_intention": "OFFBOARD",
+      "latest_arming_reason": "command_external",
+      "latest_disarming_reason": "transition_to_standby",
+      "failsafe": false,
+      "utc": "08:23:47.90"
+     },
+     {
+      "t_s": 141.912,
+      "arming_state": "ARMED",
+      "nav_state": "AUTO_LOITER(HOLD)",
+      "nav_state_user_intention": "AUTO_LOITER(HOLD)",
+      "latest_arming_reason": "command_external",
+      "latest_disarming_reason": "transition_to_standby",
+      "failsafe": false,
+      "utc": "08:25:45.93"
+     },
+     {
+      "t_s": 141.924,
+      "arming_state": "ARMED",
+      "nav_state": "AUTO_LAND",
+      "nav_state_user_intention": "AUTO_LAND",
+      "latest_arming_reason": "command_external",
+      "latest_disarming_reason": "transition_to_standby",
+      "failsafe": false,
+      "utc": "08:25:45.95"
+     },
+     {
+      "t_s": 145.44,
+      "arming_state": "DISARMED",
+      "nav_state": "AUTO_LOITER(HOLD)",
+      "nav_state_user_intention": "AUTO_LOITER(HOLD)",
+      "latest_arming_reason": "command_external",
+      "latest_disarming_reason": "auto_disarm_land",
+      "failsafe": false,
+      "utc": "08:25:49.46"
+     }
+    ],
+    "messages": [
+     {
+      "t_s": -0.004,
+      "level": "INFO",
+      "text": "[logger] logger started (mode=all)",
+      "utc": "08:23:24.02"
+     },
+     {
+      "t_s": 0.0,
+      "level": "INFO",
+      "text": "[logger] Start file log (type: full)",
+      "utc": "08:23:24.02"
+     },
+     {
+      "t_s": 0.0,
+      "level": "INFO",
+      "text": "[logger] [logger] ./log/2026-11-04/08_23_09.ulg",
+      "utc": "08:23:24.02"
+     },
+     {
+      "t_s": 0.0,
+      "level": "INFO",
+      "text": "[logger] Opened full log file: ./log/2026-11-04/08_23_09.ulg",
+      "utc": "08:23:24.02"
+     },
+     {
+      "t_s": 0.028,
+      "level": "INFO",
+      "text": "[mavlink] MAVLink only on localhost (set param MAV_{i}_BROADCAST = 1 to enable network)",
+      "utc": "08:23:24.05"
+     },
+     {
+      "t_s": 0.028,
+      "level": "INFO",
+      "text": "[mavlink] MAVLink only on localhost (set param MAV_{i}_BROADCAST = 1 to enable network)",
+      "utc": "08:23:24.05"
+     },
+     {
+      "t_s": 0.06,
+      "level": "INFO",
+      "text": "[px4] Startup script returned successfully",
+      "utc": "08:23:24.08"
+     },
+     {
+      "t_s": 1.788,
+      "level": "INFO",
+      "text": "[commander] \u001b[32mReady for takeoff!\u001b[0m",
+      "utc": "08:23:25.81"
+     },
+     {
+      "t_s": 23.844,
+      "level": "INFO",
+      "text": "[commander] Armed by external command",
+      "utc": "08:23:47.87"
+     },
+     {
+      "t_s": 23.844,
+      "level": "INFO",
+      "text": "[tone_alarm] arming warning",
+      "utc": "08:23:47.87"
+     },
+     {
+      "t_s": 25.608,
+      "level": "INFO",
+      "text": "[commander] Takeoff detected",
+      "utc": "08:23:49.63"
+     },
+     {
+      "t_s": 141.912,
+      "level": "INFO",
+      "text": "[commander] Landing at current position",
+      "utc": "08:25:45.93"
+     },
+     {
+      "t_s": 143.436,
+      "level": "INFO",
+      "text": "[commander] Landing detected",
+      "utc": "08:25:47.46"
+     },
+     {
+      "t_s": 145.44,
+      "level": "INFO",
+      "text": "[commander] Disarmed by landing",
+      "utc": "08:25:49.46"
+     },
+     {
+      "t_s": 145.44,
+      "level": "INFO",
+      "text": "[tone_alarm] notify neutral",
+      "utc": "08:25:49.46"
+     }
+    ],
+    "key_params": {
+     "COM_DISARM_PRFLT": 10.0,
+     "COM_DISARM_LAND": 2.0,
+     "COM_OF_LOSS_T": 1.0,
+     "COM_OBL_RC_ACT": 0,
+     "COM_RC_IN_MODE": 1,
+     "COM_RCL_EXCEPT": 0,
+     "NAV_RCL_ACT": 2,
+     "NAV_DLL_ACT": 2,
+     "COM_DL_LOSS_T": 10,
+     "COM_ARM_WO_GPS": 1,
+     "COM_PREARM_MODE": 0,
+     "COM_LOW_BAT_ACT": 3,
+     "COM_POS_FS_DELAY": null,
+     "COM_ARM_EKF_POS": null,
+     "COM_ARM_EKF_VEL": null,
+     "MPC_TKO_SPEED": 1.5,
+     "MPC_Z_VEL_MAX_DN": 1.5,
+     "MPC_Z_VEL_MAX_UP": 3.0,
+     "MIS_TAKEOFF_ALT": 2.5,
+     "SDLOG_MODE": 1,
+     "MAV_SYS_ID": 2,
+     "SYS_AUTOSTART": 4001
+    },
+    "param_changes_during_log": [
+     {
+      "name": "COM_ARM_MAG_STR",
+      "from": 2,
+      "to": 0
+     },
+     {
+      "name": "EKF2_MAG_CHECK",
+      "from": 1,
+      "to": 0
+     },
+     {
+      "name": "COM_ARM_IMU_ACC",
+      "from": 0.699999988079071,
+      "to": 10.0
+     },
+     {
+      "name": "COM_ARM_IMU_GYR",
+      "from": 0.25,
+      "to": 10.0
+     }
+    ]
+   }
+  },
+  "2": {
+   "flew_show": true,
+   "offboard_seen_by_gcs": true,
+   "climbed": true,
+   "climb_source": "gazebo",
+   "peak_alt_m": 15.22,
+   "planned_peak_alt_m": 15.2,
+   "max_tracking_error_m": 0.325,
+   "gcs_modes_seen": [
+    "OFFBOARD"
+   ],
+   "blackbox": {
+    "changes": [
+     {
+      "utc": "08:23:12.87",
+      "t": 1793780592.88,
+      "connected": false,
+      "armed": false,
+      "mode": "UNKNOWN",
+      "z_m": 0.0
+     },
+     {
+      "utc": "08:23:12.98",
+      "t": 1793780592.98,
+      "connected": true,
+      "armed": false,
+      "mode": "UNKNOWN",
+      "z_m": 0.01
+     },
+     {
+      "utc": "08:23:13.29",
+      "t": 1793780593.29,
+      "connected": true,
+      "armed": false,
+      "mode": "HOLD",
+      "z_m": 0.01
+     },
+     {
+      "utc": "08:23:48.90",
+      "t": 1793780628.9,
+      "connected": true,
+      "armed": true,
+      "mode": "OFFBOARD",
+      "z_m": -0.02
+     },
+     {
+      "utc": "08:26:03.57",
+      "t": 1793780763.57,
+      "connected": true,
+      "armed": true,
+      "mode": "LAND",
+      "z_m": 0.0
+     },
+     {
+      "utc": "08:26:08.58",
+      "t": 1793780768.58,
+      "connected": true,
+      "armed": false,
+      "mode": "HOLD",
+      "z_m": 0.01
+     }
+    ],
+    "modes_seen": [
+     "HOLD",
+     "LAND",
+     "OFFBOARD",
+     "UNKNOWN"
+    ],
+    "max_z_m": 15.2,
+    "first_armed_utc": 1793780628.9002175
+   },
+   "px4_reading": {
+    "first_abnormal_event": "disarmed by PX4, reason auto_disarm_land",
+    "first_abnormal_event_detail": {
+     "t_s": 144.764,
+     "arming_state": "DISARMED",
+     "nav_state": "AUTO_LOITER(HOLD)",
+     "nav_state_user_intention": "AUTO_LOITER(HOLD)",
+     "latest_arming_reason": "command_external",
+     "latest_disarming_reason": "auto_disarm_land",
+     "failsafe": false,
+     "utc": "08:25:49.76"
+    },
+    "abnormal_events": [
+     "disarmed by PX4, reason auto_disarm_land"
+    ],
+    "offboard_requests_received_by_px4": 1,
+    "offboard_request_acks": [
+     "ACCEPTED",
+     "ACCEPTED",
+     "ACCEPTED",
+     "ACCEPTED"
+    ],
+    "px4_reached_offboard": true,
+    "px4_auto_disarmed_preflight": false,
+    "px4_rejected_offboard": false,
+    "px4_never_got_offboard_request": false
+   },
+   "gcs_log_lines": [
+    "\u001b[35m[gcs-api]\u001b[0m INFO:root:Swarm re-mapper: Trajectory slot 2 \u2192 Drone 2",
+    "\u001b[35m[gcs-api]\u001b[0m INFO:root:Drone 2 waiting to become armable with home lock...",
+    "\u001b[35m[gcs-api]\u001b[0m INFO:root:Drone 2 is now armable with home position locked.",
+    "\u001b[35m[gcs-api]\u001b[0m INFO:root:Drone 2 ARMED.",
+    "\u001b[35m[gcs-api]\u001b[0m INFO:root:Drone 2 entered OFFBOARD mode.",
+    "\u001b[35m[gcs-api]\u001b[0m INFO:root:Drone 2 climbing to target hover altitude: 6.0m...",
+    "\u001b[35m[gcs-api]\u001b[0m INFO:root:Swarm re-mapper: Trajectory slot 2 \u2192 Drone 2",
+    "\u001b[35m[gcs-api]\u001b[0m Drone 2 commanded to Land."
+   ],
+   "px4": {
+    "ulogs": [
+     {
+      "file": "08_23_10.ulg",
+      "truncated": false,
+      "ver_sw": "54f0455ffcd755534539a7cf33a09a20bf71d29d",
+      "clock": "aligned on arming (GCS black-box, 0.1 s)",
+      "n_params": 1013
+     }
+    ],
+    "console_lines": [
+     "37: INFO  [init] Spawning model at position: 4.4 0 0.2",
+     "38: INFO  [init] Spawning model",
+     "39: INFO  [gz_bridge] world: drone_show_field, model: x500_2",
+     "42: WARN  [health_and_arming_checks] Preflight Fail: ekf2 missing data",
+     "43: WARN  [health_and_arming_checks] Preflight Fail: No connection to the ground control station",
+     "46: INFO  [mavlink] mode: Normal, data rate: 4000000 B/s on udp port 18572 remote port 14550",
+     "47: INFO  [mavlink] mode: Onboard, data rate: 4000000 B/s on udp port 14582 remote port 14542",
+     "49: INFO  [mavlink] mode: Onboard, data rate: 4000 B/s on udp port 14282 remote port 14032",
+     "50: INFO  [mavlink] mode: Gimbal, data rate: 400000 B/s on udp port 13032 remote port 13282",
+     "51: INFO  [logger] logger started (mode=all)",
+     "59: INFO  [commander] Armed by external command",
+     "61: INFO  [commander] Takeoff detected",
+     "62: INFO  [commander] Landing at current position",
+     "63: INFO  [commander] Landing detected",
+     "64: INFO  [commander] Disarmed by landing"
+    ],
+    "commands": [
+     {
+      "t_s": -0.544,
+      "command": "DO_SET_ACTUATOR?",
+      "param1": -46.5987548828125,
+      "param2": 1.0,
+      "source_system": 88,
+      "from_external": false,
+      "utc": "08:23:24.45"
+     },
+     {
+      "t_s": 23.9,
+      "command": "COMPONENT_ARM_DISARM",
+      "param1": 1.0,
+      "param2": NaN,
+      "source_system": 245,
+      "from_external": true,
+      "utc": "08:23:48.89"
+     },
+     {
+      "t_s": 23.916,
+      "command": "DO_SET_MODE",
+      "param1": 1.0,
+      "param2": 6.0,
+      "source_system": 245,
+      "from_external": true,
+      "utc": "08:23:48.91"
+     },
+     {
+      "t_s": 141.252,
+      "command": "DO_SET_MODE",
+      "param1": 129.0,
+      "param2": 4.0,
+      "source_system": 245,
+      "from_external": true,
+      "utc": "08:25:46.24"
+     },
+     {
+      "t_s": 141.264,
+      "command": "NAV_LAND",
+      "param1": NaN,
+      "param2": NaN,
+      "source_system": 245,
+      "from_external": true,
+      "utc": "08:25:46.26"
+     },
+     {
+      "t_s": 141.284,
+      "command": "INTERNAL_1001",
+      "param1": 3.0,
+      "param2": 1.0,
+      "source_system": 3,
+      "from_external": false,
+      "utc": "08:25:46.28"
+     },
+     {
+      "t_s": 141.284,
+      "command": "INTERNAL_1000",
+      "param1": NaN,
+      "param2": NaN,
+      "source_system": 3,
+      "from_external": false,
+      "utc": "08:25:46.28"
+     },
+     {
+      "t_s": 141.284,
+      "command": "INTERNAL_1001",
+      "param1": -3.0,
+      "param2": -3.0,
+      "source_system": 3,
+      "from_external": false,
+      "utc": "08:25:46.28"
+     }
+    ],
+    "acks": [
+     {
+      "t_s": -0.54,
+      "command": "DO_SET_ACTUATOR?",
+      "result": "IN_PROGRESS",
+      "result_param1": 255,
+      "utc": "08:23:24.45"
+     },
+     {
+      "t_s": 0.556,
+      "command": "DO_SET_ACTUATOR?",
+      "result": "ACCEPTED",
+      "result_param1": 0,
+      "utc": "08:23:25.55"
+     },
+     {
+      "t_s": 0.96,
+      "command": "REQUEST_MESSAGE",
+      "result": "ACCEPTED",
+      "result_param1": 0,
+      "utc": "08:23:25.95"
+     },
+     {
+      "t_s": 1.624,
+      "command": "REQUEST_MESSAGE",
+      "result": "ACCEPTED",
+      "result_param1": 0,
+      "utc": "08:23:26.62"
+     },
+     {
+      "t_s": 2.312,
+      "command": "SET_MESSAGE_INTERVAL",
+      "result": "ACCEPTED",
+      "result_param1": 0,
+      "utc": "08:23:27.30"
+     },
+     {
+      "t_s": 23.904,
+      "command": "COMPONENT_ARM_DISARM",
+      "result": "ACCEPTED",
+      "result_param1": 0,
+      "utc": "08:23:48.90"
+     },
+     {
+      "t_s": 23.916,
+      "command": "DO_SET_MODE",
+      "result": "ACCEPTED",
+      "result_param1": 0,
+      "utc": "08:23:48.91"
+     },
+     {
+      "t_s": 23.928,
+      "command": "DO_SET_MODE",
+      "result": "ACCEPTED",
+      "result_param1": 0,
+      "utc": "08:23:48.92"
+     },
+     {
+      "t_s": 141.252,
+      "command": "DO_SET_MODE",
+      "result": "ACCEPTED",
+      "result_param1": 0,
+      "utc": "08:25:46.24"
+     },
+     {
+      "t_s": 141.26,
+      "command": "DO_SET_MODE",
+      "result": "ACCEPTED",
+      "result_param1": 0,
+      "utc": "08:25:46.25"
+     },
+     {
+      "t_s": 141.272,
+      "command": "NAV_LAND",
+      "result": "ACCEPTED",
+      "result_param1": 0,
+      "utc": "08:25:46.26"
+     }
+    ],
+    "status_changes": [
+     {
+      "t_s": -0.096,
+      "arming_state": "DISARMED",
+      "nav_state": "AUTO_LOITER(HOLD)",
+      "nav_state_user_intention": "AUTO_LOITER(HOLD)",
+      "latest_arming_reason": "transition_to_standby",
+      "latest_disarming_reason": "transition_to_standby",
+      "failsafe": false,
+      "utc": "08:23:24.90"
+     },
+     {
+      "t_s": 23.904,
+      "arming_state": "ARMED",
+      "nav_state": "AUTO_LOITER(HOLD)",
+      "nav_state_user_intention": "AUTO_LOITER(HOLD)",
+      "latest_arming_reason": "command_external",
+      "latest_disarming_reason": "transition_to_standby",
+      "failsafe": false,
+      "utc": "08:23:48.90"
+     },
+     {
+      "t_s": 23.94,
+      "arming_state": "ARMED",
+      "nav_state": "OFFBOARD",
+      "nav_state_user_intention": "OFFBOARD",
+      "latest_arming_reason": "command_external",
+      "latest_disarming_reason": "transition_to_standby",
+      "failsafe": false,
+      "utc": "08:23:48.93"
+     },
+     {
+      "t_s": 141.272,
+      "arming_state": "ARMED",
+      "nav_state": "AUTO_LOITER(HOLD)",
+      "nav_state_user_intention": "AUTO_LOITER(HOLD)",
+      "latest_arming_reason": "command_external",
+      "latest_disarming_reason": "transition_to_standby",
+      "failsafe": false,
+      "utc": "08:25:46.26"
+     },
+     {
+      "t_s": 141.284,
+      "arming_state": "ARMED",
+      "nav_state": "AUTO_LAND",
+      "nav_state_user_intention": "AUTO_LAND",
+      "latest_arming_reason": "command_external",
+      "latest_disarming_reason": "transition_to_standby",
+      "failsafe": false,
+      "utc": "08:25:46.28"
+     },
+     {
+      "t_s": 144.764,
+      "arming_state": "DISARMED",
+      "nav_state": "AUTO_LOITER(HOLD)",
+      "nav_state_user_intention": "AUTO_LOITER(HOLD)",
+      "latest_arming_reason": "command_external",
+      "latest_disarming_reason": "auto_disarm_land",
+      "failsafe": false,
+      "utc": "08:25:49.76"
+     }
+    ],
+    "messages": [
+     {
+      "t_s": 0.0,
+      "level": "INFO",
+      "text": "[logger] logger started (mode=all)",
+      "utc": "08:23:24.99"
+     },
+     {
+      "t_s": 0.0,
+      "level": "INFO",
+      "text": "[logger] Start file log (type: full)",
+      "utc": "08:23:24.99"
+     },
+     {
+      "t_s": 0.0,
+      "level": "INFO",
+      "text": "[logger] [logger] ./log/2026-11-04/08_23_10.ulg",
+      "utc": "08:23:24.99"
+     },
+     {
+      "t_s": 0.0,
+      "level": "INFO",
+      "text": "[logger] Opened full log file: ./log/2026-11-04/08_23_10.ulg",
+      "utc": "08:23:24.99"
+     },
+     {
+      "t_s": 0.008,
+      "level": "INFO",
+      "text": "[mavlink] MAVLink only on localhost (set param MAV_{i}_BROADCAST = 1 to enable network)",
+      "utc": "08:23:25.00"
+     },
+     {
+      "t_s": 0.008,
+      "level": "INFO",
+      "text": "[mavlink] MAVLink only on localhost (set param MAV_{i}_BROADCAST = 1 to enable network)",
+      "utc": "08:23:25.00"
+     },
+     {
+      "t_s": 0.032,
+      "level": "INFO",
+      "text": "[px4] Startup script returned successfully",
+      "utc": "08:23:25.02"
+     },
+     {
+      "t_s": 1.74,
+      "level": "INFO",
+      "text": "[commander] \u001b[32mReady for takeoff!\u001b[0m",
+      "utc": "08:23:26.73"
+     },
+     {
+      "t_s": 23.904,
+      "level": "INFO",
+      "text": "[commander] Armed by external command",
+      "utc": "08:23:48.90"
+     },
+     {
+      "t_s": 23.904,
+      "level": "INFO",
+      "text": "[tone_alarm] arming warning",
+      "utc": "08:23:48.90"
+     },
+     {
+      "t_s": 25.668,
+      "level": "INFO",
+      "text": "[commander] Takeoff detected",
+      "utc": "08:23:50.66"
+     },
+     {
+      "t_s": 141.272,
+      "level": "INFO",
+      "text": "[commander] Landing at current position",
+      "utc": "08:25:46.26"
+     },
+     {
+      "t_s": 142.76,
+      "level": "INFO",
+      "text": "[commander] Landing detected",
+      "utc": "08:25:47.75"
+     },
+     {
+      "t_s": 144.764,
+      "level": "INFO",
+      "text": "[commander] Disarmed by landing",
+      "utc": "08:25:49.76"
+     },
+     {
+      "t_s": 144.764,
+      "level": "INFO",
+      "text": "[tone_alarm] notify neutral",
+      "utc": "08:25:49.76"
+     }
+    ],
+    "key_params": {
+     "COM_DISARM_PRFLT": 10.0,
+     "COM_DISARM_LAND": 2.0,
+     "COM_OF_LOSS_T": 1.0,
+     "COM_OBL_RC_ACT": 0,
+     "COM_RC_IN_MODE": 1,
+     "COM_RCL_EXCEPT": 0,
+     "NAV_RCL_ACT": 2,
+     "NAV_DLL_ACT": 2,
+     "COM_DL_LOSS_T": 10,
+     "COM_ARM_WO_GPS": 1,
+     "COM_PREARM_MODE": 0,
+     "COM_LOW_BAT_ACT": 3,
+     "COM_POS_FS_DELAY": null,
+     "COM_ARM_EKF_POS": null,
+     "COM_ARM_EKF_VEL": null,
+     "MPC_TKO_SPEED": 1.5,
+     "MPC_Z_VEL_MAX_DN": 1.5,
+     "MPC_Z_VEL_MAX_UP": 3.0,
+     "MIS_TAKEOFF_ALT": 2.5,
+     "SDLOG_MODE": 1,
+     "MAV_SYS_ID": 3,
+     "SYS_AUTOSTART": 4001
+    },
+    "param_changes_during_log": [
+     {
+      "name": "COM_ARM_MAG_STR",
+      "from": 2,
+      "to": 0
+     },
+     {
+      "name": "EKF2_MAG_CHECK",
+      "from": 1,
+      "to": 0
+     },
+     {
+      "name": "COM_ARM_IMU_ACC",
+      "from": 0.699999988079071,
+      "to": 10.0
+     },
+     {
+      "name": "COM_ARM_IMU_GYR",
+      "from": 0.25,
+      "to": 10.0
+     }
+    ]
+   }
+  },
+  "3": {
+   "flew_show": true,
+   "offboard_seen_by_gcs": true,
+   "climbed": true,
+   "climb_source": "gazebo",
+   "peak_alt_m": 10.41,
+   "planned_peak_alt_m": 10.5,
+   "max_tracking_error_m": 0.441,
+   "gcs_modes_seen": [
+    "OFFBOARD"
+   ],
+   "blackbox": {
+    "changes": [
+     {
+      "utc": "08:23:19.36",
+      "t": 1793780599.37,
+      "connected": true,
+      "armed": false,
+      "mode": "UNKNOWN",
+      "z_m": 0.0
+     },
+     {
+      "utc": "08:23:20.87",
+      "t": 1793780600.87,
+      "connected": true,
+      "armed": false,
+      "mode": "HOLD",
+      "z_m": 0.02
+     },
+     {
+      "utc": "08:23:50.29",
+      "t": 1793780630.29,
+      "connected": true,
+      "armed": true,
+      "mode": "OFFBOARD",
+      "z_m": 0.04
+     },
+     {
+      "utc": "08:26:03.46",
+      "t": 1793780763.47,
+      "connected": true,
+      "armed": true,
+      "mode": "LAND",
+      "z_m": 0.02
+     },
+     {
+      "utc": "08:26:08.47",
+      "t": 1793780768.48,
+      "connected": true,
+      "armed": false,
+      "mode": "HOLD",
+      "z_m": 0.03
+     }
+    ],
+    "modes_seen": [
+     "HOLD",
+     "LAND",
+     "OFFBOARD",
+     "UNKNOWN"
+    ],
+    "max_z_m": 10.47,
+    "first_armed_utc": 1793780630.2942176
+   },
+   "px4_reading": {
+    "first_abnormal_event": "disarmed by PX4, reason auto_disarm_land",
+    "first_abnormal_event_detail": {
+     "t_s": 142.64,
+     "arming_state": "DISARMED",
+     "nav_state": "AUTO_LOITER(HOLD)",
+     "nav_state_user_intention": "AUTO_LOITER(HOLD)",
+     "latest_arming_reason": "command_external",
+     "latest_disarming_reason": "auto_disarm_land",
+     "failsafe": false,
+     "utc": "08:25:50.13"
+    },
+    "abnormal_events": [
+     "disarmed by PX4, reason auto_disarm_land"
+    ],
+    "offboard_requests_received_by_px4": 1,
+    "offboard_request_acks": [
+     "ACCEPTED",
+     "ACCEPTED",
+     "ACCEPTED",
+     "ACCEPTED"
+    ],
+    "px4_reached_offboard": true,
+    "px4_auto_disarmed_preflight": false,
+    "px4_rejected_offboard": false,
+    "px4_never_got_offboard_request": false
+   },
+   "gcs_log_lines": [
+    "\u001b[35m[gcs-api]\u001b[0m INFO:root:Swarm re-mapper: Trajectory slot 3 \u2192 Drone 3",
+    "\u001b[35m[gcs-api]\u001b[0m INFO:root:Drone 3 waiting to become armable with home lock...",
+    "\u001b[35m[gcs-api]\u001b[0m INFO:root:Drone 3 is now armable with home position locked.",
+    "\u001b[35m[gcs-api]\u001b[0m INFO:root:Drone 3 ARMED.",
+    "\u001b[35m[gcs-api]\u001b[0m INFO:root:Drone 3 entered OFFBOARD mode.",
+    "\u001b[35m[gcs-api]\u001b[0m INFO:root:Drone 3 climbing to target hover altitude: 8.0m...",
+    "\u001b[35m[gcs-api]\u001b[0m INFO:root:Swarm re-mapper: Trajectory slot 3 \u2192 Drone 3",
+    "\u001b[35m[gcs-api]\u001b[0m Drone 3 commanded to Land."
+   ],
+   "px4": {
+    "ulogs": [
+     {
+      "file": "08_23_13.ulg",
+      "truncated": false,
+      "ver_sw": "54f0455ffcd755534539a7cf33a09a20bf71d29d",
+      "clock": "aligned on arming (GCS black-box, 0.1 s)",
+      "n_params": 1013
+     }
+    ],
+    "console_lines": [
+     "37: INFO  [init] Spawning model at position: 6.6 0 0.2",
+     "38: INFO  [init] Spawning model",
+     "39: INFO  [gz_bridge] world: drone_show_field, model: x500_3",
+     "42: WARN  [health_and_arming_checks] Preflight Fail: ekf2 missing data",
+     "43: WARN  [health_and_arming_checks] Preflight Fail: No connection to the ground control station",
+     "46: INFO  [mavlink] mode: Normal, data rate: 4000000 B/s on udp port 18573 remote port 14550",
+     "47: INFO  [mavlink] mode: Onboard, data rate: 4000000 B/s on udp port 14583 remote port 14543",
+     "49: INFO  [mavlink] mode: Onboard, data rate: 4000 B/s on udp port 14283 remote port 14033",
+     "50: INFO  [mavlink] mode: Gimbal, data rate: 400000 B/s on udp port 13033 remote port 13283",
+     "51: INFO  [logger] logger started (mode=all)",
+     "59: INFO  [commander] Armed by external command",
+     "61: INFO  [commander] Takeoff detected",
+     "62: INFO  [commander] Landing at current position",
+     "63: INFO  [commander] Landing detected",
+     "64: INFO  [commander] Disarmed by landing"
+    ],
+    "commands": [
+     {
+      "t_s": -0.652,
+      "command": "DO_SET_ACTUATOR?",
+      "param1": 8.766336313830302e+35,
+      "param2": 1.0,
+      "source_system": 164,
+      "from_external": false,
+      "utc": "08:23:26.84"
+     },
+     {
+      "t_s": 22.792,
+      "command": "COMPONENT_ARM_DISARM",
+      "param1": 1.0,
+      "param2": NaN,
+      "source_system": 245,
+      "from_external": true,
+      "utc": "08:23:50.28"
+     },
+     {
+      "t_s": 22.812,
+      "command": "DO_SET_MODE",
+      "param1": 1.0,
+      "param2": 6.0,
+      "source_system": 245,
+      "from_external": true,
+      "utc": "08:23:50.30"
+     },
+     {
+      "t_s": 139.204,
+      "command": "DO_SET_MODE",
+      "param1": 129.0,
+      "param2": 4.0,
+      "source_system": 245,
+      "from_external": true,
+      "utc": "08:25:46.69"
+     },
+     {
+      "t_s": 139.216,
+      "command": "NAV_LAND",
+      "param1": NaN,
+      "param2": NaN,
+      "source_system": 245,
+      "from_external": true,
+      "utc": "08:25:46.71"
+     },
+     {
+      "t_s": 139.232,
+      "command": "INTERNAL_1001",
+      "param1": 4.0,
+      "param2": 1.0,
+      "source_system": 4,
+      "from_external": false,
+      "utc": "08:25:46.72"
+     },
+     {
+      "t_s": 139.232,
+      "command": "INTERNAL_1000",
+      "param1": NaN,
+      "param2": NaN,
+      "source_system": 4,
+      "from_external": false,
+      "utc": "08:25:46.72"
+     },
+     {
+      "t_s": 139.232,
+      "command": "INTERNAL_1001",
+      "param1": -3.0,
+      "param2": -3.0,
+      "source_system": 4,
+      "from_external": false,
+      "utc": "08:25:46.72"
+     }
+    ],
+    "acks": [
+     {
+      "t_s": -0.648,
+      "command": "DO_SET_ACTUATOR?",
+      "result": "IN_PROGRESS",
+      "result_param1": 255,
+      "utc": "08:23:26.84"
+     },
+     {
+      "t_s": 0.448,
+      "command": "DO_SET_ACTUATOR?",
+      "result": "ACCEPTED",
+      "result_param1": 0,
+      "utc": "08:23:27.94"
+     },
+     {
+      "t_s": 0.808,
+      "command": "REQUEST_MESSAGE",
+      "result": "ACCEPTED",
+      "result_param1": 0,
+      "utc": "08:23:28.30"
+     },
+     {
+      "t_s": 3.844,
+      "command": "REQUEST_MESSAGE",
+      "result": "ACCEPTED",
+      "result_param1": 0,
+      "utc": "08:23:31.33"
+     },
+     {
+      "t_s": 4.484,
+      "command": "SET_MESSAGE_INTERVAL",
+      "result": "ACCEPTED",
+      "result_param1": 0,
+      "utc": "08:23:31.97"
+     },
+     {
+      "t_s": 22.8,
+      "command": "COMPONENT_ARM_DISARM",
+      "result": "ACCEPTED",
+      "result_param1": 0,
+      "utc": "08:23:50.29"
+     },
+     {
+      "t_s": 22.812,
+      "command": "DO_SET_MODE",
+      "result": "ACCEPTED",
+      "result_param1": 0,
+      "utc": "08:23:50.30"
+     },
+     {
+      "t_s": 22.824,
+      "command": "DO_SET_MODE",
+      "result": "ACCEPTED",
+      "result_param1": 0,
+      "utc": "08:23:50.31"
+     },
+     {
+      "t_s": 139.204,
+      "command": "DO_SET_MODE",
+      "result": "ACCEPTED",
+      "result_param1": 0,
+      "utc": "08:25:46.69"
+     },
+     {
+      "t_s": 139.208,
+      "command": "DO_SET_MODE",
+      "result": "ACCEPTED",
+      "result_param1": 0,
+      "utc": "08:25:46.70"
+     },
+     {
+      "t_s": 139.22,
+      "command": "NAV_LAND",
+      "result": "ACCEPTED",
+      "result_param1": 0,
+      "utc": "08:25:46.71"
+     }
+    ],
+    "status_changes": [
+     {
+      "t_s": -0.204,
+      "arming_state": "DISARMED",
+      "nav_state": "AUTO_LOITER(HOLD)",
+      "nav_state_user_intention": "AUTO_LOITER(HOLD)",
+      "latest_arming_reason": "transition_to_standby",
+      "latest_disarming_reason": "transition_to_standby",
+      "failsafe": false,
+      "utc": "08:23:27.29"
+     },
+     {
+      "t_s": 22.8,
+      "arming_state": "ARMED",
+      "nav_state": "AUTO_LOITER(HOLD)",
+      "nav_state_user_intention": "AUTO_LOITER(HOLD)",
+      "latest_arming_reason": "command_external",
+      "latest_disarming_reason": "transition_to_standby",
+      "failsafe": false,
+      "utc": "08:23:50.29"
+     },
+     {
+      "t_s": 22.836,
+      "arming_state": "ARMED",
+      "nav_state": "OFFBOARD",
+      "nav_state_user_intention": "OFFBOARD",
+      "latest_arming_reason": "command_external",
+      "latest_disarming_reason": "transition_to_standby",
+      "failsafe": false,
+      "utc": "08:23:50.33"
+     },
+     {
+      "t_s": 139.22,
+      "arming_state": "ARMED",
+      "nav_state": "AUTO_LOITER(HOLD)",
+      "nav_state_user_intention": "AUTO_LOITER(HOLD)",
+      "latest_arming_reason": "command_external",
+      "latest_disarming_reason": "transition_to_standby",
+      "failsafe": false,
+      "utc": "08:25:46.71"
+     },
+     {
+      "t_s": 139.232,
+      "arming_state": "ARMED",
+      "nav_state": "AUTO_LAND",
+      "nav_state_user_intention": "AUTO_LAND",
+      "latest_arming_reason": "command_external",
+      "latest_disarming_reason": "transition_to_standby",
+      "failsafe": false,
+      "utc": "08:25:46.72"
+     },
+     {
+      "t_s": 142.64,
+      "arming_state": "DISARMED",
+      "nav_state": "AUTO_LOITER(HOLD)",
+      "nav_state_user_intention": "AUTO_LOITER(HOLD)",
+      "latest_arming_reason": "command_external",
+      "latest_disarming_reason": "auto_disarm_land",
+      "failsafe": false,
+      "utc": "08:25:50.13"
+     }
+    ],
+    "messages": [
+     {
+      "t_s": -0.004,
+      "level": "INFO",
+      "text": "[logger] logger started (mode=all)",
+      "utc": "08:23:27.49"
+     },
+     {
+      "t_s": 0.0,
+      "level": "INFO",
+      "text": "[logger] Start file log (type: full)",
+      "utc": "08:23:27.49"
+     },
+     {
+      "t_s": 0.0,
+      "level": "INFO",
+      "text": "[logger] [logger] ./log/2026-11-04/08_23_13.ulg",
+      "utc": "08:23:27.49"
+     },
+     {
+      "t_s": 0.0,
+      "level": "INFO",
+      "text": "[logger] Opened full log file: ./log/2026-11-04/08_23_13.ulg",
+      "utc": "08:23:27.49"
+     },
+     {
+      "t_s": 0.016,
+      "level": "INFO",
+      "text": "[mavlink] MAVLink only on localhost (set param MAV_{i}_BROADCAST = 1 to enable network)",
+      "utc": "08:23:27.51"
+     },
+     {
+      "t_s": 0.016,
+      "level": "INFO",
+      "text": "[mavlink] MAVLink only on localhost (set param MAV_{i}_BROADCAST = 1 to enable network)",
+      "utc": "08:23:27.51"
+     },
+     {
+      "t_s": 0.036,
+      "level": "INFO",
+      "text": "[px4] Startup script returned successfully",
+      "utc": "08:23:27.53"
+     },
+     {
+      "t_s": 1.74,
+      "level": "INFO",
+      "text": "[commander] \u001b[32mReady for takeoff!\u001b[0m",
+      "utc": "08:23:29.23"
+     },
+     {
+      "t_s": 22.8,
+      "level": "INFO",
+      "text": "[commander] Armed by external command",
+      "utc": "08:23:50.29"
+     },
+     {
+      "t_s": 22.8,
+      "level": "INFO",
+      "text": "[tone_alarm] arming warning",
+      "utc": "08:23:50.29"
+     },
+     {
+      "t_s": 24.552,
+      "level": "INFO",
+      "text": "[commander] Takeoff detected",
+      "utc": "08:23:52.04"
+     },
+     {
+      "t_s": 139.22,
+      "level": "INFO",
+      "text": "[commander] Landing at current position",
+      "utc": "08:25:46.71"
+     },
+     {
+      "t_s": 140.636,
+      "level": "INFO",
+      "text": "[commander] Landing detected",
+      "utc": "08:25:48.13"
+     },
+     {
+      "t_s": 142.64,
+      "level": "INFO",
+      "text": "[commander] Disarmed by landing",
+      "utc": "08:25:50.13"
+     },
+     {
+      "t_s": 142.64,
+      "level": "INFO",
+      "text": "[tone_alarm] notify neutral",
+      "utc": "08:25:50.13"
+     }
+    ],
+    "key_params": {
+     "COM_DISARM_PRFLT": 10.0,
+     "COM_DISARM_LAND": 2.0,
+     "COM_OF_LOSS_T": 1.0,
+     "COM_OBL_RC_ACT": 0,
+     "COM_RC_IN_MODE": 1,
+     "COM_RCL_EXCEPT": 0,
+     "NAV_RCL_ACT": 2,
+     "NAV_DLL_ACT": 2,
+     "COM_DL_LOSS_T": 10,
+     "COM_ARM_WO_GPS": 1,
+     "COM_PREARM_MODE": 0,
+     "COM_LOW_BAT_ACT": 3,
+     "COM_POS_FS_DELAY": null,
+     "COM_ARM_EKF_POS": null,
+     "COM_ARM_EKF_VEL": null,
+     "MPC_TKO_SPEED": 1.5,
+     "MPC_Z_VEL_MAX_DN": 1.5,
+     "MPC_Z_VEL_MAX_UP": 3.0,
+     "MIS_TAKEOFF_ALT": 2.5,
+     "SDLOG_MODE": 1,
+     "MAV_SYS_ID": 4,
+     "SYS_AUTOSTART": 4001
+    },
+    "param_changes_during_log": [
+     {
+      "name": "COM_ARM_MAG_STR",
+      "from": 2,
+      "to": 0
+     },
+     {
+      "name": "EKF2_MAG_CHECK",
+      "from": 1,
+      "to": 0
+     },
+     {
+      "name": "COM_ARM_IMU_ACC",
+      "from": 0.699999988079071,
+      "to": 10.0
+     },
+     {
+      "name": "COM_ARM_IMU_GYR",
+      "from": 0.25,
+      "to": 10.0
+     }
+    ]
+   }
+  },
+  "4": {
+   "flew_show": true,
+   "offboard_seen_by_gcs": true,
+   "climbed": true,
+   "climb_source": "gazebo",
+   "peak_alt_m": 11.99,
+   "planned_peak_alt_m": 12.0,
+   "max_tracking_error_m": 0.487,
+   "gcs_modes_seen": [
+    "OFFBOARD"
+   ],
+   "blackbox": {
+    "changes": [
+     {
+      "utc": "08:23:19.47",
+      "t": 1793780599.47,
+      "connected": true,
+      "armed": false,
+      "mode": "UNKNOWN",
+      "z_m": -0.06
+     },
+     {
+      "utc": "08:23:19.67",
+      "t": 1793780599.68,
+      "connected": true,
+      "armed": false,
+      "mode": "HOLD",
+      "z_m": -0.06
+     },
+     {
+      "utc": "08:23:50.70",
+      "t": 1793780630.7,
+      "connected": true,
+      "armed": true,
+      "mode": "OFFBOARD",
+      "z_m": -0.01
+     },
+     {
+      "utc": "08:26:03.77",
+      "t": 1793780763.78,
+      "connected": true,
+      "armed": true,
+      "mode": "LAND",
+      "z_m": 0.0
+     },
+     {
+      "utc": "08:26:08.78",
+      "t": 1793780768.79,
+      "connected": true,
+      "armed": false,
+      "mode": "HOLD",
+      "z_m": 0.01
+     }
+    ],
+    "modes_seen": [
+     "HOLD",
+     "LAND",
+     "OFFBOARD",
+     "UNKNOWN"
+    ],
+    "max_z_m": 12.01,
+    "first_armed_utc": 1793780630.7042174
+   },
+   "px4_reading": {
+    "first_abnormal_event": "disarmed by PX4, reason auto_disarm_land",
+    "first_abnormal_event_detail": {
+     "t_s": 140.5,
+     "arming_state": "DISARMED",
+     "nav_state": "AUTO_LOITER(HOLD)",
+     "nav_state_user_intention": "AUTO_LOITER(HOLD)",
+     "latest_arming_reason": "command_external",
+     "latest_disarming_reason": "auto_disarm_land",
+     "failsafe": false,
+     "utc": "08:25:50.38"
+    },
+    "abnormal_events": [
+     "disarmed by PX4, reason auto_disarm_land"
+    ],
+    "offboard_requests_received_by_px4": 1,
+    "offboard_request_acks": [
+     "ACCEPTED",
+     "ACCEPTED",
+     "ACCEPTED",
+     "ACCEPTED"
+    ],
+    "px4_reached_offboard": true,
+    "px4_auto_disarmed_preflight": false,
+    "px4_rejected_offboard": false,
+    "px4_never_got_offboard_request": false
+   },
+   "gcs_log_lines": [
+    "\u001b[35m[gcs-api]\u001b[0m INFO:root:Swarm re-mapper: Trajectory slot 4 \u2192 Drone 4",
+    "\u001b[35m[gcs-api]\u001b[0m INFO:root:Drone 4 waiting to become armable with home lock...",
+    "\u001b[35m[gcs-api]\u001b[0m INFO:root:Drone 4 is now armable with home position locked.",
+    "\u001b[35m[gcs-api]\u001b[0m INFO:root:Drone 4 ARMED.",
+    "\u001b[35m[gcs-api]\u001b[0m INFO:root:Drone 4 entered OFFBOARD mode.",
+    "\u001b[35m[gcs-api]\u001b[0m INFO:root:Drone 4 climbing to target hover altitude: 10.0m...",
+    "\u001b[35m[gcs-api]\u001b[0m INFO:root:Swarm re-mapper: Trajectory slot 4 \u2192 Drone 4",
+    "\u001b[35m[gcs-api]\u001b[0m Drone 4 commanded to Land."
+   ],
+   "px4": {
+    "ulogs": [
+     {
+      "file": "08_23_16.ulg",
+      "truncated": false,
+      "ver_sw": "54f0455ffcd755534539a7cf33a09a20bf71d29d",
+      "clock": "aligned on arming (GCS black-box, 0.1 s)",
+      "n_params": 1013
+     }
+    ],
+    "console_lines": [
+     "37: INFO  [init] Spawning model at position: 8.8 0 0.2",
+     "38: INFO  [init] Spawning model",
+     "39: INFO  [gz_bridge] world: drone_show_field, model: x500_4",
+     "42: WARN  [health_and_arming_checks] Preflight Fail: ekf2 missing data",
+     "43: WARN  [health_and_arming_checks] Preflight Fail: No connection to the ground control station",
+     "46: INFO  [mavlink] mode: Normal, data rate: 4000000 B/s on udp port 18574 remote port 14550",
+     "47: INFO  [mavlink] mode: Onboard, data rate: 4000000 B/s on udp port 14584 remote port 14544",
+     "49: INFO  [mavlink] mode: Onboard, data rate: 4000 B/s on udp port 14284 remote port 14034",
+     "50: INFO  [mavlink] mode: Gimbal, data rate: 400000 B/s on udp port 13034 remote port 13284",
+     "51: INFO  [logger] logger started (mode=all)",
+     "59: INFO  [commander] Armed by external command",
+     "61: INFO  [commander] Takeoff detected",
+     "62: INFO  [commander] Landing at current position",
+     "63: INFO  [commander] Landing detected",
+     "64: INFO  [commander] Disarmed by landing"
+    ],
+    "commands": [
+     {
+      "t_s": -0.528,
+      "command": "DO_SET_ACTUATOR?",
+      "param1": 7.516243122272174e-34,
+      "param2": 1.0,
+      "source_system": 175,
+      "from_external": false,
+      "utc": "08:23:29.35"
+     },
+     {
+      "t_s": 20.812,
+      "command": "COMPONENT_ARM_DISARM",
+      "param1": 1.0,
+      "param2": NaN,
+      "source_system": 245,
+      "from_external": true,
+      "utc": "08:23:50.69"
+     },
+     {
+      "t_s": 20.836,
+      "command": "DO_SET_MODE",
+      "param1": 1.0,
+      "param2": 6.0,
+      "source_system": 245,
+      "from_external": true,
+      "utc": "08:23:50.71"
+     },
+     {
+      "t_s": 137.016,
+      "command": "DO_SET_MODE",
+      "param1": 129.0,
+      "param2": 4.0,
+      "source_system": 245,
+      "from_external": true,
+      "utc": "08:25:46.89"
+     },
+     {
+      "t_s": 137.028,
+      "command": "NAV_LAND",
+      "param1": NaN,
+      "param2": NaN,
+      "source_system": 245,
+      "from_external": true,
+      "utc": "08:25:46.90"
+     },
+     {
+      "t_s": 137.044,
+      "command": "INTERNAL_1001",
+      "param1": 5.0,
+      "param2": 1.0,
+      "source_system": 5,
+      "from_external": false,
+      "utc": "08:25:46.92"
+     },
+     {
+      "t_s": 137.044,
+      "command": "INTERNAL_1000",
+      "param1": NaN,
+      "param2": NaN,
+      "source_system": 5,
+      "from_external": false,
+      "utc": "08:25:46.92"
+     },
+     {
+      "t_s": 137.044,
+      "command": "INTERNAL_1001",
+      "param1": -3.0,
+      "param2": -3.0,
+      "source_system": 5,
+      "from_external": false,
+      "utc": "08:25:46.92"
+     }
+    ],
+    "acks": [
+     {
+      "t_s": -0.524,
+      "command": "DO_SET_ACTUATOR?",
+      "result": "IN_PROGRESS",
+      "result_param1": 255,
+      "utc": "08:23:29.35"
+     },
+     {
+      "t_s": 0.572,
+      "command": "DO_SET_ACTUATOR?",
+      "result": "ACCEPTED",
+      "result_param1": 0,
+      "utc": "08:23:30.45"
+     },
+     {
+      "t_s": 0.816,
+      "command": "REQUEST_MESSAGE",
+      "result": "ACCEPTED",
+      "result_param1": 0,
+      "utc": "08:23:30.69"
+     },
+     {
+      "t_s": 1.688,
+      "command": "REQUEST_MESSAGE",
+      "result": "ACCEPTED",
+      "result_param1": 0,
+      "utc": "08:23:31.56"
+     },
+     {
+      "t_s": 2.336,
+      "command": "SET_MESSAGE_INTERVAL",
+      "result": "ACCEPTED",
+      "result_param1": 0,
+      "utc": "08:23:32.21"
+     },
+     {
+      "t_s": 20.824,
+      "command": "COMPONENT_ARM_DISARM",
+      "result": "ACCEPTED",
+      "result_param1": 0,
+      "utc": "08:23:50.70"
+     },
+     {
+      "t_s": 20.836,
+      "command": "DO_SET_MODE",
+      "result": "ACCEPTED",
+      "result_param1": 0,
+      "utc": "08:23:50.71"
+     },
+     {
+      "t_s": 20.848,
+      "command": "DO_SET_MODE",
+      "result": "ACCEPTED",
+      "result_param1": 0,
+      "utc": "08:23:50.72"
+     },
+     {
+      "t_s": 137.016,
+      "command": "DO_SET_MODE",
+      "result": "ACCEPTED",
+      "result_param1": 0,
+      "utc": "08:25:46.89"
+     },
+     {
+      "t_s": 137.02,
+      "command": "DO_SET_MODE",
+      "result": "ACCEPTED",
+      "result_param1": 0,
+      "utc": "08:25:46.90"
+     },
+     {
+      "t_s": 137.032,
+      "command": "NAV_LAND",
+      "result": "ACCEPTED",
+      "result_param1": 0,
+      "utc": "08:25:46.91"
+     }
+    ],
+    "status_changes": [
+     {
+      "t_s": -0.188,
+      "arming_state": "DISARMED",
+      "nav_state": "AUTO_LOITER(HOLD)",
+      "nav_state_user_intention": "AUTO_LOITER(HOLD)",
+      "latest_arming_reason": "transition_to_standby",
+      "latest_disarming_reason": "transition_to_standby",
+      "failsafe": false,
+      "utc": "08:23:29.69"
+     },
+     {
+      "t_s": 20.824,
+      "arming_state": "ARMED",
+      "nav_state": "AUTO_LOITER(HOLD)",
+      "nav_state_user_intention": "AUTO_LOITER(HOLD)",
+      "latest_arming_reason": "command_external",
+      "latest_disarming_reason": "transition_to_standby",
+      "failsafe": false,
+      "utc": "08:23:50.70"
+     },
+     {
+      "t_s": 20.86,
+      "arming_state": "ARMED",
+      "nav_state": "OFFBOARD",
+      "nav_state_user_intention": "OFFBOARD",
+      "latest_arming_reason": "command_external",
+      "latest_disarming_reason": "transition_to_standby",
+      "failsafe": false,
+      "utc": "08:23:50.74"
+     },
+     {
+      "t_s": 137.032,
+      "arming_state": "ARMED",
+      "nav_state": "AUTO_LOITER(HOLD)",
+      "nav_state_user_intention": "AUTO_LOITER(HOLD)",
+      "latest_arming_reason": "command_external",
+      "latest_disarming_reason": "transition_to_standby",
+      "failsafe": false,
+      "utc": "08:25:46.91"
+     },
+     {
+      "t_s": 137.044,
+      "arming_state": "ARMED",
+      "nav_state": "AUTO_LAND",
+      "nav_state_user_intention": "AUTO_LAND",
+      "latest_arming_reason": "command_external",
+      "latest_disarming_reason": "transition_to_standby",
+      "failsafe": false,
+      "utc": "08:25:46.92"
+     },
+     {
+      "t_s": 140.5,
+      "arming_state": "DISARMED",
+      "nav_state": "AUTO_LOITER(HOLD)",
+      "nav_state_user_intention": "AUTO_LOITER(HOLD)",
+      "latest_arming_reason": "command_external",
+      "latest_disarming_reason": "auto_disarm_land",
+      "failsafe": false,
+      "utc": "08:25:50.38"
+     }
+    ],
+    "messages": [
+     {
+      "t_s": -0.004,
+      "level": "INFO",
+      "text": "[logger] logger started (mode=all)",
+      "utc": "08:23:29.87"
+     },
+     {
+      "t_s": 0.0,
+      "level": "INFO",
+      "text": "[logger] Start file log (type: full)",
+      "utc": "08:23:29.88"
+     },
+     {
+      "t_s": 0.0,
+      "level": "INFO",
+      "text": "[logger] [logger] ./log/2026-11-04/08_23_16.ulg",
+      "utc": "08:23:29.88"
+     },
+     {
+      "t_s": 0.0,
+      "level": "INFO",
+      "text": "[logger] Opened full log file: ./log/2026-11-04/08_23_16.ulg",
+      "utc": "08:23:29.88"
+     },
+     {
+      "t_s": 0.016,
+      "level": "INFO",
+      "text": "[mavlink] MAVLink only on localhost (set param MAV_{i}_BROADCAST = 1 to enable network)",
+      "utc": "08:23:29.89"
+     },
+     {
+      "t_s": 0.016,
+      "level": "INFO",
+      "text": "[mavlink] MAVLink only on localhost (set param MAV_{i}_BROADCAST = 1 to enable network)",
+      "utc": "08:23:29.89"
+     },
+     {
+      "t_s": 0.04,
+      "level": "INFO",
+      "text": "[px4] Startup script returned successfully",
+      "utc": "08:23:29.92"
+     },
+     {
+      "t_s": 1.648,
+      "level": "INFO",
+      "text": "[commander] \u001b[32mReady for takeoff!\u001b[0m",
+      "utc": "08:23:31.52"
+     },
+     {
+      "t_s": 20.824,
+      "level": "INFO",
+      "text": "[commander] Armed by external command",
+      "utc": "08:23:50.70"
+     },
+     {
+      "t_s": 20.824,
+      "level": "INFO",
+      "text": "[tone_alarm] arming warning",
+      "utc": "08:23:50.70"
+     },
+     {
+      "t_s": 22.588,
+      "level": "INFO",
+      "text": "[commander] Takeoff detected",
+      "utc": "08:23:52.46"
+     },
+     {
+      "t_s": 137.032,
+      "level": "INFO",
+      "text": "[commander] Landing at current position",
+      "utc": "08:25:46.91"
+     },
+     {
+      "t_s": 138.496,
+      "level": "INFO",
+      "text": "[commander] Landing detected",
+      "utc": "08:25:48.37"
+     },
+     {
+      "t_s": 140.5,
+      "level": "INFO",
+      "text": "[commander] Disarmed by landing",
+      "utc": "08:25:50.38"
+     },
+     {
+      "t_s": 140.5,
+      "level": "INFO",
+      "text": "[tone_alarm] notify neutral",
+      "utc": "08:25:50.38"
+     }
+    ],
+    "key_params": {
+     "COM_DISARM_PRFLT": 10.0,
+     "COM_DISARM_LAND": 2.0,
+     "COM_OF_LOSS_T": 1.0,
+     "COM_OBL_RC_ACT": 0,
+     "COM_RC_IN_MODE": 1,
+     "COM_RCL_EXCEPT": 0,
+     "NAV_RCL_ACT": 2,
+     "NAV_DLL_ACT": 2,
+     "COM_DL_LOSS_T": 10,
+     "COM_ARM_WO_GPS": 1,
+     "COM_PREARM_MODE": 0,
+     "COM_LOW_BAT_ACT": 3,
+     "COM_POS_FS_DELAY": null,
+     "COM_ARM_EKF_POS": null,
+     "COM_ARM_EKF_VEL": null,
+     "MPC_TKO_SPEED": 1.5,
+     "MPC_Z_VEL_MAX_DN": 1.5,
+     "MPC_Z_VEL_MAX_UP": 3.0,
+     "MIS_TAKEOFF_ALT": 2.5,
+     "SDLOG_MODE": 1,
+     "MAV_SYS_ID": 5,
+     "SYS_AUTOSTART": 4001
+    },
+    "param_changes_during_log": [
+     {
+      "name": "COM_ARM_MAG_STR",
+      "from": 2,
+      "to": 0
+     },
+     {
+      "name": "EKF2_MAG_CHECK",
+      "from": 1,
+      "to": 0
+     },
+     {
+      "name": "COM_ARM_IMU_ACC",
+      "from": 0.699999988079071,
+      "to": 10.0
+     },
+     {
+      "name": "COM_ARM_IMU_GYR",
+      "from": 0.25,
+      "to": 10.0
+     }
+    ]
+   }
+  }
+ },
+ "memory": {
+  "samples": 101,
+  "vm_mem_total_mib": 3737,
+  "vm_swap_total_mib": 1023,
+  "min_available_mib": 2093,
+  "swap_out_pages_during_run": 0
+ }
+}

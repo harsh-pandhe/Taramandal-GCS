@@ -284,6 +284,78 @@ console logs, and GCS black-box files are kept on the dev machine, in
 `~/Desktop/tara-sitl-scratch-172c`. An earlier 3-drone run on the same commit also
 passed, but it has no PX4 logs, so it is not counted or committed.
 
+### F. Drone that armed but never took off: 10 repeats at 5 drones
+
+**Flown 2026-11-04 on `d7e7b2e`.** On #172, run `rb2-n5-r1` (on `b435358`) scored PASS
+although drone 3 armed, stayed in HOLD, never climbed and disarmed 12.9 s later. That
+run kept no PX4 log. These repeats look for the event with PX4's own records kept.
+
+- **Show:** the 5-drone Diwali segment (`storyboard_3.json` built at 5 drones), with
+  waypoints identical to `rb2-n5-r1`'s show.
+- **Setup:** a new container per repeat, signed export, no rig workarounds, 20 s
+  settle once all drones are connected.
+- **Kept per repeat:** PX4 ulogs and console logs, GCS black-box, GCS log, and the
+  Docker VM's memory and swap sampled every 2 s.
+- **Rules:** a repeat is not counted if the VM swaps or the sim stalls. Each drone
+  passes the per-drone check from section E: OFFBOARD seen, peak within 1 m of
+  planned, and maximum tracking error under 2 m.
+
+**Not reproduced in 10.** All 10 valid repeats are CLEAN, and every drone flew the
+show. At the original rate of 1 in 7, there is a 21% chance ((6/7)^10) of seeing no
+failure in 10 runs, so this does not show the problem is fixed. `main` also differs
+from `b435358` by the GCS changes #231–#233.
+
+| Run | Verdict | Drone 0 | Drone 1 | Drone 2 | Drone 3 | Drone 4 | Tool verdict | RTF | Gazebo min sep (m) | Max tracking error (m) | Min VM memory free (MiB) | VM swap-out (pages) | Host load before (1 / 5 / 15 min) |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| d3-n5-r01 | INVALID: VM swapped during stack start (pswpout +104151 pages) | not flown (run stopped) | not flown (run stopped) | not flown (run stopped) | not flown (run stopped) | not flown (run stopped) | not run | — | — | — | 907 | 104151 | 2.69 / 5.82 / 6.85 |
+| d3-n5-r02 | CLEAN | flew | flew | flew | flew | flew | PASS | 0.933 | 2.159 | 0.459 | 2074 | 0 | 2.65 / 4.91 / 6.34 |
+| d3-n5-r03 | CLEAN | flew | flew | flew | flew | flew | PASS | 0.917 | 2.13 | 0.422 | 2097 | 0 | 2.72 / 5.51 / 6.40 |
+| d3-n5-r04 | CLEAN | flew | flew | flew | flew | flew | PASS | 0.913 | 2.104 | 0.509 | 2150 | 0 | 1.84 / 5.75 / 6.50 |
+| d3-n5-r05 | CLEAN | flew | flew | flew | flew | flew | PASS | 0.922 | 2.102 | 0.452 | 2053 | 0 | 2.04 / 6.19 / 6.79 |
+| d3-n5-r06 | CLEAN | flew | flew | flew | flew | flew | PASS | 0.92 | 2.124 | 0.479 | 2083 | 0 | 2.06 / 5.95 / 6.77 |
+| d3-n5-r07 | CLEAN | flew | flew | flew | flew | flew | PASS | 0.926 | 2.126 | 0.433 | 2076 | 0 | 1.87 / 5.95 / 6.78 |
+| d3-n5-r08 | CLEAN | flew | flew | flew | flew | flew | PASS | 0.914 | 2.105 | 0.474 | 2093 | 0 | 2.33 / 6.33 / 6.98 |
+| d3-n5-r09 | CLEAN | flew | flew | flew | flew | flew | PASS | 0.906 | 2.138 | 0.509 | 2109 | 0 | 1.86 / 6.02 / 6.90 |
+| d3-n5-r10 | CLEAN | flew | flew | flew | flew | flew | PASS | 0.908 | 2.122 | 0.487 | 2093 | 0 | 2.06 / 6.13 / 6.98 |
+| d3-n5-r11 | CLEAN | flew | flew | flew | flew | flew | PASS | 0.905 | 2.161 | 0.442 | 2110 | 0 | 1.79 / 6.08 / 6.99 |
+
+`d3-n5-r01` was stopped before the flight: the VM swapped about 400 MiB while the
+stack started, with free memory falling to 907 MiB. It is not counted, and `r11`
+replaces it. In the 10 valid repeats free memory never fell below 2053 MiB, and
+nothing swapped.
+
+| PX4's record (ulog), each of the 50 drone-flights | Result |
+|---|---|
+| Arm command (`COMPONENT_ARM_DISARM`) | 50 of 50 ACCEPTED |
+| OFFBOARD request (`DO_SET_MODE`, custom mode 6) | exactly 1 per drone, 50 of 50 ACCEPTED |
+| Arm to OFFBOARD (PX4 clock) | 0.024–0.036 s |
+| Mode changes | identical for all 50: DISARMED/HOLD → ARMED/HOLD → ARMED/OFFBOARD → ARMED/HOLD → ARMED/LAND → DISARMED |
+| Disarm reason | 50 of 50 `auto_disarm_land` |
+| Failsafe, WARN/ERR after arming | none; the only WARN is "Preflight Fail: No connection to the ground control station" at boot, before the GCS connects |
+| Key parameters in force (all drones, all runs) | `COM_DISARM_PRFLT` 10 s, `COM_DISARM_LAND` 2 s, `COM_OF_LOSS_T` 1 s, `COM_OBL_RC_ACT` 0, `COM_RC_IN_MODE` 1, `NAV_RCL_ACT` 2, `NAV_DLL_ACT` 2, `COM_DL_LOSS_T` 10 s, `COM_ARM_WO_GPS` 1, `MPC_TKO_SPEED` 1.5, `MPC_Z_VEL_MAX_DN` 1.5, `SDLOG_MODE` 1 |
+
+Because nothing failed, there is no PX4 failing event to report. `rb2-n5-r1`'s
+drone 3 sat armed in HOLD for 12.9 s, then disarmed. That fits PX4's preflight
+auto-disarm (`COM_DISARM_PRFLT` = 10 s) after an OFFBOARD switch that never
+happened. It is not verified: that run kept no PX4 log, so a refused OFFBOARD cannot
+be ruled out.
+
+- **Staggered arming:** this happened in every repeat, with drone 3 arming 2.0–4.1 s
+  after drone 0 (2.8 s in `rb2-n5-r1`), so a late arm alone does not trigger it.
+- **Duplicate acks:** PX4 acknowledges every `DO_SET_MODE` twice. That is the source
+  of the GCS log's "Received ack for not-existing command: 176" (10 per run, in every
+  run, clean or not).
+
+**Records:** `docs/sitl-planned-vs-actual/drone3-repeats/` holds one
+`<run>.investigation.json` per repeat, with:
+- per-drone verdict and black-box mode/armed timeline;
+- PX4 commands, acks, mode changes and messages, with key parameters per drone;
+- memory and host load.
+
+The same folder has the tool record per flown repeat, and the full PX4 parameter set
+in force, from one drone. The ulogs, console logs and black-box files are kept on the
+dev machine.
+
 ## Findings
 
 These are filed here and on #172. None was fixed in this PR, per the lane
