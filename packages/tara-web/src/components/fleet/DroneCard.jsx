@@ -1,5 +1,11 @@
 import { getBatteryColor } from '../../fleetStats';
 
+const fmtNum = (val, suffix = '', decimals = 2, fallback = '0.00') => {
+  if (val === undefined || val === null) return `${fallback}${suffix}`;
+  const num = Number(val);
+  return Number.isFinite(num) ? `${num.toFixed(decimals)}${suffix}` : `${fallback}${suffix}`;
+};
+
 /**
  * The full per-drone detail card. Used directly for small fleets (<= 12
  * drones, one grid of cards) and as the drill-down panel below the
@@ -60,7 +66,7 @@ export default function DroneCard({ id, drone }) {
           <span className="telemetry-value" style={{
             color: isConn ? (drone.comm_latency_ms < 50 ? 'var(--success)' : drone.comm_latency_ms < 150 ? 'var(--warning)' : 'var(--danger)') : 'var(--text-muted)'
           }}>
-            {isConn ? `${drone.comm_latency_ms || 0.0} ms` : 'N/A'}
+            {isConn ? `${fmtNum(drone.comm_latency_ms, '', 1, '0.0')} ms` : 'N/A'}
           </span>
         </div>
       </div>
@@ -69,7 +75,7 @@ export default function DroneCard({ id, drone }) {
         <div className="battery-header">
           <span className="telemetry-label">Battery Level</span>
           <span className="telemetry-value" style={{ fontSize: '0.9rem' }}>
-            {isConn ? `${drone.battery_percent}% (${drone.battery_voltage}V)` : 'N/A'}
+            {isConn ? `${fmtNum(drone.battery_percent, '', 0, '0')}% (${fmtNum(drone.battery_voltage, 'V', 2, '0.00V')})` : 'N/A'}
           </span>
         </div>
         <div className="battery-bar-bg">
@@ -86,16 +92,16 @@ export default function DroneCard({ id, drone }) {
       <div className="coords-container">
         <div className="coord-box">
           <span className="coord-label">Local X (North)</span>
-          <span className="coord-val">{isConn ? `${drone.local_x}m` : '0.00m'}</span>
+          <span className="coord-val">{isConn ? fmtNum(drone.local_x, 'm') : '0.00m'}</span>
         </div>
         <div className="coord-box">
           <span className="coord-label">Local Y (East)</span>
-          <span className="coord-val">{isConn ? `${drone.local_y}m` : '0.00m'}</span>
+          <span className="coord-val">{isConn ? fmtNum(drone.local_y, 'm') : '0.00m'}</span>
         </div>
         <div className="coord-box">
           <span className="coord-label">Altitude (Z)</span>
           <span className="coord-val" style={{ color: 'var(--success)' }}>
-            {isConn ? `${drone.local_z}m` : '0.00m'}
+            {isConn ? fmtNum(drone.local_z, 'm') : '0.00m'}
           </span>
         </div>
       </div>

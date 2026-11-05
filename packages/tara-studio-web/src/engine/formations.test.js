@@ -24,6 +24,27 @@ describe('buildFormation', () => {
     }
   });
 
+  it('returns exactly n points for custom points shapes', () => {
+    const custom = Array.from({ length: 10 }, (_, i) => ({
+      x: i * 3.5,
+      y: (i % 2) * 4.0,
+      z: -20,
+    }));
+    for (const n of [1, 3, 10]) {
+      const pts = buildFormation('points', custom, n);
+      expect(pts).toHaveLength(n);
+      for (const p of pts) {
+        expect(Number.isFinite(p.x) && Number.isFinite(p.y) && Number.isFinite(p.z)).toBe(true);
+      }
+    }
+  });
+
+  it('throws on empty, short, or collapsed points formations', () => {
+    expect(() => buildFormation('points', [], 5)).toThrow(/empty/);
+    expect(() => buildFormation('points', [{ x: 0, y: 0, z: -10 }], 5)).toThrow(/fleet needs 5/);
+    expect(() => buildFormation('points', [{ x: 0, y: 0, z: -10 }, { x: 0, y: 0, z: -10 }], 2)).toThrow(/degenerate geometry/);
+  });
+
   it('produces finite coordinates', () => {
     for (const shape of SHAPES) {
       for (const p of buildFormation('parametric', shape, 12)) {

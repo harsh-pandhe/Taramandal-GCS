@@ -322,18 +322,28 @@ const rawFormation = (shapeType, shapePayload, n, scale) => {
   let raw;
   if (shapeType === 'text') raw = fmtText(n, s, shapePayload);
   else if (shapeType === 'svg') raw = svgToFormation(shapePayload, n, { scale: s * 15.0, altitude: SHOW_ALT });
+  else if (shapeType === 'points') {
+    const pts = Array.isArray(shapePayload) ? shapePayload : (shapePayload?.points || []);
+    if (!pts.length) {
+      throw new Error('Points formation payload is empty.');
+    }
+    if (pts.length < n) {
+      throw new Error(`Points formation has only ${pts.length} points, but fleet needs ${n}.`);
+    }
+    raw = pts.slice(0, n).map((src) => ({
+      x: (src.x ?? 0) * s,
+      y: (src.y ?? 0) * s,
+      z: src.z !== undefined && src.z !== 0 ? src.z * s : -SHOW_ALT,
+    }));
+  }
   else if (gen === fmtSphere) raw = gen(n, s);
   else raw = stackIfOversized(gen, n, s);
   if (n > 1 && !(minPairDist(raw) > 1e-6)) {
-    // issue #146/#129 review: an SVG import that collapses to degenerate
-    // geometry (every point coincident) must fail closed, not silently fall
-    // back to a circle the way every other shape type's own degenerate case
-    // does - a parametric/text generator collapsing is a bug in this file,
-    // but an SVG's geometry comes from the uploaded asset, so silently
-    // substituting a circle would hide a bad import behind a shape the
-    // operator never asked for.
-    if (shapeType === 'svg') {
-      throw new Error('SVG formation produced degenerate geometry (points collapsed).');
+    // issue #146/#129 review: an SVG or custom point import that collapses to
+    // degenerate geometry (every point coincident) must fail closed, not
+    // silently fall back to a circle.
+    if (shapeType === 'svg' || shapeType === 'points') {
+      throw new Error(`${shapeType.toUpperCase()} formation produced degenerate geometry (points collapsed).`);
     }
     raw = fmtCircle(n, s);
   }
