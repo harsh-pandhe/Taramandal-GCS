@@ -1,0 +1,11 @@
+truncated True ticks 1860 tick keys ['ch', 'fixes', 'ids', 'key', 'modes', 't_ms', 'type']
+{"0": {"armed_s": 43.0, "offboard_s": 43.0, "arm_to_offboard_s": 0.0, "z_max_m": 10.41}, "1": {"armed_s": 43.8, "offboard_s": 43.8, "arm_to_offboard_s": 0.0, "z_max_m": 13.61}, "2": {"armed_s": 44.9, "offboard_s": 44.9, "arm_to_offboard_s": 0.0, "z_max_m": 15.21}, "3": {"armed_s": 45.6, "offboard_s": 45.6, "arm_to_offboard_s": 0.0, "z_max_m": 10.5}, "4": {"armed_s": 46.8, "offboard_s": 46.8, "arm_to_offboard_s": 0.0, "z_max_m": 12.01}}
+40.0 STAGED -> PREARM POST /api/launch
+42.9 PREARM -> ARMED telemetry:first_drone_armed
+48.4 ARMED -> TAKEOFF telemetry:climbing
+55.2 TAKEOFF -> FORMATION_HOLD telemetry:formation_altitude_reached
+58.7 FORMATION_HOLD -> RUNNING POST /api/start-trajectory
+158.0 RUNNING -> SHOW_COMPLETE trajectory_complete
+178.5 SHOW_COMPLETE -> LANDING POST /api/land
+185.9 LANDING -> DISARMED telemetry:all_disarmed
+event keys ['audit_event', 'backend', 'fidelity', 'kind', 'operating_mode', 'operator', 'origin_ip', 'role', 't', 'type', 'wall']

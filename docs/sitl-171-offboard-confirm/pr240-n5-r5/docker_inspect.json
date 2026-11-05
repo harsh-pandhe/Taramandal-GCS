@@ -1,0 +1,29 @@
+{
+ "Id": "564b903e428ef81627f0ba58a41f522509cf0fbe0a84f4670fa5d0f91ee61af7",
+ "Created": "2026-11-04T13:06:42.046504174Z",
+ "State": {
+  "Status": "exited",
+  "Running": false,
+  "Paused": false,
+  "Restarting": false,
+  "OOMKilled": false,
+  "Dead": false,
+  "Pid": 0,
+  "ExitCode": 137,
+  "Error": "",
+  "StartedAt": "2026-11-05T17:23:46.088931406Z",
+  "FinishedAt": "2026-11-05T17:24:00.836801796Z"
+ },
+ "Image": "sha256:424c464813742ee541ad2a554ee4bfa5e709beeeaebfb1dbfe9384459d92d3cb",
+ "Config": {
+  "Image": "taramandal-px4-sitl:v1.16.2",
+  "Cmd": [
+   "sleep",
+   "infinity"
+  ],
+  "Labels": {
+   "org.opencontainers.image.version": "24.04",
+   "tara.diwali-t2": "1"
+  }
+ }
+}

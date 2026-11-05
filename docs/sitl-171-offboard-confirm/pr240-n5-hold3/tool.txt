@@ -1,0 +1,34 @@
+IDLE: load 3.95 5.60 5.96 on 16 cores, no tara-sitl-* container
+[pr240-n5-hold3] host load before: 3.95 5.60 5.96
+[pr240-n5-hold3] stack up: connected=5 of 5 after 28s
+{
+  "label": "pr240-n5-hold3",
+  "verdict": "ERROR",
+  "error": "fleet reached TAKEOFF, not FORMATION_HOLD, within 180s of launch",
+  "planned": {
+    "duration_s": 84.8,
+    "studio_status": "PASSED",
+    "feasibility_certified": true,
+    "min_separation_m": 2.2,
+    "max_velocity_m_s": 1.3,
+    "max_jerk_m_s3": 17.32,
+    "max_altitude_m": 15.2,
+    "limits": {
+      "min_separation_m": 1.5,
+      "design_separation_m": 2.0,
+      "pad_spacing_m": 2.2,
+      "max_velocity_ms": 6.0,
+      "max_accel_ms2": 50.0,
+      "max_yaw_rate_dps": 300.0,
+      "geofence_radius_m": 30.0,
+      "max_altitude_m": 120.0,
+      "geofence_soft_warning_buffer_m": 10.0,
+      "geofence_hard_buffer_m": 15.0,
+      "max_jerk_ms3": 20.0
+    }
+  },
+  "actual": null
+}
+wrote /scratch/runs/pr240-n5-hold3.json
+[pr240-n5-hold3] host load before/after: 3.95 5.60 5.96 / 9.30 7.58 6.68
+[pr240-n5-hold3] result: /home/dhiraj/tara-sitl-scratch-240/runs/pr240-n5-hold3.json   stop the container: docker rm -f tara-sitl-240

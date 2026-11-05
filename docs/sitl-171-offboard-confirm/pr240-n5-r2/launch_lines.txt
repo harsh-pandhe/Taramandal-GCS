@@ -1,0 +1,5 @@
+[gcs-api] INFO:root:Drone 0 entered OFFBOARD mode (confirmed from telemetry).
+[gcs-api] INFO:root:Drone 1 entered OFFBOARD mode (confirmed from telemetry).
+[gcs-api] INFO:root:Drone 2 entered OFFBOARD mode (confirmed from telemetry).
+[gcs-api] INFO:root:Drone 3 entered OFFBOARD mode (confirmed from telemetry).
+[gcs-api] INFO:root:Drone 4 entered OFFBOARD mode (confirmed from telemetry).

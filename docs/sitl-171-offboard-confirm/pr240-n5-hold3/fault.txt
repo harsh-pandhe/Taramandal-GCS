@@ -1,0 +1,2 @@
+fault: launch seen (PREARM), forcing drone 3 to HOLD for 25 s
+fault: stopped forcing
