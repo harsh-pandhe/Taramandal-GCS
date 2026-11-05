@@ -1,0 +1,115 @@
+{
+  "run_id": "reconnect",
+  "case": "reconnect",
+  "verdict": "FAIL",
+  "context": {
+    "run_id": "reconnect",
+    "case": "reconnect",
+    "stack": "tara up --backend px4 -n 1 (headless)",
+    "allow_unsigned": false,
+    "commit": "eb0d31da11d381940cc49a6c42f54c677cd53897",
+    "started_utc": "2026-11-04T07:11:02Z",
+    "host_load_before": "8.73 6.02 3.34",
+    "host_load_at_start": "8.42 6.14 3.45",
+    "host_load_at_end": "9.53 6.53 3.64",
+    "other_running_containers": [],
+    "fresh_container": true,
+    "microsd_dirs_before_stack": 0,
+    "px4_version": "v1.16.2",
+    "image_id": "sha256:424c464813742ee541ad2a554ee4bfa5e709beeeaebfb1dbfe9384459d92d3cb",
+    "docker_server": "29.8.0 on linux/amd64",
+    "host_cpus": "16",
+    "host_kernel": "7.0.0-38-generic",
+    "headless": true,
+    "gazebo_window": false,
+    "rviz": false,
+    "recording": false,
+    "px4_ulogs_saved": 1,
+    "scenario_exit_code": 0
+  },
+  "checks": [
+    {
+      "name": "preflight ready before the run",
+      "ok": true,
+      "detail": "{'connected': 1, 'armed': 0, 'armed_stale': 0, 'armed_stale_ids': [], 'fleet_state': 'STAGED'}"
+    },
+    {
+      "name": "baseline connected 1 before the freeze",
+      "ok": true,
+      "detail": "{'connected': 1, 'armed': 0, 'armed_stale': 0, 'armed_stale_ids': [], 'fleet_state': 'STAGED'}"
+    },
+    {
+      "name": "connected drops during an 8 s freeze (within 5 s)",
+      "ok": true,
+      "detail": "2.8194565773010254"
+    },
+    {
+      "name": "connected is back within 15 s of SIGCONT",
+      "ok": true,
+      "detail": "0.25847625732421875"
+    },
+    {
+      "name": "preflight green again after the reconnect",
+      "ok": true,
+      "detail": "{'connected': 1, 'armed': 0, 'armed_stale': 0, 'armed_stale_ids': [], 'fleet_state': 'STAGED'}"
+    },
+    {
+      "name": "a hover after the reconnect completes",
+      "ok": false,
+      "detail": "500"
+    }
+  ],
+  "notes": {
+    "seconds_frozen_until_connected_0": 2.8194565773010254,
+    "seconds_after_SIGCONT_until_connected_1": 0.25847625732421875
+  },
+  "exception": null,
+  "cadence": {
+    "landed_state": {
+      "items": 29,
+      "span_s": 28.2,
+      "mean_hz": 0.99,
+      "median_interval_s": 0.9994,
+      "p99_interval_s": 1.0124,
+      "max_gap_s": 8.547,
+      "gaps_over_2_5s": 1,
+      "longest_run_of_identical_values": 28
+    },
+    "position_velocity_ned": {
+      "items": 719,
+      "span_s": 28.7,
+      "mean_hz": 25.02,
+      "median_interval_s": 0.0322,
+      "p99_interval_s": 0.0377,
+      "max_gap_s": 8.121,
+      "gaps_over_2_5s": 1
+    }
+  },
+  "observer_events": [
+    [
+      0.89,
+      "connected",
+      true
+    ],
+    [
+      9.21,
+      "armed",
+      false
+    ],
+    [
+      9.21,
+      "mode",
+      "HOLD"
+    ],
+    [
+      9.21,
+      "landed_state",
+      "ON_GROUND"
+    ],
+    [
+      16.11,
+      "armed",
+      true
+    ]
+  ]
+}

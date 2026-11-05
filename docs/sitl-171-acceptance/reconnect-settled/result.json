@@ -1,0 +1,114 @@
+{
+  "checks": [
+    {
+      "name": "preflight ready before the run",
+      "ok": true,
+      "detail": "{'connected': 1, 'armed': 0, 'armed_stale': 0, 'armed_stale_ids': [], 'fleet_state': 'STAGED'}"
+    },
+    {
+      "name": "baseline connected 1 before the freeze",
+      "ok": true,
+      "detail": "{'connected': 1, 'armed': 0, 'armed_stale': 0, 'armed_stale_ids': [], 'fleet_state': 'STAGED'}"
+    },
+    {
+      "name": "connected drops during an 8 s freeze (within 5 s)",
+      "ok": true,
+      "detail": "2.5299670696258545"
+    },
+    {
+      "name": "connected is back within 15 s of SIGCONT",
+      "ok": true,
+      "detail": "0.2543036937713623"
+    },
+    {
+      "name": "preflight green again after the reconnect",
+      "ok": true,
+      "detail": "{'connected': 1, 'armed': 0, 'armed_stale': 0, 'armed_stale_ids': [], 'fleet_state': 'STAGED'}"
+    },
+    {
+      "name": "PX4's altitude estimate settles to the ground (|alt|<0.15 m, |vd|<0.1 m/s for 3 s)",
+      "ok": true,
+      "detail": "alt=-0.04 vd=0.04"
+    },
+    {
+      "name": "a hover after the reconnect completes",
+      "ok": true,
+      "detail": "200"
+    }
+  ],
+  "notes": {
+    "seconds_frozen_until_connected_0": 2.5299670696258545,
+    "seconds_after_SIGCONT_until_connected_1": 0.2543036937713623,
+    "px4_estimate_when_preflight_went_green": {
+      "alt_m": -0.23,
+      "vel_down_m_s": 0.02,
+      "armed": false
+    },
+    "seconds_for_px4_estimate_to_settle_after_SIGCONT": 18.5
+  },
+  "case": "reconnect_settled",
+  "exception": null,
+  "verdict": "PASS",
+  "observer_events": [
+    [
+      0.84,
+      "connected",
+      true
+    ],
+    [
+      9.04,
+      "armed",
+      false
+    ],
+    [
+      9.04,
+      "mode",
+      "HOLD"
+    ],
+    [
+      9.04,
+      "landed_state",
+      "ON_GROUND"
+    ],
+    [
+      28.06,
+      "armed",
+      true
+    ],
+    [
+      29.06,
+      "mode",
+      "OFFBOARD"
+    ],
+    [
+      30.06,
+      "landed_state",
+      "IN_AIR"
+    ],
+    [
+      39.07,
+      "mode",
+      "LAND"
+    ],
+    [
+      39.07,
+      "landed_state",
+      "LANDING"
+    ],
+    [
+      42.07,
+      "landed_state",
+      "ON_GROUND"
+    ],
+    [
+      44.09,
+      "armed",
+      false
+    ],
+    [
+      44.09,
+      "mode",
+      "HOLD"
+    ]
+  ]
+}

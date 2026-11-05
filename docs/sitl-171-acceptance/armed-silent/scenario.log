@@ -1,0 +1,30 @@
+[   0.96s] OBS connected: True
+[   1.34s] CHECK PASS preflight ready before the run | {'connected': 1, 'armed': 0, 'armed_stale': 0, 'armed_stale_ids': [], 'fleet_state': 'STAGED'}
+[   1.48s] OBS armed: True
+[   1.48s] OBS mode: HOLD
+[   1.48s] OBS landed_state: ON_GROUND
+[   3.67s] CHECK PASS armed on the ground and fresh: armed 1, armed_stale 0 | {'connected': 1, 'armed': 1, 'armed_stale': 0, 'armed_stale_ids': [], 'fleet_state': 'STAGED'}
+[   3.68s] PX4 SIGSTOP while armed on the ground
+[  13.82s] NOTE seconds_to_armed_stale_1 = 3.050093650817871
+[  13.82s] NOTE status_while_silent = {"connected": 0, "armed": 0, "armed_stale": 1, "armed_stale_ids": [0], "fleet_state": "STAGED"}
+[  13.83s] CHECK PASS silent and armed: armed 0 but armed_stale 1 (never reads as disarmed) | {'connected': 0, 'armed': 0, 'armed_stale': 1, 'armed_stale_ids': [0], 'fleet_state': 'STAGED'}
+[  13.83s] CHECK PASS it shows within 6 s | 3.050093650817871
+Received ack for not-existing command: 512! Ignoring... (mavlink_command_sender.cpp:304)
+Received ack for not-existing command: 511! Ignoring... (mavlink_command_sender.cpp:304)
+Received ack for not-existing command: 512! Ignoring... (mavlink_command_sender.cpp:304)
+[  13.83s] OBS landed_state: IN_AIR
+[  14.09s] NOTE seconds_after_SIGCONT_until_armed_1_stale_0 = 0.26088452339172363
+[  14.09s] CHECK PASS after SIGCONT the drone reads armed 1, armed_stale 0 again within 20 s | 0.26088452339172363
+Traceback (most recent call last):
+  File "/scratch/scenarios.py", line 547, in main
+    await asyncio.wait_for(CASES[name](), 420)
+  File "/usr/lib/python3.12/asyncio/tasks.py", line 520, in wait_for
+    return await fut
+           ^^^^^^^^^
+  File "/scratch/scenarios.py", line 480, in case_armed_silent
+    await o.s.action.disarm()
+  File "/venv/lib/python3.12/site-packages/mavsdk/action.py", line 403, in disarm
+    raise ActionError(result, "disarm()")
+mavsdk.action.ActionError: COMMAND_DENIED: 'Command Denied'; origin: disarm(); params: ()
+[  14.11s] CHECK FAIL scenario ran to the end without an exception | ActionError: COMMAND_DENIED: 'Command Denied'; origin: disarm(); params: ()
+[  14.12s] VERDICT FAIL

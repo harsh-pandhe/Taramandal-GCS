@@ -1,0 +1,24 @@
+[   0.98s] OBS connected: True
+[   1.34s] CHECK PASS preflight ready before the run | {'connected': 1, 'armed': 0, 'armed_stale': 0, 'armed_stale_ids': [], 'fleet_state': 'STAGED'}
+[   1.27s] OBS armed: True
+[   1.27s] OBS mode: HOLD
+[   1.27s] OBS landed_state: ON_GROUND
+[   3.57s] CHECK PASS armed on the ground and fresh: armed 1, armed_stale 0 | {'connected': 1, 'armed': 1, 'armed_stale': 0, 'armed_stale_ids': [], 'fleet_state': 'STAGED'}
+[   3.58s] PX4 SIGSTOP while armed on the ground
+[  13.69s] NOTE seconds_to_armed_stale_1 = 3.021967649459839
+[  13.69s] NOTE status_while_silent = {"connected": 0, "armed": 0, "armed_stale": 1, "armed_stale_ids": [0], "fleet_state": "STAGED"}
+[  13.69s] CHECK PASS silent and armed: armed 0 but armed_stale 1 (never reads as disarmed) | {'connected': 0, 'armed': 0, 'armed_stale': 1, 'armed_stale_ids': [0], 'fleet_state': 'STAGED'}
+[  13.69s] CHECK PASS it shows within 6 s | 3.021967649459839
+Received ack for not-existing command: 512! Ignoring... (mavlink_command_sender.cpp:304)
+Received ack for not-existing command: 511! Ignoring... (mavlink_command_sender.cpp:304)
+Received ack for not-existing command: 512! Ignoring... (mavlink_command_sender.cpp:304)
+[  13.67s] OBS landed_state: IN_AIR
+[  13.95s] NOTE seconds_after_SIGCONT_until_armed_1_stale_0 = 0.26110291481018066
+[  13.95s] CHECK PASS after SIGCONT the drone reads armed 1, armed_stale 0 again within 20 s | 0.26110291481018066
+[  14.49s] OBS mode: UNKNOWN
+[  19.49s] OBS landed_state: ON_GROUND
+[  21.54s] OBS armed: False
+[  53.81s] OBS timeout: ON_GROUND after the resume
+[  54.02s] NOTE px4_landed_state_settled_after_resume = false
+[  57.05s] CHECK PASS disarmed again: armed 0, armed_stale 0 | {'connected': 1, 'armed': 0, 'armed_stale': 0, 'armed_stale_ids': [], 'fleet_state': 'STAGED'}
+[  57.06s] VERDICT PASS

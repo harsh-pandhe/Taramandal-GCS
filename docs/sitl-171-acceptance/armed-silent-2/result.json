@@ -1,0 +1,98 @@
+{
+  "checks": [
+    {
+      "name": "preflight ready before the run",
+      "ok": true,
+      "detail": "{'connected': 1, 'armed': 0, 'armed_stale': 0, 'armed_stale_ids': [], 'fleet_state': 'STAGED'}"
+    },
+    {
+      "name": "armed on the ground and fresh: armed 1, armed_stale 0",
+      "ok": true,
+      "detail": "{'connected': 1, 'armed': 1, 'armed_stale': 0, 'armed_stale_ids': [], 'fleet_state': 'STAGED'}"
+    },
+    {
+      "name": "silent and armed: armed 0 but armed_stale 1 (never reads as disarmed)",
+      "ok": true,
+      "detail": "{'connected': 0, 'armed': 0, 'armed_stale': 1, 'armed_stale_ids': [0], 'fleet_state': 'STAGED'}"
+    },
+    {
+      "name": "it shows within 6 s",
+      "ok": true,
+      "detail": "3.021967649459839"
+    },
+    {
+      "name": "after SIGCONT the drone reads armed 1, armed_stale 0 again within 20 s",
+      "ok": true,
+      "detail": "0.26110291481018066"
+    },
+    {
+      "name": "disarmed again: armed 0, armed_stale 0",
+      "ok": true,
+      "detail": "{'connected': 1, 'armed': 0, 'armed_stale': 0, 'armed_stale_ids': [], 'fleet_state': 'STAGED'}"
+    }
+  ],
+  "notes": {
+    "seconds_to_armed_stale_1": 3.021967649459839,
+    "status_while_silent": {
+      "connected": 0,
+      "armed": 0,
+      "armed_stale": 1,
+      "armed_stale_ids": [
+        0
+      ],
+      "fleet_state": "STAGED"
+    },
+    "seconds_after_SIGCONT_until_armed_1_stale_0": 0.26110291481018066,
+    "px4_landed_state_settled_after_resume": false
+  },
+  "case": "armed_silent",
+  "exception": null,
+  "verdict": "PASS",
+  "observer_events": [
+    [
+      0.98,
+      "connected",
+      true
+    ],
+    [
+      1.27,
+      "armed",
+      true
+    ],
+    [
+      1.27,
+      "mode",
+      "HOLD"
+    ],
+    [
+      1.27,
+      "landed_state",
+      "ON_GROUND"
+    ],
+    [
+      13.67,
+      "landed_state",
+      "IN_AIR"
+    ],
+    [
+      14.49,
+      "mode",
+      "UNKNOWN"
+    ],
+    [
+      19.49,
+      "landed_state",
+      "ON_GROUND"
+    ],
+    [
+      21.54,
+      "armed",
+      false
+    ],
+    [
+      53.81,
+      "timeout",
+      "ON_GROUND after the resume"
+    ]
+  ]
+}

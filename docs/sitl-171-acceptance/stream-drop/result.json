@@ -1,0 +1,102 @@
+{
+  "checks": [
+    {
+      "name": "preflight ready before the run",
+      "ok": true,
+      "detail": "{'connected': 1, 'armed': 0, 'armed_stale': 0, 'armed_stale_ids': [], 'fleet_state': 'STAGED'}"
+    },
+    {
+      "name": "connected shows the drop (0) while the stream is down",
+      "ok": true,
+      "detail": "(0.0029251575469970703, [(0.0, 0), (0.3, 0), (0.5, 0), (0.8, 0), (1.0, 0), (1.3, 0)])"
+    },
+    {
+      "name": "monitors restart and connected returns to 1 within 40 s",
+      "ok": true,
+      "detail": "4.09648871421814"
+    },
+    {
+      "name": "preflight green after the recovery",
+      "ok": true,
+      "detail": "{'connected': 1, 'armed': 0, 'armed_stale': 0, 'armed_stale_ids': [], 'fleet_state': 'STAGED'}"
+    },
+    {
+      "name": "a hover after the stream recovery completes",
+      "ok": true,
+      "detail": "200"
+    }
+  ],
+  "notes": {
+    "mavsdk_servers": [
+      "608 /venv/lib/python3.12/site-packages/mavsdk/bin/mavsdk_server -p 50051 --sysid 245 --compid 190 udpin://127.0.0.1:14540",
+      "825 /venv/lib/python3.12/site-packages/mavsdk/bin/mavsdk_server -p 50099 --sysid 245 --compid 190 udpin://0.0.0.0:14550"
+    ],
+    "seconds_to_connected_0": 0.0029251575469970703,
+    "seconds_to_connected_1_again": 4.09648871421814
+  },
+  "case": "stream_drop",
+  "exception": null,
+  "verdict": "PASS",
+  "observer_events": [
+    [
+      1.07,
+      "connected",
+      true
+    ],
+    [
+      1.66,
+      "armed",
+      false
+    ],
+    [
+      1.66,
+      "mode",
+      "HOLD"
+    ],
+    [
+      1.66,
+      "landed_state",
+      "ON_GROUND"
+    ],
+    [
+      5.66,
+      "armed",
+      true
+    ],
+    [
+      6.66,
+      "mode",
+      "OFFBOARD"
+    ],
+    [
+      7.67,
+      "landed_state",
+      "IN_AIR"
+    ],
+    [
+      17.75,
+      "mode",
+      "LAND"
+    ],
+    [
+      17.75,
+      "landed_state",
+      "LANDING"
+    ],
+    [
+      20.77,
+      "landed_state",
+      "ON_GROUND"
+    ],
+    [
+      22.78,
+      "armed",
+      false
+    ],
+    [
+      22.78,
+      "mode",
+      "HOLD"
+    ]
+  ]
+}

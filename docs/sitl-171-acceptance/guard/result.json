@@ -1,0 +1,95 @@
+{
+  "checks": [
+    {
+      "name": "preflight ready before the run",
+      "ok": true,
+      "detail": "{'connected': 1, 'armed': 0, 'armed_stale': 0, 'armed_stale_ids': [], 'fleet_state': 'STAGED'}"
+    },
+    {
+      "name": "second hover request during a hover is refused with 409",
+      "ok": true,
+      "detail": "409 {\"detail\": \"A single-drone sequence is already running on drone 0.\"}"
+    },
+    {
+      "name": "upload during a hover (choreographer) is refused with 409",
+      "ok": true,
+      "detail": "409 {\"detail\": \"Cannot upload a trajectory while a single-drone sequence is active on drone(s) [0].\"}"
+    },
+    {
+      "name": "upload during a hover (commander) is refused with 409",
+      "ok": true,
+      "detail": "409 {\"detail\": \"Cannot upload a trajectory while a single-drone sequence is active on drone(s) [0].\"}"
+    },
+    {
+      "name": "the original hover still completes",
+      "ok": true,
+      "detail": "200"
+    },
+    {
+      "name": "control: the same upload after the hover is not refused for the hover (any non-409)",
+      "ok": true,
+      "detail": "200 {\"status\": \"success\", \"message\": \"Trajectory uploaded and saved to active slot.\", \"drones_summary\": {\"0\": {\"waypoints_count\": 2, \"duration_seconds\": 8.0}}, \"tra"
+    }
+  ],
+  "notes": {},
+  "case": "guard",
+  "exception": null,
+  "verdict": "PASS",
+  "observer_events": [
+    [
+      0.94,
+      "connected",
+      true
+    ],
+    [
+      1.24,
+      "armed",
+      true
+    ],
+    [
+      1.24,
+      "mode",
+      "HOLD"
+    ],
+    [
+      1.24,
+      "landed_state",
+      "ON_GROUND"
+    ],
+    [
+      2.24,
+      "mode",
+      "OFFBOARD"
+    ],
+    [
+      3.24,
+      "landed_state",
+      "IN_AIR"
+    ],
+    [
+      22.27,
+      "mode",
+      "LAND"
+    ],
+    [
+      22.27,
+      "landed_state",
+      "LANDING"
+    ],
+    [
+      25.27,
+      "landed_state",
+      "ON_GROUND"
+    ],
+    [
+      27.28,
+      "armed",
+      false
+    ],
+    [
+      27.28,
+      "mode",
+      "HOLD"
+    ]
+  ]
+}

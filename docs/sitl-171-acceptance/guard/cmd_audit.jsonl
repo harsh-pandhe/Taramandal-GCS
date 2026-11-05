@@ -1,0 +1,9 @@
+{"backend": "px4", "event": "login", "fidelity": "px4-sitl", "operator": "cmdr", "origin_ip": "127.0.0.1", "role": "FLIGHT_COMMANDER", "ts": 1793776746.8589058}
+{"backend": "px4", "event": "login", "fidelity": "px4-sitl", "operator": "chor", "origin_ip": "127.0.0.1", "role": "CHOREOGRAPHER", "ts": 1793776746.8994484}
+{"backend": "px4", "drone_id": 0, "event": "single_drone_hover_requested", "fidelity": "px4-sitl", "hover_duration_s": 12.0, "operator": "cmdr", "target_altitude_m": 1.0, "ts": 1793776746.908728}
+{"backend": "px4", "event": "command", "fidelity": "px4-sitl", "method": "POST", "operator": "cmdr", "origin_ip": "127.0.0.1", "path": "/api/single-drone/hover-sequence", "role": "FLIGHT_COMMANDER", "status": 409, "ts": 1793776755.681754}
+{"backend": "px4", "event": "command", "fidelity": "px4-sitl", "method": "POST", "operator": "chor", "origin_ip": "127.0.0.1", "path": "/api/upload-trajectory", "role": "CHOREOGRAPHER", "status": 409, "ts": 1793776755.7044694}
+{"backend": "px4", "event": "command", "fidelity": "px4-sitl", "method": "POST", "operator": "cmdr", "origin_ip": "127.0.0.1", "path": "/api/upload-trajectory", "role": "FLIGHT_COMMANDER", "status": 409, "ts": 1793776755.7244048}
+{"backend": "px4", "drone_id": 0, "event": "single_drone_hover_completed", "fidelity": "px4-sitl", "operator": "cmdr", "ts": 1793776773.4852786}
+{"backend": "px4", "event": "command", "fidelity": "px4-sitl", "method": "POST", "operator": "cmdr", "origin_ip": "127.0.0.1", "path": "/api/single-drone/hover-sequence", "role": "FLIGHT_COMMANDER", "status": 200, "ts": 1793776773.486794}
+{"backend": "px4", "event": "command", "fidelity": "px4-sitl", "method": "POST", "operator": "chor", "origin_ip": "127.0.0.1", "path": "/api/upload-trajectory", "role": "CHOREOGRAPHER", "status": 200, "ts": 1793776773.4913914}

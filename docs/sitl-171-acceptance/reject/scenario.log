@@ -1,0 +1,33 @@
+[   1.09s] OBS connected: True
+[   1.35s] NOTE preflight_at_first_request = {"http": 200, "ready": true, "blocking": []}
+[   1.35s] NOTE arm_before_preflight_green = "not exercised: preflight was already green at the first request"
+[   1.36s] CHECK PASS preflight becomes green | {'connected': 1, 'armed': 0, 'armed_stale': 0, 'armed_stale_ids': [], 'fleet_state': 'STAGED'}
+[   1.97s] OBS armed: False
+[   1.97s] OBS mode: LAND
+[   1.97s] OBS landed_state: ON_GROUND
+[   4.39s] NOTE hover_while_px4_in_LAND_mode = {"http": 412, "detail": "{\"detail\": {\"message\": \"Single-drone sequence refused: pre-arm gates are red.\", \"profile\": \"SIMULATION\", \"blocking_reasons\": [\"EKF health & home lock \\u2014 Not armable; PX4 is in LAND, which can block arming even with a healthy EKF: set HOLD and re-check\"]}}"
+[   4.39s] CHECK PASS hover is refused while PX4 is in LAND mode, naming the flight mode | 412 {"detail": {"message": "Single-drone sequence refused: pre-arm gates are red.", "profile": "SIMULATION", "blocking_reasons": ["EKF health & home lock \u2014 Not armable; PX4 is in LAND, which can block arming even with a healthy EKF: set HO
+[   4.39s] CHECK PASS and PX4 stays disarmed | armed=False
+Received ack for not-existing command: 176! Ignoring... (mavlink_command_sender.cpp:304)
+Received ack for not-existing command: 176! Ignoring... (mavlink_command_sender.cpp:304)
+Received ack for not-existing command: 21! Ignoring... (mavlink_command_sender.cpp:304)
+[   4.43s] NOTE land_requested_on_the_ground_disarmed = {"http": 200, "body": "{\"status\": \"success\", \"message\": \"Drone 0 landing commanded on active backend (px4).\", \"backend\": \"px4\", \"mode\": \"land\", \"drone_id\": 0, \"commanded\": true, \"error\": null, \"clearance\": {\"clear\": true, \"threshold_m\": 2.0, \"mode\": \"land\", \"model\":
+[   4.43s] CHECK PASS land on the ground gets a definite answer (success or a stated rejection), never a silent one | 200 {"status": "success", "message": "Drone 0 landing commanded on active backend (px4).", "backend": "px4", "mode": "land", "drone_id": 0, "commanded": true, "error": null, "clearance": {"clear": true, "
+Received ack for not-existing command: 176! Ignoring... (mavlink_command_sender.cpp:304)
+[   4.96s] OBS mode: HOLD
+[   6.45s] CHECK PASS after restoring HOLD the preflight is green and a hover completes | {'connected': 1, 'armed': 0, 'armed_stale': 0, 'armed_stale_ids': [], 'fleet_state': 'STAGED'}
+Received ack for not-existing command: 400! Ignoring... (mavlink_command_sender.cpp:304)
+[   6.96s] OBS armed: True
+Received ack for not-existing command: 176! Ignoring... (mavlink_command_sender.cpp:304)
+Received ack for not-existing command: 176! Ignoring... (mavlink_command_sender.cpp:304)
+[   7.96s] OBS mode: OFFBOARD
+[   8.96s] OBS landed_state: IN_AIR
+Received ack for not-existing command: 176! Ignoring... (mavlink_command_sender.cpp:304)
+Received ack for not-existing command: 176! Ignoring... (mavlink_command_sender.cpp:304)
+Received ack for not-existing command: 21! Ignoring... (mavlink_command_sender.cpp:304)
+[  17.96s] OBS mode: LAND
+[  17.96s] OBS landed_state: LANDING
+[  20.96s] OBS landed_state: ON_GROUND
+[  23.45s] HOVER HTTP RESULT: 200 {"status": "COMPLETED", "mode": "SIMULATION", "configured_mode": "SIMULATION", "active_backend": "px4", "vehicle": "SIMULATED", "steps": [{"step": "PREFLIGHT", "status": "PASSED", "time": 1793776348.771431, "drone_id": 0}, {"step": "ARM", "status": "ARMED", "time": 1793776349.7543218}, {"step": "HOVER_REACHED", "status": "HOLDING", "altitude_m": 0.86, "time": 1793776357.2416043}, {"step": "HOVER_HOLD_COMPLETE", "status": "STABLE", "dwell_s": 3.02, "time": 1793776360.263404}, {"step": "LANDING_CO
+[  23.45s] CHECK PASS control hover completes | 200
+[  23.46s] VERDICT PASS

@@ -1,0 +1,25 @@
+[   0.94s] OBS connected: True
+[   1.34s] CHECK PASS preflight ready before the run | {'connected': 1, 'armed': 0, 'armed_stale': 0, 'armed_stale_ids': [], 'fleet_state': 'STAGED'}
+Received ack for not-existing command: 400! Ignoring... (mavlink_command_sender.cpp:304)
+[   1.24s] OBS armed: True
+[   1.24s] OBS mode: HOLD
+[   1.24s] OBS landed_state: ON_GROUND
+Received ack for not-existing command: 176! Ignoring... (mavlink_command_sender.cpp:304)
+Received ack for not-existing command: 176! Ignoring... (mavlink_command_sender.cpp:304)
+[   2.24s] OBS mode: OFFBOARD
+[   3.24s] OBS landed_state: IN_AIR
+[  10.13s] CHECK PASS second hover request during a hover is refused with 409 | 409 {"detail": "A single-drone sequence is already running on drone 0."}
+[  10.15s] CHECK PASS upload during a hover (choreographer) is refused with 409 | 409 {"detail": "Cannot upload a trajectory while a single-drone sequence is active on drone(s) [0]."}
+[  10.17s] CHECK PASS upload during a hover (commander) is refused with 409 | 409 {"detail": "Cannot upload a trajectory while a single-drone sequence is active on drone(s) [0]."}
+Received ack for not-existing command: 176! Ignoring... (mavlink_command_sender.cpp:304)
+Received ack for not-existing command: 176! Ignoring... (mavlink_command_sender.cpp:304)
+Received ack for not-existing command: 21! Ignoring... (mavlink_command_sender.cpp:304)
+[  22.27s] OBS mode: LAND
+[  22.27s] OBS landed_state: LANDING
+[  25.27s] OBS landed_state: ON_GROUND
+[  27.28s] OBS armed: False
+[  27.28s] OBS mode: HOLD
+[  27.92s] HOVER HTTP RESULT: 200 {"status": "COMPLETED", "mode": "SIMULATION", "configured_mode": "SIMULATION", "active_backend": "px4", "vehicle": "SIMULATED", "steps": [{"step": "PREFLIGHT", "status": "PASSED", "time": 1793776746.9095976, "drone_id": 0}, {"step": "ARM", "status": "ARMED", "time": 1793776747.383762}, {"step": "HOVER_REACHED", "status": "HOLDING", "altitude_m": 0.86, "time": 1793776755.473146}, {"step": "HOVER_HOLD_COMPLETE", "status": "STABLE", "dwell_s": 12.02, "time": 1793776767.4946969}, {"step": "LANDING_C
+[  27.92s] CHECK PASS the original hover still completes | 200
+[  27.93s] CHECK PASS control: the same upload after the hover is not refused for the hover (any non-409) | 200 {"status": "success", "message": "Trajectory uploaded and saved to active slot.", "drones_summary": {"0": {"waypoints_count": 2, "duration_seconds": 8.0}}, "tra
+[  27.93s] VERDICT PASS

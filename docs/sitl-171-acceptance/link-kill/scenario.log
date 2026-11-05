@@ -1,0 +1,21 @@
+[   1.02s] OBS connected: True
+[   1.54s] CHECK PASS preflight ready before the run | {'connected': 1, 'armed': 0, 'armed_stale': 0, 'armed_stale_ids': [], 'fleet_state': 'STAGED'}
+Received ack for not-existing command: 400! Ignoring... (mavlink_command_sender.cpp:304)
+[   1.66s] OBS armed: True
+[   1.66s] OBS mode: HOLD
+[   1.66s] OBS landed_state: ON_GROUND
+Received ack for not-existing command: 176! Ignoring... (mavlink_command_sender.cpp:304)
+Received ack for not-existing command: 176! Ignoring... (mavlink_command_sender.cpp:304)
+[   2.66s] OBS mode: OFFBOARD
+[   3.66s] OBS landed_state: IN_AIR
+[  11.31s] CHECK PASS baseline mid-hover: connected 1, armed 1, armed_stale 0 | {'connected': 1, 'armed': 1, 'armed_stale': 0, 'armed_stale_ids': [], 'fleet_state': 'STAGED'}
+[  11.32s] PX4 SIGKILL mid-hover pid 94
+[  11.41s] HOVER HTTP RESULT: 500 {"detail": "Hover dwell failed: Drone 0 disconnected during hover dwell"}
+[  11.58s] NOTE seconds_to_connected_0 = 0.26426148414611816
+[  11.58s] NOTE seconds_to_armed_stale_1 = 0.2642652988433838
+[  11.58s] CHECK PASS connected falls to 0 within 6 s | 0.26426148414611816
+[  11.58s] CHECK PASS armed-but-silent is visible: armed 0 and armed_stale 1 within 6 s | (0.2642652988433838, {'connected': 0, 'armed': 0, 'armed_stale': 1, 'armed_stale_ids': [0], 'fleet_state': 'STAGED'})
+[  11.58s] NOTE hover_result = {"http": 500, "detail": "{\"detail\": \"Hover dwell failed: Drone 0 disconnected during hover dwell\"}"}
+[  11.58s] CHECK PASS hover-sequence fails closed (not 200 COMPLETED) with a reason | 500 {"detail": "Hover dwell failed: Drone 0 disconnected during hover dwell"}
+[  11.59s] CHECK PASS fleet never reports the dead drone as connected afterwards | {'connected': 0, 'armed': 0, 'armed_stale': 1, 'armed_stale_ids': [0], 'fleet_state': 'STAGED'}
+[  11.59s] VERDICT PASS

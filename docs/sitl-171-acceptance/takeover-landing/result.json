@@ -1,0 +1,109 @@
+{
+  "checks": [
+    {
+      "name": "preflight ready before the run",
+      "ok": true,
+      "detail": "{'connected': 1, 'armed': 0, 'armed_stale': 0, 'armed_stale_ids': [], 'fleet_state': 'STAGED'}"
+    },
+    {
+      "name": "GCS had put PX4 in LAND",
+      "ok": true,
+      "detail": "alt 3.87"
+    },
+    {
+      "name": "PX4 stays in POSCTL, armed and airborne for 25 s (the GCS does not re-send land)",
+      "ok": true,
+      "detail": "mode=POSCTL armed=True alt=3.36"
+    },
+    {
+      "name": "hover-sequence stops with 500 'operator took over during the landing'",
+      "ok": true,
+      "detail": "500 {\"detail\": \"Landing failed: Drone 0: operator took over during the landing (flight mode POSCTL); the sequence is yielding without commanding the vehicle\"}"
+    }
+  ],
+  "notes": {
+    "mode_events_after_takeover": [
+      "POSCTL"
+    ]
+  },
+  "case": "takeover_landing",
+  "exception": null,
+  "verdict": "PASS",
+  "observer_events": [
+    [
+      2.47,
+      "connected",
+      true
+    ],
+    [
+      2.98,
+      "armed",
+      true
+    ],
+    [
+      2.98,
+      "mode",
+      "HOLD"
+    ],
+    [
+      2.98,
+      "landed_state",
+      "ON_GROUND"
+    ],
+    [
+      3.98,
+      "mode",
+      "OFFBOARD"
+    ],
+    [
+      4.97,
+      "landed_state",
+      "IN_AIR"
+    ],
+    [
+      12.01,
+      "mode",
+      "LAND"
+    ],
+    [
+      12.01,
+      "landed_state",
+      "LANDING"
+    ],
+    [
+      13.01,
+      "mode",
+      "POSCTL"
+    ],
+    [
+      13.01,
+      "landed_state",
+      "IN_AIR"
+    ],
+    [
+      38.01,
+      "mode",
+      "LAND"
+    ],
+    [
+      38.01,
+      "landed_state",
+      "LANDING"
+    ],
+    [
+      45.01,
+      "landed_state",
+      "ON_GROUND"
+    ],
+    [
+      47.01,
+      "armed",
+      false
+    ],
+    [
+      47.01,
+      "mode",
+      "POSCTL"
+    ]
+  ]
+}

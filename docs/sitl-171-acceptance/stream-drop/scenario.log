@@ -1,0 +1,32 @@
+[   1.07s] OBS connected: True
+[   1.88s] CHECK PASS preflight ready before the run | {'connected': 1, 'armed': 0, 'armed_stale': 0, 'armed_stale_ids': [], 'fleet_state': 'STAGED'}
+[   1.88s] NOTE mavsdk_servers = ["608 /venv/lib/python3.12/site-packages/mavsdk/bin/mavsdk_server -p 50051 --sysid 245 --compid 190 udpin://127.0.0.1:14540", "825 /venv/lib/python3.12/site-packages/mavsdk/bin/mavsdk_server -p 50099 --sysid 245 --compid 190 udpin://0.0.0.0:14550"]
+[   1.89s] GCS mavsdk_server SIGKILL (stream drop) on the ground
+[   1.66s] OBS armed: False
+[   1.66s] OBS mode: HOLD
+[   1.66s] OBS landed_state: ON_GROUND
+Received ack for not-existing command: 512! Ignoring... (mavlink_command_sender.cpp:304)
+Received ack for not-existing command: 512! Ignoring... (mavlink_command_sender.cpp:304)
+[   5.98s] NOTE seconds_to_connected_0 = 0.0029251575469970703
+[   5.98s] NOTE seconds_to_connected_1_again = 4.09648871421814
+[   5.98s] CHECK PASS connected shows the drop (0) while the stream is down | (0.0029251575469970703, [(0.0, 0), (0.3, 0), (0.5, 0), (0.8, 0), (1.0, 0), (1.3, 0)])
+[   5.98s] CHECK PASS monitors restart and connected returns to 1 within 40 s | 4.09648871421814
+[   6.00s] CHECK PASS preflight green after the recovery | {'connected': 1, 'armed': 0, 'armed_stale': 0, 'armed_stale_ids': [], 'fleet_state': 'STAGED'}
+Received ack for not-existing command: 511! Ignoring... (mavlink_command_sender.cpp:304)
+Received ack for not-existing command: 400! Ignoring... (mavlink_command_sender.cpp:304)
+[   5.66s] OBS armed: True
+Received ack for not-existing command: 176! Ignoring... (mavlink_command_sender.cpp:304)
+Received ack for not-existing command: 176! Ignoring... (mavlink_command_sender.cpp:304)
+[   6.66s] OBS mode: OFFBOARD
+[   7.67s] OBS landed_state: IN_AIR
+Received ack for not-existing command: 176! Ignoring... (mavlink_command_sender.cpp:304)
+Received ack for not-existing command: 176! Ignoring... (mavlink_command_sender.cpp:304)
+Received ack for not-existing command: 21! Ignoring... (mavlink_command_sender.cpp:304)
+[  17.75s] OBS mode: LAND
+[  17.75s] OBS landed_state: LANDING
+[  20.77s] OBS landed_state: ON_GROUND
+[  22.78s] OBS armed: False
+[  22.78s] OBS mode: HOLD
+[  23.71s] HOVER HTTP RESULT: 200 {"status": "COMPLETED", "mode": "SIMULATION", "configured_mode": "SIMULATION", "active_backend": "px4", "vehicle": "SIMULATED", "steps": [{"step": "PREFLIGHT", "status": "PASSED", "time": 1793776557.0194027, "drone_id": 0}, {"step": "ARM", "status": "ARMED", "time": 1793776557.5528395}, {"step": "HOVER_REACHED", "status": "HOLDING", "altitude_m": 0.86, "time": 1793776565.6568809}, {"step": "HOVER_HOLD_COMPLETE", "status": "STABLE", "dwell_s": 3.03, "time": 1793776568.687073}, {"step": "LANDING_C
+[  23.71s] CHECK PASS a hover after the stream recovery completes | 200
+[  23.72s] VERDICT PASS

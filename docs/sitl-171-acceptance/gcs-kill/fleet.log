@@ -1,0 +1,22 @@
+=========================================
+Starting multi-drone SITL simulation...
+  Number of drones: 1
+  Headless mode: 1
+  Autopilot Path: /home/px4/PX4-Autopilot
+  Home origin:    47.397742, 8.545594 @ 488.0m
+=========================================
+=========================================
+Stopping PX4 SITL and Gazebo Fleet...
+=========================================
+All simulation processes killed.
+Installing drone_show_field.sdf into /home/px4/PX4-Autopilot/Tools/simulation/gz/worlds...
+Sourcing Gazebo Sim environment...
+Launching host drone (instance 0) at EAST_OFFSET = 0m...
+Waiting 10 seconds for Gazebo Sim server to initialize...
+=========================================
+Fleet launch complete. Active instances:
+41
+57
+259
+=========================================
+Simulation running. Blocked on background processes. Stop/Kill task to exit.

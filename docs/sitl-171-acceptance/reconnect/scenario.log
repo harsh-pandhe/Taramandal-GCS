@@ -1,0 +1,31 @@
+[   0.89s] OBS connected: True
+[   1.35s] CHECK PASS preflight ready before the run | {'connected': 1, 'armed': 0, 'armed_stale': 0, 'armed_stale_ids': [], 'fleet_state': 'STAGED'}
+[   1.36s] PX4 SIGSTOP on the ground
+[   9.44s] PX4 SIGCONT
+Received ack for not-existing command: 512! Ignoring... (mavlink_command_sender.cpp:304)
+Received ack for not-existing command: 512! Ignoring... (mavlink_command_sender.cpp:304)
+Received ack for not-existing command: 512! Ignoring... (mavlink_command_sender.cpp:304)
+Received ack for not-existing command: 512! Ignoring... (mavlink_command_sender.cpp:304)
+Received ack for not-existing command: 512! Ignoring... (mavlink_command_sender.cpp:304)
+Received ack for not-existing command: 511! Ignoring... (mavlink_command_sender.cpp:304)
+Received ack for not-existing command: 512! Ignoring... (mavlink_command_sender.cpp:304)
+[   9.21s] OBS armed: False
+[   9.21s] OBS mode: HOLD
+[   9.21s] OBS landed_state: ON_GROUND
+[   9.70s] NOTE seconds_frozen_until_connected_0 = 2.8194565773010254
+[   9.70s] NOTE seconds_after_SIGCONT_until_connected_1 = 0.25847625732421875
+[   9.70s] CHECK PASS baseline connected 1 before the freeze | {'connected': 1, 'armed': 0, 'armed_stale': 0, 'armed_stale_ids': [], 'fleet_state': 'STAGED'}
+[   9.70s] CHECK PASS connected drops during an 8 s freeze (within 5 s) | 2.8194565773010254
+[   9.70s] CHECK PASS connected is back within 15 s of SIGCONT | 0.25847625732421875
+[  15.74s] CHECK PASS preflight green again after the reconnect | {'connected': 1, 'armed': 0, 'armed_stale': 0, 'armed_stale_ids': [], 'fleet_state': 'STAGED'}
+Received ack for not-existing command: 400! Ignoring... (mavlink_command_sender.cpp:304)
+[  16.11s] OBS armed: True
+Received ack for not-existing command: 176! Ignoring... (mavlink_command_sender.cpp:304)
+Received ack for not-existing command: 176! Ignoring... (mavlink_command_sender.cpp:304)
+Received ack for not-existing command: 176! Ignoring... (mavlink_command_sender.cpp:304)
+Received ack for not-existing command: 176! Ignoring... (mavlink_command_sender.cpp:304)
+Received ack for not-existing command: 21! Ignoring... (mavlink_command_sender.cpp:304)
+Received ack for not-existing command: 400! Ignoring... (mavlink_command_sender.cpp:304)
+[  17.27s] HOVER HTTP RESULT: 500 {"detail": "Hover dwell failed: Drone 0 drifted outside the hover altitude band during dwell (observed 0.59 m, target 1.0 m)"}
+[  17.27s] CHECK FAIL a hover after the reconnect completes | 500
+[  17.27s] VERDICT FAIL

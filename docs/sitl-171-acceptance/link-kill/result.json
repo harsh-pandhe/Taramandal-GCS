@@ -1,0 +1,77 @@
+{
+  "checks": [
+    {
+      "name": "preflight ready before the run",
+      "ok": true,
+      "detail": "{'connected': 1, 'armed': 0, 'armed_stale': 0, 'armed_stale_ids': [], 'fleet_state': 'STAGED'}"
+    },
+    {
+      "name": "baseline mid-hover: connected 1, armed 1, armed_stale 0",
+      "ok": true,
+      "detail": "{'connected': 1, 'armed': 1, 'armed_stale': 0, 'armed_stale_ids': [], 'fleet_state': 'STAGED'}"
+    },
+    {
+      "name": "connected falls to 0 within 6 s",
+      "ok": true,
+      "detail": "0.26426148414611816"
+    },
+    {
+      "name": "armed-but-silent is visible: armed 0 and armed_stale 1 within 6 s",
+      "ok": true,
+      "detail": "(0.2642652988433838, {'connected': 0, 'armed': 0, 'armed_stale': 1, 'armed_stale_ids': [0], 'fleet_state': 'STAGED'})"
+    },
+    {
+      "name": "hover-sequence fails closed (not 200 COMPLETED) with a reason",
+      "ok": true,
+      "detail": "500 {\"detail\": \"Hover dwell failed: Drone 0 disconnected during hover dwell\"}"
+    },
+    {
+      "name": "fleet never reports the dead drone as connected afterwards",
+      "ok": true,
+      "detail": "{'connected': 0, 'armed': 0, 'armed_stale': 1, 'armed_stale_ids': [0], 'fleet_state': 'STAGED'}"
+    }
+  ],
+  "notes": {
+    "seconds_to_connected_0": 0.26426148414611816,
+    "seconds_to_armed_stale_1": 0.2642652988433838,
+    "hover_result": {
+      "http": 500,
+      "detail": "{\"detail\": \"Hover dwell failed: Drone 0 disconnected during hover dwell\"}"
+    }
+  },
+  "case": "link_kill",
+  "exception": null,
+  "verdict": "PASS",
+  "observer_events": [
+    [
+      1.02,
+      "connected",
+      true
+    ],
+    [
+      1.66,
+      "armed",
+      true
+    ],
+    [
+      1.66,
+      "mode",
+      "HOLD"
+    ],
+    [
+      1.66,
+      "landed_state",
+      "ON_GROUND"
+    ],
+    [
+      2.66,
+      "mode",
+      "OFFBOARD"
+    ],
+    [
+      3.66,
+      "landed_state",
+      "IN_AIR"
+    ]
+  ]
+}

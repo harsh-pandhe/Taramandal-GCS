@@ -1,0 +1,77 @@
+{
+  "checks": [
+    {
+      "name": "preflight ready before the run",
+      "ok": true,
+      "detail": "{'connected': 1, 'armed': 0, 'armed_stale': 0, 'armed_stale_ids': [], 'fleet_state': 'STAGED'}"
+    },
+    {
+      "name": "armed on the ground and fresh: armed 1, armed_stale 0",
+      "ok": true,
+      "detail": "{'connected': 1, 'armed': 1, 'armed_stale': 0, 'armed_stale_ids': [], 'fleet_state': 'STAGED'}"
+    },
+    {
+      "name": "silent and armed: armed 0 but armed_stale 1 (never reads as disarmed)",
+      "ok": true,
+      "detail": "{'connected': 0, 'armed': 0, 'armed_stale': 1, 'armed_stale_ids': [0], 'fleet_state': 'STAGED'}"
+    },
+    {
+      "name": "it shows within 6 s",
+      "ok": true,
+      "detail": "3.050093650817871"
+    },
+    {
+      "name": "after SIGCONT the drone reads armed 1, armed_stale 0 again within 20 s",
+      "ok": true,
+      "detail": "0.26088452339172363"
+    },
+    {
+      "name": "scenario ran to the end without an exception",
+      "ok": false,
+      "detail": "ActionError: COMMAND_DENIED: 'Command Denied'; origin: disarm(); params: ()"
+    }
+  ],
+  "notes": {
+    "seconds_to_armed_stale_1": 3.050093650817871,
+    "status_while_silent": {
+      "connected": 0,
+      "armed": 0,
+      "armed_stale": 1,
+      "armed_stale_ids": [
+        0
+      ],
+      "fleet_state": "STAGED"
+    },
+    "seconds_after_SIGCONT_until_armed_1_stale_0": 0.26088452339172363
+  },
+  "case": "armed_silent",
+  "exception": "ActionError: COMMAND_DENIED: 'Command Denied'; origin: disarm(); params: ()",
+  "verdict": "FAIL",
+  "observer_events": [
+    [
+      0.96,
+      "connected",
+      true
+    ],
+    [
+      1.48,
+      "armed",
+      true
+    ],
+    [
+      1.48,
+      "mode",
+      "HOLD"
+    ],
+    [
+      1.48,
+      "landed_state",
+      "ON_GROUND"
+    ],
+    [
+      13.83,
+      "landed_state",
+      "IN_AIR"
+    ]
+  ]
+}

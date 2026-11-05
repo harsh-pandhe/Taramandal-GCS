@@ -1,0 +1,35 @@
+/work/packages/tara-gcs/sitecustomize.py:14: FutureWarning: The 'mavsdk' package has been renamed to 'mavsdk-grpc'. This is the last release of the gRPC wrapper under the 'mavsdk' name: that name now refers to the native MAVSDK binding, which has a different API.
+  To carry on with this API, install 'mavsdk-grpc' and use 'import mavsdk_grpc as mavsdk'. The code is identical, development continues there (including releases for MAVSDK v4), and it installs under a separate import name so it cannot collide with the native binding.
+  To freeze instead, pin 'mavsdk<4' (no further updates).
+  To migrate, see https://mavsdk.mavlink.io/main/en/python/migration.html
+  import mavsdk.telemetry as T
+INFO:TaramandalGCS:Show signing: 1 trusted key(s); unsigned trajectories rejected.
+INFO:TaramandalGCS:Pre-arm safety profile: SIMULATION
+INFO:     Started server process [40]
+INFO:     Waiting for application startup.
+INFO:TaramandalGCS:Initializing Ground Control Station...
+INFO:TaramandalGCS:Blackbox: recording to /scratch/out/gcs-kill/blackbox/blackbox_20261104T071439_40.jsonl.gz
+INFO:root:Connecting to 1 drones (backend=px4) on ports: [14540]
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://0.0.0.0:8090 (Press CTRL+C to quit)
+INFO:mavsdk_server:MAVSDK version: v3.17.4 (mavsdk_impl.cpp:35)
+INFO:mavsdk_server:Waiting to discover system on udpin://127.0.0.1:14540... (connection_initiator.h:20)
+INFO:mavsdk_server:New system on: 127.0.0.1:14580 (system ID: 1) (udp_connection.cpp:263)
+INFO:mavsdk_server:System discovered (connection_initiator.h:62)
+INFO:mavsdk_server:Server started (grpc_server.cpp:177)
+INFO:mavsdk_server:Server set to listen on 0.0.0.0:50051 (grpc_server.cpp:178)
+INFO:     127.0.0.1:64804 - "GET /api/status HTTP/1.1" 200 OK
+INFO:root:Proximity safety monitor active.
+INFO:root:Geofence monitor active (soft warning: Nonem, hard RTL: 30.0m).
+INFO:root:Fleet lifecycle monitor active.
+INFO:     127.0.0.1:64810 - "GET /api/status HTTP/1.1" 200 OK
+WARNING:mavsdk_server:Received ack for not-existing command: 512! Ignoring... (mavlink_command_sender.cpp:304)
+INFO:TaramandalGCS.preflight:AUDIT {"backend": "px4", "event": "login", "fidelity": "px4-sitl", "operator": "cmdr", "origin_ip": "127.0.0.1", "role": "FLIGHT_COMMANDER", "ts": 1793776493.783152}
+INFO:     127.0.0.1:56798 - "POST /api/auth/login HTTP/1.1" 200 OK
+INFO:TaramandalGCS.preflight:AUDIT {"backend": "px4", "event": "login", "fidelity": "px4-sitl", "operator": "chor", "origin_ip": "127.0.0.1", "role": "CHOREOGRAPHER", "ts": 1793776493.8809152}
+INFO:     127.0.0.1:56808 - "POST /api/auth/login HTTP/1.1" 200 OK
+INFO:     127.0.0.1:56812 - "GET /api/preflight-check HTTP/1.1" 200 OK
+INFO:     127.0.0.1:56822 - "GET /api/status HTTP/1.1" 200 OK
+WARNING:mavsdk_server:Received ack for not-existing command: 512! Ignoring... (mavlink_command_sender.cpp:304)
+INFO:TaramandalGCS.preflight:AUDIT {"backend": "px4", "drone_id": 0, "event": "single_drone_hover_requested", "fidelity": "px4-sitl", "hover_duration_s": 25.0, "operator": "cmdr", "target_altitude_m": 1.0, "ts": 1793776493.9184687}
+WARNING:mavsdk_server:Received ack for not-existing command: 176! Ignoring... (mavlink_command_sender.cpp:304)
