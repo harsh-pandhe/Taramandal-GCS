@@ -21,7 +21,7 @@ const VIEWS = [
 export default function StagePage({
   header, viewMode, onViewMode, showPaths, onShowPaths,
   drawerOpen, onOpenDrawer, choreoData, currentTime, lightingOpts,
-  dronesList, rate, loading, error, playback, segments, duration, audioPeaks, zoom,
+  dronesList, rate, loading, error, playback, segments, duration, audioPeaks, audioAnalysis = null, zoom,
   onScrub, onStep, activeSceneId, onSelectScene, projectId, cameraStore,
   fullscreen = false, onToggleFullscreen,
 }) {
@@ -134,7 +134,7 @@ export default function StagePage({
         />
         <WaveformTrack
           peaks={audioPeaks} duration={duration} currentTime={currentTime}
-          zoom={zoom} onScrub={onScrub}
+          zoom={zoom} onScrub={onScrub} analysis={audioAnalysis}
         />
 
         <TimelineTrack

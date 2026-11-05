@@ -5,6 +5,7 @@ import Sidebar from './components/Sidebar.jsx';
 import ConsoleDrawer from './components/ConsoleDrawer.jsx';
 import StagePage from './components/viewport/StagePage.jsx';
 import ShapeLibraryModal from './components/modals/ShapeLibraryModal.jsx';
+import RasterImportModal from './components/modals/RasterImportModal.jsx';
 import FleetPage from './components/panels/FleetPage.jsx';
 import VaultPage from './components/panels/VaultPage.jsx';
 
@@ -45,6 +46,7 @@ export default function App() {
   // The stage camera, kept here because the stage unmounts on every page change.
   const stageCamera = useRef(null);
   const [librarySceneId, setLibrarySceneId] = useState(null);
+  const [rasterModalOpen, setRasterModalOpen] = useState(false);
   const [activeSceneId, setActiveSceneId] = useState(null);
   // issue #160: below tara_studio.validator.validate_dynamics' own fixed
   // 10 Hz sweep, the jerk certification measures a linear-interpolation
@@ -187,6 +189,20 @@ export default function App() {
     if (next !== undefined) scrub(next);
   }, [segments, currentTime, scrub]);
 
+  // Issue #91: Adjusts scene hold durations to snap scene end boundaries to nearest musical beats/bars
+  const handleSnapScenesToBeats = useCallback(() => {
+    if (!audio.analysis?.beats?.length || !scenes.length) return;
+    let cumulative = 0;
+    scenes.forEach((scene) => {
+      const rawEnd = cumulative + scene.transition + scene.hold;
+      const snappedEnd = audio.snapTimeToBeat(rawEnd);
+      const delta = snappedEnd - rawEnd;
+      const newHold = Math.max(1.0, Math.round((scene.hold + delta) * 10) / 10);
+      list.patchScene(scene.id, { hold: newHold });
+      cumulative += scene.transition + newHold;
+    });
+  }, [audio, scenes, list]);
+
   const handleExport = useCallback(async (format) => {
     if (!choreoData) return;
     if (validation?.status !== 'PASSED') {
@@ -290,6 +306,7 @@ export default function App() {
                 loading={loading}
                 onBuild={handleBuild}
                 onOpenLibrary={setLibrarySceneId}
+                onOpenRasterImport={() => setRasterModalOpen(true)}
                 ai={ai}
                 light={{
                   effect: lightEffect, onEffect: setLightEffect,
@@ -309,6 +326,7 @@ export default function App() {
                   ledTrack, onLedTrack: setLedTrack,
                   duration: timelineDuration,
                   onScrub: (t) => { setIsPlaying(false); scrub(t); },
+                  onSnapScenes: handleSnapScenesToBeats,
                 }}
               />
             )}
@@ -337,6 +355,7 @@ export default function App() {
               error={error}
               playback={playback}
               audioPeaks={audio.peaks}
+              audioAnalysis={audio.analysis}
               zoom={zoom}
               segments={segments}
               duration={timelineDuration}
@@ -383,6 +402,17 @@ export default function App() {
           numDrones={numDrones}
           onClose={() => setLibrarySceneId(null)}
           onApply={(patch) => { list.patchScene(libraryScene.id, patch); setLibrarySceneId(null); }}
+        />
+      )}
+
+      {rasterModalOpen && (
+        <RasterImportModal
+          numDrones={numDrones}
+          onClose={() => setRasterModalOpen(false)}
+          onInsertScene={(patch) => {
+            list.addScene(patch);
+            setRasterModalOpen(false);
+          }}
         />
       )}
     </div>

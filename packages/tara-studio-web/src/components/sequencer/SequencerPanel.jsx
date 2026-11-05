@@ -1,4 +1,4 @@
-import { Plus, Sparkles } from 'lucide-react';
+import { Plus, Sparkles, Image as ImageIcon } from 'lucide-react';
 import SceneCard from './SceneCard.jsx';
 import HistoryBar from './HistoryBar.jsx';
 
@@ -6,7 +6,7 @@ import HistoryBar from './HistoryBar.jsx';
  * The scene list editor: the stack of scene cards plus the build action.
  */
 export default function SequencerPanel({
-  list, history, loading, onBuild, onOpenLibrary,
+  list, history, loading, onBuild, onOpenLibrary, onOpenRasterImport,
 }) {
   const {
     scenes, addScene, patchScene, duplicateScene, deleteScene, moveScene,
@@ -40,9 +40,22 @@ export default function SequencerPanel({
         ))}
       </div>
 
-      <button type="button" className="btn-secondary btn-inline" onClick={() => addScene()}>
-        <Plus size={14} /> Add Scene
-      </button>
+      <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+        <button type="button" className="btn-secondary btn-inline" style={{ flex: 1 }} onClick={() => addScene()}>
+          <Plus size={14} /> Add Scene
+        </button>
+        {onOpenRasterImport && (
+          <button
+            type="button"
+            className="btn-secondary btn-inline"
+            style={{ flex: 1 }}
+            onClick={onOpenRasterImport}
+            title="Import an image and convert it to a formation"
+          >
+            <ImageIcon size={14} /> Import Image
+          </button>
+        )}
+      </div>
 
       <button
         type="button"

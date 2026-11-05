@@ -1,5 +1,10 @@
 import { describe, it, expect, vi } from 'vitest';
-import { computePeaks, drawWaveform } from './audioEngine.js';
+import {
+  computePeaks,
+  drawWaveform,
+  audioBufferToWav,
+  arrayBufferToBase64,
+} from './audioEngine.js';
 
 /** Minimal AudioBuffer stand-in — computePeaks only needs this surface. */
 const fakeBuffer = (channels) => ({
@@ -142,5 +147,34 @@ describe('drawWaveform zoom', () => {
     const { canvas, rects } = stubCanvas(50, 60);
     drawWaveform(canvas, peaks, { duration: 10, startTime: 3, endTime: 3 });
     expect(rects.every((r) => Number.isFinite(r.y) && Number.isFinite(r.h))).toBe(true);
+  });
+});
+
+describe('audioBufferToWav and arrayBufferToBase64', () => {
+  it('encodes AudioBuffer to a valid RIFF/WAVE header and PCM data', () => {
+    const buffer = fakeBuffer([sine(4800, 4), sine(4800, 4)]);
+    const wav = audioBufferToWav(buffer);
+    expect(wav.byteLength).toBe(44 + 4800 * 2 * 2); // 44 header + 4800 frames * 2 channels * 2 bytes
+    const view = new DataView(wav);
+    const textAt = (offset, len) =>
+      Array.from({ length: len }, (_, i) => String.fromCharCode(view.getUint8(offset + i))).join('');
+    expect(textAt(0, 4)).toBe('RIFF');
+    expect(textAt(8, 4)).toBe('WAVE');
+    expect(textAt(12, 4)).toBe('fmt ');
+    expect(view.getUint16(20, true)).toBe(1); // PCM
+    expect(view.getUint16(22, true)).toBe(2); // 2 channels
+    expect(view.getUint32(24, true)).toBe(48000); // 48kHz
+    expect(textAt(36, 4)).toBe('data');
+  });
+
+  it('throws on invalid AudioBuffer input', () => {
+    expect(() => audioBufferToWav(null)).toThrow(/Valid AudioBuffer required/);
+    expect(() => audioBufferToWav({})).toThrow(/Valid AudioBuffer required/);
+  });
+
+  it('converts ArrayBuffer to valid base64', () => {
+    const buffer = new Uint8Array([72, 101, 108, 108, 111]).buffer; // "Hello"
+    const b64 = arrayBufferToBase64(buffer);
+    expect(b64).toBe('SGVsbG8=');
   });
 });

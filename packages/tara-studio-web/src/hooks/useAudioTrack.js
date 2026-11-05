@@ -1,5 +1,12 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
-import { AudioClock, computePeaks, readFileAsArrayBuffer } from '../engine/audioEngine.js';
+import {
+  AudioClock,
+  computePeaks,
+  readFileAsArrayBuffer,
+  audioBufferToWav,
+  arrayBufferToBase64,
+} from '../engine/audioEngine.js';
+import { analyzeAudioTrack } from '../engine/api.js';
 
 /**
  * Loads a soundtrack and exposes it as a transport the show clock can follow.
@@ -19,6 +26,11 @@ export default function useAudioTrack() {
   const [error, setError] = useState('');
   const [volume, setVolumeState] = useState(1);
 
+  // Issue #91: Music-aware analysis state (BPM, beats, bars, sections)
+  const [analysis, setAnalysis] = useState(null);
+  const [analyzing, setAnalyzing] = useState(false);
+  const [analysisError, setAnalysisError] = useState('');
+
   useEffect(() => {
     const clock = clockRef.current;
     // Browsers cap concurrent AudioContexts, so release ours on unmount.
@@ -29,6 +41,8 @@ export default function useAudioTrack() {
     if (!file) return;
     setLoading(true);
     setError('');
+    setAnalysis(null);
+    setAnalysisError('');
     try {
       const raw = await readFileAsArrayBuffer(file);
       const secs = await clockRef.current.load(raw);
@@ -46,6 +60,53 @@ export default function useAudioTrack() {
     }
   }, []);
 
+  const analyzeTrack = useCallback(async (settings = {}) => {
+    if (!clockRef.current?.buffer) {
+      setAnalysisError('No audio track loaded to analyze.');
+      return null;
+    }
+    setAnalyzing(true);
+    setAnalysisError('');
+    try {
+      const wav = audioBufferToWav(clockRef.current.buffer);
+      const wavB64 = arrayBufferToBase64(wav);
+      const result = await analyzeAudioTrack({
+        wavB64,
+        minBpm: settings.minBpm ?? 60.0,
+        maxBpm: settings.maxBpm ?? 200.0,
+        beatsPerBar: settings.beatsPerBar ?? 4,
+      });
+      setAnalysis(result);
+      return result;
+    } catch (err) {
+      const msg = err?.message || 'Music analysis failed.';
+      setAnalysisError(msg);
+      return null;
+    } finally {
+      setAnalyzing(false);
+    }
+  }, []);
+
+  const snapTimeToBeat = useCallback((t, snapToBar = false) => {
+    if (!analysis) return t;
+    const targets = snapToBar && analysis.bars?.times?.length
+      ? analysis.bars.times
+      : (analysis.beats?.length ? analysis.beats : null);
+    if (!targets || !targets.length) return t;
+
+    let closest = targets[0];
+    let minDiff = Math.abs(t - closest);
+    for (let i = 1; i < targets.length; i += 1) {
+      const diff = Math.abs(t - targets[i]);
+      if (diff < minDiff) {
+        minDiff = diff;
+        closest = targets[i];
+      }
+    }
+    // Only snap if within 0.75 seconds of a target
+    return minDiff <= 0.75 ? closest : t;
+  }, [analysis]);
+
   const clear = useCallback(() => {
     clockRef.current.stop();
     clockRef.current.buffer = null;
@@ -53,6 +114,8 @@ export default function useAudioTrack() {
     setDuration(0);
     setPeaks(null);
     setError('');
+    setAnalysis(null);
+    setAnalysisError('');
   }, []);
 
   const setVolume = useCallback((v) => {
@@ -64,6 +127,7 @@ export default function useAudioTrack() {
     clock: clockRef.current,
     name, duration, peaks, loading, error, volume,
     hasTrack: !!peaks,
-    load, clear, setVolume,
+    analysis, analyzing, analysisError,
+    load, clear, setVolume, analyzeTrack, snapTimeToBeat,
   };
 }

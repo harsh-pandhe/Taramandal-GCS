@@ -160,6 +160,21 @@ export const drawWaveform = (canvas, peaks, opts) => {
     // rather than a gap in the canvas.
     ctx.fillRect(px, yTop, 1, Math.max(1, yBot - yTop));
   }
+
+  // Issue #91: Draw beat and downbeat marker ticks if analysis is provided
+  if (Array.isArray(opts?.beats) && opts.beats.length) {
+    const downbeats = new Set((opts.downbeats || []).map((t) => Math.round(t * 100) / 100));
+    for (const beat of opts.beats) {
+      if (beat >= startTime && beat <= endTime) {
+        const px = Math.round(((beat - startTime) / span) * cssW);
+        const isDownbeat = downbeats.has(Math.round(beat * 100) / 100);
+        ctx.fillStyle = isDownbeat ? 'rgba(251, 191, 36, 0.75)' : 'rgba(255, 255, 255, 0.25)';
+        const tickH = isDownbeat ? cssH : cssH * 0.4;
+        const tickY = isDownbeat ? 0 : cssH * 0.3;
+        ctx.fillRect(px, tickY, isDownbeat ? 1.5 : 1, tickH);
+      }
+    }
+  }
 };
 
 /**
@@ -279,4 +294,84 @@ export class AudioClock {
       this.gain = null;
     }
   }
+}
+
+/**
+ * Encodes an AudioBuffer into a 16-bit PCM RIFF/WAVE ArrayBuffer.
+ *
+ * @param {AudioBuffer} buffer
+ * @param {number} [maxSeconds=600]
+ * @returns {ArrayBuffer}
+ */
+export function audioBufferToWav(buffer, maxSeconds = 600) {
+  if (!buffer || typeof buffer.getChannelData !== 'function') {
+    throw new Error('Valid AudioBuffer required to encode WAV.');
+  }
+  const numChannels = Math.min(2, Math.max(1, buffer.numberOfChannels || 1));
+  const sampleRate = Math.round(buffer.sampleRate || 44100);
+  const maxFrames = Math.min(buffer.length, Math.floor(maxSeconds * sampleRate));
+  const bytesPerSample = 2;
+  const blockAlign = numChannels * bytesPerSample;
+  const byteRate = sampleRate * blockAlign;
+  const dataSize = maxFrames * blockAlign;
+  const headerSize = 44;
+  const totalSize = headerSize + dataSize;
+  const arrayBuffer = new ArrayBuffer(totalSize);
+  const view = new DataView(arrayBuffer);
+
+  const writeString = (offset, string) => {
+    for (let i = 0; i < string.length; i += 1) {
+      view.setUint8(offset + i, string.charCodeAt(i));
+    }
+  };
+
+  writeString(0, 'RIFF');
+  view.setUint32(4, 36 + dataSize, true);
+  writeString(8, 'WAVE');
+  writeString(12, 'fmt ');
+  view.setUint32(16, 16, true);
+  view.setUint16(20, 1, true); // PCM
+  view.setUint16(22, numChannels, true);
+  view.setUint32(24, sampleRate, true);
+  view.setUint32(28, byteRate, true);
+  view.setUint16(32, blockAlign, true);
+  view.setUint16(34, bytesPerSample * 8, true);
+  writeString(36, 'data');
+  view.setUint32(40, dataSize, true);
+
+  const channels = [];
+  for (let ch = 0; ch < numChannels; ch += 1) {
+    channels.push(buffer.getChannelData(ch));
+  }
+
+  let offset = 44;
+  for (let i = 0; i < maxFrames; i += 1) {
+    for (let ch = 0; ch < numChannels; ch += 1) {
+      let sample = channels[ch][i];
+      if (!Number.isFinite(sample)) sample = 0;
+      sample = Math.max(-1, Math.min(1, sample));
+      const intSample = sample < 0 ? Math.round(sample * 0x8000) : Math.round(sample * 0x7FFF);
+      view.setInt16(offset, intSample, true);
+      offset += 2;
+    }
+  }
+
+  return arrayBuffer;
+}
+
+/**
+ * Converts an ArrayBuffer into a base64 string safely across arbitrary lengths.
+ *
+ * @param {ArrayBuffer} arrayBuffer
+ * @returns {string}
+ */
+export function arrayBufferToBase64(arrayBuffer) {
+  const bytes = new Uint8Array(arrayBuffer);
+  let binary = '';
+  const len = bytes.byteLength;
+  const chunk = 0x8000;
+  for (let i = 0; i < len; i += chunk) {
+    binary += String.fromCharCode.apply(null, bytes.subarray(i, Math.min(i + chunk, len)));
+  }
+  return btoa(binary);
 }

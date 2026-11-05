@@ -10,7 +10,7 @@ const TABS = ['sequence', 'light', 'audio', 'ai', 'safety', 'transmit'];
 
 /** The sliding control console: scene editing, lighting, safety, export. */
 export default function ConsoleDrawer({
-  open, onClose, tab, onTab, list, history, loading, onBuild, onOpenLibrary,
+  open, onClose, tab, onTab, list, history, loading, onBuild, onOpenLibrary, onOpenRasterImport,
   light, choreoData, currentTime, lightingOpts, validation, validating, venue, transmit, audio, ai,
 }) {
   return (
@@ -40,6 +40,7 @@ export default function ConsoleDrawer({
           <SequencerPanel
             list={list} history={history} loading={loading}
             onBuild={onBuild} onOpenLibrary={onOpenLibrary}
+            onOpenRasterImport={onOpenRasterImport}
           />
         )}
         {tab === 'light' && (
@@ -54,6 +55,7 @@ export default function ConsoleDrawer({
             audio={audio.track} zoom={audio.zoom} onZoom={audio.onZoom}
             ledTrack={audio.ledTrack} onLedTrack={audio.onLedTrack}
             duration={audio.duration} currentTime={currentTime} onScrub={audio.onScrub}
+            onSnapScenes={audio.onSnapScenes}
           />
         )}
         {tab === 'ai' && <AIPanel ai={ai} />}

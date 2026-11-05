@@ -11,6 +11,7 @@ import { drawWaveform } from '../../engine/audioEngine.js';
  */
 export default function WaveformTrack({
   peaks, duration, currentTime, zoom = 1, scrollStart = 0, onScrub,
+  analysis = null,
 }) {
   const canvasRef = useRef(null);
   const wrapRef = useRef(null);
@@ -25,8 +26,10 @@ export default function WaveformTrack({
       duration, startTime, endTime,
       color: 'rgba(56,189,248,0.55)',
       baseline: 'rgba(148,163,184,0.25)',
+      beats: analysis?.beats || null,
+      downbeats: analysis?.bars?.times || null,
     });
-  }, [peaks, duration, startTime, endTime]);
+  }, [peaks, duration, startTime, endTime, analysis]);
 
   useEffect(() => { redraw(); }, [redraw]);
 
