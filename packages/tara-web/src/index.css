@@ -738,6 +738,90 @@ body {
   font-variant-numeric: tabular-nums;
 }
 
+/* Fleet Cockpit Toolbar (Issue #93) */
+.fleet-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 0.9rem;
+  padding: 0.45rem 0.65rem;
+  background: var(--bg-sunken);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+}
+
+.fleet-filter-group {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  align-items: center;
+}
+
+.fleet-filter-chip {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  padding: 0.2rem 0.55rem;
+  border-radius: var(--r-sm);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.fleet-filter-chip:hover {
+  border-color: var(--border-strong);
+  color: var(--text);
+}
+
+.fleet-filter-chip.active {
+  background: var(--accent-tint);
+  border-color: var(--accent);
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.fleet-filter-chip.chip-danger.active {
+  background: var(--danger-tint);
+  border-color: var(--danger);
+  color: var(--danger);
+}
+
+.fleet-search-box {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.fleet-search-input {
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  padding: 0.25rem 0.6rem;
+  border-radius: var(--r-sm);
+  width: 110px;
+}
+
+.fleet-search-input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.fleet-select {
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  padding: 0.25rem 0.5rem;
+  border-radius: var(--r-sm);
+  cursor: pointer;
+}
+
 /* Compact status-matrix — replaces the 340px+ card grid past
    MATRIX_THRESHOLD drones. One small tile per drone; click drills into the
    full drone-card below via renderDroneCard(). */
