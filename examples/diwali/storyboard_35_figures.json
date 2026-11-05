@@ -1,5 +1,5 @@
 {
-  "name": "Diwali 2026 (35 drones, figures only, no spelled greeting) - diya, rangoli, sphere burst, diya",
+  "name": "Diwali 2026 (35 drones, figures only, no spelled greeting) - diya, sphere burst, diya",
   "n": 35,
   "rate_hz": 10,
   "scenes": [
@@ -8,15 +8,7 @@
       "shapeType": "svg",
       "shapePayload": "diya_flame",
       "scale": 1.0,
-      "holdDurationSeconds": 8,
-      "transitionDurationSeconds": 8
-    },
-    {
-      "name": "Rangoli",
-      "shapeType": "svg",
-      "svgFile": "rangoli.svg",
-      "scale": 1.0,
-      "holdDurationSeconds": 8,
+      "holdDurationSeconds": 12,
       "transitionDurationSeconds": 8
     },
     {
@@ -24,7 +16,7 @@
       "shapeType": "parametric",
       "shapePayload": "sphere",
       "scale": 1.0,
-      "holdDurationSeconds": 8,
+      "holdDurationSeconds": 12,
       "transitionDurationSeconds": 6
     },
     {
@@ -32,7 +24,7 @@
       "shapeType": "svg",
       "shapePayload": "diya_flame",
       "scale": 1.0,
-      "holdDurationSeconds": 10,
+      "holdDurationSeconds": 12,
       "transitionDurationSeconds": 8
     }
   ]
