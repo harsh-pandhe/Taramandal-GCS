@@ -7,8 +7,11 @@ import base64
 import os
 from dataclasses import asdict
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.encoders import jsonable_encoder
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field, ValidationError
 from typing import Optional
 
@@ -58,6 +61,7 @@ from tara_studio.voxelizer import (
     GLYPH_FONT_SIZE,
     voxelize,
 )
+from tara_studio import music_analysis, raster_formation
 from tara_studio.raster_formation import RasterFormationError, raster_to_formation
 from tara_studio.music_analysis import MusicAnalysisError, analyze_audio
 from tara_core import DEFAULT_LIMITS, MAX_FLEET_SIZE
@@ -122,6 +126,89 @@ if "*" in allowed_origins:
     # Security: wildcard origin cannot be combined with allow_credentials=True
     allow_creds = False
 
+# --- Upload size limits (issues #90, #91) -----------------------------------
+#
+# The two upload endpoints carry a file as base64 inside a JSON body. The core
+# modules cap the decoded file, but by then the whole body has been read, parsed
+# and copied (an 80 MB body cost the server ~300 MB at peak before it was
+# refused). So the cap is applied to the body itself, before it is read when the
+# client declares a length and as it streams in when it does not.
+
+#: JSON around the base64 string (field names and the other parameters).
+_BODY_OVERHEAD_BYTES = 4096
+
+
+def _base64_chars(raw_bytes: int) -> int:
+    """Characters of padded base64 text that encode ``raw_bytes`` bytes."""
+    return 4 * ((raw_bytes + 2) // 3)
+
+
+#: path -> function giving that route's body limit in bytes. Looked up per
+#: request, so the limit always follows the core module's own constant.
+_UPLOAD_BODY_LIMITS = {
+    "/api/raster-formation": lambda: _base64_chars(raster_formation.MAX_IMAGE_BYTES) + _BODY_OVERHEAD_BYTES,
+    "/api/music/analyze": lambda: _base64_chars(music_analysis.MAX_BYTES) + _BODY_OVERHEAD_BYTES,
+}
+
+
+class UploadBodyLimitMiddleware:
+    """413 for an oversize request body on the upload routes, before it is read."""
+
+    def __init__(self, app, limits):
+        self.app = app
+        self.limits = limits
+
+    async def __call__(self, scope, receive, send):
+        limit_for = self.limits.get(scope.get("path")) if scope["type"] == "http" and scope["method"] == "POST" else None
+        if limit_for is None:
+            await self.app(scope, receive, send)
+            return
+        limit = limit_for()
+        declared = dict(scope["headers"]).get(b"content-length", b"")
+        if declared.isdigit() and int(declared) > limit:
+            await self._refuse(scope, receive, send, limit)
+            return
+
+        # No (or a dishonest) Content-Length: count the stream. Past the limit the app
+        # is told the client went away, so it stops reading; whatever it then answers
+        # (FastAPI turns a failed body read into a 400) is dropped and a 413 sent instead.
+        seen = 0
+        too_large = False
+
+        async def counting_receive():
+            nonlocal seen, too_large
+            if too_large:
+                return {"type": "http.disconnect"}
+            message = await receive()
+            if message["type"] == "http.request":
+                seen += len(message.get("body", b""))
+                if seen > limit:
+                    too_large = True
+                    return {"type": "http.disconnect"}
+            return message
+
+        async def guarded_send(message):
+            if not too_large:
+                await send(message)
+
+        try:
+            await self.app(scope, counting_receive, guarded_send)
+        except Exception:
+            if not too_large:
+                raise
+        if too_large:
+            await self._refuse(scope, receive, send, limit)
+
+    @staticmethod
+    async def _refuse(scope, receive, send, limit):
+        response = JSONResponse(
+            status_code=413, content={"detail": f"request body is over the {limit} byte limit for this endpoint"}
+        )
+        await response(scope, receive, send)
+
+
+app.add_middleware(UploadBodyLimitMiddleware, limits=_UPLOAD_BODY_LIMITS)
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=allowed_origins,
@@ -132,6 +219,18 @@ app.add_middleware(
 
 # The Project Vault (issue #101): /api/projects.
 app.include_router(project_router)
+
+
+@app.exception_handler(RequestValidationError)
+async def _validation_error(request: Request, exc: RequestValidationError):
+    """FastAPI's 422, minus the ``input`` it echoes back.
+
+    The echo returned the offender in full (a bad field in a 5 MB upload came back
+    as 5 MB), and a ``NaN`` in it made the error itself unserialisable: a 500 for
+    what is a plain client error.
+    """
+    detail = [{k: v for k, v in err.items() if k != "input"} for err in exc.errors()]
+    return JSONResponse(status_code=422, content={"detail": jsonable_encoder(detail)})
 
 class GenerateRequest(BaseModel):
     shape: str = Field("circle", description="Trajectory pattern: circle, helix, heart, cube")
@@ -845,21 +944,32 @@ def api_ai_propose(req: AIProposeRequest):
 class RasterFormationRequest(BaseModel):
     image_b64: str = Field(..., description="Base64-encoded image bytes (PNG, JPG, or WebP)")
     n_drones: int = Field(..., ge=1, le=100, description="Fleet size, 1 to 100")
-    scale: float = Field(20.0, gt=0, description="Target formation scale in metres")
-    center_x: float = Field(0.0, description="X coordinate of formation centre")
-    altitude: float = Field(15.0, gt=0, description="Altitude of formation centre")
+    scale: float = Field(20.0, gt=0, allow_inf_nan=False, description="Target formation scale in metres")
+    center_x: float = Field(0.0, allow_inf_nan=False, description="X coordinate of formation centre")
+    altitude: float = Field(15.0, gt=0, allow_inf_nan=False, description="Altitude of formation centre")
     threshold: Optional[int] = Field(None, ge=0, le=255, description="Binary cut threshold (0-255); None for Otsu")
-    min_separation_m: Optional[float] = Field(None, description="Minimum separation floor (>= 2.0m)")
-    site_radius_m: Optional[float] = Field(None, description="Site boundary radius (<= 150m)")
+    min_separation_m: Optional[float] = Field(None, allow_inf_nan=False, description="Minimum separation floor (>= 2.0m)")
+    site_radius_m: Optional[float] = Field(None, allow_inf_nan=False, description="Site boundary radius (<= 150m)")
+
+
+def _decode_upload(text: str, max_raw_bytes: int) -> bytes:
+    """Base64-decode an uploaded file, refusing an oversize one *before* decoding it.
+
+    The body-size middleware normally gets there first; this keeps the guarantee
+    if the route is ever mounted without it.
+    """
+    if len(text) > _base64_chars(max_raw_bytes):
+        raise HTTPException(status_code=413, detail=f"upload is over the {max_raw_bytes} byte limit for this endpoint")
+    try:
+        return base64.b64decode(text)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"invalid base64 encoding: {e}")
 
 
 @app.post("/api/raster-formation")
 def api_raster_formation(req: RasterFormationRequest):
     """Convert an uploaded raster image into drone formation geometry (issue #90)."""
-    try:
-        raw_bytes = base64.b64decode(req.image_b64)
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=f"invalid base64 encoding: {e}")
+    raw_bytes = _decode_upload(req.image_b64, raster_formation.MAX_IMAGE_BYTES)
     try:
         return raster_to_formation(
             image_bytes=raw_bytes,
@@ -876,18 +986,15 @@ def api_raster_formation(req: RasterFormationRequest):
 
 class MusicAnalysisRequest(BaseModel):
     wav_b64: str = Field(..., description="Base64-encoded WAV audio file bytes")
-    min_bpm: float = Field(60.0, gt=0, description="Minimum BPM search floor")
-    max_bpm: float = Field(200.0, gt=0, description="Maximum BPM search ceiling")
+    min_bpm: float = Field(60.0, gt=0, allow_inf_nan=False, description="Minimum BPM search floor")
+    max_bpm: float = Field(200.0, gt=0, allow_inf_nan=False, description="Maximum BPM search ceiling")
     beats_per_bar: int = Field(4, ge=1, le=16, description="Beats per measure/bar")
 
 
 @app.post("/api/music/analyze")
 def api_music_analyze(req: MusicAnalysisRequest):
     """Analyze an uploaded WAV track for tempo, beats, onsets, and bar grid (issue #91)."""
-    try:
-        raw_bytes = base64.b64decode(req.wav_b64)
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=f"invalid base64 encoding: {e}")
+    raw_bytes = _decode_upload(req.wav_b64, music_analysis.MAX_BYTES)
     try:
         return analyze_audio(
             wav_bytes=raw_bytes,
