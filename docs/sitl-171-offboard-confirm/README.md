@@ -17,6 +17,7 @@ feasibility certified). `dist/` is gitignored, so the show itself is not committ
 | `pr240-n5-r5` | 2.57 / 9.20 | PASS | 5 of 5 | none | 0.0 s on all 5 | 50.0 s |
 | `pr240-n5-load8` (under load, `FORCE_BUSY=1`) | 9.26 / 15.74 | PASS | 5 of 5 | none | 0.0 s on 4, 0.1 s on drone 3 | 50.4 s |
 | `pr240-n5-hold3` (drone 3 forced into HOLD) | 3.95 / 9.30 | ERROR, as intended: fleet held in TAKEOFF | 4 of 5 | drone 3 only | drone 3 never in OFFBOARD | never (held in TAKEOFF) |
+| `pr240-n5-hold3b` (same fault, then a show start and a land) | 3.97 / 15.28 | ERROR, as intended: fleet held in TAKEOFF | 4 of 5 | drone 3 only | drone 3 never in OFFBOARD | never; start refused (409), landed to DISARMED |
 
 "Degraded" is the measuring tool's label for a Gazebo real-time factor below 0.9; it does not touch the launch.
 The FSM times are seconds into the black box.
@@ -33,6 +34,24 @@ four climbed to their hover altitudes, and `/api/status` showed `fleet_state: TA
 `launch_failures: {"3": ...}`. The script that was meant to try a show start and then land had a bug (`docker exec`
 without `-i`, so its Python never ran); see `pr240-n5-hold3b` for the start attempt.
 
+**Fault run with the show start (`pr240-n5-hold3b`, 2026-11-05):** the same fault, with the same result at launch:
+drone 3 was named, disarmed on its pad and stayed at 0.01 m, while the other four were confirmed and climbed. Then, from
+inside the container (`start_attempt.txt`):
+
+- `/api/status` and `/api/fleet-state` both carried `launch_failures: {"3": "did not enter OFFBOARD: flight mode HOLD
+  3s after offboard start"}`, with `fleet_state: TAKEOFF` and `armed: 4`.
+- `POST /api/start-trajectory` answered **409** `launch_incomplete`: "Show start refused: the launch did not get every
+  planned drone up. Drone 3: did not enter OFFBOARD: flight mode HOLD 3s after offboard start. Land the fleet and
+  relaunch." The fleet stayed in TAKEOFF, and the command audit has a `start_trajectory_refused` line
+  (`audit_refusal.jsonl`).
+- `POST /api/land` answered 200, and the fleet reached DISARMED with `armed: 0`. `launch_failures` is still reported
+  after landing, until the next launch, as the PR describes.
+
+Drone 3's PX4 console (`px4/px4_3.log`) shows "Armed by external command" and then "Disarmed by external command", with
+no takeoff. The later "Landing at current position" is the fleet-wide land reaching a drone already disarmed on the
+ground. Its two pairs of `vehicle_imu` timestamp errors are SITL lockstep hiccups under host load (15.3 after the run),
+not part of the fault. `px4/ulg_sha256.txt` lists the five flight logs kept off the repo.
+
 ## Files per run
 
 - `result.json`: the measuring tool's record (`tools/sitl_planned_vs_actual.py`).
@@ -43,7 +62,8 @@ without `-i`, so its Python never ran); see `pr240-n5-hold3b` for the start atte
 - `gcs_stack.log.gz`: the whole `./tara up` output inside the container (GCS, fleet, web).
 - `gcs_telemetry.csv.gz`, `gazebo_fleet_frame.csv.gz`: what the GCS saw and what Gazebo flew.
 - `px4/px4_<i>.log`, `docker_logs.txt`, `docker_inspect.json`: PX4's console per drone and the container's own logs
-  and state. **Only `r5` has these.** Each run's container is replaced by the next, and these runs were flown before
-  the logs were being saved; `r5`'s container survived a host reboot stopped, and they were copied out of it.
+  and state. **Only `r5` and `hold3b` have these.** Each run's container is replaced by the next, and the other runs
+  were flown before the logs were being saved; `r5`'s container survived a host reboot stopped, and they were copied
+  out of it.
   `docker_logs.txt` is empty by design: the container's main process is `sleep infinity`, and the stack's output is
   in `gcs_stack.log.gz`. PX4's `.ulg` flight logs (about 44 MB per drone) are kept off the repo.

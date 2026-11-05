@@ -1,0 +1,7 @@
+login 200
+before: fleet_state TAKEOFF armed 4 launch_failures {"3": "did not enter OFFBOARD: flight mode HOLD 3s after offboard start"}
+fleet-state.launch_failures {"3": "did not enter OFFBOARD: flight mode HOLD 3s after offboard start"}
+start-trajectory 409 {"detail": {"error": "launch_incomplete", "message": "Show start refused: the launch did not get every planned drone up. Drone 3: did not enter OFFBOARD: flight mode HOLD 3s after offboard start. Land the fleet and relaunch.", "launch_failures": {"3": "did not enter OFFBOARD: flight mode HOLD 3s after offboard start"}}}
+after start: fleet_state TAKEOFF
+land 200
+after land: fleet_state DISARMED armed 0 launch_failures {"3": "did not enter OFFBOARD: flight mode HOLD 3s after offboard start"}
