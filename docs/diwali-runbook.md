@@ -5,6 +5,8 @@ and after #219, #220, #221, #222, #223, #224 and #225 merged. Every command belo
 is marked **NOT VERIFIED**. A number is only quoted if a run produced it, and the run is named. The T2 numbers in
 2.5 were re-taken on `main` at `b435358` (after #220); the T1 numbers in 2.3 and the Studio numbers in 2.4 are
 still from `7a6ab70` and were not re-taken.
+On 4 Nov the steps that need no SITL were re-run at 3 drones on `origin/main` `d7e7b2e`; see
+`docs/diwali-runbook-verification/README.md` (screenshots, what was stubbed, seven findings, none fixed).
 
 **Platform: Linux only.** Everything here was run on Linux. Not supported on Windows: `tools/diwali_to_vault.mjs`
 fails there (`ERR_UNSUPPORTED_ESM_URL_SCHEME`: it passes an absolute path to `import()`) and
@@ -108,9 +110,12 @@ export GCS_STATE_PATH=$D/state.json GCS_AUDIT_PATH=$D/audit.jsonl GCS_COMMAND_AU
   matter on a shared one.
 - The Studio backend signs every export with `STUDIO_SIGNING_KEY`; the GCS accepts it because that key is in
   its `trusted_keys`. A key not in `trusted_keys` is refused with 403.
-- **NOT VERIFIED on a truly clean machine:** `python3 -m venv .venv && .venv/bin/pip install -r
-  requirements.txt` and `npm install` in `packages/tara-web` and `packages/tara-studio-web`. The tested tree
-  already had both. `./tara doctor` checks Node (22.23.3 here) and the `node_modules` folders.
+- **Clean install, verified in a fresh clone on 4 Nov** (`origin/main` at `d7e7b2e`, evidence in
+  `docs/diwali-runbook-verification/`): `python3 -m venv .venv && .venv/bin/pip install -r requirements.txt` took
+  163 s and `npm install` in `packages/tara-web` and `packages/tara-studio-web` took 4 s and 5 s, and `./tara doctor`
+  then passed every line except the PX4 build and `gz`. **NOT VERIFIED on a cold cache or a machine without
+  Python 3.12 and Node 22:** the pip and npm caches were warm and both were already installed.
+  The tree that produced the numbers below already had both. `./tara doctor` checks Node (22.23.3 here) and the `node_modules` folders.
 
 ### 2.3 T1 (kinematic): 35 drones through the GCS, 100 drones through the scale tool
 
@@ -131,8 +136,21 @@ TARA_PASSPHRASE=<the passphrase> python tools/diwali_t1_run.py $D/dist/diwali_35
 `diwali_t1_run.py` makes the same API calls the dashboard buttons make (signed upload, mission upload, the
 two-step pre-arm latch, launch, onboard start, land) and prints each state. It exits 0 only if the fleet reached
 `SHOW_COMPLETE` with no aborted drone and no RTL/LANDING/ESTOP transition, then landed. **The dashboard buttons
-themselves (upload form, PRE-ARM CHECK & TAKEOFF) were NOT clicked by the author; the dashboard was only
-watched while this script flew.** Rehearse the click path once before recording.
+were clicked on 4 Nov, at 3 drones on the sim backend** (`docs/diwali-runbook-verification/`, screenshots
+`dashboard-0` to `dashboard-10`): sign in, select the CSV and its `.sig.json` together, Upload, PRE-ARM CHECK &
+TAKEOFF, LAUNCH FLEET, START SHOW, then `STAGED > ... > RUNNING > SHOW_COMPLETE`, then EMER LAND with its
+confirm click, then `DISARMED`. Three things differ from the script's path: the sim backend's checklist shows
+"Operator confirmation latch: N/A under SIMULATION", so there is **no latch step in the modal** (the script
+still calls the latch endpoints, and they return 200 on the sim backend); **the only landing button is EMER LAND**
+(two clicks); and **the dashboard stages the mission onto the fleet by itself** 0.5 s after the trajectory upload
+(the second Upload button only re-sends it; do not click it for a normal take).
+
+**`diwali_t1_run.py` itself was run on 4 Nov at 3 drones** (`origin/main` `d7e7b2e`, sim backend, load 12):
+exit 0, `FORMATION_HOLD` 4 s after launch, show 86.3 s wall for 84.2 s planned, no aborts, landed and
+disarmed. Run again against the same stack it refused with "fleet is DISARMED, not STAGED: restart the stack
+between runs"; a wrong passphrase and a missing `.sig.json` were each refused with a clear message and exit 1.
+**NOT VERIFIED:** the same click path or runner at 35 drones since `7a6ab70`, on a PX4 backend, or on a real GPU.
+Rehearse the click path once before recording.
 
 **Why CSV:** the GCS refuses an upload over 5 MB and a CSV over 100,000 rows, and accepts only `.json`, `.csv`
 and `.skyc` (not `.tara`). The 35-drone JSON is 9.4 MB (refused), the CSV 1.96 MB (accepted).
@@ -191,11 +209,21 @@ sequence a walkthrough should show, and what to do at each state:
 The wording is from PR #226, which checked the first four states live in Chromium at 1440x900 (badge and the JSON
 button agreed each time). "PASSED with no show built" is unit- and parity-tested only: a saved project rebuilds on
 load, so it cannot be reached in the running app. The measurements below were taken on `7a6ab70`, before #226, so
-that run saw the old wording ("export open"); this section has not been re-driven since.
+that run saw the old wording ("export open"). **Re-driven on 4 Nov at 3 drones** (real Chromium, 1440x900,
+`docs/diwali-runbook-verification/`, screenshots `studio-1` to `studio-9`): all six states above appeared with
+the wording in the table and the Transmit buttons agreed each time. Two of them were stubbed, not real: Not
+flight-certified and Safety failed used the real validation response with `feasibility_certified` or `status`
+changed (the same method as #226), because every edit I tried to the 3-drone show still certified; Validating
+used the real backend with the validation request held back by the test, because it answers in about 100 ms at
+3 drones. "No safety badge" was reached for real with Project Vault, New Show. Generate Sequence, FULL-SCREEN
+PREVIEW, Play (4.15 s of the 84.2 s timeline played in about 4 s) and `Esc` also worked, with no console errors.
+**NOT VERIFIED:** the same at 35 and 100 drones since `7a6ab70`.
 
-- A freshly opened project shows a red **Refused** badge and a 0.00 s timeline until you press Generate
-  Sequence (seen at 35 drones; the tooltip read "cannot be made collision-free: two drones would have to swap
-  their vertical order in the same column"). Do this before the camera rolls.
+- At 35 drones a freshly opened project showed a red **Refused** badge and a 0.00 s timeline until you press
+  Generate Sequence (the tooltip read "cannot be made collision-free: two drones would have to swap their
+  vertical order in the same column"). **At 3 drones on 4 Nov it did not:** the saved project opened with a
+  "Rebuild needed" badge, "Unverified · exports locked" and its stored timeline. Either way, press Generate
+  Sequence before the camera rolls.
 - The preview is **rebuilt by the Studio UI**, so its length differs a little from the certified file: 209.8 s
   vs 209.5 s at 35, 354.6 s vs 352.5 s at 100. It is the same storyboard, not the certified file.
 - Measured: page load ~11 s; Generate Sequence 4.2 s (35) and 3.1 s (100) to a built show; at 4x speed the 35
@@ -311,6 +339,11 @@ verdict. Results: `~/tara-sitl-demo-scratch/runs/<label>.json` and CSVs. The con
 - [ ] GCS signed in; header shows `MODE: SIMULATION · tara_sim (kinematic)` (T1) or the px4-sitl label (T2).
 - [ ] The deviation panel is green (see 2.3). No red banner in frame.
 - [ ] Window exactly **1440x900**.
+- [ ] Know the T1 dashboard click path (4 Nov, 3 drones): sign in; click the upload box and select the show CSV and
+  its `.sig.json` together (the mission stages itself, 0.5 s later); PRE-ARM CHECK & TAKEOFF, LAUNCH FLEET (no
+  latch step on the sim backend); wait for `FLEET: FORMATION_HOLD`; START SHOW; after `SHOW_COMPLETE` the landing
+  control is EMER LAND then CONFIRM LAND? (there is no plain Land). Keep the first screen in frame: the Fleet
+  Telemetry cards below it print unrounded numbers that overflow their boxes (reported on #122, not fixed).
 
 ### 4.2 What must be visible, and the limits of this rig
 
@@ -363,7 +396,12 @@ Roles are from the 1 Nov ownership split and the issues; the recording split is 
 
 Fleet commands (`/api/rtl`, `/api/land`, `/api/estop`, and per drone `/api/drone/<id>/rtl|land|estop`) are the
 same as the dashboard's EMERGENCY RTL, EMER LAND and E-STOP (KILL). E-STOP kills motors; airborne drones fall.
-**E-STOP was NOT tested by the author.**
+**E-STOP, verified on 4 Nov on the sim backend only** (3 drones, mid-show, twice; screenshots
+`dashboard-11` to `dashboard-13` in `docs/diwali-runbook-verification/`): the first click on E-STOP (KILL) only
+arms a "CONFIRM KILL?" button and sends nothing; the second sends `POST /api/estop` (200), the fleet goes
+`RUNNING > ESTOP > DISARMED`, armed drones fall from 3 to 0, and each drone card reads TERMINATED. The fleet state
+then reads `DISARMED`, not a latched `ESTOP`. **NOT VERIFIED:** that motors stop and a drone falls (the sim has
+no motors), E-STOP on PX4 SITL, and E-STOP on hardware.
 
 | Event | What it looks like (verified where stated) | What to do |
 |---|---|---|
@@ -371,7 +409,7 @@ same as the dashboard's EMERGENCY RTL, EMER LAND and E-STOP (KILL). E-STOP kills
 | **RTL fires** | `/api/fleet-state` history names the trigger: `failsafe:proximity`, `failsafe:geofence`, or `POST /api/rtl`. Verified: after `POST /api/rtl` mid-show the fleet reached `DISARMED` within 15 s. | Read the trigger, keep the JSON, **discard the take**. Restart the stack: a finished run leaves the state `DISARMED` and the runner needs `STAGED`. Whether a restart can be avoided is NOT VERIFIED. |
 | **Sim stalls** | T2: the tool marks the run DISCARD if Gazebo poses stop for more than 2 s, and marks it degraded under 0.9 real time. T1: the show took more than ~15 s longer than planned, or the deviation panel went red (**15 s is a proposed threshold, not a measured one**). | **Rerun. Do not count it.** First ask whether the machine was idle: `tools/diwali_cpu_check.sh`. |
 | **Docker dies** | Verified after a reboot: `docker ps` says it cannot connect to the daemon. `systemctl --user start docker-desktop` restored it in ~25 s; images stayed, containers were gone. | Start Docker Desktop, then rerun in a **new** container (the script does that). A T2 run that lost its container is discarded. T1 does not use Docker and is unaffected. |
-| **Stuck stack** | `Ctrl+C` in the `./tara up` terminal stops the stack (verified with SIGINT). | `./tara reset` runs `pkill -9` on `px4`, `mavsdk_server`, `gz sim`, `uvicorn tara_gcs`/`tara_studio` and `vite` on ports 5173/5174. **It will kill another tab's stack on the same machine. NOT RUN by the author for that reason.** Use it only when nothing else is running, or inside the T2 container. `sim/px4/stop_fleet.sh` also kills every `mavsdk_server`, including a running GCS's. |
+| **Stuck stack** | `Ctrl+C` in the `./tara up` terminal stops the stack (verified with SIGINT). | `./tara reset` runs `pkill -9` on `px4`, `mavsdk_server`, `gz sim`, `uvicorn tara_gcs`/`tara_studio` and `vite` on ports 5173/5174. **It kills any native stack of the same project on the machine, whoever started it. Verified on 4 Nov (sim stack, 3 drones, supervisor killed with `kill -9`): it removed all six orphans (2 uvicorn, 2 vite wrappers, 2 vite), freed ports 5173, 5174, 8001 and 8090, and `./tara status` then said "nothing running".** Before running it, `./tara status` lists what it would kill. It cannot reach processes inside Docker Desktop's VM (with a SITL container up, the same patterns matched nothing on the host), so it neither stops nor affects a T2 container; use `docker rm -f` for that. It was not run against another session's native stack, by design. Use it only when nothing else of yours is running. `sim/px4/stop_fleet.sh` also kills every `mavsdk_server`, including a running GCS's. |
 
 ### 5.3 Real-drone abort and RC takeover (only if Harsh signs #135; otherwise skip this section)
 
@@ -413,7 +451,7 @@ drift, stale telemetry, a rejected command, an unexpected mode change, or RC tak
 | 1 | **Take over on the RC** (switch to the manual or position-hold mode agreed on the bench) and land by hand. The sequence notices the vehicle has left OFFBOARD and stops commanding it (`OperatorTakeoverError`). | RC pilot | The software yield was seen in PX4 SITL with a *simulated* RC stream (#171, #145). **Never with a physical transmitter or a real vehicle: NOT VERIFIED.** Mode names depend on the firmware, which is undecided. |
 | 2 | **GCS LAND** (`POST /api/drone/0/land`, the EMER LAND button): descend in place. | GCS operator | The fleet `POST /api/land` ended every T1 and T2 run here; the per-drone route `/api/drone/0/land` itself was **not called** by the author. **Not run on hardware.** Needs a live link. |
 | 3 | **GCS RTL** (`POST /api/drone/0/rtl`). **Do not use at a 1 m hover** until the return altitude is written above: an autopilot RTL may climb to its configured return altitude first. | GCS operator | Fleet `POST /api/rtl` and `/api/drone/7/rtl` were called in T1 only (5.2). T2 and hardware behaviour **NOT VERIFIED**. |
-| 4 | **Kill** (the mapped kill switch, or E-STOP (KILL) in the GCS). Motors stop and the vehicle falls from wherever it is. Last resort, only over clear ground. | RC pilot, or GCS operator | **E-STOP was NOT tested by the author, in sim or on hardware.** |
+| 4 | **Kill** (the mapped kill switch, or E-STOP (KILL) in the GCS). Motors stop and the vehicle falls from wherever it is. Last resort, only over clear ground. | RC pilot, or GCS operator | **E-STOP: the GCS command path was run on the sim backend on 4 Nov (5.2). NOT VERIFIED on PX4 or hardware, and the mapped RC kill switch was never tested.** |
 
 **If the link drops** (telemetry goes `STALE`, or the GCS stops answering): rungs 2 to 4 may not reach the
 vehicle. The hover code raises on a stale heartbeat and tries to recover, but that needs a link too. The
@@ -458,12 +496,13 @@ Only items that exist today. Owners are proposed. Every item that needs a merge 
 | T1 35 drones, 3 full runs through the GCS API | 211.9 / 213.2 / 213.8 s, none aborted, all landed |
 | T1 100 drones, `diwali_sim_scale.py` | RTF 0.936, settled 14.3 s, flown min sep 2.042 m |
 | Studio preview 35 and 100 | OK (Playwright, headless Chromium, 1440x900) |
-| GCS dashboard sign-in, Operations, Earth, Night Sky | Rendered; clicks on upload and PRE-ARM buttons not made |
+| GCS dashboard sign-in, Operations, Earth, Night Sky | Rendered; clicks on upload and PRE-ARM buttons not made (2 Nov) |
+| 4 Nov, `origin/main` `d7e7b2e`, fresh clone, 3 drones, sim backend, no Docker (`docs/diwali-runbook-verification/`) | Clean `pip`/`npm install` and `./tara doctor` PASS (warm caches); 3-drone build and signed CSV PASS; Studio six header states PASS (Not flight-certified and Safety failed with a stubbed validation response, Validating with a held request); Studio Generate, full-screen preview, Play, `Esc` PASS; dashboard button path sign-in to `DISARMED` PASS (no latch step on the sim backend; only EMER LAND lands; the mission stages itself); `diwali_t1_run.py` at 3 drones PASS, 5 Nov; E-STOP command path PASS (twice); `./tara reset` PASS; `Ctrl+C` PASS |
 | Single-drone RTL and fleet RTL mid-show (T1) | Fleet-wide proximity RTL after drone 7's abort; fleet RTL reached DISARMED |
 | T2 through `diwali_t2_sitl.sh`, 2 Nov, 3 drones, one run, before #220 | PASS: Gazebo min sep 2.192 m, RTF 0.997, landing under 4 cm, start dive 5.9 m |
 | T2 through `diwali_t2_sitl.sh`, 3 Nov, `b435358` | 3 drones ×3 clean; 5 drones ×3 (2 clean, 1 with a drone left on the pad, still `PASS`); 8 drones ×1 clean. Numbers in 2.5. Dive gone. |
 | T2 script guards, 3 Nov | Foreign container named by `CONTAINER` refused and untouched; own labelled container removed; the idle check no longer counts it. Tested with dummy containers, not yet across two real runs after the fix |
-| Gazebo window, RViz, GNOME/ffmpeg recording, E-STOP, clean `pip`/`npm install`, `./tara reset` | **NOT VERIFIED** |
+| Gazebo window, RViz, GNOME/ffmpeg recording, E-STOP motors actually stopping or on PX4/hardware, 35- and 100-drone Studio preview since `7a6ab70`, dashboard on a PX4 backend, a cold-cache install | **NOT VERIFIED** |
 | Real-drone abort and RC takeover (5.3), a named RC pilot, GCS LAND on hardware, any hardware flight | **NOT VERIFIED. NOT FLIGHT READY.** |
 | Windows | Does not work (Platform note at the top); not fixed |
 
