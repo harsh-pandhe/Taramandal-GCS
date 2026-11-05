@@ -1,0 +1,6 @@
+[gcs-api] INFO:root:Drone 0 entered OFFBOARD mode (confirmed from telemetry).
+[gcs-api] INFO:root:Drone 1 entered OFFBOARD mode (confirmed from telemetry).
+[gcs-api] INFO:root:Drone 2 entered OFFBOARD mode (confirmed from telemetry).
+[gcs-api] INFO:root:Drone 4 entered OFFBOARD mode (confirmed from telemetry).
+[gcs-api] ERROR:root:Drone 3 launch failed: did not enter OFFBOARD: flight mode HOLD 3s after offboard start. The show cannot start without it.
+[gcs-api] INFO:root:Drone 3 disarmed on its pad after a failed launch.

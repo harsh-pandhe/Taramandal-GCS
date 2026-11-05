@@ -1,0 +1,1 @@
+{"backend": "px4", "event": "start_trajectory_refused", "fidelity": "px4-sitl", "launch_failures": {"3": "did not enter OFFBOARD: flight mode HOLD 3s after offboard start"}, "operator": "demo", "reason": "launch_incomplete", "ts": 1793900427.3501475}

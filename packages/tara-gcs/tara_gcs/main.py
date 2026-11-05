@@ -329,6 +329,10 @@ async def auth_logout(operator: Viewer, creds: Annotated[HTTPAuthorizationCreden
     return {"status": "success", "message": f"{operator.id} logged out."}
 
 
+def _launch_failures() -> dict[str, str]:
+    return {str(d_id): why for d_id, why in sorted(drone_manager.launch_failures.items())}
+
+
 def _check_command(command: Command, operator: str, trigger: str) -> None:
     try:
         drone_manager.fleet_fsm.check(command, operator=operator, trigger=trigger)
@@ -461,6 +465,9 @@ async def get_status():
         # Drones aborted out of the show on their own (issue #59); per-drone
         # detail is each drone's "aborted" telemetry field.
         "aborted": sorted(d_id for d_id, t in telemetry.items() if t.get("aborted")),
+        # Planned drones the last launch could not get up, and why (issue
+        # #171); while any is listed the fleet cannot reach FORMATION_HOLD.
+        "launch_failures": _launch_failures(),
         # Fleet-mean packet drop rate from tara_sim's RF channel model
         # (issue #62); null unless backend="sim" with loss configured.
         "packet_drop_rate": drone_manager.rf_channel_drop_rate(),
@@ -762,7 +769,7 @@ async def get_fleet_state(operator: Viewer):
     """The fleet's lifecycle state, which commands are legal in it, and the
     most recent transitions (the audit log on disk has the full record)."""
     fsm = drone_manager.fleet_fsm
-    return {**fsm.snapshot(), "history": list(fsm.history)}
+    return {**fsm.snapshot(), "history": list(fsm.history), "launch_failures": _launch_failures()}
 
 @app.post("/api/launch")
 async def launch_fleet(operator: Commander):
@@ -1025,6 +1032,23 @@ async def start_trajectory(req: StartTrajectoryRequest, operator: Commander):
         f"trigger_epoch_ms={req.trigger_epoch_ms}..."
     )
     trigger = "POST /api/start-trajectory"
+    # Named first, ahead of the FSM's generic "not in FORMATION_HOLD": the
+    # operator needs to know which drone stopped the show (issue #171).
+    if drone_manager.launch_failures:
+        failures = _launch_failures()
+        command_audit.record(
+            "start_trajectory_refused", operator=operator.id, reason="launch_incomplete", launch_failures=failures,
+        )
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "error": "launch_incomplete",
+                "message": "Show start refused: the launch did not get every planned drone up. "
+                + "; ".join(f"Drone {d_id}: {why}" for d_id, why in failures.items())
+                + ". Land the fleet and relaunch.",
+                "launch_failures": failures,
+            },
+        )
     # Checked, then acted on, then committed: a start that fails with a 400
     # must leave the fleet in FORMATION_HOLD, not in a RUNNING with nothing
     # running. Nothing below awaits, so no other command can land in between.
