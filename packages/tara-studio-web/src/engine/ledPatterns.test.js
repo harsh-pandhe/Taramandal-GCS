@@ -137,3 +137,51 @@ describe('serializeTrack', () => {
     expect(out[0].pattern).toBe('SOLID');
   });
 });
+
+describe('SWEEP_ON and COLOR_CHASE match led_engine.py', () => {
+  const sweep = (patch = {}) => makeLedKeyframe({
+    pattern: 'SWEEP_ON', start_time: 10, duration: 8, color: '#ff0000', axis: 'x', wave_speed: 10,
+    wave_length: 20, axis_origin: -10, frequency_hz: 4, duty_cycle: 0.5, blink_count: 3, palette: [], ...patch,
+  });
+  const rgb = (kf, t, x) => {
+    const c = evaluateKeyframe(kf, t, 0, 1, { x });
+    return [Math.round(c.r * 255), Math.round(c.g * 255), Math.round(c.b * 255)];
+  };
+
+  it('is dark until the front arrives, blinks at once, then stays lit', () => {
+    const kf = sweep();
+    expect(rgb(kf, 10.9, 0)).toEqual([0, 0, 0]);
+    expect(rgb(kf, 11.0, 0)).toEqual([255, 0, 0]);
+    expect(rgb(kf, 11.15, 0)).toEqual([0, 0, 0]);
+    expect(rgb(kf, 11.26, 0)).toEqual([255, 0, 0]);
+    expect(rgb(kf, 11.75, 0)).toEqual([255, 0, 0]);
+    expect(rgb(kf, 16, 0)).toEqual([255, 0, 0]);
+  });
+
+  it('reaches drones further along later, and reverse runs right to left', () => {
+    expect(rgb(sweep(), 10.5, -10)).toEqual([255, 0, 0]);
+    expect(rgb(sweep(), 10.5, 10)).toEqual([0, 0, 0]);
+    expect(rgb(sweep(), 12, 10)).toEqual([255, 0, 0]);
+    const rev = sweep({ reverse: true, axis_origin: 10 });
+    expect(rgb(rev, 10.5, 10)).toEqual([255, 0, 0]);
+    expect(rgb(rev, 10.5, -10)).toEqual([0, 0, 0]);
+    expect(rgb(rev, 12, -10)).toEqual([255, 0, 0]);
+  });
+
+  it('spreads a palette along the axis', () => {
+    const kf = sweep({ palette: ['#ff0000', '#0000ff'], blink_count: 0 });
+    expect(rgb(kf, 17, -10)).toEqual([255, 0, 0]);
+    expect(rgb(kf, 17, 10)).toEqual([0, 0, 255]);
+  });
+
+  it('COLOR_CHASE moves with the wave and reverses with a negative speed', () => {
+    const kf = makeLedKeyframe({
+      pattern: 'COLOR_CHASE', start_time: 0, duration: 10, axis: 'x', wave_speed: 5, wave_length: 20,
+      palette: ['#ff0000', '#00ff00', '#0000ff'],
+    });
+    const a = rgb(kf, 0, 0);
+    expect(rgb(kf, 2, 0)).not.toEqual(a);
+    expect(rgb(kf, 2, 10)).toEqual(a);
+    expect(rgb({ ...kf, wave_speed: -5 }, 2, -10)).toEqual(a);
+  });
+});

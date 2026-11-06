@@ -46,6 +46,8 @@ export const blankProject = (name = 'New Show') => ({
   rate: 4,
   ...DEFAULT_HOME,
   dronesList: defaultFleet(6),
+  ledTrack: [],
+  pacing: 'standard',
   choreoData: null,
   validation: null,
 });
@@ -64,6 +66,9 @@ export const toWire = (project) => ({
     rate: project.rate ?? 4,
     homeLat: project.homeLat ?? DEFAULT_HOME.homeLat,
     homeLon: project.homeLon ?? DEFAULT_HOME.homeLon,
+    // Lighting cues and pacing (how fast the drones move) are part of the show.
+    ledTrack: Array.isArray(project.ledTrack) ? project.ledTrack : [],
+    pacing: project.pacing ?? 'standard',
   },
   // The built trajectory is a show_v1 document (issue #55) and is stored as one.
   show: project.choreoData ?? null,

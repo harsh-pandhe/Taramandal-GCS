@@ -315,3 +315,38 @@ describe('text formations keep the design spacing or are refused', () => {
     expect(() => buildSequencedShow(scenes, 500, 4)).toThrow(/minimum spacing/);
   });
 });
+
+describe("buildFormation: 'exact_points' (an explicit, already-placed formation)", () => {
+  const ring = (n, r, alt) => Array.from({ length: n }, (_, i) => ({ x: r * Math.cos((2 * Math.PI * i) / n), y: 0, z: -(alt + r * Math.sin((2 * Math.PI * i) / n)) }));
+
+  it('returns the designed points exactly: no growth to the spacing floor, no re-centring', () => {
+    const wide = ring(24, 12, 20); // 3.1 m apart
+    const pts = buildFormation('exact_points', JSON.stringify(wide), 24, 1.0);
+    expect(pts).toHaveLength(24);
+    pts.forEach((p, i) => {
+      expect(p.x).toBeCloseTo(wide[i].x, 9);
+      expect(p.y).toBeCloseTo(wide[i].y, 9);
+      expect(p.z).toBeCloseTo(wide[i].z, 9);
+    });
+  });
+
+  it('keeps a layout whose spacing is under the 3.2 m design floor but over the 2.0 m minimum', () => {
+    const tight = ring(30, 10, 20); // about 2.09 m between neighbours
+    const pts = buildFormation('exact_points', JSON.stringify(tight), 30, 1.0);
+    const d = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y, pts[0].z - pts[1].z);
+    expect(d).toBeGreaterThan(2.0);
+    expect(d).toBeLessThan(3.2);
+    expect(d).toBeCloseTo(Math.hypot(tight[0].x - tight[1].x, tight[0].z - tight[1].z), 9);
+  });
+
+  it('refuses a payload with the wrong number of points, or bad JSON', () => {
+    expect(() => buildFormation('exact_points', JSON.stringify(ring(10, 12, 20)), 12, 1.0)).toThrow(/10 points for a fleet of 12/);
+    expect(() => buildFormation('exact_points', '{not json', 4, 1.0)).toThrow(/not valid JSON/);
+  });
+
+  it('still refuses unsafe geometry: spacing under 2.0 m, below the minimum altitude or over the site radius', () => {
+    expect(() => buildFormation('exact_points', JSON.stringify(ring(30, 7, 20)), 30, 1.0)).toThrow(/minimum spacing/);
+    const far = ring(12, 12, 20).map((p) => ({ ...p, x: p.x + 40 }));
+    expect(() => buildFormation('exact_points', JSON.stringify(far), 12, 1.0)).toThrow(/site radius/);
+  });
+});

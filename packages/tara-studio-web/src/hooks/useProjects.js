@@ -66,6 +66,8 @@ export default function useProjects(bindings) {
       homeLat: b.homeLat,
       homeLon: b.homeLon,
       dronesList: b.dronesList,
+      ledTrack: b.ledTrack,
+      pacing: b.pacing,
       choreoData: b.choreoData,
       validation: b.validation,
     };
@@ -87,6 +89,8 @@ export default function useProjects(bindings) {
         dronesList: project.dronesList?.length ? project.dronesList : defaultFleet(6),
         homeLat: project.homeLat ?? 12.9716,
         homeLon: project.homeLon ?? 77.5946,
+        ledTrack: Array.isArray(project.ledTrack) ? project.ledTrack : [],
+        pacing: project.pacing ?? 'standard',
         choreoData: project.choreoData ?? null,
         validation: project.validation ?? null,
       };
@@ -96,6 +100,8 @@ export default function useProjects(bindings) {
       b.setDronesList(normalized.dronesList);
       b.setHomeLat(normalized.homeLat);
       b.setHomeLon(normalized.homeLon);
+      b.setLedTrack(normalized.ledTrack);
+      b.setPacing(normalized.pacing);
       b.setChoreoData(normalized.choreoData);
       b.setValidation(normalized.validation);
       // This project's own content IS the new unsaved-changes baseline
@@ -169,12 +175,14 @@ export default function useProjects(bindings) {
       || bindings.homeLat !== lastSaved.homeLat
       || bindings.homeLon !== lastSaved.homeLon
       || bindings.dronesList !== lastSaved.dronesList
+      || bindings.ledTrack !== lastSaved.ledTrack
+      || bindings.pacing !== lastSaved.pacing
       || bindings.choreoData !== lastSaved.choreoData
       || bindings.validation !== lastSaved.validation
     );
   }, [
     booted, lastSaved, projectName, bindings.scenes, bindings.rate, bindings.homeLat,
-    bindings.homeLon, bindings.dronesList, bindings.choreoData, bindings.validation,
+    bindings.homeLon, bindings.dronesList, bindings.ledTrack, bindings.pacing, bindings.choreoData, bindings.validation,
   ]);
 
   return {

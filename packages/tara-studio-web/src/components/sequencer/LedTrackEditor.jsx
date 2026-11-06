@@ -13,6 +13,17 @@ const FIELDS = {
     { key: 'wave_speed', label: 'Speed (m/s)', min: 0.5, max: 20, step: 0.5 },
     { key: 'wave_length', label: 'Wavelength (m)', min: 1, max: 60, step: 1 },
   ],
+  SWEEP_ON: [
+    { key: 'wave_speed', label: 'Front speed (m/s)', min: 0.5, max: 60, step: 0.5 },
+    { key: 'wave_length', label: 'Palette span (m)', min: 1, max: 120, step: 1 },
+    { key: 'axis_origin', label: 'Starts at (m)', min: -200, max: 200, step: 0.5 },
+    { key: 'blink_count', label: 'Blinks', min: 0, max: 8, step: 1 },
+    { key: 'frequency_hz', label: 'Blink rate (Hz)', min: 2, max: 8, step: 0.5 },
+  ],
+  COLOR_CHASE: [
+    { key: 'wave_speed', label: 'Speed (m/s, - = reverse)', min: -30, max: 30, step: 0.5 },
+    { key: 'wave_length', label: 'Band length (m)', min: 2, max: 120, step: 1 },
+  ],
 };
 
 /**
@@ -64,7 +75,7 @@ export default function LedTrackEditor({
             style={{
               left: `${pct(kf.start_time)}%`,
               width: `${Math.max(1, pct(kf.start_time + kf.duration) - pct(kf.start_time))}%`,
-              background: kf.pattern === 'COLOR_CYCLE'
+              background: ['COLOR_CYCLE', 'SWEEP_ON', 'COLOR_CHASE'].includes(kf.pattern)
                 ? `linear-gradient(90deg, ${(kf.palette || []).join(',') || kf.color})`
                 : kf.color,
             }}
@@ -130,7 +141,7 @@ export default function LedTrackEditor({
                   />
                 </label>
               ))}
-              {kf.pattern === 'WAVE_PROPAGATION' && (
+              {(kf.pattern === 'WAVE_PROPAGATION' || kf.pattern === 'SWEEP_ON' || kf.pattern === 'COLOR_CHASE') && (
                 <label className="ui-field-tight">
                   <span className="ui-field-label">Axis</span>
                   <select value={kf.axis} onChange={(e) => update(kf.id, { axis: e.target.value })}>
@@ -140,10 +151,19 @@ export default function LedTrackEditor({
                   </select>
                 </label>
               )}
+              {kf.pattern === 'SWEEP_ON' && (
+                <label className="ui-field-tight">
+                  <span className="ui-field-label">Direction</span>
+                  <select value={kf.reverse ? 'rev' : 'fwd'} onChange={(e) => update(kf.id, { reverse: e.target.value === 'rev' })}>
+                    <option value="fwd">Low to high (left to right on X)</option>
+                    <option value="rev">High to low (right to left on X)</option>
+                  </select>
+                </label>
+              )}
             </div>
           )}
 
-          {kf.pattern === 'COLOR_CYCLE' && (
+          {(kf.pattern === 'COLOR_CYCLE' || kf.pattern === 'SWEEP_ON' || kf.pattern === 'COLOR_CHASE') && (
             <div className="led-kf-row led-palette-row">
               <span className="ui-field-label">Palette</span>
               {(kf.palette || []).map((c, i) => (

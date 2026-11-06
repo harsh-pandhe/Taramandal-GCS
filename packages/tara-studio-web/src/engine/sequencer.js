@@ -55,10 +55,6 @@ export const LAND_SECONDS = 5.0;
 // caught. The shared design threshold is now 2.0 m, so 2.0 m is also the floor.
 export const DEFAULT_TRANSIT_GAP = 2.0;
 
-const MAX_H = 3.2;   // horizontal velocity budget (m/s)
-const MAX_V = 2.4;   // vertical velocity budget (m/s)
-const MAX_ACC = 3.0; // acceleration budget for eased legs (m/s^2)
-
 // issue #160: every leg is independently smoothstep-eased and starts/ends at
 // rest, so velocity is continuous across a leg boundary but acceleration
 // generally isn't - smoothstep's peak |accel| of 6D/T^2 occurs exactly at
@@ -112,6 +108,37 @@ const VALIDATOR_SWEEP_DT_S = 0.1; // tara_studio.validator.validate_dynamics' ow
 const MAX_JERK = 4.0; // m/s^3
 const MAX_EDGE_ACCEL = MAX_JERK * VALIDATOR_SWEEP_DT_S; // m/s^2
 
+/**
+ * Pacing presets: how quickly the drones may move.
+ *
+ * 'standard' is the original, conservative pacing (smoothstep legs, which meet
+ * their neighbours with a non-zero acceleration, so edge acceleration caps how
+ * short a long leg can be). 'fast' eases every leg with smootherstep instead,
+ * whose acceleration is zero at both ends: legs meet without an acceleration
+ * kink, so the edge-acceleration cap above is not needed, and the speed and
+ * acceleration budgets can be raised. Still inside the certification limits
+ * (tara_core max velocity 6 m/s); it is checked by the same validator.
+ * Peak speed of a smootherstep leg is 1.875 D/T, peak acceleration 5.77 D/T^2
+ * and peak jerk 60 D/T^3.
+ */
+// PX4 limits the flown path, not the plan: with its defaults a drone cannot climb faster than
+// MPC_Z_VEL_MAX_UP = 3.0 m/s or descend faster than MPC_Z_VEL_MAX_DN = 1.5 m/s, and accelerates
+// at most MPC_ACC_HOR = 3.0 m/s^2. A plan that asks for more is not flown as planned: each drone
+// falls behind by a different amount and the altitude layers that keep drones apart collapse.
+// On 5 Nov a 10-drone Fast show planned at 4 m/s climb / descent, 5 m/s^2 lagged the plan by up
+// to 15.9 m in Gazebo, closed to 0.79 m and tripped the proximity failsafe (RTL). So every
+// profile stays inside those defaults with a 15-20 % margin: maxV is the climb budget, maxDown
+// the descent budget, maxAcc the acceleration budget.
+export const PACING = {
+  standard: { label: 'Standard', maxH: 3.2, maxV: 2.4, maxDown: 1.2, maxAcc: 3.0, profile: 'smoothstep' },
+  fast: { label: 'Fast', experimental: true, maxH: 2.4, maxV: 2.4, maxDown: 1.2, maxAcc: 2.6, maxJerk: 4.0, profile: 'smootherstep' },
+};
+// 'fast' is built and tested but not offered: its one 10-drone SITL pass kept only 0.2 m above the 1.5 m
+// abort limit (Standard: 0.48 m), on a slowed simulator, so it needs more flights and a real-world check
+// before an operator can choose it. Shows saved with pacing 'fast' still open and build as 'fast'.
+export const PACING_OPTIONS = Object.entries(PACING).filter(([, p]) => !p.experimental).map(([value, p]) => ({ value, label: p.label }));
+const pacingOf = (name) => PACING[name] ?? PACING.standard;
+
 // issue #160: the Studio UI has never exposed a rate control (the two `?? 4`/
 // `useState(4)` call sites were the only defaults), so raising the floor here
 // is the only change needed to stop building below the validator's own sweep
@@ -128,6 +155,7 @@ const DESIGN_SEPARATION = 2.0;
 const LAYER_CLEARANCE = DESIGN_SEPARATION + 0.05;
 
 const smooth = (u) => u * u * (3 - 2 * u); // ease-in-out: zero velocity at ends
+const smoother = (u) => u * u * u * (u * (6 * u - 15) + 10); // zero velocity AND acceleration at both ends
 const round2 = (v) => parseFloat(v.toFixed(2));
 const nonNeg = (v) => Math.max(0, v || 0);
 
@@ -135,21 +163,37 @@ const nonNeg = (v) => Math.max(0, v || 0);
 // acceleration 6·D/T². Its third derivative w'''(u) = -12 is *constant* -
 // unlike velocity and acceleration, jerk doesn't peak at some point in the
 // leg, it's the same magnitude 12·D/T³ throughout (issue #160).
-const easedSecs = (secs, dh, dv) => Math.max(
-  secs, (1.5 * dh) / MAX_H, (1.5 * dv) / MAX_V, Math.sqrt((6 * Math.hypot(dh, dv)) / MAX_ACC),
-  // issue #160: smoothstep's peak |accel| of 6D/T^2 occurs at the leg's own
-  // edges, where it meets its neighbours - see MAX_EDGE_ACCEL's own comment.
-  Math.sqrt((6 * Math.hypot(dh, dv)) / MAX_EDGE_ACCEL),
-);
+const easedSecs = (secs, dh, dv, P = PACING.standard, travel = null) => {
+  const dist = Math.hypot(dh, dv);
+  // Climb and descent have separate budgets (PX4 descends slower than it climbs).
+  const up = travel ? travel.up : dv;
+  const down = travel ? travel.down : dv;
+  const maxDown = P.maxDown ?? P.maxV;
+  if (P.profile === 'smootherstep') {
+    return Math.max(
+      secs, (1.875 * dh) / P.maxH, (1.875 * up) / P.maxV, (1.875 * down) / maxDown, Math.sqrt((5.7735 * dist) / P.maxAcc),
+      Math.cbrt((60 * dist) / P.maxJerk),
+    );
+  }
+  return Math.max(
+    secs, (1.5 * dh) / P.maxH, (1.5 * up) / P.maxV, (1.5 * down) / maxDown, Math.sqrt((6 * dist) / P.maxAcc),
+    // issue #160: smoothstep's peak |accel| of 6D/T^2 occurs at the leg's own
+    // edges, where it meets its neighbours - see MAX_EDGE_ACCEL's own comment.
+    Math.sqrt((6 * dist) / MAX_EDGE_ACCEL),
+  );
+};
 
 /** Largest horizontal and vertical distance any drone covers between two sets. */
 const maxTravel = (from, to) => {
-  let dh = 0, dv = 0;
+  let dh = 0, dv = 0, up = 0, down = 0;
   for (let i = 0; i < from.length; i++) {
     dh = Math.max(dh, Math.hypot(from[i].x - to[i].x, from[i].y - to[i].y));
     dv = Math.max(dv, Math.abs(from[i].z - to[i].z));
+    // z is NED (down positive): a smaller z at the end is a climb.
+    up = Math.max(up, from[i].z - to[i].z);
+    down = Math.max(down, to[i].z - from[i].z);
   }
-  return { dh, dv };
+  return { dh, dv, up, down };
 };
 
 export const makeScene = (patch = {}) => ({
@@ -361,7 +405,8 @@ const returnLayers = (spots, homes) => {
  * over a paced duration. Building, predicting the duration and drawing the
  * timeline all read this one plan, so they cannot disagree.
  */
-const planShow = (scenes, n, targetIdx) => {
+const planShow = (scenes, n, targetIdx, pacing = 'standard') => {
+  const P = pacingOf(pacing);
   const ground = Array.from({ length: n }, (_, i) => padAt(i));
   const hover = Array.from({ length: n }, (_, i) => hoverAt(i));
   const assignment = normalizeAssignment(targetIdx, scenes.length, n);
@@ -421,14 +466,14 @@ const planShow = (scenes, n, targetIdx) => {
         const t1 = maxTravel(from, fromUp);
         const t2 = maxTravel(fromUp, toUp);
         const t3 = maxTravel(toUp, to);
-        legs.push({ kind, label, sceneId, group, from, to: fromUp, secs: easedSecs(rLift, t1.dh, t1.dv) });
-        legs.push({ kind, label, sceneId, group, from: fromUp, to: toUp, secs: easedSecs(rTransit, t2.dh, t2.dv) });
-        legs.push({ kind, label, sceneId, group, from: toUp, to, secs: easedSecs(rDesc, t3.dh, t3.dv) });
+        legs.push({ kind, label, sceneId, group, from, to: fromUp, secs: easedSecs(rLift, t1.dh, t1.dv, P, t1) });
+        legs.push({ kind, label, sceneId, group, from: fromUp, to: toUp, secs: easedSecs(rTransit, t2.dh, t2.dv, P, t2) });
+        legs.push({ kind, label, sceneId, group, from: toUp, to, secs: easedSecs(rDesc, t3.dh, t3.dv, P, t3) });
         return;
       }
     }
-    const { dh, dv } = maxTravel(from, to);
-    legs.push({ kind, label, sceneId, group, from, to, secs: easedSecs(requested, dh, dv) });
+    const travel = maxTravel(from, to);
+    legs.push({ kind, label, sceneId, group, from, to, secs: easedSecs(requested, travel.dh, travel.dv, P, travel) });
   };
 
   // Vertical take-off over each drone's own pad: no horizontal motion, so pairs
@@ -490,7 +535,7 @@ const legSteps = (leg, r) => (leg.kind === 'hold'
  * With both, and the same `targetIdx`, this equals the built show's `_duration`
  * exactly.
  */
-export const computeShowDuration = (scenes, n = null, rate = null, targetIdx = null) => {
+export const computeShowDuration = (scenes, n = null, rate = null, targetIdx = null, pacing = 'standard') => {
   if (!scenes.length) return 0;
 
   if (!n || n < 1) {
@@ -502,7 +547,7 @@ export const computeShowDuration = (scenes, n = null, rate = null, targetIdx = n
   }
 
   const r = rate && rate >= 1 ? rate : null;
-  const { legs } = planShow(scenes, n, targetIdx);
+  const { legs } = planShow(scenes, n, targetIdx, pacing);
   const total = legs.reduce((sum, leg) => sum + (r ? legSteps(leg, r) / r : leg.secs), 0);
   return round2(total);
 };
@@ -518,11 +563,12 @@ export const computeShowDuration = (scenes, n = null, rate = null, targetIdx = n
  *        naive mapping, which is only collision-free by luck.
  * @returns {{drones: Array, _duration: number, _targetIdx: number[][]}}
  */
-export const buildSequencedShow = (scenes, n, rate, targetIdx = null) => {
+export const buildSequencedShow = (scenes, n, rate, targetIdx = null, pacing = 'standard') => {
   if (!scenes.length || n < 1) return { drones: [], _duration: 0 };
 
   const r = Math.max(1, rate), dt = 1 / r;
-  const { legs, ground, assignment } = planShow(scenes, n, targetIdx);
+  const ease = pacingOf(pacing).profile === 'smootherstep' ? smoother : smooth;
+  const { legs, ground, assignment } = planShow(scenes, n, targetIdx, pacing);
   const wps = Array.from({ length: n }, () => []);
   let t = 0;
 
@@ -536,7 +582,7 @@ export const buildSequencedShow = (scenes, n, rate, targetIdx = null) => {
   for (const leg of legs) {
     const steps = legSteps(leg, r);
     for (let k = 0; k < steps; k++) {
-      const w = smooth(k / steps); // a hold's from and to are the same points
+      const w = ease(k / steps); // a hold's from and to are the same points
       push(leg.from.map((a, i) => ({
         x: a.x + (leg.to[i].x - a.x) * w,
         y: a.y + (leg.to[i].y - a.y) * w,
@@ -607,7 +653,7 @@ export const computeAssignmentChainLocal = (scenes, n) => {
  * the time the user typed, and the blocks have to line up with the trajectory
  * the viewport is actually playing.
  */
-export const buildTimelineSegments = (scenes, n = null, rate = null, targetIdx = null) => {
+export const buildTimelineSegments = (scenes, n = null, rate = null, targetIdx = null, pacing = 'standard') => {
   const segs = [];
   let t = 0;
   const r = rate && rate >= 1 ? rate : null;
@@ -634,7 +680,7 @@ export const buildTimelineSegments = (scenes, n = null, rate = null, targetIdx =
     return segs;
   }
 
-  const { legs } = planShow(scenes, n, targetIdx);
+  const { legs } = planShow(scenes, n, targetIdx, pacing);
   // The return swap is several legs; the timeline shows it as one block.
   let i = 0;
   while (i < legs.length) {

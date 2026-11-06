@@ -24,6 +24,7 @@ import {
 import { ShowRefusalError } from './engine/showErrors.js';
 import { buildColoredChoreo } from './engine/lighting.js';
 import { serializeTrack } from './engine/ledPatterns.js';
+import { buildAutoLightTrack } from './engine/autoLight.js';
 import { exportShow, sendShowToGCS, downloadExport } from './engine/api.js';
 import './App.css';
 
@@ -59,6 +60,7 @@ export default function App() {
   const [homeLon, setHomeLon] = useState(77.5946);
   const [sending, setSending] = useState(false);
   const [ledTrack, setLedTrack] = useState([]);
+  const [pacing, setPacing] = useState('standard');
   const [zoom, setZoom] = useState(1);
   // Issue #132: hides the sidebar and console, leaving just the stage,
   // transport and timeline - a clean full-screen walkthrough for an
@@ -93,21 +95,21 @@ export default function App() {
   // "no prediction yet" case this comment already described above.
   const prediction = useMemo(() => {
     try {
-      return { duration: computeShowDuration(scenes, numDrones, rate, builtAssignment), refused: false, message: null };
+      return { duration: computeShowDuration(scenes, numDrones, rate, builtAssignment, pacing), refused: false, message: null };
     } catch (e) {
       if (e instanceof ShowRefusalError) return { duration: 0, refused: true, message: e.message };
       throw e;
     }
-  }, [scenes, numDrones, rate, builtAssignment]);
+  }, [scenes, numDrones, rate, builtAssignment, pacing]);
   const predictedDuration = prediction.duration;
   const segments = useMemo(() => {
     try {
-      return buildTimelineSegments(scenes, numDrones, rate, builtAssignment);
+      return buildTimelineSegments(scenes, numDrones, rate, builtAssignment, pacing);
     } catch (e) {
       if (e instanceof ShowRefusalError) return [];
       throw e;
     }
-  }, [scenes, numDrones, rate, builtAssignment]);
+  }, [scenes, numDrones, rate, builtAssignment, pacing]);
   const builtDuration = choreoData?._duration ?? 0;
   // Scrub against what's actually rendered, so the playhead can never point past
   // the built trajectory.
@@ -128,14 +130,24 @@ export default function App() {
     scenes, setScenes: list.setScenes, rate, setRate,
     dronesList: fleet.dronesList, setDronesList: fleet.setDronesList,
     homeLat, setHomeLat, homeLon, setHomeLon,
+    ledTrack, setLedTrack, pacing, setPacing,
     choreoData, setChoreoData: builder.setChoreoData,
     validation, setValidation: builder.setValidation,
   });
 
+  // Lights off while flying, an arrival sweep with blinks at each formation, then a running colour:
+  // the LED track of a real show, derived from the built show's own timeline (see engine/autoLight.js).
+  const handleAutoLight = useCallback((opts) => {
+    if (!choreoData) return 0;
+    const track = buildAutoLightTrack(choreoData, segments, opts);
+    setLedTrack(track);
+    return track.length;
+  }, [choreoData, segments]);
+
   const handleBuild = useCallback(async () => {
-    const show = await builder.build(scenes, numDrones, rate);
+    const show = await builder.build(scenes, numDrones, rate, pacing);
     if (show) { setIsPlaying(false); scrub(0); }
-  }, [builder, scenes, numDrones, rate, setIsPlaying, scrub]);
+  }, [builder, scenes, numDrones, rate, pacing, setIsPlaying, scrub]);
 
   // Build once on startup so the stage isn't empty - after the Project Vault
   // has put the last open project in the editor (issue #101), and only if that
@@ -305,12 +317,15 @@ export default function App() {
                 history={history}
                 loading={loading}
                 onBuild={handleBuild}
+                pacing={pacing}
+                onPacing={setPacing}
                 onOpenLibrary={setLibrarySceneId}
                 onOpenRasterImport={() => setRasterModalOpen(true)}
                 ai={ai}
                 light={{
                   effect: lightEffect, onEffect: setLightEffect,
                   baseColor: lightColor, onBaseColor: setLightColor,
+                  ledTrack, onAutoLight: handleAutoLight, onClearTrack: () => setLedTrack([]),
                 }}
                 choreoData={choreoData}
                 currentTime={currentTime}
