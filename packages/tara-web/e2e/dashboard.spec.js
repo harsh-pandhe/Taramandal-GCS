@@ -149,7 +149,7 @@ test('a small fleet renders one detail card per drone with its telemetry', async
   }
   await expect(page.getByText('(Port 14541)')).toBeVisible();
   await expect(page.getByText('ARMED', { exact: true })).toHaveCount(1);
-  await expect(page.getByText('95% (16.4V)')).toHaveCount(3);
+  await expect(page.getByText('95% (16.40V)')).toHaveCount(3);
   await expect(page.getByText('Active Drones: 3/3')).toBeVisible();
   await expect(page.getByRole('button', { name: 'PRE-ARM CHECK & TAKEOFF' })).toBeVisible();
 });
