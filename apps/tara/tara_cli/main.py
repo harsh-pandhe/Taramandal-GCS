@@ -6,6 +6,7 @@ optionally RViz) that this project used before Phase 1 of the finishing plan.
 
 from __future__ import annotations
 
+import math
 import os
 import sys
 from pathlib import Path
@@ -32,6 +33,30 @@ from .status import collect_status, to_json, to_text
 app = typer.Typer(add_completion=False, no_args_is_help=True)
 
 
+def _check_jitter_ms(jitter_ms: float, backend_name: str) -> None:
+    """Refuse a nonsense --jitter-ms before anything is spawned, and say when it does nothing (issue #207)."""
+    # `not (x >= 0)` also catches NaN, which compares false with everything.
+    if not (math.isfinite(jitter_ms) and jitter_ms >= 0.0):
+        raise typer.BadParameter(f"must be a finite number of milliseconds, 0 or more, got {jitter_ms}", param_hint="--jitter-ms")
+    if jitter_ms == 0.0:
+        return
+    if backend_name != "sim":
+        typer.secho(
+            f"[tara] --jitter-ms {jitter_ms} is ignored on --backend {backend_name}: only tara_sim models TDMA slot "
+            "jitter (use --backend sim).",
+            fg=typer.colors.YELLOW,
+            err=True,
+        )
+        return
+    # The GCS builds the sim fleet's RF channel itself and does not read this yet (see the #207 PR).
+    typer.secho(
+        f"[tara] --jitter-ms {jitter_ms} is passed to the GCS as SIM_TDMA_JITTER_MS, but the GCS does not apply it "
+        "yet: tara_sim's channel model supports it, the GCS wiring is still to come (issue #207).",
+        fg=typer.colors.YELLOW,
+        err=True,
+    )
+
+
 @app.command()
 def up(
     n: int = typer.Option(None, "-n", "--num-drones", help="Fleet size. Defaults to tara.toml's [fleet].num_drones."),
@@ -53,6 +78,11 @@ def up(
         0.0, "--packet-loss-per-100m",
         help="Additional packet-error rate per 100m of distance from each drone's pad (backend=sim only; issue #62).",
     ),
+    jitter_ms: float = typer.Option(
+        0.0, "--jitter-ms",
+        help="TDMA slot jitter for tara_sim's channel model: standard deviation of each drone's send-time error, "
+        "in ms; a send past its slot's guard time collides with the neighbouring slot (backend=sim only; issue #207).",
+    ),
 ) -> None:
     """Start the fleet, both backends, and both web apps as one supervised unit."""
     config = load_config()
@@ -72,11 +102,13 @@ def up(
         )
         raise typer.Exit(1)
 
+    _check_jitter_ms(jitter_ms, backend_name)
+
     try:
         services = build_services(
             config, num_drones=num_drones, backend=backend_name, headless=headless, rviz=rviz_enabled,
             allow_unsigned=allow_unsigned, sim_seed=seed, sim_packet_loss=packet_loss,
-            sim_packet_loss_per_100m=packet_loss_per_100m,
+            sim_packet_loss_per_100m=packet_loss_per_100m, sim_jitter_ms=jitter_ms,
         )
     except UnsupportedBackendError as exc:
         typer.secho(f"[tara] {exc}", fg=typer.colors.RED, err=True)

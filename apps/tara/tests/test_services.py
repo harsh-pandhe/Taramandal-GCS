@@ -1,5 +1,5 @@
 """`build_services`'s env-var construction for `tara up`'s sim-backend RF
-channel flags (issue #62) — unit-level, no supervisor/processes involved.
+channel flags (issues #62, #207) — unit-level, no supervisor/processes involved.
 """
 
 from __future__ import annotations
@@ -57,6 +57,26 @@ class TestSimRFChannelFlags:
         )
         assert env["SIM_PACKET_LOSS_BASE"] == "0.05"
         assert env["SIM_PACKET_LOSS_PER_100M"] == "0.02"
+
+    def test_jitter_is_passed_through_on_sim(self, tmp_path):
+        env = _gcs_api_env(
+            build_services(_config(tmp_path), num_drones=5, backend="sim", headless=True, rviz=False, sim_jitter_ms=1.5)
+        )
+        assert env["SIM_TDMA_JITTER_MS"] == "1.5"
+
+    def test_zero_jitter_sets_no_env_var(self, tmp_path):
+        env = _gcs_api_env(
+            build_services(_config(tmp_path), num_drones=5, backend="sim", headless=True, rviz=False, sim_jitter_ms=0.0)
+        )
+        assert "SIM_TDMA_JITTER_MS" not in env
+
+    def test_px4_backend_gets_no_jitter_env_var(self, tmp_path):
+        config = _config(tmp_path)
+        config.px4_autopilot_dir = str(tmp_path)
+        env = _gcs_api_env(
+            build_services(config, num_drones=3, backend="px4", headless=True, rviz=False, sim_jitter_ms=1.5)
+        )
+        assert "SIM_TDMA_JITTER_MS" not in env
 
     def test_px4_backend_ignores_sim_flags(self, tmp_path):
         """These flags are sim-only (see the issue and both docstrings) — a
