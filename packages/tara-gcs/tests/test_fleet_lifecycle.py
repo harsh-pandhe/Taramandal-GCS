@@ -561,5 +561,13 @@ def test_a_transition_reaches_the_hud_without_waiting_for_the_1hz_slow_frame(fle
 
         assert frame["fleet_state"]["state"] == "RTL"
         assert frame["fleet_state"]["last_transition"]["operator"] == "alice"
+        assert frame["fleet_state"]["launch_failures"] == {}
         # The next scheduled slow frame is ~1s away; this one was pushed.
+        assert time.monotonic() - sent_at < 0.9
+
+        # A launch failure must also be pushed immediately to the HUD
+        sent_at = time.monotonic()
+        manager.launch_failures[0] = "left OFFBOARD for HOLD"
+        fail_frame = next_slow_frame()
+        assert fail_frame["fleet_state"]["launch_failures"] == {"0": "left OFFBOARD for HOLD"}
         assert time.monotonic() - sent_at < 0.9

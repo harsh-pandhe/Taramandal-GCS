@@ -4,6 +4,7 @@ import NightSkyView from './views/NightSkyView';
 import HeaderBar from './components/layout/HeaderBar';
 import ViewTabs from './components/layout/ViewTabs';
 import ErrorBanner from './components/alerts/ErrorBanner';
+import LaunchFailureBanner from './components/alerts/LaunchFailureBanner';
 import SimControlBar from './components/sim/SimControlBar';
 import FlightOperationsPanel from './components/actions/FlightOperationsPanel';
 import FleetTelemetryPanel from './components/fleet/FleetTelemetryPanel';
@@ -65,6 +66,7 @@ function Dashboard({ session }) {
       />
 
       <ErrorBanner message={errorMsg} />
+      <LaunchFailureBanner launchFailures={fleetState?.launch_failures} />
 
       <SimControlBar {...sim} />
 
@@ -105,13 +107,13 @@ function Dashboard({ session }) {
             />
           )}
 
-          <FleetTelemetryPanel telemetry={telemetry} stats={stats} />
+          <FleetTelemetryPanel telemetry={telemetry} stats={stats} launchFailures={fleetState?.launch_failures} />
         </main>
 
         {/* Right side: Sidebar (Checklist & Trajectory Parser) */}
         <aside className="sidebar">
           <PreflightChecklistPanel report={preflight} error={preflightError} />
-          <TrajectoryPlannerPanel mission={mission} bypassChecklist={bypassChecklist} />
+          <TrajectoryPlannerPanel mission={mission} bypassChecklist={bypassChecklist} launchFailures={fleetState?.launch_failures} />
         </aside>
       </div>
     </div>

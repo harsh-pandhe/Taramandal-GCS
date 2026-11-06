@@ -1309,13 +1309,17 @@ async def websocket_telemetry_endpoint(websocket: WebSocket, operator: Annotated
     next_slow_send = 0.0
     elapsed = 0.0
     sent_fsm_seq = None
+    sent_launch_failures = None
     try:
         while True:
             await websocket.send_bytes(encode_fast_frame(drone_manager.telemetry))
             fsm = drone_manager.fleet_fsm
-            if elapsed >= next_slow_send or fsm.seq != sent_fsm_seq:
+            failures = _launch_failures()
+            if elapsed >= next_slow_send or fsm.seq != sent_fsm_seq or failures != sent_launch_failures:
                 sent_fsm_seq = fsm.seq
-                await websocket.send_json(encode_slow_frame(drone_manager.telemetry, fsm.snapshot()))
+                sent_launch_failures = failures
+                fleet_state_snapshot = {**fsm.snapshot(), "launch_failures": failures}
+                await websocket.send_json(encode_slow_frame(drone_manager.telemetry, fleet_state_snapshot))
                 next_slow_send = elapsed + slow_interval
             await asyncio.sleep(fast_interval)
             elapsed += fast_interval

@@ -11,11 +11,11 @@ const fmtNum = (val, suffix = '', decimals = 2, fallback = '0.00') => {
  * drones, one grid of cards) and as the drill-down panel below the
  * status-matrix tile grid for larger ones.
  */
-export default function DroneCard({ id, drone }) {
+export default function DroneCard({ id, drone, launchFailure }) {
   if (!drone) return null;
   const isConn = drone.connected;
   return (
-    <div className={`drone-card ${isConn ? '' : 'disconnected'}`}>
+    <div className={`drone-card ${isConn ? '' : 'disconnected'} ${launchFailure ? 'launch-failed' : ''}`}>
       <div className="drone-card-header">
         <div className="drone-id">
           DRONE {String(id).padStart(2, '0')}
@@ -27,6 +27,25 @@ export default function DroneCard({ id, drone }) {
           {drone.flight_mode}
         </span>
       </div>
+
+      {launchFailure && (
+        <div
+          data-testid={`drone-${id}-launch-failure`}
+          style={{
+            background: 'var(--danger-tint)',
+            border: '1px solid var(--danger)',
+            borderRadius: '4px',
+            padding: '0.4rem 0.6rem',
+            marginBottom: '0.6rem',
+            color: 'var(--danger)',
+            fontSize: '0.75rem',
+            fontWeight: 600,
+            lineHeight: 1.3,
+          }}
+        >
+          ⚠ LAUNCH REFUSED: {launchFailure}
+        </div>
+      )}
 
       <div className="telemetry-subgrid">
         <div className="telemetry-item">

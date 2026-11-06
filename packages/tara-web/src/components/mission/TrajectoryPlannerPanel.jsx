@@ -8,7 +8,7 @@ import SwarmPathPreview from './SwarmPathPreview';
  * start/stop the show, and preview the paths in 3D. State and handlers come
  * from useMission.
  */
-export default function TrajectoryPlannerPanel({ mission, bypassChecklist }) {
+export default function TrajectoryPlannerPanel({ mission, bypassChecklist, launchFailures = {} }) {
   const {
     fileDetails, trajSummary, trajectoryData, geofenceRadii, isPlaying,
     flightMode, setFlightMode, triggerDelay, setTriggerDelay,
@@ -175,6 +175,20 @@ export default function TrajectoryPlannerPanel({ mission, bypassChecklist }) {
                   ⏹ STOP SHOW
                 </button>
               </div>
+              {launchFailures && Object.keys(launchFailures).length > 0 && (
+                <div
+                  data-testid="show-refused-warning"
+                  style={{
+                    color: 'var(--danger)',
+                    fontSize: '0.75rem',
+                    fontFamily: 'var(--font-mono)',
+                    marginTop: '0.4rem',
+                    lineHeight: 1.3,
+                  }}
+                >
+                  ⚠ Show start refused: {Object.keys(launchFailures).length} drone(s) failed launch. Land and resolve.
+                </div>
+              )}
               {/* Visual 2D swarm path preview */}
               <SwarmPathPreview trajectoryData={trajectoryData} geofenceRadiusM={geofenceRadii?.hard_geofence_radius_m ?? 30.0} />
             </>

@@ -8,7 +8,7 @@ import { droneTileStatus } from '../../fleetStats';
  * Fleet Cockpit (Issue #93): health strip, filtering, sorting, matrix/grid views,
  * and drill-down cards with rapid identification of degraded drones.
  */
-export default function FleetTelemetryPanel({ telemetry, stats }) {
+export default function FleetTelemetryPanel({ telemetry, stats, launchFailures = {} }) {
   const [selectedDroneId, setSelectedDroneId] = useState(null);
   const [filter, setFilter] = useState('all'); // 'all' | 'ready' | 'armed' | 'attention' | 'offline'
   const [search, setSearch] = useState('');
@@ -27,6 +27,7 @@ export default function FleetTelemetryPanel({ telemetry, stats }) {
     droneIds.forEach((id) => {
       const drone = telemetry[id];
       const status = droneTileStatus(drone);
+      const isFailed = !!(launchFailures && launchFailures[String(id)]);
       if (status === 'ready') ready += 1;
       else if (status === 'armed') armed += 1;
       else if (status === 'offline') offline += 1;
@@ -34,19 +35,21 @@ export default function FleetTelemetryPanel({ telemetry, stats }) {
       if (
         status === 'critical' ||
         status === 'armed-no-link' ||
+        isFailed ||
         (drone?.connected && (drone.battery_percent < 25 || (drone.comm_latency_ms || 0) > 150))
       ) {
         attention += 1;
       }
     });
     return { ready, armed, attention, offline };
-  }, [droneIds, telemetry]);
+  }, [droneIds, telemetry, launchFailures]);
 
   // Filtered and sorted drone IDs
   const filteredIds = useMemo(() => {
     let list = droneIds.filter((id) => {
       const drone = telemetry[id];
       const status = droneTileStatus(drone);
+      const isFailed = !!(launchFailures && launchFailures[String(id)]);
 
       if (filter === 'ready' && status !== 'ready') return false;
       if (filter === 'armed' && status !== 'armed') return false;
@@ -55,6 +58,7 @@ export default function FleetTelemetryPanel({ telemetry, stats }) {
         const isDegraded =
           status === 'critical' ||
           status === 'armed-no-link' ||
+          isFailed ||
           (drone?.connected && (drone.battery_percent < 25 || (drone.comm_latency_ms || 0) > 150));
         if (!isDegraded) return false;
       }
@@ -86,7 +90,7 @@ export default function FleetTelemetryPanel({ telemetry, stats }) {
     });
 
     return list;
-  }, [droneIds, telemetry, filter, search, sortBy]);
+  }, [droneIds, telemetry, filter, search, sortBy, launchFailures]);
 
   // Quick focus on first attention-requiring drone
   const handleFocusAttention = () => {
@@ -205,7 +209,7 @@ export default function FleetTelemetryPanel({ telemetry, stats }) {
           />
           <div className="fleet-grid">
             {selectedDroneId != null && telemetry[selectedDroneId]
-              ? <DroneCard key={selectedDroneId} id={selectedDroneId} drone={telemetry[selectedDroneId]} />
+              ? <DroneCard key={selectedDroneId} id={selectedDroneId} drone={telemetry[selectedDroneId]} launchFailure={launchFailures?.[String(selectedDroneId)]} />
               : (
                 <div style={{ gridColumn: '1 / -1', padding: '2rem', textAlign: 'center', color: 'var(--text-muted)' }}>
                   {filteredIds.length ? 'Click a tile above to inspect that drone.' : 'No drones match the current filter.'}
@@ -215,7 +219,9 @@ export default function FleetTelemetryPanel({ telemetry, stats }) {
         </>
       ) : (
         <div className="fleet-grid">
-          {filteredIds.map((id) => <DroneCard key={id} id={id} drone={telemetry[id]} />)}
+          {filteredIds.map((id) => (
+            <DroneCard key={id} id={id} drone={telemetry[id]} launchFailure={launchFailures?.[String(id)]} />
+          ))}
 
           {filteredIds.length === 0 && droneIds.length > 0 && (
             <div style={{ gridColumn: '1 / -1', padding: '2rem', textAlign: 'center', color: 'var(--text-muted)' }}>

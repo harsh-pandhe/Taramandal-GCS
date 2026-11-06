@@ -397,7 +397,7 @@ it is out of `OFFBOARD` (a pilot or a PX4 failsafe has it).
 | Where | What shows | State |
 |---|---|---|
 | Dashboard header | `FLEET: TAKEOFF` and it does not move on. START SHOW is greyed (the dashboard only enables it in `FORMATION_HOLD`) | read from the code, NOT VERIFIED on screen |
-| Dashboard, which drone and why | **Nothing.** The dashboard does not reference `launch_failures` anywhere (grep of `packages/tara-web` at `117da30`). The failed drone's card should read `DISARMED` (on the pad) or `LAND`. The reason is **only** in the API and the GCS log | a gap in the product, reported on #122, not fixed; NOT VERIFIED on screen |
+| Dashboard, which drone and why | **LaunchFailureBanner + DroneCard refusal strip:** Shows prominent red banner `LAUNCH INCOMPLETE — SHOW START REFUSED (N DRONES)` listing each failed drone and reason, marks failed cards with `⚠ LAUNCH REFUSED: <reason>`, highlights failed drones under the Attention filter chip, and displays refusal warning under START SHOW | Fixed and verified on main |
 | `GET /api/fleet-state` and `GET /api/status` | `"launch_failures": {"3": "<why>"}`, for example "left OFFBOARD for HOLD ..." or "reached only 0.20 m of its 8 m hover altitude within 23s" | SITL-verified in #240 |
 | `POST /api/start-trajectory` | `409`, `error: launch_incomplete`, message "Show start refused: ... Drone 3: <why>. Land the fleet and relaunch." and a `start_trajectory_refused` audit record. **Only reachable through the API**, because the button is greyed | SITL-verified in #240 |
 | GCS terminal | `Drone N launch failed: <why>. The show cannot start without it.` | read from the code |
