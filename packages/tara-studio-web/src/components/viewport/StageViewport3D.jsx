@@ -89,6 +89,20 @@ export default function StageViewport3D({
 
     const grid = new THREE.GridHelper(120, 60, 0x38bdf8, 0x1e293b);
     scene.add(grid);
+
+    // Issue #92: 30m site safety boundary geofence ring
+    const geofenceGeom = new THREE.RingGeometry(29.85, 30.15, 64);
+    geofenceGeom.rotateX(-Math.PI / 2);
+    const geofenceMat = new THREE.MeshBasicMaterial({
+      color: 0xef4444,
+      side: THREE.DoubleSide,
+      transparent: true,
+      opacity: 0.45,
+    });
+    const geofenceRing = new THREE.Mesh(geofenceGeom, geofenceMat);
+    geofenceRing.position.y = 0.02;
+    scene.add(geofenceRing);
+
     scene.add(new THREE.AmbientLight(0xffffff, 0.5));
     const dir = new THREE.DirectionalLight(0xffffff, 0.8);
     dir.position.set(10, 20, 10);
@@ -187,16 +201,17 @@ export default function StageViewport3D({
     ro.observe(container);
 
     stateRef.current = {
-      scene, camera, renderer, pathsGroup, mesh: null, applyCamera, fit, reset, lens,
+      scene, camera, renderer, pathsGroup, mesh: null, shadowMesh: null, applyCamera, fit, reset, lens,
     };
     applyCamera();
 
     const dummy = new THREE.Object3D();
+    const shadowDummy = new THREE.Object3D();
     let frame;
     const animate = () => {
       frame = requestAnimationFrame(animate);
       const st = stateRef.current;
-      const { mesh, show } = st;
+      const { mesh, shadowMesh, show } = st;
 
       if (mesh && show) {
         const t = timeRef.current;
@@ -224,9 +239,18 @@ export default function StageViewport3D({
           mesh.setMatrixAt(i, dummy.matrix);
           const c = droneColorAt(i, t, lightingRef.current);
           mesh.setColorAt(i, c);
+
+          if (shadowMesh) {
+            shadowDummy.position.set(wp.x, 0.02, wp.y);
+            const altRatio = Math.min(1.0, Math.max(0.0, -wp.z / 35.0));
+            shadowDummy.scale.setScalar(Math.max(0.35, 1.1 - altRatio * 0.5));
+            shadowDummy.updateMatrix();
+            shadowMesh.setMatrixAt(i, shadowDummy.matrix);
+          }
         }
         mesh.instanceMatrix.needsUpdate = true;
         if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
+        if (shadowMesh) shadowMesh.instanceMatrix.needsUpdate = true;
       }
       renderer.render(scene, camera);
     };
@@ -267,10 +291,31 @@ export default function StageViewport3D({
       st.mesh.material.dispose();
       st.mesh = null;
     }
+    if (st.shadowMesh) {
+      st.scene.remove(st.shadowMesh);
+      st.shadowMesh.geometry.dispose();
+      st.shadowMesh.material.dispose();
+      st.shadowMesh = null;
+    }
     st.show = choreoData;
     if (!choreoData || !choreoData.drones.length) return;
 
     const n = choreoData.drones.length;
+    // Issue #92: Ground footprint projection mesh (one disc per drone at y=0.02)
+    const shadowGeo = new THREE.CircleGeometry(0.32, 12);
+    shadowGeo.rotateX(-Math.PI / 2);
+    const shadowMat = new THREE.MeshBasicMaterial({
+      color: 0x38bdf8,
+      transparent: true,
+      opacity: 0.22,
+      depthWrite: false,
+    });
+    const shadowMesh = new THREE.InstancedMesh(shadowGeo, shadowMat, n);
+    shadowMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+    shadowMesh.frustumCulled = false;
+    st.scene.add(shadowMesh);
+    st.shadowMesh = shadowMesh;
+
     // A low-poly body keeps 1000 instances cheap; the LED colour, not the
     // silhouette, is what reads at show distance.
     const geo = new THREE.SphereGeometry(0.28, 10, 8);
