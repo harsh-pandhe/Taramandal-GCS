@@ -12,7 +12,7 @@ On 4 Nov the steps that need no SITL were re-run at 3 drones on `origin/main` `d
 no build, no browser, no container), so every step below that was not run on the date and commit named next to it
 is **NOT VERIFIED in this pass**, and the timeline says so row by row.** What changed since 3 Nov: #240 merged,
 so a launch that does not get every planned drone up is now refused by name (2.6); #237 merged, so the figures-only
-shows and their real lengths exist (2.3); #244 (PX4-safe pacing) is **open, not merged** (2.7); four T2 clips and one
+shows and their real lengths exist (2.3); #244 (PX4-safe pacing) and #245 (voltage format) merged (2.7); four T2 clips and one
 T1 clip were made on 5 Nov and are **made, not yet in the repository** (4.4); the dashboard changed (#93) and its
 drone-card coordinate formatting landed (52d5e54), neither re-driven here. The RC pilot is still **NOT YET NAMED**
 (5.3). The one-page timeline for the day is straight after the two rules below.
@@ -415,10 +415,10 @@ TOKEN=$(curl -s -X POST localhost:8090/api/auth/login -H 'Content-Type: applicat
 curl -s localhost:8090/api/fleet-state -H "Authorization: Bearer $TOKEN" | python3 -m json.tool | grep -A6 launch_failures
 ```
 
-### 2.7 PX4-safe pacing (PR #244, open, not merged)
+### 2.7 PX4-safe pacing (PR #244, merged)
 
-**As of 6 Nov #244 is open.** Until it merges, the Studio menu still offers **Fast** pacing, and the SITL evidence
-in the PR is that Fast is not safe: on 10 drones on PX4 SITL + Gazebo, Fast lagged the plan by up to 15.9 m with a
+**Merged into `main` on 6 Nov (#244).** Fast pacing is hidden from the Studio menu and capped at PX4-safe budgets.
+The SITL evidence in the PR confirmed that old Fast was not safe: on 10 drones on PX4 SITL + Gazebo, Fast lagged the plan by up to 15.9 m with a
 closest approach of 0.79 m and a proximity failsafe RTL, and the capped Fast variant that passed kept only 1.70 m
 against the 1.5 m abort limit. **Use Standard. Do not select Fast, and do not rebuild a show with it, on the day.**
 
@@ -643,12 +643,13 @@ Only items that exist today. Owners are proposed. Every item that needs a merge 
 **Status on Fri 6 Nov, from the repository and the PR list (nothing run in this pass):**
 
 - Done: #237 (figures-only shows), #240 (launch refusal), #241 and #243 (SITL acceptance and the 10 repeats), #242
-  (the no-SITL runbook steps at 3 drones), the T1 and T2 clips (made, not in the repo, 4.4).
+  (the no-SITL runbook steps at 3 drones), #244 (PX4-safe pacing & auto light show), #245 (voltage format),
+  the T1 and T2 clips (made, not in the repo, 4.4).
 - Not done: three clean T1 35-drone runs on an idle machine (three attempts on 5 Nov, none finished: two stacks
   were killed from outside and one was stopped by a load above 8); the 100-drone `diwali_sim_scale.py` run and the
   35- and 100-drone Studio preview since the pacing change; any run on the commit that will be recorded; the RC
   pilot's name (5.3); Harsh's choice between lettered and figures-only, and between abort-all and
-  continue-without-the-drone (2.6); #244 not merged.
+  continue-without-the-drone (2.6).
 
 ## 7. Verification log (2 to 6 Nov 2026)
 
