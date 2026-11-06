@@ -12,9 +12,12 @@
 /** Versions kept per project; the oldest is dropped past this. */
 export const MAX_VERSIONS = 20;
 
-const FIELDS = ['scenes', 'rate', 'homeLat', 'homeLon', 'dronesList'];
+const FIELDS = ['scenes', 'rate', 'homeLat', 'homeLon', 'dronesList', 'ledTrack', 'pacing'];
 
-const pick = (state) => Object.fromEntries(FIELDS.map((k) => [k, state[k]]));
+// Fields added after projects were first saved: absent on an older project means "the default", so an old
+// version and a new editor holding the same show still compare equal.
+const DEFAULTS = { ledTrack: [], pacing: 'standard' };
+const pick = (state) => Object.fromEntries(FIELDS.map((k) => [k, state[k] ?? DEFAULTS[k]]));
 /** True when two states hold the same editable show. */
 export const sameContent = (a, b) => JSON.stringify(pick(a)) === JSON.stringify(pick(b));
 

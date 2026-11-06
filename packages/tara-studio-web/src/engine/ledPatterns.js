@@ -14,6 +14,8 @@ export const PATTERNS = [
   { value: 'STROBE', label: 'Strobe' },
   { value: 'SPARKLE', label: 'Sparkle' },
   { value: 'WAVE_PROPAGATION', label: 'Wave' },
+  { value: 'SWEEP_ON', label: 'Arrival Sweep (blink on)' },
+  { value: 'COLOR_CHASE', label: 'Running Colour' },
 ];
 
 export const PATTERN_VALUES = PATTERNS.map((p) => p.value);
@@ -32,6 +34,9 @@ export const makeLedKeyframe = (patch = {}) => ({
   axis: 'z',
   wave_speed: 4,
   wave_length: 12,
+  reverse: false,
+  axis_origin: 0,
+  blink_count: 3,
   ...patch,
 });
 
@@ -49,6 +54,17 @@ export const hexToRgbw = (value) => {
     b: parseInt(s.slice(4, 6), 16),
     w: parseInt(s.slice(6, 8), 16),
   };
+};
+
+/** A palette ramp at u (0..1); wraps back to the first stop when `loop`. Mirrors led_engine._ramp. */
+const rampColor = (stops, u, loop) => {
+  const c = new THREE.Color();
+  if (stops.length === 1) return c.set(stops[0]);
+  const ring = loop ? [...stops, stops[0]] : stops;
+  const v = loop ? ((u % 1) + 1) % 1 : clamp01(u);
+  const p = v * (ring.length - 1);
+  const i = Math.min(Math.floor(p), ring.length - 2);
+  return new THREE.Color(ring[i]).lerp(new THREE.Color(ring[i + 1]), p - i);
 };
 
 /**
@@ -117,6 +133,24 @@ export const evaluateKeyframe = (kf, t, droneIdx = 0, numDrones = 1, pos = null)
       const hsl = {};
       c.getHSL(hsl);
       return c.setHSL(hsl.h, hsl.s, hsl.l * amp);
+    }
+    case 'COLOR_CHASE':
+    case 'SWEEP_ON': {
+      const coord = pos && kf.axis in pos ? Number(pos[kf.axis]) : droneIdx;
+      const stops = kf.palette && kf.palette.length ? kf.palette : [kf.color];
+      if (kf.pattern === 'COLOR_CHASE') {
+        const wl = kf.wave_length || 1;
+        return rampColor(stops, (coord - kf.wave_speed * local) / wl, true);
+      }
+      // SWEEP_ON: dark until the front reaches this drone, `blink_count` blinks, then steady.
+      const dist = Math.max(0, kf.reverse ? kf.axis_origin - coord : coord - kf.axis_origin);
+      const age = local - dist / Math.max(0.01, Math.abs(kf.wave_speed));
+      if (age < 0) return c.setRGB(0, 0, 0);
+      if (kf.blink_count > 0) {
+        const freq = Math.max(0.01, kf.frequency_hz);
+        if (age * freq < kf.blink_count && (age * freq) % 1 >= clamp01(kf.duty_cycle)) return c.setRGB(0, 0, 0);
+      }
+      return rampColor(stops, dist / (kf.wave_length || 1), false);
     }
     case 'SOLID':
     default:

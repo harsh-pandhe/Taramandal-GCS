@@ -41,7 +41,7 @@ export default function useShowBuilder() {
     setValidation(value);
   }, []);
 
-  const build = useCallback(async (scenes, numDrones, rate) => {
+  const build = useCallback(async (scenes, numDrones, rate, pacing = 'standard') => {
     if (!scenes.length) {
       setError('Add at least one scene.');
       return null;
@@ -72,7 +72,7 @@ export default function useShowBuilder() {
         targetIdx = computeAssignmentChainLocal(scenes, numDrones);
       }
 
-      show = buildSequencedShow(scenes, numDrones, Number(rate), targetIdx);
+      show = buildSequencedShow(scenes, numDrones, Number(rate), targetIdx, pacing);
       setChoreoData(show);
       setValidation(null);
       // A new show: any validation still running belongs to the previous one.

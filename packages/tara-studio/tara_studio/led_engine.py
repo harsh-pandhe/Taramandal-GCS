@@ -31,8 +31,15 @@ COLOR_CYCLE = "COLOR_CYCLE"
 STROBE = "STROBE"
 SPARKLE = "SPARKLE"
 WAVE_PROPAGATION = "WAVE_PROPAGATION"
+#: Arrival sweep: dark until a front travelling along `axis` reaches a drone, then the
+#: drone blinks `blink_count` times and stays lit. The "lights come on across the
+#: formation as it takes its place" cue of a real show.
+SWEEP_ON = "SWEEP_ON"
+#: Running colour: a band of the palette travelling along `axis` (negative
+#: `wave_speed` runs the other way), every drone always lit.
+COLOR_CHASE = "COLOR_CHASE"
 
-PATTERNS = (SOLID, COLOR_CYCLE, STROBE, SPARKLE, WAVE_PROPAGATION)
+PATTERNS = (SOLID, COLOR_CYCLE, STROBE, SPARKLE, WAVE_PROPAGATION, SWEEP_ON, COLOR_CHASE)
 
 
 def hex_to_rgbw(value: str) -> tuple[int, int, int, int]:
@@ -77,6 +84,19 @@ def _hash01(*parts: int) -> float:
     return int.from_bytes(h.digest(), "little") / 0xFFFFFFFF
 
 
+def _ramp(stops: Sequence[tuple[int, int, int, int]], u: float, loop: bool) -> tuple[int, int, int, int]:
+    """Linear RGBW interpolation along `stops` at u in 0..1 (wrapping back to stops[0] when `loop`)."""
+    if len(stops) == 1:
+        return stops[0]
+    ring = list(stops) + ([stops[0]] if loop else [])
+    u = (u % 1.0) if loop else max(0.0, min(1.0, u))
+    pos = u * (len(ring) - 1)
+    i = min(int(pos), len(ring) - 2)
+    f = pos - i
+    a, b = ring[i], ring[i + 1]
+    return tuple(_clamp8(_lerp(a[k], b[k], f)) for k in range(4))  # type: ignore[return-value]
+
+
 @dataclass
 class LedKeyframe:
     """One lighting instruction covering [start_time, start_time + duration).
@@ -94,7 +114,14 @@ class LedKeyframe:
         density: SPARKLE - fraction of the swarm lit at any instant, 0..1.
         axis: WAVE_PROPAGATION travel axis, "x" | "y" | "z".
         wave_speed: wave travel speed in metres/second.
-        wave_length: crest-to-crest distance in metres.
+        wave_length: crest-to-crest distance in metres. SWEEP_ON: the span in metres
+            over which the palette is spread (a one-colour sweep ignores it).
+        reverse: SWEEP_ON direction. False sweeps towards +axis from `axis_origin`
+            (left to right along x); True sweeps towards -axis (right to left).
+        axis_origin: SWEEP_ON - the coordinate (metres) on `axis` where the sweep starts:
+            the formation's minimum for an ascending sweep, its maximum for a reverse one.
+        blink_count: SWEEP_ON - how many times a drone blinks (at `frequency_hz`, with
+            `duty_cycle`) the moment the front reaches it, before it stays lit.
     """
 
     pattern: str = SOLID
@@ -108,6 +135,9 @@ class LedKeyframe:
     axis: str = "z"
     wave_speed: float = 4.0
     wave_length: float = 12.0
+    reverse: bool = False
+    axis_origin: float = 0.0
+    blink_count: int = 3
 
     def __post_init__(self) -> None:
         if self.pattern not in PATTERNS:
@@ -116,6 +146,8 @@ class LedKeyframe:
             raise ValueError(f"bad axis {self.axis!r}: expected 'x', 'y' or 'z'")
         if self.duration < 0:
             raise ValueError("duration must be >= 0")
+        if self.blink_count < 0:
+            raise ValueError("blink_count must be >= 0")
 
     @property
     def end_time(self) -> float:
@@ -196,6 +228,34 @@ def evaluate(
         rr, gg, bb = colorsys.hsv_to_rgb(h, s, v * amp)
         return (_clamp8(rr * 255), _clamp8(gg * 255), _clamp8(bb * 255), _clamp8(w * amp))
 
+    if kf.pattern in (SWEEP_ON, COLOR_CHASE):
+        if position is not None and kf.axis in position:
+            coord = float(position[kf.axis])
+        else:
+            coord = float(drone_index)
+        stops = [hex_to_rgbw(c) for c in kf.palette] if kf.palette else [base]
+
+        if kf.pattern == COLOR_CHASE:
+            wavelength = kf.wave_length if kf.wave_length else 1.0
+            return _ramp(stops, (coord - kf.wave_speed * local) / wavelength, loop=True)
+
+        # SWEEP_ON: distance along the sweep direction from where the front starts.
+        d = (kf.axis_origin - coord) if kf.reverse else (coord - kf.axis_origin)
+        d = max(0.0, d)
+        speed = max(0.01, abs(kf.wave_speed))
+        age = local - d / speed
+        if age < 0:
+            return (0, 0, 0, 0)
+        span = kf.wave_length if kf.wave_length else 1.0
+        colour = _ramp(stops, d / span, loop=False)
+        if kf.blink_count > 0:
+            freq = max(0.01, kf.frequency_hz)
+            if age * freq < kf.blink_count:
+                duty = max(0.0, min(1.0, kf.duty_cycle))
+                if (age * freq) % 1.0 >= duty:
+                    return (0, 0, 0, 0)
+        return colour
+
     raise ValueError(f"unhandled pattern {kf.pattern!r}")
 
 
@@ -257,7 +317,8 @@ def led_sample_rate_hz(keyframes: Sequence[dict] | Sequence[LedKeyframe]) -> flo
     """
     rate = 0.0
     for kf in build_track(keyframes):
-        if kf.pattern != STROBE or kf.duration <= 0:
+        # A SWEEP_ON blink is a strobe that starts at each drone's own arrival time.
+        if kf.duration <= 0 or not (kf.pattern == STROBE or (kf.pattern == SWEEP_ON and kf.blink_count > 0)):
             continue
         freq = max(0.01, kf.frequency_hz)
         duty = max(0.0, min(1.0, kf.duty_cycle))

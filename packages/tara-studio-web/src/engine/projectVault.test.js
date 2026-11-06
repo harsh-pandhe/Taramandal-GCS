@@ -82,6 +82,7 @@ describe('wire format', () => {
     const wire = toWire(project);
     expect(wire.document).toEqual({
       scenes: project.scenes, dronesList: project.dronesList, rate: 4, homeLat: 12.9716, homeLon: 77.5946,
+      ledTrack: [], pacing: 'standard',
     });
     expect(wire.show).toBe(SHOW);
 
@@ -724,5 +725,22 @@ describe('importing projects saved before the vault', () => {
     expect(tab.state.status).toBe('ready');
     expect(server.ids()).toEqual([DEFAULT_PROJECT_ID]);
     expect(tab.state.error).toBeNull();
+  });
+});
+
+describe('lighting and pacing are part of the saved show', () => {
+  it('sends the LED track and the pacing, and brings them back', () => {
+    const track = [{ id: 'led-1', pattern: 'SWEEP_ON', start_time: 10, duration: 4 }];
+    const wire = toWire({ ...show('a'), ledTrack: track, pacing: 'fast' });
+    expect(wire.document.ledTrack).toEqual(track);
+    expect(wire.document.pacing).toBe('fast');
+    const back = fromWire({ id: 'p1', revision: 1, created_at: 't', updated_at: 't', has_show: false, ...wire });
+    expect(back.ledTrack).toEqual(track);
+    expect(back.pacing).toBe('fast');
+  });
+
+  it('treats a project saved before these existed as having no lighting and standard pacing', () => {
+    const old = fromWire({ id: 'p1', revision: 1, created_at: 't', updated_at: 't', has_show: false, name: 'old', document: { scenes: [], dronesList: [], rate: 4 } });
+    expect(toWire(old).document).toMatchObject({ ledTrack: [], pacing: 'standard' });
   });
 });

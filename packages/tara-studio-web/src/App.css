@@ -427,6 +427,16 @@ input[type="number"] { font-family: var(--mono); font-variant-numeric: tabular-n
 }
 .fullscreen-toggle-btn:hover { background: var(--bg-surface-2); }
 
+/* The Paths checkbox sits in viewport-right-actions too, under the same blanket
+   `pointer-events: none` of .view-mode-tabs-container, so before this rule every
+   click on it fell through to the 3D canvas and the toggle did nothing (same gap
+   the fullscreen button had). Same standalone chip look as its neighbours. */
+.viewport-right-actions .toggle-inline {
+  pointer-events: auto; background: var(--bg-surface); border: 1px solid var(--border);
+  border-radius: var(--r); padding: 0.45rem 0.7rem; box-shadow: var(--shadow-2);
+}
+.viewport-right-actions .toggle-inline:hover { background: var(--bg-surface-2); }
+
 /* ---------------------------------------------------------- Control drawer  */
 .control-drawer {
   /* Sits below the sequencer header + view-tab row, clear of the timeline at

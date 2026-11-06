@@ -411,3 +411,68 @@ class TestUpsampling:
         before = len(choreo["drones"][0]["waypoints"])
         upsample_choreo(choreo, 3)
         assert len(choreo["drones"][0]["waypoints"]) == before
+
+
+# ---------------------------------------------------------------- SWEEP_ON / COLOR_CHASE
+
+
+def _sweep(**kw):
+    base = dict(
+        pattern="SWEEP_ON", start_time=10.0, duration=8.0, color="#ff0000", axis="x",
+        wave_speed=10.0, wave_length=20.0, axis_origin=-10.0, frequency_hz=4.0,
+        duty_cycle=0.5, blink_count=3,
+    )
+    base.update(kw)
+    return LedKeyframe(**base)
+
+
+def test_sweep_on_is_dark_until_the_front_arrives_then_blinks_then_stays_lit():
+    kf = _sweep()
+    at = lambda x, t: evaluate(kf, t, 0, 1, {"x": x})[:3]  # noqa: E731
+    # x = 0 is 10 m from the origin: the front reaches it 1.0 s after the keyframe starts.
+    assert at(0.0, 10.9) == (0, 0, 0)
+    assert at(0.0, 11.0) == (255, 0, 0)          # first blink starts lit, immediately
+    assert at(0.0, 11.15) == (0, 0, 0)           # off half of the first blink (4 Hz, duty 0.5)
+    assert at(0.0, 11.26) == (255, 0, 0)         # second blink
+    assert at(0.0, 11.75) == (255, 0, 0)         # three blinks done (0.75 s): steady on
+    assert at(0.0, 16.0) == (255, 0, 0)
+
+
+def test_sweep_on_reaches_a_drone_further_along_later_and_reverse_runs_the_other_way():
+    fwd = _sweep()
+    assert evaluate(fwd, 10.5, 0, 1, {"x": -10.0})[:3] == (255, 0, 0)   # at the origin: lit at once
+    assert evaluate(fwd, 10.5, 0, 1, {"x": 10.0})[:3] == (0, 0, 0)      # 20 m away: lit at 2.0 s
+    assert evaluate(fwd, 12.0, 0, 1, {"x": 10.0})[:3] == (255, 0, 0)
+    rev = _sweep(reverse=True, axis_origin=10.0)
+    assert evaluate(rev, 10.5, 0, 1, {"x": 10.0})[:3] == (255, 0, 0)    # right edge first
+    assert evaluate(rev, 10.5, 0, 1, {"x": -10.0})[:3] == (0, 0, 0)
+    assert evaluate(rev, 12.0, 0, 1, {"x": -10.0})[:3] == (255, 0, 0)
+
+
+def test_sweep_on_spreads_a_palette_along_the_axis():
+    kf = _sweep(palette=["#ff0000", "#0000ff"], blink_count=0)
+    left = evaluate(kf, 17.0, 0, 1, {"x": -10.0})[:3]
+    right = evaluate(kf, 17.0, 0, 1, {"x": 10.0})[:3]
+    assert left == (255, 0, 0) and right == (0, 0, 255)
+
+
+def test_color_chase_runs_along_the_axis_and_reverses_with_a_negative_speed():
+    kf = LedKeyframe(
+        pattern="COLOR_CHASE", start_time=0.0, duration=10.0, axis="x", wave_speed=5.0,
+        wave_length=20.0, palette=["#ff0000", "#00ff00", "#0000ff"],
+    )
+    a = evaluate(kf, 0.0, 0, 1, {"x": 0.0})
+    b = evaluate(kf, 2.0, 0, 1, {"x": 0.0})
+    assert a != b                                  # the colour at one place changes over time
+    # The pattern at x = 10 m at t = 2 s is what x = 0 showed at t = 0 (wave speed 5 m/s).
+    assert evaluate(kf, 2.0, 0, 1, {"x": 10.0}) == a
+    back = LedKeyframe(**{**kf.__dict__, "wave_speed": -5.0})
+    assert evaluate(back, 2.0, 0, 1, {"x": -10.0}) == a
+    assert all(sum(evaluate(kf, t, 0, 1, {"x": x})) > 0 for t in (0, 1, 3) for x in (-8, 0, 9))  # never dark
+
+
+def test_a_sweep_blink_needs_the_strobe_sample_rate_so_it_survives_export():
+    from tara_studio.led_engine import led_sample_rate_hz
+    assert led_sample_rate_hz([_sweep()]) == 16.0          # 4 Hz at duty 0.5 -> 125 ms phases
+    assert led_sample_rate_hz([_sweep(blink_count=0)]) == 0.0
+    assert led_sample_rate_hz([_sweep(pattern="COLOR_CHASE")]) == 0.0

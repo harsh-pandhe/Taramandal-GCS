@@ -312,6 +312,17 @@ export const SHAPE_LIBRARY = [
   })),
 ];
 
+// An explicit formation: the payload is a JSON list of exactly n {x, y, z} points (metres, NED, z = -altitude)
+// that are used exactly as given: no scaling, no re-centring, no spacing-floor growth (see buildFormation). Every
+// safety check below (site radius, altitude ceiling, minimum spacing) still applies, and a violation refuses.
+const parsePointsPayload = (payload, n) => {
+  let list;
+  try { list = JSON.parse(payload); } catch (e) { throw new Error(`points formation payload is not valid JSON: ${e.message}`); }
+  if (!Array.isArray(list)) throw new Error('points formation payload must be a JSON array of {x, y, z}');
+  if (list.length !== n) throw new Error(`points formation has ${list.length} points for a fleet of ${n}`);
+  return list.map((q) => ({ x: Number(q.x), y: Number(q.y ?? 0), z: Number(q.z) }));
+};
+
 // The raw, spacing-floor-enforced point cloud for one formation, before it
 // is centred over the pad grid or clamped to the site radius. Factored out
 // of buildFormation so buildSplitFormation (below) can combine several of
@@ -320,7 +331,8 @@ const rawFormation = (shapeType, shapePayload, n, scale) => {
   const s = Number.isFinite(scale) && scale > 0 ? scale : 1.0;
   const gen = PARAMETRIC[shapePayload] || fmtCircle;
   let raw;
-  if (shapeType === 'text') raw = fmtText(n, s, shapePayload);
+  if (shapeType === 'exact_points') raw = parsePointsPayload(shapePayload, n);
+  else if (shapeType === 'text') raw = fmtText(n, s, shapePayload);
   else if (shapeType === 'svg') raw = svgToFormation(shapePayload, n, { scale: s * 15.0, altitude: SHOW_ALT });
   else if (shapeType === 'points') {
     const pts = Array.isArray(shapePayload) ? shapePayload : (shapePayload?.points || []);
@@ -342,7 +354,7 @@ const rawFormation = (shapeType, shapePayload, n, scale) => {
     // issue #146/#129 review: an SVG or custom point import that collapses to
     // degenerate geometry (every point coincident) must fail closed, not
     // silently fall back to a circle.
-    if (shapeType === 'svg' || shapeType === 'points') {
+    if (shapeType === 'svg' || shapeType === 'points' || shapeType === 'exact_points') {
       throw new Error(`${shapeType.toUpperCase()} formation produced degenerate geometry (points collapsed).`);
     }
     raw = fmtCircle(n, s);
@@ -353,7 +365,7 @@ const rawFormation = (shapeType, shapePayload, n, scale) => {
 /**
  * Builds a formation's point cloud.
  *
- * @param {'parametric'|'text'|'svg'|'mesh'} shapeType
+ * @param {'parametric'|'text'|'svg'|'points'|'exact_points'|'mesh'} shapeType
  * @param {string} shapePayload
  * @param {number} n fleet size
  * @param {number} scale size multiplier
@@ -362,13 +374,21 @@ const rawFormation = (shapeType, shapePayload, n, scale) => {
 export const buildFormation = (shapeType, shapePayload, n, scale = 1.0) => {
   if (n < 1) return [];
   const raw = rawFormation(shapeType, shapePayload, n, scale);
-  const placed = place(raw, n);
+  // 'exact_points' is already a placed formation: growing it to the spacing floor or moving it would change what was designed.
+  // (Not 'points': that is the raster-import type, which is scaled and placed like any other generated shape.)
+  const placed = shapeType === 'exact_points' ? raw : place(raw, n);
 
   // Enforce SITE_RADIUS_M: if pad-grid offset or large span pushes any point
   // beyond SITE_RADIUS_M (30m), first shift toward origin if it fits,
   // otherwise scale horizontally about its centroid without violating minimum spacing.
   let current = placed;
   const maxReach = current.reduce((m, p) => Math.max(m, Math.hypot(p.x, p.y)), 0);
+  if (shapeType === 'exact_points' && maxReach > SITE_RADIUS_M + 1e-6) {
+    // An explicit formation is never shifted or shrunk to fit: it is refused so the designer moves it.
+    throw new ShowRefusalError(
+      `Exact-points formation (n=${n}) reaches ${maxReach.toFixed(1)}m from the site origin, beyond the site radius (${SITE_RADIUS_M}m)`
+    );
+  }
   if (maxReach > SITE_RADIUS_M + 1e-6) {
     const xs = current.map((p) => p.x);
     const ys = current.map((p) => p.y);
