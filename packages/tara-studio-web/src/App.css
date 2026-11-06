@@ -898,6 +898,13 @@ input[type="number"] { font-family: var(--mono); font-variant-numeric: tabular-n
 }
 .btn-danger-outline:disabled { opacity: 0.35; cursor: not-allowed; }
 .btn-gcs { background: linear-gradient(135deg, #06b6d4, #0891b2); border-color: #0891b2; }
+.btn-gcs:disabled {
+  background: var(--bg-surface-2);
+  border-color: var(--border-strong);
+  color: var(--text-dim);
+  opacity: 0.45;
+  box-shadow: none;
+}
 
 /* Unsigned preview export, offered only when jerk is the sole reason the
    normal export is refused (#161). Warning-toned throughout so it never

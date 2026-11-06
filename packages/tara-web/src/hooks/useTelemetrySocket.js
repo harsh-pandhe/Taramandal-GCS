@@ -34,8 +34,10 @@ export default function useTelemetrySocket(setErrorMsg) {
   useEffect(() => {
     let ws;
     let reconnectTimer;
+    let disposed = false;
 
     function connect() {
+      if (disposed) return;
       // The bearer token rides as a subprotocol: browsers cannot set headers
       // on a WebSocket, and a token in the URL would land in access logs.
       const session = getSession();
@@ -46,6 +48,7 @@ export default function useTelemetrySocket(setErrorMsg) {
       ws.binaryType = 'arraybuffer';
 
       ws.onopen = () => {
+        if (disposed) return;
         setWsConnected(true);
         setErrorMsg('');
         console.log('Telemetry WebSocket connected.');
@@ -58,6 +61,7 @@ export default function useTelemetrySocket(setErrorMsg) {
       // object, since either channel updating alone would otherwise wipe out
       // whatever the other channel last reported.
       ws.onmessage = (event) => {
+        if (disposed) return;
         if (event.data instanceof ArrayBuffer) {
           // Feed the flat buffer first: the 3D view reads it every frame and
           // must not wait on React's state commit.
@@ -94,6 +98,7 @@ export default function useTelemetrySocket(setErrorMsg) {
       };
 
       ws.onclose = (event) => {
+        if (disposed) return;
         setWsConnected(false);
         setFleetState(null);
         // 1008: the GCS refused the session (expired, revoked, GCS restarted).
@@ -107,16 +112,32 @@ export default function useTelemetrySocket(setErrorMsg) {
       };
 
       ws.onerror = (err) => {
+        if (disposed) return;
         console.error('WebSocket error:', err);
-        ws.close();
+        try {
+          ws.close();
+        } catch {
+          // ignore close error
+        }
       };
     }
 
     connect();
 
     return () => {
-      if (ws) ws.close();
+      disposed = true;
       clearTimeout(reconnectTimer);
+      if (ws) {
+        ws.onopen = null;
+        ws.onmessage = null;
+        ws.onerror = null;
+        ws.onclose = null;
+        try {
+          ws.close();
+        } catch {
+          // ignore close error
+        }
+      }
     };
     // setErrorMsg is a state setter: stable for the component's lifetime.
     // eslint-disable-next-line react-hooks/exhaustive-deps
