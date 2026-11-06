@@ -23,6 +23,7 @@ def build_services(
     sim_seed: int | None = None,
     sim_packet_loss: float = 0.0,
     sim_packet_loss_per_100m: float = 0.0,
+    sim_jitter_ms: float = 0.0,
 ) -> list[Service]:
     """Return the ordered list of services for one `tara up` invocation.
 
@@ -42,6 +43,9 @@ def build_services(
         sim_packet_loss_per_100m: backend="sim" only (issue #62) -
             additional packet-error rate per 100m of distance from each
             drone's own pad.
+        sim_jitter_ms: backend="sim" only (issue #207) - TDMA slot jitter,
+            the standard deviation of each drone's send-time error in ms.
+            ``0.0`` (default) models none. The caller checks the range.
 
     Returns:
         Services in launch order. The caller is expected to add them to a
@@ -118,6 +122,11 @@ def build_services(
                 **(
                     {"SIM_PACKET_LOSS_PER_100M": str(sim_packet_loss_per_100m)}
                     if backend == "sim" and sim_packet_loss_per_100m > 0
+                    else {}
+                ),
+                **(
+                    {"SIM_TDMA_JITTER_MS": str(sim_jitter_ms)}
+                    if backend == "sim" and sim_jitter_ms > 0
                     else {}
                 ),
             },
