@@ -1,0 +1,67 @@
+{
+ "clip": "diwali2026_T2_10drones_3d-formations_px4-sitl-gazebo-rviz-gcs-dashboard_20261105_d7e7b2e-localbuild-redacted.mp4",
+ "original_clip_not_in_repo": "diwali2026_T2_10drones_3d-formations_px4-sitl-gazebo-rviz-gcs-dashboard_20261105_d7e7b2e-localbuild.mp4",
+ "tier": "T2 (PX4 SITL + Gazebo), simulation, 10 drones. Not hardware.",
+ "repo_commit": "d7e7b2eb25af2f3e46db9156719089909e978f5a",
+ "recorded_utc": "2026-11-05T11:02:12Z to 11:06:09Z (recording starts at the dashboard's Launch click; nothing trimmed)",
+ "capture": "ffmpeg n9.0.2 x11grab, display :1, 1440x900 region at (0,60); H.264 crf 24; 3:56; GCS dashboard (Chromium app window) | Gazebo Sim above RViz",
+ "formations": "Three 10-drone 3D Diwali formations designed from Wikimedia Commons reference photos (t2-rig-10drones/refs, licences in SOURCES.json: diya and lantern CC BY-SA 4.0, lotus CC0): a diya (5-drone bowl, flame, bright core in front), a lotus fan of five petals curving back in depth, a faceted kandil (lantern) star with its inner vertices pulled toward the audience. Previews: t2-rig-10drones/preview_v2.png. Holds 12 s, 12 s, 14 s; transitions 14 s.",
+ "show": "Built through the real Studio /api/export (flight export accepted, validator PASSED, feasibility_certified true, 0 violations): exported 156.6 s, max altitude 25.8 m, min separation 2.05 m, max velocity 1.52 m/s, max acceleration 2.45 m/s2, max jerk 17.32 m/s3. Signed with the demo key. The GCS reported a trajectory of 183.4 s including the start leg.",
+ "needs_local_change": "Studio has no way to author arbitrary 10-point formations (shape types parametric/text/svg only), so the scenes use a 'points' shape type that exists ONLY in a scratch copy of engine/formations.js (t2-rig-10drones/formations.js.points-shape.patch, 5 lines). The repo itself is unmodified. The three shapes are NOT reproducible in the Studio UI today.",
+ "stack": "10 PX4 instances started with the repo's own services via t2_up_staged.py (staged: GCS only after every PX4 instance is up) because `tara up` starts gcs-api a fixed 12 s after the fleet and one of 10 drones missed its connection window in an earlier attempt; no product code edited. RViz via t2-rig/t2_rviz.sh with a local config (t2-rig-10drones/taramandal_t2_n10.rviz: front-ish 3/4 view, TF arrows and names off).",
+ "px4": "same locally patched native v1.16.2 build as the 1- and 3-drone clips (t2-rig/px4-local-patches.patch)",
+ "gazebo": "Gazebo Sim 8.10.0 (conda-forge); the project's container image has 8.15.0. Fixed audience-side camera set with gz service (t2-rig-10drones/t2_front_cam.sh), 25 m from the formation plane.",
+ "rviz2": "ROS 2 Jazzy rviz2 14.1.24 (RoboStack), OpenGL 4.6 on the NVIDIA GPU",
+ "gcs_log": "10/10 missions verified, 0 drones excluded, launch authorized for drones 0-9; STAGED, PREARM, ARMED, TAKEOFF, FORMATION_HOLD, RUNNING, SHOW_COMPLETE; no abort, no RTL, no emergency transition",
+ "ground_truth_check": {
+  "method": "Gazebo ground-truth model poses sampled about every 1.5 s (t2-rig-10drones/poses_groundtruth_take10e.jsonl, pose_sampler.py); hold = all drones moving < 0.6 m between samples above 9 m",
+  "flown_vs_design": "at the mid-point of each of the three holds every flown position is within 0.10 m (Diya), 0.12 m (Lotus), 0.09 m (Kandil) of a designed point, in all three axes (the engine centres the bounding box over the pad grid; depth compared after centring). Image: t2-rig-10drones/flown_vs_design_groundtruth.png",
+  "min_separation_flown_m": "2.09 m at the return swap (the planner's own figure is 2.05 m); sampled at 1.5 s, so a shorter dip between samples would not show",
+  "max_descent_rate_between_samples_m_s": 1.42
+ },
+ "gazebo_real_time_factor_read_from_gui": "below 100 % throughout. Read from the on-screen real-time-factor label of the redacted clip: 82.91 % in the frame at t=60 s; a further 30 frames sampled every 8 s (t=2 to 234 s) read 76.22 to 93.05 %, 26 of the 30 between 85 and 92 %. An earlier version of this line said 'about 86 to 92 %'; that figure had no recorded source and was removed. Likely cause of the shortfall (not measured): 10 PX4 instances + Gazebo GUI + RViz + the recorder on one laptop",
+ "host_load_1min": "6.7 at the start of the driver, 20.4 at the end",
+ "observed_behaviour_not_caused_by_this_work": "after FORMATION_HOLD the drones (each at its own layer altitude, 2 to 20 m) descend to the pads and take off again into the first formation, so there are two climbs in the clip; this is the show's start leg as the GCS flies it",
+ "legibility": "In RViz the three shapes read clearly (diya with flame and bowl, lotus fan, star). In the Gazebo pane the drones are small grey models (about 10 px) on a pale background, so the shapes are only readable if you know what to look for; the ground-truth image is the better proof of the shapes.",
+ "earlier_takes_discarded": [
+  "take10 (drone 1 never connected)",
+  "take10b (user input during the take)",
+  "take10c (clean flight but the follow-camera angle hid the shapes)",
+  "take10d (front camera too far away)"
+ ],
+ "take_validity": {
+  "window_resizes": 0,
+  "unscripted_page_changes": 0,
+  "native_window_corrections": 0
+ },
+ "not_in_clip": [
+  "hardware",
+  "landing (ends at SHOW_COMPLETE)",
+  "Studio preview",
+  "mouse pointer",
+  "audio",
+  "a Studio-authored version of the formations"
+ ],
+ "redaction": {
+  "what": "In every frame the RViz window's title bar text is covered by a solid grey box with the label 'RViz'. That text was the local path of the RViz config file and contained the recording machine's username and home directory. Nothing else in the picture was changed.",
+  "box_px": "x 735, y 403, width 600, height 27, in the 1440x900 capture",
+  "method": "ffmpeg drawbox (solid fill) and drawtext, re-encoded with libx264 crf 22 (original: crf 23 or 24); same frame size, 30 fps, duration and frame count as the original",
+  "frames": 7082,
+  "check": "in all frames, every pixel inside the box outside the label is between 31 and 45 against a fill of 42; title text is about 100 or brighter",
+  "original_sha256": "4643fbb8289a91716f3509de7ea5699e9b72b9953cd9ff1b1e286753fc25aed4",
+  "redacted_sha256": "782b5d2e06e51c4d357e955f5818ee615a160bc16dcd0dd1823bc69fbd8f742c"
+ },
+ "privacy_review_2026-11-07": {
+  "method": "1 frame per second of the original viewed on contact sheets (all of the 3 clips: 126, 151 and 236 s), full-resolution frames at several points (the 1-drone clip at the start and middle, the 3-drone clip at the start, and title-bar crops from all three clips), a 5 frames-per-second scan of the dashboard column for sudden light overlays, embedded metadata and strings of the video files, and the notes file",
+  "found": "RViz title bar with the local path and username (now covered). Nothing else: no password-manager or other browser bubble, no desktop notification, no token, no terminal, no browser address bar. The login screen shows the demo operator id 'cmdr' and a masked passphrase field; the upload panel shows the demo signing key id.",
+  "limit": "a pop-up shorter than about 0.2 s over the Gazebo or RViz panes would not have been seen; none was flagged in the dashboard column at 5 fps"
+ },
+ "referenced_files_not_included": {
+  "paths": [
+   "t2-rig/",
+   "t2-rig-10drones/"
+  ],
+  "reason": "5 of their 46 files contain the recording machine's absolute paths (a username), so they are not part of this change"
+ },
+ "status_as_of_2026-11-07": "The 'needs_local_change' field below is as of 2026-11-05. Since then Studio's `points` (image import, #90/#91) and `exact_points` (#244) shape types are on main; this clip was not rebuilt with them."
+}
