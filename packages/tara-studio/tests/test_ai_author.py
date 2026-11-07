@@ -18,12 +18,23 @@ import json
 import shutil
 import threading
 
+import urllib.request
+
 import pytest
 
 from tara_studio import ai_author
 from tara_studio.ai_author import SHAPE_TOKENS, UPLOADED_SVG_TOKEN, propose
 
-OLLAMA_AVAILABLE = shutil.which("ollama") is not None
+
+def _ollama_reachable() -> bool:
+    try:
+        with urllib.request.urlopen("http://127.0.0.1:11434/api/tags", timeout=0.2):
+            return True
+    except Exception:
+        return False
+
+
+OLLAMA_AVAILABLE = shutil.which("ollama") is not None and _ollama_reachable()
 
 pytestmark = pytest.mark.skipif(
     not OLLAMA_AVAILABLE, reason="ollama not installed in this environment"

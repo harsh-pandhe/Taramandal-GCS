@@ -9,6 +9,7 @@ correctly.
 from __future__ import annotations
 
 import shutil
+import urllib.request
 
 import pytest
 from fastapi.testclient import TestClient
@@ -19,7 +20,16 @@ from tara_studio.server import app
 
 client = TestClient(app)
 
-OLLAMA_AVAILABLE = shutil.which("ollama") is not None
+
+def _ollama_reachable() -> bool:
+    try:
+        with urllib.request.urlopen("http://127.0.0.1:11434/api/tags", timeout=0.2):
+            return True
+    except Exception:
+        return False
+
+
+OLLAMA_AVAILABLE = shutil.which("ollama") is not None and _ollama_reachable()
 
 
 def test_a_real_request_returns_200_with_a_typed_draft():
