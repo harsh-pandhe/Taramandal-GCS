@@ -14,6 +14,22 @@ A storyboard for the 8 Nov demo, built with Studio's existing engine only (no en
 
 Front-view previews of every figure are in `previews/`.
 
+## PX4-safe pacing (7 Nov): the three shows that may be flown, re-built and re-certified
+
+PR #244 capped what Studio plans to PX4's flown envelope (descent 1.2 m/s against PX4's `MPC_Z_VEL_MAX_DN` 1.5, climb 2.4 against `MPC_Z_VEL_MAX_UP` 3.0, acceleration 3.0 against `MPC_ACC_HOR` 3.0), because a plan above those limits is not flown as planned. The caps lengthen the descents, so the shows below were re-built on `origin/main` 1d2d3a4 (default Standard pacing) and re-certified through the real `/api/export` as flight exports (json and tara, HTTP 200, `preview_only: false`, 0 violations in every category). `tools/diwali_build.mjs` now also reports the peak climb and descent rate of the exported plan and fails the build if either is above PX4's default.
+
+| Show | Drones | Real length now (before the caps) | Nominal | Min separation | Peak altitude | Peak climb / descent | Max velocity / accel / jerk | .tara |
+|---|---:|---:|---:|---:|---:|---|---|---:|
+| figures-only: diya, sphere burst, diya | 35 | **207.6 s** (197.8 s) | 76 s | 2.05 m | 34.1 m | 1.6 / 1.2 m/s | 1.75 m/s / 2.45 m/s² / 17.3 m/s³ | 1.2 MB |
+| figures-only: diya, rangoli, sphere burst, diya | 100 | **324.8 s** (269.6 s) | 82 s | 2.05 m | 62.8 m | 2.4 / 1.2 m/s | 2.6 m/s / 3.0 m/s² / 17.3 m/s³ | 5.2 MB |
+| lettered: HAPPY, DIWALI, diya, rangoli, sphere burst | 100 | **416.9 s** (352.5 s) | 94 s | 2.05 m | 62.8 m | 2.3 / 1.2 m/s | 2.3 m/s / 2.45 m/s² / 17.3 m/s³ | 6.7 MB |
+
+The 35-drone show is 10 s longer, the 100-drone shows 55 s and 64 s longer. Everything else is unchanged: separation, altitude and the figures themselves.
+
+T1 `tara_sim` re-flight of all three (`results/sim_35_figures.json`, `sim_100_figures.json`, `sim_100.json`; run at `nice -n 19`, host load average about 1): no proximity or geofence breach; flown minimum separation after settling 2.048 / 2.045 / 2.041 m; tracking error after settling 0.02 / 0.03 / 0.04 m mean and 0.08 / 0.24 / 0.36 m p99; real-time factor 1.00 / 0.95 / 0.94. This is the kinematic simulator only, not SITL or Gazebo: it does not model PX4's climb, descent or acceleration limits, so it cannot show whether the plan is flown as planned. That needs a PX4 run, which has not been done for these shows.
+
+The sections below were written before the caps. Their numbers for the rebuilt shows are superseded by the table above; the 3, 35 (with ring), 35-with-lettering and 500-drone builds and their sim runs were **not** re-run and predate the caps.
+
 ## Measured results
 
 Everything below was measured, not estimated. Raw results: `results/certify_*.json` (export) and `results/sim_*.json` (sim flight).
@@ -22,11 +38,13 @@ Everything below was measured, not estimated. Raw results: `results/certify_*.js
 
 | Drones | Duration | Min separation | Peak altitude | Max jerk | .tara size |
 |---:|---:|---:|---:|---:|---:|
-| 3 | 84.2 s | 2.20 m | 14.7 m | 15.0 m/s³ | 40 KB |
-| 35 | 209.5 s | 2.05 m | 34.4 m | 17.3 m/s³ | 1.2 MB |
-| 35 + lettering | 230.8 s | 2.05 m | 34.4 m | 17.3 m/s³ | 1.3 MB |
-| 100 | 352.5 s | 2.05 m | 62.8 m | 17.3 m/s³ | 5.6 MB |
-| 500 | 216.4 s | 2.05 m | 75.2 m | 17.3 m/s³ | 17 MB |
+| 3 † | 84.2 s | 2.20 m | 14.7 m | 15.0 m/s³ | 40 KB |
+| 35 (with ring) † | 209.5 s | 2.05 m | 34.4 m | 17.3 m/s³ | 1.2 MB |
+| 35 + lettering † | 230.8 s | 2.05 m | 34.4 m | 17.3 m/s³ | 1.3 MB |
+| 100 (lettered) | 416.9 s | 2.05 m | 62.8 m | 17.3 m/s³ | 6.7 MB |
+| 500 † | 216.4 s | 2.05 m | 75.2 m | 17.3 m/s³ | 17 MB |
+
+† Built before the PX4-safe caps and not re-run; the duration of these would be longer now. The 100-drone lettered row is the current build.
 
 Minimum separation is measured on the exported JSON, independently of the validator, over every sample (and four linear sub-steps between samples up to 150 drones; samples only at 500). Durations are 1.3x to 5x the typed scene times (nominal 64 s at 3 drones, 74 s at 35, 94 s at 100, 42 s at 500); the larger the fleet, the more the velocity and jerk limits stretch each leg.
 
@@ -43,7 +61,7 @@ Once the fleet is on the plan it stays on it: separation never fell below 2.04 m
 
 ## Figures-only fallback (no spelled greeting)
 
-**Real show lengths: 198 s at 35 drones and 270 s at 100 drones, against a nominal 76 s and 82 s** (the typed hold and transition times). The flown show is 2.6x to 3.3x longer because the velocity, acceleration and jerk limits stretch every leg; plan the demo slot from the real length, not the nominal one.
+**Real show lengths: 208 s at 35 drones and 325 s at 100 drones, against a nominal 76 s and 82 s** (the typed hold and transition times; 198 s and 270 s before the PX4-safe caps). The flown show is 2.7x to 4.0x longer because the velocity, acceleration and jerk limits stretch every leg; plan the demo slot from the real length, not the nominal one.
 
 For the case where the lettering is dropped. Same engine, same fixtures, no text. At 100 drones: diya, rangoli, sphere burst, then the diya again as the finale. At 35 drones the rangoli is left out, because it reads as a scatter of points at that size, and its time goes to the diya and the sphere: diya, sphere burst, diya. The 35-drone show uses the stock `diya_flame.svg`; the 100-drone show uses `diya_festive.svg` (the stock diya is refused at 100). Previews: `previews/figures_only_35_drones.png`, `previews/figures_only_100_drones.png`.
 
@@ -51,10 +69,10 @@ Both certify through the real `/api/export` as flight exports (json and tara, HT
 
 | Drones | Duration | Min separation | Peak altitude | Max velocity / accel / jerk | .tara size |
 |---:|---:|---:|---:|---|---:|
-| 35 | 197.8 s | 2.05 m | 34.1 m | 1.75 m/s / 2.45 m/s² / 17.3 m/s³ | 1.1 MB |
-| 100 | 269.6 s | 2.05 m | 62.8 m | 2.6 m/s / 3.0 m/s² / 17.3 m/s³ | 4.3 MB |
+| 35 | 207.6 s | 2.05 m | 34.1 m | 1.75 m/s / 2.45 m/s² / 17.3 m/s³ | 1.2 MB |
+| 100 | 324.8 s | 2.05 m | 62.8 m | 2.6 m/s / 3.0 m/s² / 17.3 m/s³ | 5.2 MB |
 
-T1 `tara_sim` flight (`results/sim_*_figures.json`): no proximity breach and no geofence breach at either size; flown minimum separation after settling 2.046 m at 35 and 2.045 m at 100; tracking error after settling 0.03 m mean and 0.14 m p99 at 35, 0.08 m mean and 0.96 m p99 at 100 (max 4.4 m and 4.1 m). The launch-layer dive described below is present here too (settles in 6.7 s at 35, 15.3 s at 100). Real-time factors: 0.98 at 35 (re-run at `nice -n 19`, load average about 6 on 16 cores) and 0.88 at 100 (measured on a loaded host, load average about 25, so a lower bound); the earlier idle-host runs of the lettered shows gave 0.98 and 0.93.
+T1 `tara_sim` flight of both: see the PX4-safe pacing section above. The launch-layer dive described below is present here too (settles in 6.5 s at 35, 14.1 s at 100).
 
 What reads and what does not, from the previews: the diya, the rangoli and the sphere read clearly at 100 drones. At 35 the diya and sphere read; the rangoli (35 points on a flower) did not, which is why it is out of the 35-drone show. The heart and the ring were left out: Studio lays them out flat in plan view, so from a front audience view they are a grid of dots. They only read from above (for example the full-screen preview camera).
 
