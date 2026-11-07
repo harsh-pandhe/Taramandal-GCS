@@ -1,0 +1,207 @@
+{
+  "checks": [
+    {
+      "name": "preflight ready before the run",
+      "ok": true,
+      "detail": "{'connected': 1, 'armed': 0, 'armed_stale': 0, 'armed_stale_ids': [], 'fleet_state': 'STAGED'}"
+    },
+    {
+      "name": "baseline: PX4 accepts LAND when healthy",
+      "ok": true,
+      "detail": "ACCEPTED"
+    },
+    {
+      "name": "PX4 armed on the pad before termination",
+      "ok": true,
+      "detail": "armed=True"
+    },
+    {
+      "name": "PX4 refused LAND directly (independent client)",
+      "ok": true,
+      "detail": "ActionError: COMMAND_DENIED: 'Command Denied'; origin: land(); params: ()"
+    },
+    {
+      "name": "GCS single-drone land reports the refusal (not a 200 success)",
+      "ok": true,
+      "detail": "502 {\"detail\": {\"message\": \"Drone 0 rejected landing: COMMAND_DENIED: 'Command Denied'; origin: land(); params: ()\", \"backend\": \"px4\", \"drone_id\": 0, \"mode\": \"land\", \"commanded\": false, \"error\": \"COMMAND_DENIED: 'Command Denied'; origin: land(); params: ()\", \"clearance\": {\"clear\": true, \"threshold_m\": 2"
+    },
+    {
+      "name": "GCS single-drone land: PX4 did not go into LAND",
+      "ok": true,
+      "detail": "mode=UNKNOWN"
+    },
+    {
+      "name": "GCS fleet-wide /api/land reports the refusal (not a 200 success)",
+      "ok": false,
+      "detail": "200 {\"status\": \"success\", \"message\": \"Emergency landing commanded to active backend (px4).\", \"backend\": \"px4\", \"mode\": \"SIMULATION\"}"
+    },
+    {
+      "name": "fleet state does not claim LANDING while PX4 refused LAND",
+      "ok": true,
+      "detail": "fleet_state=DISARMED mode=UNKNOWN"
+    }
+  ],
+  "notes": {
+    "why_this_provocation": "PX4 v1.16.2 Commander.cpp NAV_LAND uses force=true (mode requirements cannot deny it); UserModeIntention.cpp: 'never allow to change out of termination state'; DO_FLIGHTTERMINATION is DENIED when disarmed",
+    "attempt: baseline: green, disarmed, on the pad": {
+      "health": {
+        "local_position_ok": true,
+        "global_position_ok": false,
+        "home_position_ok": true,
+        "armable": false
+      },
+      "mode_before": "HOLD",
+      "armed_before": false,
+      "px4_direct": "ACCEPTED",
+      "mode_after_px4_direct": "LAND",
+      "restore_1": "HOLD",
+      "gcs_single_drone": {
+        "http": 200,
+        "body": "{\"status\": \"success\", \"message\": \"Drone 0 landing commanded on active backend (px4).\", \"backend\": \"px4\", \"mode\": \"land\", \"drone_id\": 0, \"commanded\": true, \"error\": null, \"clearance\": {\"clear\": true, \"threshold_m\": 2.0, \"mode\": \"land\", \"model\": \"vertical descent from current position (0.5-1.5 m/s)\", \"horizon_s\": 0.0, \"conflicts\": []}, \"warning\": null}"
+      },
+      "mode_after_gcs_single": "LAND",
+      "fleet_state_after_single": "STAGED",
+      "restore_2": "HOLD",
+      "gcs_fleet_wide": {
+        "http": 200,
+        "body": "{\"status\": \"success\", \"message\": \"Emergency landing commanded to active backend (px4).\", \"backend\": \"px4\", \"mode\": \"SIMULATION\"}"
+      },
+      "mode_after_gcs_fleet_wide": "LAND",
+      "fleet_state_after_fleet_wide": "DISARMED",
+      "restore_3": "HOLD",
+      "denied_by_px4": false
+    },
+    "arm": "ACCEPTED",
+    "terminate_result": "ACCEPTED",
+    "state_after_terminate": {
+      "observer_mode": "UNKNOWN",
+      "observer_armed": true,
+      "health": {
+        "local_position_ok": true,
+        "global_position_ok": true,
+        "home_position_ok": true,
+        "armable": false
+      },
+      "gcs": {
+        "connected": 1,
+        "armed": 1,
+        "armed_stale": 0,
+        "armed_stale_ids": [],
+        "fleet_state": "DISARMED"
+      }
+    },
+    "attempt: after DO_FLIGHTTERMINATION while armed (nav state TERMINATION)": {
+      "health": {
+        "local_position_ok": true,
+        "global_position_ok": true,
+        "home_position_ok": true,
+        "armable": false
+      },
+      "mode_before": "UNKNOWN",
+      "armed_before": true,
+      "px4_direct": "ActionError: COMMAND_DENIED: 'Command Denied'; origin: land(); params: ()",
+      "mode_after_px4_direct": "UNKNOWN",
+      "restore_1": "UNKNOWN",
+      "gcs_single_drone": {
+        "http": 502,
+        "body": "{\"detail\": {\"message\": \"Drone 0 rejected landing: COMMAND_DENIED: 'Command Denied'; origin: land(); params: ()\", \"backend\": \"px4\", \"drone_id\": 0, \"mode\": \"land\", \"commanded\": false, \"error\": \"COMMAND_DENIED: 'Command Denied'; origin: land(); params: ()\", \"clearance\": {\"clear\": true, \"threshold_m\": 2.0, \"mode\": \"land\", \"model\": \"vertical descent from current position (0.5-1.5 m/s)\", \"horizon_s\": 0.0, \"conflicts\": []}, \"warning\": null}}"
+      },
+      "mode_after_gcs_single": "UNKNOWN",
+      "fleet_state_after_single": "DISARMED",
+      "restore_2": "UNKNOWN",
+      "gcs_fleet_wide": {
+        "http": 200,
+        "body": "{\"status\": \"success\", \"message\": \"Emergency landing commanded to active backend (px4).\", \"backend\": \"px4\", \"mode\": \"SIMULATION\"}"
+      },
+      "mode_after_gcs_fleet_wide": "UNKNOWN",
+      "fleet_state_after_fleet_wide": "DISARMED",
+      "restore_3": "UNKNOWN",
+      "denied_by_px4": true
+    }
+  },
+  "case": "denied_land_termination",
+  "exception": null,
+  "verdict": "FAIL",
+  "observer_events": [
+    [
+      0.84,
+      "connected",
+      true
+    ],
+    [
+      1.33,
+      "armed",
+      false
+    ],
+    [
+      1.33,
+      "mode",
+      "HOLD"
+    ],
+    [
+      1.33,
+      "landed_state",
+      "ON_GROUND"
+    ],
+    [
+      2.33,
+      "mode",
+      "LAND"
+    ],
+    [
+      3.33,
+      "mode",
+      "HOLD"
+    ],
+    [
+      4.33,
+      "mode",
+      "LAND"
+    ],
+    [
+      5.33,
+      "mode",
+      "HOLD"
+    ],
+    [
+      6.33,
+      "mode",
+      "LAND"
+    ],
+    [
+      7.33,
+      "mode",
+      "HOLD"
+    ],
+    [
+      8.33,
+      "armed",
+      true
+    ],
+    [
+      9.33,
+      "mode",
+      "UNKNOWN"
+    ],
+    [
+      18.41,
+      "timeout",
+      "back to HOLD"
+    ],
+    [
+      19.33,
+      "armed",
+      false
+    ],
+    [
+      24.52,
+      "timeout",
+      "back to HOLD"
+    ],
+    [
+      31.11,
+      "timeout",
+      "back to HOLD"
+    ]
+  ]
+}

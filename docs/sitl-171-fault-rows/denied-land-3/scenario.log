@@ -1,0 +1,32 @@
+[   0.93s] OBS connected: True
+[   1.11s] CHECK PASS preflight ready before the run | {'connected': 1, 'armed': 0, 'armed_stale': 0, 'armed_stale_ids': [], 'fleet_state': 'STAGED'}
+[   1.11s] NOTE why_this_provocation = "PX4 v1.16.2 Commander.cpp NAV_LAND uses force=true (mode requirements cannot deny it); UserModeIntention.cpp: 'never allow to change out of termination state'; DO_FLIGHTTERMINATION is DENIED when disarmed"
+[   1.11s] NOTE fleet_state_before_arm = "STAGED"
+[   1.13s] NOTE arm = "ACCEPTED"
+[   1.27s] OBS armed: True
+[   1.27s] OBS mode: HOLD
+[   1.27s] OBS landed_state: ON_GROUND
+[   1.44s] CHECK PASS PX4 armed on the pad before termination | armed=True
+[   1.46s] NOTE terminate_result = "ACCEPTED"
+[   2.27s] OBS mode: UNKNOWN
+[   4.35s] NOTE state_after_terminate = {"observer_mode": "UNKNOWN", "observer_armed": true, "health": {"local_position_ok": true, "global_position_ok": true, "home_position_ok": true, "armable": false}, "gcs": {"connected": 1, "armed": 1, "armed_stale": 0, "armed_stale_ids": [], "fleet_state": "STAGED"}}
+Received ack for not-existing command: 176! Ignoring... (mavlink_command_sender.cpp:304)
+[  11.35s] OBS timeout: back to HOLD
+Received ack for not-existing command: 176! Ignoring... (mavlink_command_sender.cpp:304)
+Received ack for not-existing command: 176! Ignoring... (mavlink_command_sender.cpp:304)
+Received ack for not-existing command: 21! Ignoring... (mavlink_command_sender.cpp:304)
+[  12.26s] OBS armed: False
+Received ack for not-existing command: 176! Ignoring... (mavlink_command_sender.cpp:304)
+[  17.44s] OBS timeout: back to HOLD
+Received ack for not-existing command: 176! Ignoring... (mavlink_command_sender.cpp:304)
+Received ack for not-existing command: 176! Ignoring... (mavlink_command_sender.cpp:304)
+Received ack for not-existing command: 21! Ignoring... (mavlink_command_sender.cpp:304)
+Received ack for not-existing command: 176! Ignoring... (mavlink_command_sender.cpp:304)
+[  24.06s] OBS timeout: back to HOLD
+[  24.15s] NOTE attempt: after DO_FLIGHTTERMINATION while armed (nav state TERMINATION) = {"health": {"local_position_ok": true, "global_position_ok": true, "home_position_ok": true, "armable": false}, "mode_before": "UNKNOWN", "armed_before": true, "px4_direct": "ActionError: COMMAND_DENIED: 'Command Denied'; origin: land(); params: ()", "mode_after_px4_direct": "UNKNOWN", "restore_1": 
+[  24.15s] CHECK PASS PX4 refused LAND directly (independent client) | ActionError: COMMAND_DENIED: 'Command Denied'; origin: land(); params: ()
+[  24.15s] CHECK PASS GCS single-drone land reports the refusal (not a 200 success) | 502 {"detail": {"message": "Drone 0 rejected landing: COMMAND_DENIED: 'Command Denied'; origin: land(); params: ()", "backend": "px4", "drone_id": 0, "mode": "land", "commanded": false, "error": "COMMAND_DENIED: 'Command Denied'; origin: land(); params: ()", "clearance": {"clear": true, "threshold_m": 2
+[  24.15s] CHECK PASS GCS single-drone land: PX4 did not go into LAND | mode=UNKNOWN
+[  24.15s] CHECK FAIL GCS fleet-wide /api/land reports the refusal (not a 200 success) | 200 {"status": "success", "message": "Emergency landing commanded to active backend (px4).", "backend": "px4", "mode": "SIMULATION"}
+[  24.15s] CHECK PASS fleet state does not claim LANDING while PX4 refused LAND | fleet_state=DISARMED mode=UNKNOWN
+[  24.15s] VERDICT FAIL

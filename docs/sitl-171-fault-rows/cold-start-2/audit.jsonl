@@ -1,0 +1,2 @@
+{"backend": "px4", "event": "latch_requested", "fidelity": "px4-sitl", "operator": "cmdr", "profile": "SIMULATION", "reason": "", "rules": [], "ts": 1794070009.0766892}
+{"backend": "px4", "event": "launch_rejected", "fidelity": "px4-sitl", "operator": "cmdr", "profile": "SIMULATION", "reasons": ["No drone passes every blocking pre-arm gate."], "ts": 1794070009.0843034}

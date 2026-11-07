@@ -1,0 +1,245 @@
+{
+  "run_id": "cold-start-1",
+  "case": "cold_start",
+  "verdict": "FAIL",
+  "context": {
+    "run_id": "cold-start-1",
+    "case": "cold_start",
+    "stack": "tara up --backend px4 -n 1 (headless)",
+    "allow_unsigned": false,
+    "commit": "1d2d3a4936d63990094aa666beff75a94985328e",
+    "started_utc": "2026-11-07T16:40:46Z",
+    "host_load_before": "1.21 1.24 1.23",
+    "host_load_at_start": "1.21 1.24 1.23",
+    "host_load_at_end": "1.11 1.62 1.42",
+    "other_running_containers": [],
+    "fresh_container": true,
+    "microsd_dirs_before_stack": 0,
+    "px4_version": "v1.16.2",
+    "image_id": "sha256:424c464813742ee541ad2a554ee4bfa5e709beeeaebfb1dbfe9384459d92d3cb",
+    "docker_server": "29.8.0 on linux/amd64",
+    "host_cpus": "16",
+    "host_kernel": "7.0.0-38-generic",
+    "headless": true,
+    "gazebo_window": false,
+    "rviz": false,
+    "recording": false,
+    "px4_ulogs_saved": 1,
+    "scenario_exit_code": 0
+  },
+  "checks": [
+    {
+      "name": "preflight was NOT green when the commands were sent",
+      "ok": true,
+      "detail": "first_not_ready={'t': 14.53, 'http': 200, 'ready': False, 'blocking': ['No drone passes every blocking pre-arm gate.'], 'launch_permitted': False}"
+    },
+    {
+      "name": "hover-sequence before green is refused, with a reason",
+      "ok": true,
+      "detail": "{\"http\": 412, \"body\": \"{\\\"detail\\\": {\\\"message\\\": \\\"Single-drone sequence refused: pre-arm gates are red.\\\", \\\"profile\\\": \\\"SIMULATION\\\", \\\"blocking_reasons\\\": [\\\"Battery state of charge \\\\u2014 0.0% (floor 50%)\\\", \\\"EKF health & home lock \\\\u2014 Not armable,"
+    },
+    {
+      "name": "launch before green is refused, with a reason",
+      "ok": true,
+      "detail": "{\"http\": 412, \"body\": \"{\\\"detail\\\": {\\\"message\\\": \\\"Launch refused: pre-arm gates are red.\\\", \\\"profile\\\": \\\"SIMULATION\\\", \\\"blocking_reasons\\\": [\\\"No drone passes every blocking pre-arm gate.\\\"]}}\"}"
+    },
+    {
+      "name": "fleet stayed out of PREARM/ARMED/TAKEOFF after the launch attempt",
+      "ok": true,
+      "detail": "fleet_state=STAGED"
+    },
+    {
+      "name": "single-drone land at cold start gets a definite answer",
+      "ok": true,
+      "detail": "{\"http\": 200, \"body\": \"{\\\"status\\\": \\\"success\\\", \\\"message\\\": \\\"Drone 0 landing commanded on active backend (px4).\\\", \\\"backend\\\": \\\"px4\\\", \\\"mode\\\": \\\"land\\\", \\\"drone_id\\\": 0, \\\"commanded\\\": true, \\\"error\\\": null, \\\"clearance\\\": {\\\"clear\\\": true, \\\"threshold_"
+    },
+    {
+      "name": "PX4 itself refused arm before preflight was green (or the observer could not reach it yet)",
+      "ok": true,
+      "detail": "not attempted: observer not yet connected to PX4; armed_after=None"
+    },
+    {
+      "name": "preflight turned green later",
+      "ok": false,
+      "detail": "t_first_green_s=None"
+    }
+  ],
+  "notes": {
+    "t_gcs_api_login_s": 13.6,
+    "t_drone_connected_to_gcs_s": 14.5,
+    "first_not_ready_observation": {
+      "t": 14.53,
+      "http": 200,
+      "ready": false,
+      "blocking": [
+        "No drone passes every blocking pre-arm gate."
+      ],
+      "launch_permitted": false
+    },
+    "cold_start_attempts": {
+      "observer_connected": false,
+      "armed_before": null,
+      "hover_sequence": {
+        "http": 412,
+        "body": "{\"detail\": {\"message\": \"Single-drone sequence refused: pre-arm gates are red.\", \"profile\": \"SIMULATION\", \"blocking_reasons\": [\"Battery state of charge \\u2014 0.0% (floor 50%)\", \"EKF health & home lock \\u2014 Not armable, no home lock\"]}}"
+      },
+      "latch_request": {
+        "http": 200,
+        "body": "{\"token\": \"tWILro_xlYSwsjttGXbx2A\", \"expires_in_s\": 30.0, \"rules\": []}"
+      },
+      "launch": {
+        "http": 412,
+        "body": "{\"detail\": {\"message\": \"Launch refused: pre-arm gates are red.\", \"profile\": \"SIMULATION\", \"blocking_reasons\": [\"No drone passes every blocking pre-arm gate.\"]}}"
+      },
+      "fleet_state_after_launch_attempt": "STAGED",
+      "gcs_single_drone_land_cold": {
+        "http": 200,
+        "body": "{\"status\": \"success\", \"message\": \"Drone 0 landing commanded on active backend (px4).\", \"backend\": \"px4\", \"mode\": \"land\", \"drone_id\": 0, \"commanded\": true, \"error\": null, \"clearance\": {\"clear\": true, \"threshold_m\": 2.0, \"mode\": \"land\", \"model\": \"vertical descent from current position (0.5-1.5 m/s)\", \"horizon_s\": 0.0, \"conflicts\": []}, \"warning\": null}"
+      },
+      "px4_direct_arm": "not attempted: observer not yet connected to PX4",
+      "preflight_ready_right_after_the_attempts": false,
+      "status_after": {
+        "connected": 1,
+        "armed": 0,
+        "armed_stale": 0,
+        "armed_stale_ids": [],
+        "fleet_state": "STAGED"
+      }
+    },
+    "preflight_timeline_tail": [
+      {
+        "t": 237.01,
+        "http": 200,
+        "ready": false,
+        "blocking": [
+          "No drone passes every blocking pre-arm gate."
+        ],
+        "launch_permitted": false
+      },
+      {
+        "t": 237.27,
+        "http": 200,
+        "ready": false,
+        "blocking": [
+          "No drone passes every blocking pre-arm gate."
+        ],
+        "launch_permitted": false
+      },
+      {
+        "t": 237.52,
+        "http": 200,
+        "ready": false,
+        "blocking": [
+          "No drone passes every blocking pre-arm gate."
+        ],
+        "launch_permitted": false
+      },
+      {
+        "t": 237.77,
+        "http": 200,
+        "ready": false,
+        "blocking": [
+          "No drone passes every blocking pre-arm gate."
+        ],
+        "launch_permitted": false
+      },
+      {
+        "t": 238.02,
+        "http": 200,
+        "ready": false,
+        "blocking": [
+          "No drone passes every blocking pre-arm gate."
+        ],
+        "launch_permitted": false
+      },
+      {
+        "t": 238.28,
+        "http": 200,
+        "ready": false,
+        "blocking": [
+          "No drone passes every blocking pre-arm gate."
+        ],
+        "launch_permitted": false
+      },
+      {
+        "t": 238.53,
+        "http": 200,
+        "ready": false,
+        "blocking": [
+          "No drone passes every blocking pre-arm gate."
+        ],
+        "launch_permitted": false
+      },
+      {
+        "t": 238.78,
+        "http": 200,
+        "ready": false,
+        "blocking": [
+          "No drone passes every blocking pre-arm gate."
+        ],
+        "launch_permitted": false
+      },
+      {
+        "t": 239.03,
+        "http": 200,
+        "ready": false,
+        "blocking": [
+          "No drone passes every blocking pre-arm gate."
+        ],
+        "launch_permitted": false
+      },
+      {
+        "t": 239.28,
+        "http": 200,
+        "ready": false,
+        "blocking": [
+          "No drone passes every blocking pre-arm gate."
+        ],
+        "launch_permitted": false
+      },
+      {
+        "t": 239.54,
+        "http": 200,
+        "ready": false,
+        "blocking": [
+          "No drone passes every blocking pre-arm gate."
+        ],
+        "launch_permitted": false
+      },
+      {
+        "t": 239.79,
+        "http": 200,
+        "ready": false,
+        "blocking": [
+          "No drone passes every blocking pre-arm gate."
+        ],
+        "launch_permitted": false
+      }
+    ],
+    "preflight_samples": 893,
+    "t_first_green_s": null
+  },
+  "exception": null,
+  "cadence": {
+    "landed_state": {
+      "items": 228,
+      "span_s": 227.0,
+      "mean_hz": 1.0,
+      "median_interval_s": 1.0,
+      "p99_interval_s": 1.0004,
+      "max_gap_s": 1.004,
+      "gaps_over_2_5s": 0,
+      "longest_run_of_identical_values": 228
+    },
+    "position_velocity_ned": {
+      "items": 6818,
+      "span_s": 227.2,
+      "mean_hz": 30.01,
+      "median_interval_s": 0.0321,
+      "p99_interval_s": 0.0362,
+      "max_gap_s": 0.039,
+      "gaps_over_2_5s": 0
+    }
+  },
+  "observer_events": []
+}

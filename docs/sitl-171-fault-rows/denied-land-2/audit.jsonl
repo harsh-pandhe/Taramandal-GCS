@@ -1,0 +1,4 @@
+{"backend": "px4", "fidelity": "px4-sitl", "seq": 1, "ts": 1794069540.3999054, "time": "2026-11-07T16:39:00.399+00:00", "accepted": true, "from": "STAGED", "to": "LANDING", "operator": "cmdr", "trigger": "POST /api/land"}
+{"backend": "px4", "fidelity": "px4-sitl", "seq": 2, "ts": 1794069540.4724648, "time": "2026-11-07T16:39:00.472+00:00", "accepted": true, "from": "LANDING", "to": "DISARMED", "operator": "system", "trigger": "telemetry:all_disarmed"}
+{"backend": "px4", "fidelity": "px4-sitl", "seq": 3, "ts": 1794069559.574825, "time": "2026-11-07T16:39:19.574+00:00", "accepted": true, "from": "DISARMED", "to": "LANDING", "operator": "cmdr", "trigger": "POST /api/land"}
+{"backend": "px4", "fidelity": "px4-sitl", "seq": 4, "ts": 1794069559.7543232, "time": "2026-11-07T16:39:19.754+00:00", "accepted": true, "from": "LANDING", "to": "DISARMED", "operator": "system", "trigger": "telemetry:all_disarmed"}

@@ -1,0 +1,98 @@
+[   0.83s] OBS connected: True
+[   1.04s] CHECK PASS preflight ready before the run | {'connected': 1, 'armed': 0, 'armed_stale': 0, 'armed_stale_ids': [], 'fleet_state': 'STAGED'}
+[   1.04s] NOTE ladder_order = ["C1 green+disarmed+ground", "C2 armed on the ground", "C3 baro+gps failure injected", "C4 estimator stopped (px4-ekf2 stop)", "C5 flight termination (kill)"]
+[   1.42s] OBS armed: False
+[   1.42s] OBS mode: HOLD
+[   1.42s] OBS landed_state: ON_GROUND
+[   2.42s] OBS mode: LAND
+Received ack for not-existing command: 176! Ignoring... (mavlink_command_sender.cpp:304)
+[   3.42s] OBS mode: HOLD
+Received ack for not-existing command: 176! Ignoring... (mavlink_command_sender.cpp:304)
+Received ack for not-existing command: 176! Ignoring... (mavlink_command_sender.cpp:304)
+Received ack for not-existing command: 21! Ignoring... (mavlink_command_sender.cpp:304)
+[   4.42s] OBS mode: LAND
+Received ack for not-existing command: 176! Ignoring... (mavlink_command_sender.cpp:304)
+[   5.42s] OBS mode: HOLD
+Received ack for not-existing command: 176! Ignoring... (mavlink_command_sender.cpp:304)
+Received ack for not-existing command: 176! Ignoring... (mavlink_command_sender.cpp:304)
+Received ack for not-existing command: 21! Ignoring... (mavlink_command_sender.cpp:304)
+[   6.42s] OBS mode: LAND
+Received ack for not-existing command: 176! Ignoring... (mavlink_command_sender.cpp:304)
+[   7.42s] OBS mode: HOLD
+[   7.58s] NOTE attempt: C1 green, disarmed, on the ground = {"health": {"local_position_ok": true, "global_position_ok": false, "home_position_ok": true, "armable": false}, "mode_before": "HOLD", "armed_before": false, "px4_direct": "ACCEPTED", "mode_after_px4_direct": "LAND", "restore_1": "HOLD", "gcs_single_drone": {"http": 200, "body": "{\"status\": \"suc
+[   7.61s] NOTE C2_arm_result = "ACCEPTED"
+[   8.42s] OBS armed: True
+[  10.42s] OBS mode: LAND
+Received ack for not-existing command: 176! Ignoring... (mavlink_command_sender.cpp:304)
+[  11.42s] OBS mode: HOLD
+Received ack for not-existing command: 176! Ignoring... (mavlink_command_sender.cpp:304)
+Received ack for not-existing command: 176! Ignoring... (mavlink_command_sender.cpp:304)
+Received ack for not-existing command: 21! Ignoring... (mavlink_command_sender.cpp:304)
+[  12.42s] OBS mode: LAND
+Received ack for not-existing command: 176! Ignoring... (mavlink_command_sender.cpp:304)
+[  13.42s] OBS mode: HOLD
+Received ack for not-existing command: 176! Ignoring... (mavlink_command_sender.cpp:304)
+Received ack for not-existing command: 176! Ignoring... (mavlink_command_sender.cpp:304)
+Received ack for not-existing command: 21! Ignoring... (mavlink_command_sender.cpp:304)
+[  14.42s] OBS mode: LAND
+Received ack for not-existing command: 176! Ignoring... (mavlink_command_sender.cpp:304)
+[  15.42s] OBS mode: HOLD
+[  15.59s] NOTE attempt: C2 armed on the ground = {"health": {"local_position_ok": true, "global_position_ok": true, "home_position_ok": true, "armable": true}, "mode_before": "HOLD", "armed_before": true, "px4_direct": "ACCEPTED", "mode_after_px4_direct": "LAND", "restore_1": "HOLD", "gcs_single_drone": {"http": 200, "body": "{\"status\": \"succes
+[  16.42s] OBS armed: False
+[  16.54s] NOTE C3_param = "ACCEPTED"
+[  20.57s] NOTE C3_inject_results = {"SENSOR_BARO": "FailureError: TIMEOUT: 'Timeout'; origin: inject(); params: (<FailureUnit.SENSOR_BARO: 3>, <FailureType.OFF: 1>, 0)", "SENSOR_GPS": "FailureError: TIMEOUT: 'Timeout'; origin: inject(); params: (<FailureUnit.SENSOR_GPS: 4>, <FailureType.OFF: 1>, 0)"}
+[  33.54s] NOTE C3_health_after_injection = {"local_position_ok": true, "global_position_ok": true, "home_position_ok": true, "armable": true}
+[  35.43s] OBS mode: LAND
+Received ack for not-existing command: 176! Ignoring... (mavlink_command_sender.cpp:304)
+[  36.43s] OBS mode: HOLD
+Received ack for not-existing command: 176! Ignoring... (mavlink_command_sender.cpp:304)
+Received ack for not-existing command: 176! Ignoring... (mavlink_command_sender.cpp:304)
+Received ack for not-existing command: 21! Ignoring... (mavlink_command_sender.cpp:304)
+[  37.43s] OBS mode: LAND
+Received ack for not-existing command: 176! Ignoring... (mavlink_command_sender.cpp:304)
+[  38.43s] OBS mode: HOLD
+Received ack for not-existing command: 176! Ignoring... (mavlink_command_sender.cpp:304)
+Received ack for not-existing command: 176! Ignoring... (mavlink_command_sender.cpp:304)
+Received ack for not-existing command: 21! Ignoring... (mavlink_command_sender.cpp:304)
+[  39.43s] OBS mode: LAND
+Received ack for not-existing command: 176! Ignoring... (mavlink_command_sender.cpp:304)
+[  40.43s] OBS mode: HOLD
+[  40.61s] NOTE attempt: C3 baro + GPS failure injected = {"health": {"local_position_ok": true, "global_position_ok": true, "home_position_ok": true, "armable": true}, "mode_before": "HOLD", "armed_before": false, "px4_direct": "ACCEPTED", "mode_after_px4_direct": "LAND", "restore_1": "HOLD", "gcs_single_drone": {"http": 200, "body": "{\"status\": \"succe
+[  40.64s] NOTE C4_ekf2_stop = {"cmd": "ekf2 stop", "rc": 0, "out": "INFO  [ekf2] stopping ekf2 instance 0"}
+[  48.43s] OBS mode: LAND
+Received ack for not-existing command: 176! Ignoring... (mavlink_command_sender.cpp:304)
+[  49.43s] OBS mode: HOLD
+Received ack for not-existing command: 176! Ignoring... (mavlink_command_sender.cpp:304)
+Received ack for not-existing command: 176! Ignoring... (mavlink_command_sender.cpp:304)
+Received ack for not-existing command: 21! Ignoring... (mavlink_command_sender.cpp:304)
+[  50.43s] OBS mode: LAND
+Received ack for not-existing command: 176! Ignoring... (mavlink_command_sender.cpp:304)
+[  51.43s] OBS mode: HOLD
+Received ack for not-existing command: 176! Ignoring... (mavlink_command_sender.cpp:304)
+Received ack for not-existing command: 176! Ignoring... (mavlink_command_sender.cpp:304)
+Received ack for not-existing command: 21! Ignoring... (mavlink_command_sender.cpp:304)
+[  52.43s] OBS mode: LAND
+Received ack for not-existing command: 176! Ignoring... (mavlink_command_sender.cpp:304)
+[  53.43s] OBS mode: HOLD
+[  53.60s] NOTE attempt: C4 estimator stopped = {"health": {"local_position_ok": false, "global_position_ok": false, "home_position_ok": true, "armable": false}, "mode_before": "HOLD", "armed_before": false, "px4_direct": "ACCEPTED", "mode_after_px4_direct": "LAND", "restore_1": "HOLD", "gcs_single_drone": {"http": 200, "body": "{\"status\": \"su
+[  53.61s] NOTE C5_arm_result = "ActionError: COMMAND_DENIED: 'Command Denied'; origin: arm(); params: ()"
+[  54.63s] NOTE C5_kill = "ACCEPTED"
+[  58.43s] OBS mode: LAND
+Received ack for not-existing command: 176! Ignoring... (mavlink_command_sender.cpp:304)
+[  59.44s] OBS mode: HOLD
+Received ack for not-existing command: 176! Ignoring... (mavlink_command_sender.cpp:304)
+Received ack for not-existing command: 176! Ignoring... (mavlink_command_sender.cpp:304)
+Received ack for not-existing command: 21! Ignoring... (mavlink_command_sender.cpp:304)
+[  60.44s] OBS mode: LAND
+Received ack for not-existing command: 176! Ignoring... (mavlink_command_sender.cpp:304)
+[  61.44s] OBS mode: HOLD
+Received ack for not-existing command: 176! Ignoring... (mavlink_command_sender.cpp:304)
+Received ack for not-existing command: 176! Ignoring... (mavlink_command_sender.cpp:304)
+Received ack for not-existing command: 21! Ignoring... (mavlink_command_sender.cpp:304)
+[  62.44s] OBS mode: LAND
+Received ack for not-existing command: 176! Ignoring... (mavlink_command_sender.cpp:304)
+[  63.44s] OBS mode: HOLD
+[  63.59s] NOTE attempt: C5 after flight termination (kill) = {"health": {"local_position_ok": false, "global_position_ok": false, "home_position_ok": true, "armable": false}, "mode_before": "HOLD", "armed_before": false, "px4_direct": "ACCEPTED", "mode_after_px4_direct": "LAND", "restore_1": "HOLD", "gcs_single_drone": {"http": 200, "body": "{\"status\": \"su
+[  63.59s] NOTE tried = ["C1 green, disarmed, on the ground", "C2 armed on the ground", "C3 baro + GPS failure injected", "C4 estimator stopped", "C5 after flight termination (kill)"]
+[  63.59s] CHECK FAIL PX4 refused LAND under at least one condition | PX4 accepted LAND in every condition tried: C1 green, disarmed, on the ground; C2 armed on the ground; C3 baro + GPS failure injected; C4 estimator stopped; C5 after flight termination (kill)
+[  63.59s] VERDICT NOT PROVOKED

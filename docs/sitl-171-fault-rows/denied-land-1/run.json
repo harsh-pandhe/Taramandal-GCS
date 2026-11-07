@@ -1,0 +1,421 @@
+{
+  "run_id": "denied-land-1",
+  "case": "denied_land",
+  "verdict": "NOT PROVOKED",
+  "context": {
+    "run_id": "denied-land-1",
+    "case": "denied_land",
+    "stack": "tara up --backend px4 -n 1 (headless)",
+    "allow_unsigned": false,
+    "commit": "1d2d3a4936d63990094aa666beff75a94985328e",
+    "started_utc": "2026-11-07T16:35:28Z",
+    "host_load_before": "1.18 1.27 1.24",
+    "host_load_at_start": "1.09 1.24 1.23",
+    "host_load_at_end": "1.39 1.34 1.27",
+    "other_running_containers": [],
+    "fresh_container": true,
+    "microsd_dirs_before_stack": 0,
+    "px4_version": "v1.16.2",
+    "image_id": "sha256:424c464813742ee541ad2a554ee4bfa5e709beeeaebfb1dbfe9384459d92d3cb",
+    "docker_server": "29.8.0 on linux/amd64",
+    "host_cpus": "16",
+    "host_kernel": "7.0.0-38-generic",
+    "headless": true,
+    "gazebo_window": false,
+    "rviz": false,
+    "recording": false,
+    "px4_ulogs_saved": 1,
+    "scenario_exit_code": 0
+  },
+  "checks": [
+    {
+      "name": "preflight ready before the run",
+      "ok": true,
+      "detail": "{'connected': 1, 'armed': 0, 'armed_stale': 0, 'armed_stale_ids': [], 'fleet_state': 'STAGED'}"
+    },
+    {
+      "name": "PX4 refused LAND under at least one condition",
+      "ok": false,
+      "detail": "PX4 accepted LAND in every condition tried: C1 green, disarmed, on the ground; C2 armed on the ground; C3 baro + GPS failure injected; C4 estimator stopped; C5 after flight termination (kill)"
+    }
+  ],
+  "notes": {
+    "ladder_order": [
+      "C1 green+disarmed+ground",
+      "C2 armed on the ground",
+      "C3 baro+gps failure injected",
+      "C4 estimator stopped (px4-ekf2 stop)",
+      "C5 flight termination (kill)"
+    ],
+    "attempt: C1 green, disarmed, on the ground": {
+      "health": {
+        "local_position_ok": true,
+        "global_position_ok": false,
+        "home_position_ok": true,
+        "armable": false
+      },
+      "mode_before": "HOLD",
+      "armed_before": false,
+      "px4_direct": "ACCEPTED",
+      "mode_after_px4_direct": "LAND",
+      "restore_1": "HOLD",
+      "gcs_single_drone": {
+        "http": 200,
+        "body": "{\"status\": \"success\", \"message\": \"Drone 0 landing commanded on active backend (px4).\", \"backend\": \"px4\", \"mode\": \"land\", \"drone_id\": 0, \"commanded\": true, \"error\": null, \"clearance\": {\"clear\": true, \"threshold_m\": 2.0, \"mode\": \"land\", \"model\": \"vertical descent from current position (0.5-1.5 m/s)\", \"horizon_s\": 0.0, \"conflicts\": []}, \"warning\": null}"
+      },
+      "mode_after_gcs_single": "LAND",
+      "fleet_state_after_single": "STAGED",
+      "restore_2": "HOLD",
+      "gcs_fleet_wide": {
+        "http": 200,
+        "body": "{\"status\": \"success\", \"message\": \"Emergency landing commanded to active backend (px4).\", \"backend\": \"px4\", \"mode\": \"SIMULATION\"}"
+      },
+      "mode_after_gcs_fleet_wide": "LAND",
+      "fleet_state_after_fleet_wide": "DISARMED",
+      "restore_3": "HOLD",
+      "denied_by_px4": false
+    },
+    "C2_arm_result": "ACCEPTED",
+    "attempt: C2 armed on the ground": {
+      "health": {
+        "local_position_ok": true,
+        "global_position_ok": true,
+        "home_position_ok": true,
+        "armable": true
+      },
+      "mode_before": "HOLD",
+      "armed_before": true,
+      "px4_direct": "ACCEPTED",
+      "mode_after_px4_direct": "LAND",
+      "restore_1": "HOLD",
+      "gcs_single_drone": {
+        "http": 200,
+        "body": "{\"status\": \"success\", \"message\": \"Drone 0 landing commanded on active backend (px4).\", \"backend\": \"px4\", \"mode\": \"land\", \"drone_id\": 0, \"commanded\": true, \"error\": null, \"clearance\": {\"clear\": true, \"threshold_m\": 2.0, \"mode\": \"land\", \"model\": \"vertical descent from current position (0.5-1.5 m/s)\", \"horizon_s\": 0.0, \"conflicts\": []}, \"warning\": null}"
+      },
+      "mode_after_gcs_single": "LAND",
+      "fleet_state_after_single": "DISARMED",
+      "restore_2": "HOLD",
+      "gcs_fleet_wide": {
+        "http": 200,
+        "body": "{\"status\": \"success\", \"message\": \"Emergency landing commanded to active backend (px4).\", \"backend\": \"px4\", \"mode\": \"SIMULATION\"}"
+      },
+      "mode_after_gcs_fleet_wide": "LAND",
+      "fleet_state_after_fleet_wide": "LANDING",
+      "restore_3": "HOLD",
+      "denied_by_px4": false
+    },
+    "C3_param": "ACCEPTED",
+    "C3_inject_results": {
+      "SENSOR_BARO": "FailureError: TIMEOUT: 'Timeout'; origin: inject(); params: (<FailureUnit.SENSOR_BARO: 3>, <FailureType.OFF: 1>, 0)",
+      "SENSOR_GPS": "FailureError: TIMEOUT: 'Timeout'; origin: inject(); params: (<FailureUnit.SENSOR_GPS: 4>, <FailureType.OFF: 1>, 0)"
+    },
+    "C3_health_after_injection": {
+      "local_position_ok": true,
+      "global_position_ok": true,
+      "home_position_ok": true,
+      "armable": true
+    },
+    "attempt: C3 baro + GPS failure injected": {
+      "health": {
+        "local_position_ok": true,
+        "global_position_ok": true,
+        "home_position_ok": true,
+        "armable": true
+      },
+      "mode_before": "HOLD",
+      "armed_before": false,
+      "px4_direct": "ACCEPTED",
+      "mode_after_px4_direct": "LAND",
+      "restore_1": "HOLD",
+      "gcs_single_drone": {
+        "http": 200,
+        "body": "{\"status\": \"success\", \"message\": \"Drone 0 landing commanded on active backend (px4).\", \"backend\": \"px4\", \"mode\": \"land\", \"drone_id\": 0, \"commanded\": true, \"error\": null, \"clearance\": {\"clear\": true, \"threshold_m\": 2.0, \"mode\": \"land\", \"model\": \"vertical descent from current position (0.5-1.5 m/s)\", \"horizon_s\": 0.0, \"conflicts\": []}, \"warning\": null}"
+      },
+      "mode_after_gcs_single": "LAND",
+      "fleet_state_after_single": "DISARMED",
+      "restore_2": "HOLD",
+      "gcs_fleet_wide": {
+        "http": 200,
+        "body": "{\"status\": \"success\", \"message\": \"Emergency landing commanded to active backend (px4).\", \"backend\": \"px4\", \"mode\": \"SIMULATION\"}"
+      },
+      "mode_after_gcs_fleet_wide": "LAND",
+      "fleet_state_after_fleet_wide": "DISARMED",
+      "restore_3": "HOLD",
+      "denied_by_px4": false
+    },
+    "C4_ekf2_stop": {
+      "cmd": "ekf2 stop",
+      "rc": 0,
+      "out": "INFO  [ekf2] stopping ekf2 instance 0"
+    },
+    "attempt: C4 estimator stopped": {
+      "health": {
+        "local_position_ok": false,
+        "global_position_ok": false,
+        "home_position_ok": true,
+        "armable": false
+      },
+      "mode_before": "HOLD",
+      "armed_before": false,
+      "px4_direct": "ACCEPTED",
+      "mode_after_px4_direct": "LAND",
+      "restore_1": "HOLD",
+      "gcs_single_drone": {
+        "http": 200,
+        "body": "{\"status\": \"success\", \"message\": \"Drone 0 landing commanded on active backend (px4).\", \"backend\": \"px4\", \"mode\": \"land\", \"drone_id\": 0, \"commanded\": true, \"error\": null, \"clearance\": {\"clear\": true, \"threshold_m\": 2.0, \"mode\": \"land\", \"model\": \"vertical descent from current position (0.5-1.5 m/s)\", \"horizon_s\": 0.0, \"conflicts\": []}, \"warning\": null}"
+      },
+      "mode_after_gcs_single": "LAND",
+      "fleet_state_after_single": "DISARMED",
+      "restore_2": "HOLD",
+      "gcs_fleet_wide": {
+        "http": 200,
+        "body": "{\"status\": \"success\", \"message\": \"Emergency landing commanded to active backend (px4).\", \"backend\": \"px4\", \"mode\": \"SIMULATION\"}"
+      },
+      "mode_after_gcs_fleet_wide": "LAND",
+      "fleet_state_after_fleet_wide": "DISARMED",
+      "restore_3": "HOLD",
+      "denied_by_px4": false
+    },
+    "C5_arm_result": "ActionError: COMMAND_DENIED: 'Command Denied'; origin: arm(); params: ()",
+    "C5_kill": "ACCEPTED",
+    "attempt: C5 after flight termination (kill)": {
+      "health": {
+        "local_position_ok": false,
+        "global_position_ok": false,
+        "home_position_ok": true,
+        "armable": false
+      },
+      "mode_before": "HOLD",
+      "armed_before": false,
+      "px4_direct": "ACCEPTED",
+      "mode_after_px4_direct": "LAND",
+      "restore_1": "HOLD",
+      "gcs_single_drone": {
+        "http": 200,
+        "body": "{\"status\": \"success\", \"message\": \"Drone 0 landing commanded on active backend (px4).\", \"backend\": \"px4\", \"mode\": \"land\", \"drone_id\": 0, \"commanded\": true, \"error\": null, \"clearance\": {\"clear\": true, \"threshold_m\": 2.0, \"mode\": \"land\", \"model\": \"vertical descent from current position (0.5-1.5 m/s)\", \"horizon_s\": 0.0, \"conflicts\": []}, \"warning\": null}"
+      },
+      "mode_after_gcs_single": "LAND",
+      "fleet_state_after_single": "DISARMED",
+      "restore_2": "HOLD",
+      "gcs_fleet_wide": {
+        "http": 200,
+        "body": "{\"status\": \"success\", \"message\": \"Emergency landing commanded to active backend (px4).\", \"backend\": \"px4\", \"mode\": \"SIMULATION\"}"
+      },
+      "mode_after_gcs_fleet_wide": "LAND",
+      "fleet_state_after_fleet_wide": "DISARMED",
+      "restore_3": "HOLD",
+      "denied_by_px4": false
+    },
+    "tried": [
+      "C1 green, disarmed, on the ground",
+      "C2 armed on the ground",
+      "C3 baro + GPS failure injected",
+      "C4 estimator stopped",
+      "C5 after flight termination (kill)"
+    ]
+  },
+  "exception": null,
+  "cadence": {
+    "landed_state": {
+      "items": 79,
+      "span_s": 74.8,
+      "mean_hz": 1.04,
+      "median_interval_s": 1.0,
+      "p99_interval_s": 1.0104,
+      "max_gap_s": 1.021,
+      "gaps_over_2_5s": 0,
+      "longest_run_of_identical_values": 79
+    },
+    "position_velocity_ned": {
+      "items": 1558,
+      "span_s": 51.9,
+      "mean_hz": 29.98,
+      "median_interval_s": 0.0321,
+      "p99_interval_s": 0.0362,
+      "max_gap_s": 0.053,
+      "gaps_over_2_5s": 0
+    }
+  },
+  "observer_events": [
+    [
+      0.83,
+      "connected",
+      true
+    ],
+    [
+      1.42,
+      "armed",
+      false
+    ],
+    [
+      1.42,
+      "mode",
+      "HOLD"
+    ],
+    [
+      1.42,
+      "landed_state",
+      "ON_GROUND"
+    ],
+    [
+      2.42,
+      "mode",
+      "LAND"
+    ],
+    [
+      3.42,
+      "mode",
+      "HOLD"
+    ],
+    [
+      4.42,
+      "mode",
+      "LAND"
+    ],
+    [
+      5.42,
+      "mode",
+      "HOLD"
+    ],
+    [
+      6.42,
+      "mode",
+      "LAND"
+    ],
+    [
+      7.42,
+      "mode",
+      "HOLD"
+    ],
+    [
+      8.42,
+      "armed",
+      true
+    ],
+    [
+      10.42,
+      "mode",
+      "LAND"
+    ],
+    [
+      11.42,
+      "mode",
+      "HOLD"
+    ],
+    [
+      12.42,
+      "mode",
+      "LAND"
+    ],
+    [
+      13.42,
+      "mode",
+      "HOLD"
+    ],
+    [
+      14.42,
+      "mode",
+      "LAND"
+    ],
+    [
+      15.42,
+      "mode",
+      "HOLD"
+    ],
+    [
+      16.42,
+      "armed",
+      false
+    ],
+    [
+      35.43,
+      "mode",
+      "LAND"
+    ],
+    [
+      36.43,
+      "mode",
+      "HOLD"
+    ],
+    [
+      37.43,
+      "mode",
+      "LAND"
+    ],
+    [
+      38.43,
+      "mode",
+      "HOLD"
+    ],
+    [
+      39.43,
+      "mode",
+      "LAND"
+    ],
+    [
+      40.43,
+      "mode",
+      "HOLD"
+    ],
+    [
+      48.43,
+      "mode",
+      "LAND"
+    ],
+    [
+      49.43,
+      "mode",
+      "HOLD"
+    ],
+    [
+      50.43,
+      "mode",
+      "LAND"
+    ],
+    [
+      51.43,
+      "mode",
+      "HOLD"
+    ],
+    [
+      52.43,
+      "mode",
+      "LAND"
+    ],
+    [
+      53.43,
+      "mode",
+      "HOLD"
+    ],
+    [
+      58.43,
+      "mode",
+      "LAND"
+    ],
+    [
+      59.44,
+      "mode",
+      "HOLD"
+    ],
+    [
+      60.44,
+      "mode",
+      "LAND"
+    ],
+    [
+      61.44,
+      "mode",
+      "HOLD"
+    ],
+    [
+      62.44,
+      "mode",
+      "LAND"
+    ],
+    [
+      63.44,
+      "mode",
+      "HOLD"
+    ]
+  ]
+}
