@@ -5,6 +5,8 @@
 
 from __future__ import annotations
 
+import re
+
 import pytest
 from typer.testing import CliRunner
 
@@ -16,7 +18,8 @@ runner = CliRunner()
 
 def _said(result) -> str:
     """The command's output as one line: Typer wraps errors in an 80-column box."""
-    return " ".join(result.output.replace("│", " ").split())
+    stripped = re.sub(r"\x1b\[[0-9;]*[A-Za-z]", "", result.output)
+    return " ".join(stripped.replace("│", " ").split())
 
 
 @pytest.fixture
