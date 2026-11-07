@@ -52,6 +52,24 @@ const maxAltitude = (drones) => {
   return best;
 };
 
+// Peak vertical speeds between consecutive samples (NED: z grows downward). PX4's defaults cap
+// climb at 3.0 m/s (MPC_Z_VEL_MAX_UP) and descent at 1.5 m/s (MPC_Z_VEL_MAX_DN); a plan above
+// either is not flown as planned, so these are checked as well as reported.
+const PX4_MAX_CLIMB_M_S = 3.0;
+const PX4_MAX_DESCENT_M_S = 1.5;
+const verticalSpeeds = (drones) => {
+  let climb = 0, descent = 0;
+  for (const d of drones) {
+    const w = d.waypoints;
+    for (let k = 0; k + 1 < w.length; k++) {
+      const v = (w[k + 1].z - w[k].z) / (w[k + 1].time - w[k].time);
+      if (v > descent) descent = v;
+      if (-v > climb) climb = -v;
+    }
+  }
+  return { climb, descent };
+};
+
 const minSeparation = (drones, subSteps) => {
   const T = drones[0].waypoints.length;
   let best = Infinity;
@@ -92,6 +110,9 @@ result.duration_s = show._duration;
 result.nominal_duration_s = computeShowDuration(scenes);
 result.waypoints_per_drone = show.drones[0].waypoints.length;
 result.max_altitude_m = maxAltitude(show.drones);
+const vs = verticalSpeeds(show.drones);
+result.peak_climb_m_s = Number(vs.climb.toFixed(2));
+result.peak_descent_m_s = Number(vs.descent.toFixed(2));
 
 const validate = await post(`${api}/api/validate`, choreo);
 const rep = validate.body;
@@ -142,6 +163,7 @@ result.checks = {
   zero_violations: Object.values(result.validator.violation_counts).every((c) => c === 0),
   separation_at_least_2m: result.min_separation_m !== undefined && result.min_separation_m >= MIN_SEPARATION_M,
   ceiling_120m: result.max_altitude_m <= CEILING_M,
+  px4_vertical_within_defaults: vs.climb <= PX4_MAX_CLIMB_M_S && vs.descent <= PX4_MAX_DESCENT_M_S,
 };
 fs.mkdirSync(outDir, { recursive: true });
 fs.writeFileSync(path.join(outDir, `diwali_${tag}.result.json`), JSON.stringify(result, null, 2));

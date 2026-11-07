@@ -2,65 +2,65 @@
   {
     "file": "diwali_100_figures.json",
     "n": 100,
-    "planned_duration_s": 269.6,
+    "planned_duration_s": 324.8,
     "armed_in_physics": 100,
     "tick": {
-      "ticks": 11881,
+      "ticks": 15561,
       "target_dt_ms": 20.0,
       "idle_floor_ms": 20.0,
-      "gap_ms_mean": 22.76,
-      "gap_ms_p50": 20.09,
-      "gap_ms_p95": 22.78,
-      "gap_ms_max": 1119.97,
-      "overshoot_ms_mean": 3.44,
-      "overshoot_ms_p95": 2.78,
+      "gap_ms_mean": 20.95,
+      "gap_ms_p50": 19.92,
+      "gap_ms_p95": 21.11,
+      "gap_ms_max": 689.38,
+      "overshoot_ms_mean": 1.26,
+      "overshoot_ms_p95": 1.11,
       "late_tick_pct": 0.5,
-      "effective_tick_hz": 43.9,
-      "realtime_ratio": 0.879,
-      "sim_realtime_ratio": 0.876
+      "effective_tick_hz": 47.7,
+      "realtime_ratio": 0.955,
+      "sim_realtime_ratio": 0.954
     },
     "control_loop": {
-      "ticks": 2367,
-      "lateness_ms_mean": 15.86,
-      "lateness_ms_p95": 4.95,
-      "lateness_ms_max": 1102.91,
-      "missed_pct": 2.1
+      "ticks": 3104,
+      "lateness_ms_mean": 6.45,
+      "lateness_ms_p95": 2.56,
+      "lateness_ms_max": 671.17,
+      "missed_pct": 2.2
     },
     "asyncio_tasks_peak": 110,
     "proximity_breach_seen_by_gcs_monitor": false,
     "geofence_breaches": 0,
-    "settled_at_s": 15.3,
+    "settled_at_s": 14.1,
     "altitude_at_show_start_m": {
       "min": 1.7,
       "max": 120.0
     },
     "tracking_error_before_settle_m": {
-      "mean": 16.213,
-      "p99": 102.206,
-      "max": 119.972
+      "mean": 16.392,
+      "p99": 101.989,
+      "max": 119.988
     },
-    "flown_min_separation_before_settle_m": 2.197,
-    "max_altitude_before_settle_m": 119.98,
+    "flown_min_separation_before_settle_m": 2.198,
+    "max_altitude_before_settle_m": 119.99,
     "tracking_error_after_settle_m": {
-      "mean": 0.083,
-      "p99": 0.957,
-      "max": 4.12
+      "mean": 0.029,
+      "p99": 0.236,
+      "max": 4.101
     },
     "flown_min_separation_after_settle_m": 2.045,
-    "max_altitude_after_settle_m": 62.83,
+    "max_altitude_after_settle_m": 62.87,
     "sampled_at_hz": 5.0,
     "on_ground_at_end": 100,
     "phases_s": {
       "connect_s": 0.0,
-      "upload_s": 1.3,
-      "launch_s": 80.0,
-      "show_s": 271.1
+      "upload_s": 0.5,
+      "launch_s": 84.8,
+      "show_s": 326.3
     },
     "resources": {
-      "cpu_percent_mean": 10.9,
-      "cpu_percent_peak": 97.9,
-      "rss_mb_peak": 289.3,
-      "samples": 1325
+      "cpu_percent_mean": 8.7,
+      "cpu_percent_peak": 102.6,
+      "rss_mb_peak": 328.0,
+      "samples": 1621
     },
     "acceptance_51": {
       "tasks_under_50": false,

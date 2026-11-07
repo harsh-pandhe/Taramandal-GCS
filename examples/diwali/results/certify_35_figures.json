@@ -8,10 +8,12 @@
     "Diya (finale)"
   ],
   "built": true,
-  "duration_s": 197.8,
+  "duration_s": 207.6,
   "nominal_duration_s": 76,
-  "waypoints_per_drone": 1979,
+  "waypoints_per_drone": 2077,
   "max_altitude_m": 34.11,
+  "peak_climb_m_s": 1.6,
+  "peak_descent_m_s": 1.2,
   "validator": {
     "status": "PASSED",
     "feasibility_certified": true,
@@ -40,14 +42,14 @@
       "preview_only": false,
       "filename": "choreography.json",
       "refusal": null,
-      "bytes": 8861695
+      "bytes": 9301619
     },
     "tara": {
       "http_status": 200,
       "preview_only": false,
       "filename": "choreography.tara",
       "refusal": null,
-      "bytes": 1108408
+      "bytes": 1163288
     }
   },
   "min_separation_check": "samples + 4 linear sub-steps between samples",
@@ -57,6 +59,7 @@
     "flight_export_accepted": true,
     "zero_violations": true,
     "separation_at_least_2m": true,
-    "ceiling_120m": true
+    "ceiling_120m": true,
+    "px4_vertical_within_defaults": true
   }
 }

@@ -10,10 +10,12 @@
     "Sphere burst"
   ],
   "built": true,
-  "duration_s": 352.5,
+  "duration_s": 416.9,
   "nominal_duration_s": 94,
-  "waypoints_per_drone": 3526,
+  "waypoints_per_drone": 4170,
   "max_altitude_m": 62.79,
+  "peak_climb_m_s": 2.3,
+  "peak_descent_m_s": 1.2,
   "validator": {
     "status": "PASSED",
     "feasibility_certified": true,
@@ -42,14 +44,14 @@
       "preview_only": false,
       "filename": "choreography.json",
       "refusal": null,
-      "bytes": 45557450
+      "bytes": 53928818
     },
     "tara": {
       "http_status": 200,
       "preview_only": false,
       "filename": "choreography.tara",
       "refusal": null,
-      "bytes": 5642028
+      "bytes": 6672428
     }
   },
   "min_separation_check": "samples + 4 linear sub-steps between samples",
@@ -59,6 +61,7 @@
     "flight_export_accepted": true,
     "zero_violations": true,
     "separation_at_least_2m": true,
-    "ceiling_120m": true
+    "ceiling_120m": true,
+    "px4_vertical_within_defaults": true
   }
 }
