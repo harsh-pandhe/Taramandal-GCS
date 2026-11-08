@@ -6,6 +6,7 @@ optionally RViz) that this project used before Phase 1 of the finishing plan.
 
 from __future__ import annotations
 
+import json
 import math
 import os
 import sys
@@ -200,6 +201,72 @@ def sign(
     manifest_path.write_bytes(sign_show(show.read_bytes(), show.name, private_key))
     typer.echo(f"[tara] signed {show} with key {key_fingerprint(private_key.public_key())} -> {manifest_path}")
     typer.echo("[tara] upload both files together; changing either one invalidates the signature.")
+
+
+@app.command()
+def compile(
+    show: Path = typer.Argument(
+        ...,
+        exists=True,
+        dir_okay=False,
+        help="The show trajectory file (.json/.csv/.skyc) to compile.",
+    ),
+    output_dir: Path = typer.Option(
+        Path("./dist"),
+        "--output-dir",
+        "-o",
+        help="Directory where .tarm files and manifest.json will be written.",
+    ),
+    validate: bool = typer.Option(
+        True,
+        "--validate/--no-validate",
+        help="Validate altitude and collision limits before compilation.",
+    ),
+) -> None:
+    """Compile canonical show trajectories into deterministic binary .tarm payloads (issue #56)."""
+    from tara_core import Show
+    from tara_core.compiler import compile_show
+    from tara_core.validate import altitude_errors, collision_errors
+
+    try:
+        suffix = show.suffix.lower()
+        if suffix in (".csv", ".skyc"):
+            from tara_gcs.trajectory_parser import parse_trajectory_file
+
+            content = show.read_text(encoding="utf-8") if suffix == ".csv" else show.read_bytes()
+            parsed = parse_trajectory_file(content, show.name)
+            show_obj = Show.from_any(parsed)
+        else:
+            show_obj = Show.from_any(json.loads(show.read_text(encoding="utf-8")))
+    except Exception as exc:
+        typer.secho(f"[tara] failed to load show {show}: {exc}", fg=typer.colors.RED, err=True)
+        raise typer.Exit(1)
+
+    if validate:
+        alt_errs = altitude_errors(show_obj)
+        if alt_errs:
+            for err in alt_errs:
+                typer.secho(f"[tara] safety error: {err}", fg=typer.colors.RED, err=True)
+            raise typer.Exit(1)
+        col_errs = collision_errors(show_obj)
+        if col_errs:
+            for err in col_errs:
+                typer.secho(f"[tara] safety error: {err}", fg=typer.colors.RED, err=True)
+            raise typer.Exit(1)
+
+    try:
+        missions, manifest = compile_show(show_obj, output_dir=output_dir)
+    except Exception as exc:
+        typer.secho(f"[tara] compilation failed: {exc}", fg=typer.colors.RED, err=True)
+        raise typer.Exit(1)
+
+    typer.echo(f"[tara] compiled show (id {manifest.show_id}) with {manifest.drone_count} drones into {output_dir}")
+    typer.echo(f"[tara] wrote manifest.json (SHA-256: {manifest.manifest_sha256})")
+    typer.echo(f"[tara] total payload: {manifest.total_binary_bytes} bytes across {manifest.total_waypoint_count} waypoints")
+    for did in sorted(manifest.drones.keys()):
+        entry = manifest.drones[did]
+        typer.echo(f"[tara]   drone {did}: {entry.waypoint_count} wps, {entry.size_bytes}B -> {entry.file_name} ({entry.sha256[:12]}...)")
+
 
 
 @app.command()

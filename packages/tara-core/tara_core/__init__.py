@@ -7,6 +7,17 @@ limits.
 """
 
 from .assignment import optimal_assignment, total_cost
+from .compiler import (
+    MANIFEST_FILENAME,
+    TARM_EXTENSION,
+    CompilationManifest,
+    CompiledDroneMission,
+    DroneManifestEntry,
+    compile_drone_mission,
+    compile_show,
+    compute_payload_sha256,
+    decompile_drone_mission,
+)
 from .geometry import (
     EARTH_RADIUS_M,
     geodetic_to_ned,
@@ -37,6 +48,11 @@ __all__ = [
     "BASE_HOVER_ALT_M",
     "MAX_FLEET_SIZE",
     "MAX_REPORTED",
+    "MANIFEST_FILENAME",
+    "TARM_EXTENSION",
+    "CompilationManifest",
+    "CompiledDroneMission",
+    "DroneManifestEntry",
     "DEFAULT_LIMITS",
     "EARTH_RADIUS_M",
     "MissionHeader",
@@ -51,8 +67,12 @@ __all__ = [
     "altitude_layers",
     "close_pairs",
     "collision_errors",
+    "compile_drone_mission",
     "compile_mission",
+    "compile_show",
+    "compute_payload_sha256",
     "compute_show_id",
+    "decompile_drone_mission",
     "decode_mission",
     "decode_show_trigger",
     "encode_show_trigger",
