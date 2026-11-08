@@ -68,7 +68,7 @@ MAX_CONTOURS = 1000
 #: handful of contours, a headline a few dozen, a speckled or noisy-JPEG logo a few
 #: thousand; a photo, a noise field or a page of dense text has tens of thousands,
 #: and a formation made from the longest 1000 of those is valid but meaningless.
-REFUSE_CONTOURS_FACTOR = 10
+REFUSE_CONTOURS_FACTOR = 5
 
 #: If the requested scale is below this fraction of what the site allows, the
 #: search for a scale that holds the count starts here instead of at the request.
