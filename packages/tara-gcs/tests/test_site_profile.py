@@ -169,3 +169,92 @@ def test_upload_while_armed_on_another_site_is_refused_and_keeps_the_active_show
     assert "armed" in resp.text
     assert gcs_main.drone_manager.site == "standard"
     assert gcs_main.drone_manager.active_trajectory is kept
+
+
+# --- the geofence monitor measures from the site origin, not from the drone's own pad ---------------------------
+
+async def _run_geofence_monitor(manager, seconds=0.25):
+    task = asyncio.create_task(manager._geofence_monitor_loop())
+    await asyncio.sleep(seconds)
+    task.cancel()
+    try:
+        await task
+    except asyncio.CancelledError:
+        pass
+
+
+@pytest.mark.asyncio
+async def test_geofence_uses_the_fleet_frame_not_the_drones_own_pad():
+    """A drone on an outer pad that stays well inside the site must not trip the fence.
+
+    Found flying the 400 drone show: drone 26's pad is 57.2 m from the origin, it flew to y = -21.8 m on the site,
+    which is 79 m from its own pad and above the 78.95 m hard limit, although the show never leaves the site.
+    """
+    from unittest.mock import AsyncMock
+
+    manager = DroneManager(ports=[])
+    manager.trigger_rtl = AsyncMock()
+    manager.geofence_radius = 78.95
+    manager.telemetry = {
+        26: {"connected": True, "armed": True,
+             "local_x": 0.0, "local_y": -79.0, "local_z": -30.0,       # 79 m from its own pad
+             "fleet_x": 0.0, "fleet_y": -21.8, "fleet_z": -30.0},      # 21.8 m from the site origin
+    }
+
+    await _run_geofence_monitor(manager)
+
+    manager.trigger_rtl.assert_not_called()
+    assert not manager.geofence_breaches.get(26, False)
+
+
+@pytest.mark.asyncio
+async def test_geofence_still_trips_when_the_drone_leaves_the_site():
+    from unittest.mock import AsyncMock
+
+    manager = DroneManager(ports=[])
+    manager.trigger_rtl = AsyncMock()
+    manager.geofence_radius = 78.95
+    manager.telemetry = {
+        3: {"connected": True, "armed": True,
+            "local_x": 1.0, "local_y": 2.0, "local_z": -30.0,           # close to its own pad
+            "fleet_x": 0.0, "fleet_y": 79.5, "fleet_z": -30.0},         # but outside the fence on the site
+    }
+
+    await _run_geofence_monitor(manager)
+
+    manager.trigger_rtl.assert_called_once()
+    assert manager.geofence_breaches.get(3) is True
+
+
+@pytest.mark.asyncio
+async def test_geofence_falls_back_to_local_when_fleet_position_is_absent():
+    """Single-drone mode and bare telemetry stubs carry only local_*; they keep their old behaviour."""
+    from unittest.mock import AsyncMock
+
+    manager = DroneManager(ports=[])
+    manager.trigger_rtl = AsyncMock()
+    manager.geofence_radius = 10.0
+    manager.telemetry = {0: {"connected": True, "armed": True, "local_x": 0.0, "local_y": 12.0, "local_z": 2.0}}
+
+    await _run_geofence_monitor(manager)
+
+    manager.trigger_rtl.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_upload_fences_the_fleet_on_the_shows_envelope_before_launch():
+    """Between upload and start the drones sit armed on their pads, which on a wide site can be past the static radius."""
+    manager = DroneManager(ports=[0], backend="sim")
+    try:
+        await manager.connect_all()
+        manager.set_site("scale400")
+        far_pad = 58.0
+        show = {"drones": [{"id": 0, "waypoints": [
+            {"time": 0.0, "x": far_pad, "y": 0.0, "z": 0.0, "yaw": 0.0},
+            {"time": 8.0, "x": far_pad, "y": 0.0, "z": -3.0, "yaw": 0.0},
+        ]}]}
+        assert manager.geofence_radius == 30.0  # the static default, before any show
+        await manager.upload_show(show)
+        assert manager.geofence_radius > far_pad
+    finally:
+        await manager.shutdown()

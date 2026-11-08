@@ -1155,6 +1155,10 @@ class DroneManager:
         """
         show_id = compute_show_id(trajectory_data)
         assignment = self.remap_trajectory_to_healthy_drones(trajectory_data)
+        # Fence the fleet on this show's own envelope from here on, not only from start_trajectory: the drones are
+        # armed and hovering on their pads between upload and start, and the geofence monitor now measures in the
+        # fleet frame, where an outer pad on a wide site is already beyond the static default radius.
+        self._apply_geofence_envelope(trajectory_data)
 
         if self._mission_dir:
             shutil.rmtree(self._mission_dir, ignore_errors=True)
@@ -3115,7 +3119,8 @@ class DroneManager:
 
     async def _geofence_monitor_loop(self):
         """
-        Monitors each armed drone's distance from home (0, 0) at 10Hz against
+        Monitors each armed drone's distance from the site origin (fleet frame
+        (0, 0), the frame the envelope is measured in) at 10Hz against
         two thresholds derived from the same trajectory envelope (issue #53,
         set by `_apply_geofence_envelope`):
 
@@ -3137,12 +3142,17 @@ class DroneManager:
                     if not tel["connected"] or not tel["armed"]:
                         continue
 
-                    x = tel["local_x"]
-                    y = tel["local_y"]
-                    z = tel["local_z"]
+                    # Fleet frame (origin = the site origin, where the envelope below was measured), not the
+                    # drone's own pad: the envelope is one containment cylinder for the whole show, so a drone
+                    # on an outer pad must be judged on where it is on the site, not on how far it has moved
+                    # from its own pad. local_* is only the fallback for single-drone mode and bare stubs that
+                    # never populate fleet_*.
+                    x = tel.get("fleet_x", tel.get("local_x", 0.0))
+                    y = tel.get("fleet_y", tel.get("local_y", 0.0))
+                    z = tel.get("fleet_z", tel.get("local_z", 0.0))
 
-                    dist = (x**2 + y**2) ** 0.5           # horizontal distance from home
-                    dist3d = (x**2 + y**2 + z**2) ** 0.5  # total 3D distance from home
+                    dist = (x**2 + y**2) ** 0.5           # horizontal distance from the site origin
+                    dist3d = (x**2 + y**2 + z**2) ** 0.5  # total 3D distance from the site origin
 
                     already_breached = self.geofence_breaches.get(drone_id, False)
                     already_warned = self.geofence_warnings.get(drone_id, False)
