@@ -64,7 +64,7 @@ from tara_studio.voxelizer import (
 from tara_studio import music_analysis, raster_formation
 from tara_studio.raster_formation import RasterFormationError, raster_to_formation
 from tara_studio.music_analysis import MusicAnalysisError, analyze_audio
-from tara_core import DEFAULT_LIMITS, MAX_FLEET_SIZE
+from tara_core import DEFAULT_LIMITS, MAX_FLEET_SIZE, limits_for_site
 from tara_core.validate import altitude_errors
 from tara_core.assignment import optimal_assignment
 
@@ -356,8 +356,18 @@ def api_generate(req: GenerateRequest):
         },
     }
 
+def _require_known_site(choreo) -> None:
+    """A show may name a site profile (``"site"``); an unknown one is a 400 here, so a typo cannot produce a file the GCS then refuses."""
+    if isinstance(choreo, dict) and "site" in choreo:
+        try:
+            limits_for_site(choreo["site"])
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+
+
 @app.post("/api/validate")
 def api_validate(choreo: dict):
+    _require_known_site(choreo)
     # Decision on #151/#165 (2026-10-26): returns the same canonical
     # certification report /api/generate and /api/export already use
     # (certify_feasibility_report), not the narrower validate_choreography.
@@ -676,6 +686,7 @@ def api_validate_energy(req: EnergyRequest):
 def api_export(req: ExportRequest):
     fmt = req.format.lower()
     choreo = req.choreo
+    _require_known_site(choreo)
     if req.sign and fmt not in SIGNABLE_FORMATS:
         raise HTTPException(status_code=400, detail=f"Only {', '.join(sorted(SIGNABLE_FORMATS))} exports can be signed.")
     rate_hz = req.rate_hz or 0.0

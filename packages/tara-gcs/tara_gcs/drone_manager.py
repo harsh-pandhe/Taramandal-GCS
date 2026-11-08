@@ -12,6 +12,8 @@ import numpy as np
 from scipy.spatial import cKDTree
 from tara_core import (
     DEFAULT_LIMITS,
+    STANDARD_SITE,
+    limits_for_site,
     MAX_FLEET_SIZE,
     ShowCommand,
     altitude_layers,
@@ -106,12 +108,33 @@ class OperatorTakeoverError(RuntimeError):
 LANDING_OWN_MODES = frozenset({"OFFBOARD", "HOLD", "LAND", "READY", "LANDED", "UNKNOWN"})
 
 
-#: Pads for the largest fleet we support, computed once. Indexing into a single
+#: Pads for the largest fleet we support, per site profile, computed once each. Indexing into a single
 #: fixed grid matters: deriving it per-drone from the current fleet size would
 #: move a drone's pad every time the fleet grew, because the grid's width is
-#: ceil(sqrt(n)).
-_PAD_GRID = launch_grid(MAX_FLEET_SIZE)
-_PAD_ARRAY = np.asarray(_PAD_GRID)  # the same grid, for vectorized fleet-frame shifts
+#: ceil(sqrt(n)). The grid's width also depends on the site radius
+#: (``floor(geofence_radius_m / pad_spacing_m)``), so each profile has its own;
+#: "standard" is the grid that existed before profiles, unchanged.
+_PAD_GRIDS: dict[str, list[tuple[float, float]]] = {}
+_PAD_ARRAYS: dict[str, np.ndarray] = {}
+
+
+def _pad_grid(site: str = STANDARD_SITE) -> list[tuple[float, float]]:
+    """The fleet's launch pads for a site profile (ValueError for an unknown one)."""
+    grid = _PAD_GRIDS.get(site)
+    if grid is None:
+        grid = launch_grid(MAX_FLEET_SIZE, limits_for_site(site))
+        _PAD_GRIDS[site] = grid
+        _PAD_ARRAYS[site] = np.asarray(grid)  # the same grid, for vectorized fleet-frame shifts
+    return grid
+
+
+def _pad_array(site: str = STANDARD_SITE) -> np.ndarray:
+    _pad_grid(site)
+    return _PAD_ARRAYS[site]
+
+
+_PAD_GRID = _pad_grid(STANDARD_SITE)
+_PAD_ARRAY = _PAD_ARRAYS[STANDARD_SITE]
 
 
 #: Bulk telemetry cadence on backend="sim" (issue #51): the fast fields
@@ -127,13 +150,13 @@ def _hover_altitude(drone_id: int) -> float:
     return DEFAULT_ALTITUDES[drone_id] if drone_id < len(DEFAULT_ALTITUDES) else 3.0
 
 
-def _pad_offset(drone_id: int) -> tuple[float, float]:
+def _pad_offset(drone_id: int, site: str = STANDARD_SITE) -> tuple[float, float]:
     """Returns (x, y) offset of a drone's own launch pad within the shared fleet frame."""
     if not 0 <= drone_id < MAX_FLEET_SIZE:
         raise ValueError(
             f"drone_id {drone_id} outside supported fleet size 0..{MAX_FLEET_SIZE - 1}"
         )
-    return _PAD_GRID[drone_id]
+    return _pad_grid(site)[drone_id]
 
 # --- Single-drone abort (issue #59) ---
 #
@@ -434,6 +457,9 @@ class DroneManager:
         # currently in flight - concurrency guard so two overlapping requests
         # on the same drone can't both try to drive it (issue #145 review).
         self.single_drone_sequence_active: set[int] = set()
+        # The site profile of the loaded show (issue: per-show site). It picks the launch-pad grid and the
+        # fallback geofence radius; "standard" is the behaviour from before profiles existed.
+        self.site = STANDARD_SITE
         self.geofence_radius = DEFAULT_LIMITS.geofence_radius_m  # hard RTL radius; recomputed per-show by _apply_geofence_envelope()
         self.soft_geofence_radius = None  # soft-warning radius; None (disabled) until a show sets one
         self.geofence_breaches = {}  # drone_id -> bool, tracks active hard geofence breaches (triggers RTL)
@@ -774,7 +800,7 @@ class DroneManager:
         idx = np.asarray(ids)
         positions = snap.position[idx].tolist()
         velocities = snap.velocity[idx].tolist()
-        pads = _PAD_ARRAY[idx].tolist()
+        pads = _pad_array(self.site)[idx].tolist()
         connected = snap.connected[idx].tolist()
         armed = snap.armed[idx].tolist()
 
@@ -998,7 +1024,7 @@ class DroneManager:
         )
 
     async def _monitor_position(self, drone_id):
-        pad_x_off, pad_y_off = _pad_offset(drone_id)
+        pad_x_off, pad_y_off = _pad_offset(drone_id, self.site)
 
         def on_position(pos):
             # issue #145 review, item 1: on hardware, last_heartbeat was
@@ -1137,7 +1163,7 @@ class DroneManager:
         drones = {}
         local_paths = {}
         for drone_id, wps in assignment.items():
-            blob = compile_mission(wps, drone_id=drone_id, show_id=show_id, origin=_pad_offset(drone_id))
+            blob = compile_mission(wps, drone_id=drone_id, show_id=show_id, origin=_pad_offset(drone_id, self.site))
             # MAVSDK's FTP upload keeps the local basename, so each drone's
             # file gets its own directory rather than its own name.
             local_dir = os.path.join(self._mission_dir, str(drone_id))
@@ -2267,7 +2293,7 @@ class DroneManager:
                 others[d_id] = {"position": (t.get("fleet_x", 0.0), t.get("fleet_y", 0.0), t.get("fleet_z", 0.0))}
         return {
             "start": (tel.get("fleet_x", 0.0), tel.get("fleet_y", 0.0), tel.get("fleet_z", 0.0)),
-            "pad": _pad_offset(drone_id),
+            "pad": _pad_offset(drone_id, self.site),
             "others": others,
             "show_elapsed_s": elapsed,
         }
@@ -2419,6 +2445,23 @@ class DroneManager:
 
     # --- Trajectory Playback ---
 
+    def set_site(self, site: str | None) -> None:
+        """Select the site profile (launch-pad grid and fallback geofence) the next show is flown on.
+
+        Raises:
+            ValueError: For an unknown profile, or while any drone is armed: the pad grid is how every
+                trajectory is converted to the fleet frame, so it must not move under a flying fleet.
+        """
+        site = STANDARD_SITE if site is None else site
+        limits_for_site(site)  # validates the name
+        _pad_grid(site)
+        if site == self.site:
+            return
+        if any(t.get("armed") for t in self.telemetry.values()):
+            raise ValueError("cannot change the site profile while drones are armed")
+        self.site = site
+        logging.info(f"Site profile set to {site!r} (pad grid and geofence fallback follow it).")
+
     def _apply_geofence_envelope(self, trajectory_data: dict) -> None:
         """Derives this show's soft/hard geofence radii from its full trajectory.
 
@@ -2440,9 +2483,9 @@ class DroneManager:
         except (ValueError, KeyError) as e:
             logging.warning(
                 f"Could not compute geofence envelope from trajectory ({e}); "
-                f"falling back to default radius ({DEFAULT_LIMITS.geofence_radius_m}m)."
+                f"falling back to the site radius ({limits_for_site(self.site).geofence_radius_m}m)."
             )
-            self.geofence_radius = DEFAULT_LIMITS.geofence_radius_m
+            self.geofence_radius = limits_for_site(self.site).geofence_radius_m
             self.soft_geofence_radius = None
             return
 
@@ -2858,7 +2901,7 @@ class DroneManager:
                         # Trajectory coordinates are expressed in the shared fleet frame
                         # (pad spacing baked in by the Studio generator). Subtract this
                         # drone's own pad offset to get back to its own local/home frame.
-                        pad_x_off, pad_y_off = _pad_offset(drone_id)
+                        pad_x_off, pad_y_off = _pad_offset(drone_id, self.site)
 
                         if mode.upper() == "GLOBAL":
                             # GLOBAL MODE: Translate fleet-frame offsets using home GPS coordinates

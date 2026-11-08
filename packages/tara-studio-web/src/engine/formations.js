@@ -8,6 +8,7 @@
 // agree on the result.
 
 import { SHOW_ALT, fleetCenter } from './layout.js';
+import { STANDARD_SITE, siteProfile } from './site.js';
 import { ShowRefusalError } from './showErrors.js';
 import { svgToFormation } from './svgImporter.js';
 
@@ -35,7 +36,7 @@ const MAX_FORMATION_RADIUS = 14.0;
 
 // Studio's own site-size constraint: every generated formation must stay within
 // 30m of the fleet origin.
-export const SITE_RADIUS_M = 30.0;
+export const SITE_RADIUS_M = siteProfile(STANDARD_SITE).radius_m; // the standard site; per-show sites are in site.js
 
 // Mirrors tara_core.safety.DEFAULT_LIMITS.design_separation_m.
 export const MIN_SEPARATION_M = 2.0;
@@ -241,19 +242,19 @@ const horizontalReach = (pts) => {
   return Math.max(...pts.map((p) => Math.hypot(p.x - c.x, p.y - c.y)));
 };
 
-const maxRadiusFor = (n) => {
-  const c = fleetCenter(n);
+const maxRadiusFor = (n, site = STANDARD_SITE) => {
+  const c = fleetCenter(n, site);
   const dist = Math.hypot(c.x, c.y);
-  return Math.min(18.0, Math.max(14.0, SITE_RADIUS_M - dist - 0.2));
+  return Math.min(18.0, Math.max(14.0, siteProfile(site).radius_m - dist - 0.2));
 };
 
 // A flat shape the spacing floor would grow past its site limit is split
 // into copies stacked FORMATION_SPACING apart in altitude.
-const stackIfOversized = (gen, n, scale) => {
+const stackIfOversized = (gen, n, scale, site = STANDARD_SITE) => {
   const raw = gen(n, scale);
   const floorPts = toSpacingFloor(raw);
   const reach = horizontalReach(floorPts);
-  const maxRadius = maxRadiusFor(n);
+  const maxRadius = maxRadiusFor(n, site);
   if (n < 2) return raw;
   if (minPairDist(raw) >= FORMATION_SPACING && reach <= maxRadius) return raw;
   if (reach <= maxRadius) return floorPts;
@@ -272,9 +273,9 @@ const stackIfOversized = (gen, n, scale) => {
 
 // Places the formation: scales up to spacing floor, centres over the pad grid,
 // and lifts anything pushed too close to the ground.
-const place = (pts, n) => {
+const place = (pts, n, site = STANDARD_SITE) => {
   const out = toSpacingFloor(pts);
-  const c = bboxCentre(out), centre = fleetCenter(n);
+  const c = bboxCentre(out), centre = fleetCenter(n, site);
   const dx = centre.x - c.x, dy = centre.y - c.y;
   const lowest = Math.min(...out.map((p) => -p.z));
   const dz = lowest < MIN_FORMATION_ALT ? MIN_FORMATION_ALT - lowest : 0;
@@ -327,13 +328,13 @@ const parsePointsPayload = (payload, n) => {
 // is centred over the pad grid or clamped to the site radius. Factored out
 // of buildFormation so buildSplitFormation (below) can combine several of
 // these before running placement/clamping across the whole combined set.
-const rawFormation = (shapeType, shapePayload, n, scale) => {
+const rawFormation = (shapeType, shapePayload, n, scale, site = STANDARD_SITE) => {
   const s = Number.isFinite(scale) && scale > 0 ? scale : 1.0;
   const gen = PARAMETRIC[shapePayload] || fmtCircle;
   let raw;
   if (shapeType === 'exact_points') raw = parsePointsPayload(shapePayload, n);
   else if (shapeType === 'text') raw = fmtText(n, s, shapePayload);
-  else if (shapeType === 'svg') raw = svgToFormation(shapePayload, n, { scale: s * 15.0, altitude: SHOW_ALT });
+  else if (shapeType === 'svg') raw = svgToFormation(shapePayload, n, { scale: s * 15.0, altitude: SHOW_ALT, site });
   else if (shapeType === 'points') {
     const pts = Array.isArray(shapePayload) ? shapePayload : (shapePayload?.points || []);
     if (!pts.length) {
@@ -349,7 +350,7 @@ const rawFormation = (shapeType, shapePayload, n, scale) => {
     }));
   }
   else if (gen === fmtSphere) raw = gen(n, s);
-  else raw = stackIfOversized(gen, n, s);
+  else raw = stackIfOversized(gen, n, s, site);
   if (n > 1 && !(minPairDist(raw) > 1e-6)) {
     // issue #146/#129 review: an SVG or custom point import that collapses to
     // degenerate geometry (every point coincident) must fail closed, not
@@ -371,12 +372,13 @@ const rawFormation = (shapeType, shapePayload, n, scale) => {
  * @param {number} scale size multiplier
  * @returns {{x:number,y:number,z:number}[]} exactly `n` points
  */
-export const buildFormation = (shapeType, shapePayload, n, scale = 1.0) => {
+export const buildFormation = (shapeType, shapePayload, n, scale = 1.0, site = STANDARD_SITE) => {
   if (n < 1) return [];
-  const raw = rawFormation(shapeType, shapePayload, n, scale);
+  const SITE_RADIUS_M = siteProfile(site).radius_m;
+  const raw = rawFormation(shapeType, shapePayload, n, scale, site);
   // 'exact_points' is already a placed formation: growing it to the spacing floor or moving it would change what was designed.
   // (Not 'points': that is the raster-import type, which is scaled and placed like any other generated shape.)
-  const placed = shapeType === 'exact_points' ? raw : place(raw, n);
+  const placed = shapeType === 'exact_points' ? raw : place(raw, n, site);
 
   // Enforce SITE_RADIUS_M: if pad-grid offset or large span pushes any point
   // beyond SITE_RADIUS_M (30m), first shift toward origin if it fits,
@@ -399,8 +401,9 @@ export const buildFormation = (shapeType, shapePayload, n, scale = 1.0) => {
 
     // If span fits within site diameter, shift toward origin without reducing spacing
     if (spanX <= 2 * (SITE_RADIUS_M - 0.5) && spanY <= 2 * (SITE_RADIUS_M - 0.5)) {
-      const shiftX = maxX > 29.5 ? 29.5 - maxX : (minX < -29.5 ? -29.5 - minX : 0);
-      const shiftY = maxY > 29.5 ? 29.5 - maxY : (minY < -29.5 ? -29.5 - minY : 0);
+      const edge = SITE_RADIUS_M - 0.5;
+      const shiftX = maxX > edge ? edge - maxX : (minX < -edge ? -edge - minX : 0);
+      const shiftY = maxY > edge ? edge - maxY : (minY < -edge ? -edge - minY : 0);
       current = current.map((p) => ({ ...p, x: p.x + shiftX, y: p.y + shiftY }));
     }
 
@@ -497,7 +500,8 @@ export const buildFormation = (shapeType, shapePayload, n, scale = 1.0) => {
 // above the limit, not the limit itself.
 const EXPORT_ROUNDING_MARGIN_M = 0.05;
 
-export const buildSplitFormation = (parts) => {
+export const buildSplitFormation = (parts, site = STANDARD_SITE) => {
+  const SITE_RADIUS_M = siteProfile(site).radius_m;
   if (!Array.isArray(parts) || parts.length < 2) {
     throw new Error('buildSplitFormation needs a figure and at least one support group');
   }
@@ -509,7 +513,7 @@ export const buildSplitFormation = (parts) => {
   const totalN = parts.reduce((sum, p) => sum + p.count, 0);
 
   const [figure, ...supports] = parts;
-  const figureRaw = rawFormation(figure.shapeType, figure.shapePayload, figure.count, figure.scale ?? 1.0);
+  const figureRaw = rawFormation(figure.shapeType, figure.shapePayload, figure.count, figure.scale ?? 1.0, site);
   // Defensive (release review on #141/#166): if a generator ever returned
   // the wrong count, the rest of this function would silently misalign
   // every group's slice boundaries rather than fail closed.
@@ -523,7 +527,7 @@ export const buildSplitFormation = (parts) => {
   let envelopeReach = horizontalReach(centredFigure);
 
   supports.forEach((support, idx) => {
-    const raw = rawFormation(support.shapeType, support.shapePayload, support.count, support.scale ?? 1.0);
+    const raw = rawFormation(support.shapeType, support.shapePayload, support.count, support.scale ?? 1.0, site);
     if (raw.length !== support.count) {
       throw new Error(`Support "${support.shapePayload}" returned ${raw.length} points, not the requested ${support.count}`);
     }
@@ -670,7 +674,8 @@ export const buildSplitFormation = (parts) => {
  * @param {number} depthSpacing metres between consecutive copies (must clear MIN_SEPARATION_M with margin for export rounding; the 500-drone plan measured 2.2m for the Dandiya figures)
  * @returns {{x:number,y:number,z:number}[]} exactly totalCount points
  */
-export const buildDepthCopies = (shapeType, shapePayload, perCopyCount, totalCount, scale = 1.0, depthSpacing = 2.2) => {
+export const buildDepthCopies = (shapeType, shapePayload, perCopyCount, totalCount, scale = 1.0, depthSpacing = 2.2, site = STANDARD_SITE) => {
+  const SITE_RADIUS_M = siteProfile(site).radius_m;
   // Same margin as buildSplitFormation (release review on #166, applied
   // here too per #169's review): a copy pitched at exactly
   // MIN_SEPARATION_M lands two drones ~2.000m apart by construction, and
@@ -702,7 +707,7 @@ export const buildDepthCopies = (shapeType, shapePayload, perCopyCount, totalCou
     );
   }
 
-  const front = buildFormation(shapeType, shapePayload, perCopyCount, scale);
+  const front = buildFormation(shapeType, shapePayload, perCopyCount, scale, site);
   if (front.length !== perCopyCount) {
     throw new Error(`Formation "${shapePayload}" returned ${front.length} points, not the requested ${perCopyCount}`);
   }

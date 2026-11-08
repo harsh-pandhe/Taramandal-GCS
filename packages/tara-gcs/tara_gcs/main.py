@@ -17,7 +17,7 @@ from tara_gcs.blackbox import DEFAULT_DIR as BLACKBOX_DEFAULT_DIR
 from tara_gcs.blackbox_service import BlackboxService
 from tara_gcs.drone_manager import DroneManager
 from tara_gcs.fleet_fsm import Command, IllegalTransitionError
-from tara_gcs.trajectory_parser import parse_trajectory_bytes
+from tara_gcs.trajectory_parser import parse_trajectory_bytes, show_site
 from tara_gcs.telemetry_codec import FAST_HZ, SLOW_HZ, encode_fast_frame, encode_slow_frame
 from tara_gcs.sim_manager import SimLaunchError, SimManager
 from tara_gcs.show_auth import load_trust_policy
@@ -462,6 +462,8 @@ async def get_status():
         "armed_stale_ids": armed_stale_ids,
         "trajectory_running": drone_manager.is_running_trajectory,
         "fleet_state": drone_manager.fleet_fsm.state.value,
+        # The site profile of the loaded show: it fixes the launch-pad grid (standard unless the show names one).
+        "site": drone_manager.site,
         # Drones aborted out of the show on their own (issue #59); per-drone
         # detail is each drone's "aborted" telemetry field.
         "aborted": sorted(d_id for d_id, t in telemetry.items() if t.get("aborted")),
@@ -956,7 +958,12 @@ async def upload_trajectory(
         logger.info(f"Trajectory {file.filename!r} signed by {verified.signer} (key {verified.key_id}).")
 
     try:
+        # The show's site profile picks the launch-pad grid it is converted against; it is read before the
+        # trajectory is kept, so a show naming an unknown site, or arriving while drones are armed on another
+        # one, never replaces the active trajectory.
+        site = show_site(bytes(content), file.filename or "")
         parsed_trajectory = parse_trajectory_bytes(bytes(content), file.filename)
+        drone_manager.set_site(site)
 
         # Save active trajectory
         drone_manager.active_trajectory = parsed_trajectory
@@ -986,6 +993,7 @@ async def upload_trajectory(
                 {"verified": True, "signer": verified.signer, "key_id": verified.key_id, "signed_at": verified.signed_at}
                 if verified else {"verified": False}
             ),
+            "site": drone_manager.site,
             "geofence": {
                 "soft_warning_radius_m": drone_manager.soft_geofence_radius,
                 "hard_geofence_radius_m": drone_manager.geofence_radius,
