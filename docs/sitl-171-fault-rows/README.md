@@ -47,9 +47,16 @@ Provoked in `denied-land-2` and `denied-land-3`: arm on the pad, `terminate`, th
 In `denied-land-3` the GCS audit log (`audit.jsonl`) shows the refused fleet-wide command moving the fleet `STAGED -> LANDING`
 (trigger `POST /api/land`, operator `cmdr`) and, 0.07 s later, `LANDING -> DISARMED` (trigger `telemetry:all_disarmed`). PX4 had
 already auto-disarmed after termination ("Disarmed by auto preflight disarming" in the PX4 console), which is why it corrected itself.
-In a case where PX4 stays armed the fleet would stay in LANDING. Cause in code: `trigger_land` ignores each drone's result
-(`_land_one` returns the error string, `_for_each_drone` gathers and discards it); the per-drone route checks it.
-No code was changed. Whether to change it is for Harsh.
+In a case where PX4 stays armed the fleet would stay in LANDING. Cause in code (read on `origin/main` f556537,
+`packages/tara-gcs/tara_gcs/drone_manager.py`): `trigger_land` (line 1719) awaits `_for_each_drone([self._land_one(...)])` and drops the
+returned list; `_land_one` (line 1757) returns the error string on failure; `POST /api/land` in `main.py` then returns the fixed
+`"status": "success"` body. The per-drone route checks the result (`_abort_drone`), which is why it answered 502. The same
+discard pattern is in `trigger_rtl` (line 1708) and `trigger_estop` (line 1726) by code reading only; no run exercised a refused fleet-wide RTL
+or E-STOP, so that part is NOT VERIFIED. The comment above `_rtl_one` says the primitives never raise so that one drone's rejection does not
+stop the rest of the fleet; that is deliberate, and what is missing is reporting the per-drone failures afterwards.
+
+**Finding (defect, observed on the ground only):** the fleet-wide land endpoint answers 200 "success" when PX4 refused the command.
+No code was changed in this PR. Whether and how to change it is for Harsh.
 
 ## Row 2: rejected command before the first green preflight (exercised)
 
@@ -73,6 +80,17 @@ One drone, on the ground only. A denied `land` while airborne was not run, so th
 land was not observed (it self-corrected here only because PX4 had disarmed). The arming denials for row 2 are PX4 console lines (no per-line
 timestamps), not an acknowledgement read by a client. Real-time factor was not measured. The independent client's heartbeat was not needed:
 `cold-start-3` ran without it and the preflight still turned green.
+
+## Checks on the rebased branch
+
+Rebased onto `origin/main` f556537 (the branch was one commit on 1d2d3a4; no conflicts, no code files touched). The stored records were checked
+against the README by reading `result.json`, `audit.jsonl`, `cmd_audit.jsonl`, `scenario.log` and the PX4 console archives: check counts per run
+(denied-land-1 1/2, -2 7/8, -3 6/7, cold-start-1 6/7, -2 7/8, -3 8/8), the 502 and the 200, the `STAGED -> LANDING -> DISARMED` audit rows 0.07 s apart,
+one "Disarmed by auto preflight disarming" line in each denied-land console, 18 `Arming denied` lines in `cold-start-3`, and the 412 bodies all match.
+`ruff check .` failed on the first version of this branch (20 errors in `rig/*.py`, which the lint job scans); each of the three scripts now starts with a
+`# ruff: noqa` line naming the rules, and nothing else in them changed. `ruff check .` then passes, and `pytest -p asyncio -m "not slow"` passes
+(1987 passed, 7 deselected). Nothing was re-run on PX4: the SITL runs were not repeated for this rebase (NOT VERIFIED beyond the stored records), and the Docker
+daemon was not running.
 
 ## Layout
 

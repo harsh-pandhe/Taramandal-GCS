@@ -1,3 +1,4 @@
+# ruff: noqa: F841  (verbatim record of the script that produced the stored results; not reformatted so it stays what ran)
 """#171 acceptance scenarios, one per matrix row. Each runs against a live stack inside a fresh
 container and writes $OUT/result.json: explicit checks (name, ok, detail), notes, the observer's
 event log and a 5 Hz position/velocity timeline. Ground truth comes from an independent MAVSDK

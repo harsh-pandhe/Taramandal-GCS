@@ -1,3 +1,4 @@
+# ruff: noqa: E401,E702,E741  (verbatim record of the script that produced the stored results; not reformatted so it stays what ran)
 """Assemble one run's record: run.json = context + scenario result + measured cadences."""
 import gzip, json, statistics, sys
 

@@ -1,3 +1,4 @@
+# ruff: noqa: E401,E701,E702,F401  (verbatim record of the script that produced the stored results; not reformatted so it stays what ran)
 import json, time, threading, urllib.request, urllib.error, uuid, sys
 BASE = "http://127.0.0.1:8090"
 T0 = time.time()
