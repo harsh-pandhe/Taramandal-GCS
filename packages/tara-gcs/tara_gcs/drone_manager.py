@@ -370,6 +370,7 @@ class DroneManager:
         sim_rng_seed: int | None = None,
         sim_packet_loss_base: float = 0.0,
         sim_packet_loss_per_100m: float = 0.0,
+        sim_tdma_jitter_ms: float = 0.0,
     ):
         """
         Args:
@@ -410,6 +411,11 @@ class DroneManager:
                 (default) models no RF loss at all - the pre-#62 sim backend.
             sim_packet_loss_per_100m: backend="sim" only - additional PER per
                 100m of distance from each drone's pad (issue #62).
+            sim_tdma_jitter_ms: backend="sim" only - standard deviation, in
+                milliseconds, of each drone's TDMA send-time error in
+                tara_sim's RF channel model (issue #207). ``0.0`` (default)
+                models perfect slot timing, and leaves a seeded run
+                bit-identical to one without the option.
         """
         if backend not in ("px4", "sim"):
             raise ValueError(f"backend must be 'px4' or 'sim', got {backend!r}")
@@ -418,6 +424,7 @@ class DroneManager:
         self._sim_rng_seed = sim_rng_seed
         self._sim_packet_loss_base = sim_packet_loss_base
         self._sim_packet_loss_per_100m = sim_packet_loss_per_100m
+        self._sim_tdma_jitter_ms = sim_tdma_jitter_ms
         # Evidence tier of this backend (issue #170); see FIDELITY_BY_BACKEND.
         self.fidelity = FIDELITY_BY_BACKEND[backend]
         self._sim_fleet = None  # tara_sim.SimFleet, created in connect_all() when backend == "sim"
@@ -524,8 +531,11 @@ class DroneManager:
                 RFChannelConfig(
                     packet_loss_base=self._sim_packet_loss_base,
                     packet_loss_per_100m=self._sim_packet_loss_per_100m,
+                    tdma_jitter_ms=self._sim_tdma_jitter_ms,
                 )
-                if self._sim_packet_loss_base > 0 or self._sim_packet_loss_per_100m > 0
+                if self._sim_packet_loss_base > 0
+                or self._sim_packet_loss_per_100m > 0
+                or self._sim_tdma_jitter_ms > 0
                 else None
             )
             self._sim_fleet = SimFleet(len(self.ports), config=sim_config, rf_channel_config=rf_channel_config)

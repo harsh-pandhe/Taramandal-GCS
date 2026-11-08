@@ -48,14 +48,6 @@ def _check_jitter_ms(jitter_ms: float, backend_name: str) -> None:
             fg=typer.colors.YELLOW,
             err=True,
         )
-        return
-    # The GCS builds the sim fleet's RF channel itself and does not read this yet (see the #207 PR).
-    typer.secho(
-        f"[tara] --jitter-ms {jitter_ms} is passed to the GCS as SIM_TDMA_JITTER_MS, but the GCS does not apply it "
-        "yet: tara_sim's channel model supports it, the GCS wiring is still to come (issue #207).",
-        fg=typer.colors.YELLOW,
-        err=True,
-    )
 
 
 @app.command()

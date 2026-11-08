@@ -85,9 +85,10 @@ def test_a_range_error_on_px4_is_still_an_error(spawned):
     assert spawned == []
 
 
-def test_sim_says_the_gcs_does_not_apply_jitter_yet(spawned):
-    """The GCS builds the sim fleet's RF channel and does not read SIM_TDMA_JITTER_MS yet; say so."""
+def test_sim_jitter_is_applied_by_the_gcs_so_nothing_warns_about_it(spawned):
+    """The GCS reads SIM_TDMA_JITTER_MS (issue #207), so --jitter-ms on sim no longer prints a caveat."""
     result = runner.invoke(app, ["up", "--backend", "sim", "-n", "3", "--jitter-ms", "1"])
     assert result.exit_code == 0, result.output
-    assert "does not apply it yet" in _said(result)
+    assert spawned[0]["sim_jitter_ms"] == 1.0
+    assert "does not apply" not in _said(result)
     assert "ignored on --backend" not in result.output
