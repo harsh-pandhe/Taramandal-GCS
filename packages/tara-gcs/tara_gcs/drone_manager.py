@@ -8,6 +8,7 @@ import os
 import shutil
 import tempfile
 import time
+from dataclasses import dataclass
 import numpy as np
 from scipy.spatial import cKDTree
 from tara_core import (
@@ -83,6 +84,43 @@ MISSION_FILE_NAME = "show.tmsn"
 #: one frame on a lossy radio still hears another in time.
 TRIGGER_LEAD_S = 1.0
 TRIGGER_REPEAT_INTERVAL_S = 0.2
+
+
+@dataclass
+class FleetCommandResult:
+    """What a fleet-wide LAND / RTL / E-STOP did, drone by drone (issue #171).
+
+    ``errors`` maps every drone the command was sent to onto ``None`` (the
+    vehicle accepted it) or the vehicle's error text (it refused). The routes
+    turn any refusal into a 502 instead of a success body.
+    """
+    command: str
+    errors: dict[int, str | None]
+    #: Whether the fleet lifecycle moved to the command's state.
+    fleet_state_advanced: bool = False
+
+    @property
+    def accepted_ids(self) -> list[int]:
+        return sorted(i for i, err in self.errors.items() if err is None)
+
+    @property
+    def refused_ids(self) -> list[int]:
+        return sorted(i for i, err in self.errors.items() if err is not None)
+
+    @property
+    def refused(self) -> bool:
+        return bool(self.refused_ids)
+
+    @property
+    def all_refused(self) -> bool:
+        """Every drone the command went to refused it. No drones is not a refusal."""
+        return bool(self.errors) and not self.accepted_ids
+
+    def breakdown(self) -> dict[str, dict]:
+        return {
+            str(i): {"accepted": err is None, "error": err}
+            for i, err in sorted(self.errors.items())
+        }
 
 
 class LaunchGateError(RuntimeError):
@@ -1705,35 +1743,80 @@ class DroneManager:
             and tel.get("fleet_z", 0.0) >= _hover_altitude(drone_id) - self.FORMATION_ALT_TOLERANCE_M
         )
 
-    async def trigger_rtl(self, operator: str = SYSTEM_OPERATOR, trigger: str = "rtl"):
-        """Trigger RTL for all connected drones.
+    async def _fleet_command(
+        self, command: Command, one, *, label: str, operator: str, trigger: str,
+    ) -> FleetCommandResult:
+        """Send one emergency command to every drone and report who accepted it.
 
-        Legal from every lifecycle state, so the transition can't fail; it's
-        recorded first so the audit shows the RTL even if a vehicle rejects it.
+        The command goes to every drone, concurrently on px4, and a refusal (or
+        an exception) from one never stops it reaching the others; nothing
+        here waits on the lifecycle first, so an E-STOP is not delayed by it.
+        The lifecycle moves only afterwards, and only if at least one drone
+        accepted: when every drone refused, nothing is landing / returning /
+        killed and the fleet state must not say it is. Each refusal is audited
+        with the drone ids and the vehicle's own words. With no drones
+        connected nothing refused, so the lifecycle still moves as before.
         """
-        self.fleet_fsm.apply(Command.RTL, operator=operator, trigger=trigger)
+        ids = list(self.drones)
+        raw = await self._for_each_drone([one(i) for i in ids], return_exceptions=True)
+        errors: dict[int, str | None] = {}
+        for drone_id, outcome in zip(ids, raw):
+            if isinstance(outcome, asyncio.CancelledError):
+                raise outcome
+            if isinstance(outcome, BaseException):  # a primitive raised (e.g. drone dropped mid-command)
+                outcome = str(outcome) or type(outcome).__name__
+            errors[drone_id] = outcome
+        result = FleetCommandResult(command=command.value, errors=errors)
+
+        if not result.all_refused:
+            self.fleet_fsm.apply(command, operator=operator, trigger=trigger)
+            result.fleet_state_advanced = True
+        if result.refused:
+            refused = {str(i): errors[i] for i in result.refused_ids}
+            scope = "every connected drone" if result.all_refused else f"drone(s) {result.refused_ids}"
+            logging.error(f"Fleet-wide {label} refused by {scope}: {refused}")
+            self.fleet_fsm.record_refused(
+                command, operator=operator, trigger=trigger,
+                reason=f"{label} refused by {scope}",
+                detail={
+                    "accepted_drones": result.accepted_ids,
+                    "refused_drones": refused,
+                    "fleet_state_advanced": result.fleet_state_advanced,
+                },
+            )
+        return result
+
+    async def trigger_rtl(self, operator: str = SYSTEM_OPERATOR, trigger: str = "rtl") -> FleetCommandResult:
+        """Trigger RTL for all connected drones; see :meth:`_fleet_command`.
+
+        Legal from every lifecycle state, so the lifecycle check can't fail.
+        """
         print("FAILSAFE: Triggering Return to Launch (RTL) for all drones...")
         self.stop_trajectory()
-        await self._for_each_drone([self._rtl_one(drone_id) for drone_id in list(self.drones)])
+        return await self._fleet_command(
+            Command.RTL, self._rtl_one, label="RTL", operator=operator, trigger=trigger,
+        )
 
-    async def trigger_land(self, operator: str = SYSTEM_OPERATOR, trigger: str = "land"):
+    async def trigger_land(self, operator: str = SYSTEM_OPERATOR, trigger: str = "land") -> FleetCommandResult:
         """Trigger Land for all connected drones. Legal from every lifecycle state."""
-        self.fleet_fsm.apply(Command.LAND, operator=operator, trigger=trigger)
         print("Commanding all drones to Land...")
         self.stop_trajectory()
-        await self._for_each_drone([self._land_one(drone_id) for drone_id in list(self.drones)])
+        return await self._fleet_command(
+            Command.LAND, self._land_one, label="landing", operator=operator, trigger=trigger,
+        )
 
-    async def trigger_estop(self, operator: str = SYSTEM_OPERATOR, trigger: str = "estop"):
+    async def trigger_estop(self, operator: str = SYSTEM_OPERATOR, trigger: str = "estop") -> FleetCommandResult:
         """Kill every drone's motors immediately. Legal from every lifecycle state.
 
         This is flight termination: airborne drones fall. It exists for the
         case where a drone flying on is worse than a drone dropping (flyaway,
         toward the crowd), and it's LAND/RTL, not this, for anything else.
         """
-        self.fleet_fsm.apply(Command.ESTOP, operator=operator, trigger=trigger)
         logging.critical("EMERGENCY STOP: killing motors on all drones.")
         self.stop_trajectory()
-        await self._for_each_drone([self._estop_one(drone_id) for drone_id in list(self.drones)])
+        return await self._fleet_command(
+            Command.ESTOP, self._estop_one, label="emergency stop", operator=operator, trigger=trigger,
+        )
 
     # Per-drone command primitives, shared by the fleet-wide triggers above and
     # the single-drone abort below. Each returns None on success or the

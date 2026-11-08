@@ -811,6 +811,44 @@ async def launch_fleet(operator: Commander):
         "overridden_rules": sorted(decision.overridden_rules),
     }
 
+def _fleet_command_reply(result, *, label: str, success_message: str) -> dict:
+    """The body of a fleet-wide RTL / land / E-STOP, or a 502 if any drone refused it.
+
+    A vehicle that rejects the command is a 502 here exactly as on the
+    single-drone routes (below), never a success body. The 502 carries every
+    drone's outcome and says whether the fleet lifecycle moved: it does not when
+    every drone refused, and it does when some drones accepted (they are now
+    landing / returning / killed), so the show cannot be restarted under them.
+    """
+    base = {
+        "backend": drone_manager.backend,
+        "mode": current_operating_mode,
+        "command": result.command,
+        "accepted_ids": result.accepted_ids,
+    }
+    if not result.refused:
+        return {"status": "success", "message": success_message, **base}
+    refused = [f"drone {i}: {result.errors[i]}" for i in result.refused_ids]
+    shown = "; ".join(refused[:5]) + (f"; and {len(refused) - 5} more" if len(refused) > 5 else "")
+    if result.all_refused:
+        message = f"Fleet-wide {label} refused by every connected drone ({shown}). Nothing was commanded."
+    else:
+        message = (
+            f"Fleet-wide {label} refused by {len(refused)} of {len(result.errors)} drones ({shown}). "
+            f"Commanded on drones {result.accepted_ids}."
+        )
+    raise HTTPException(
+        status_code=502,
+        detail={
+            "message": message,
+            **base,
+            "refused_ids": result.refused_ids,
+            "drones": result.breakdown(),
+            "fleet_state": drone_manager.fleet_fsm.state.value,
+            "fleet_state_advanced": result.fleet_state_advanced,
+        },
+    )
+
 @app.post("/api/rtl")
 async def trigger_rtl(operator: Commander):
     logger.info("API: Failsafe RTL triggered...")
@@ -819,13 +857,11 @@ async def trigger_rtl(operator: Commander):
             status_code=503,
             detail="Physical emergency RTL unavailable: no verified physical hardware controller transport exists.",
         )
-    await drone_manager.trigger_rtl(operator=operator.id, trigger="POST /api/rtl")
-    return {
-        "status": "success",
-        "message": f"Emergency RTL commanded to active backend ({drone_manager.backend}).",
-        "backend": drone_manager.backend,
-        "mode": current_operating_mode,
-    }
+    result = await drone_manager.trigger_rtl(operator=operator.id, trigger="POST /api/rtl")
+    return _fleet_command_reply(
+        result, label="RTL",
+        success_message=f"Emergency RTL commanded to active backend ({drone_manager.backend}).",
+    )
 
 @app.post("/api/land")
 async def trigger_land(operator: Commander):
@@ -835,13 +871,11 @@ async def trigger_land(operator: Commander):
             status_code=503,
             detail="Physical emergency landing unavailable: no verified physical hardware controller transport exists.",
         )
-    await drone_manager.trigger_land(operator=operator.id, trigger="POST /api/land")
-    return {
-        "status": "success",
-        "message": f"Emergency landing commanded to active backend ({drone_manager.backend}).",
-        "backend": drone_manager.backend,
-        "mode": current_operating_mode,
-    }
+    result = await drone_manager.trigger_land(operator=operator.id, trigger="POST /api/land")
+    return _fleet_command_reply(
+        result, label="landing",
+        success_message=f"Emergency landing commanded to active backend ({drone_manager.backend}).",
+    )
 
 @app.post("/api/estop")
 async def trigger_estop(operator: Commander):
@@ -852,13 +886,11 @@ async def trigger_estop(operator: Commander):
             status_code=503,
             detail="Physical emergency stop unavailable: no verified physical hardware controller transport exists.",
         )
-    await drone_manager.trigger_estop(operator=operator.id, trigger="POST /api/estop")
-    return {
-        "status": "success",
-        "message": f"Emergency stop commanded: motors killed on active backend ({drone_manager.backend}).",
-        "backend": drone_manager.backend,
-        "mode": current_operating_mode,
-    }
+    result = await drone_manager.trigger_estop(operator=operator.id, trigger="POST /api/estop")
+    return _fleet_command_reply(
+        result, label="emergency stop",
+        success_message=f"Emergency stop commanded: motors killed on active backend ({drone_manager.backend}).",
+    )
 
 # --- Single-drone abort (issue #59) ---------------------------------------
 #

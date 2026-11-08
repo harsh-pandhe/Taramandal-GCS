@@ -291,6 +291,27 @@ class FleetStateMachine:
         })
         raise err
 
+    def record_refused(self, command: Command, *, operator: str, trigger: str, reason: str,
+                       detail: dict | None = None) -> None:
+        """Audit a command that was legal but that vehicles refused (nothing moves).
+
+        ``check`` audits commands the *lifecycle* rejects; this is the other
+        half: the lifecycle allowed it, the vehicles did not. ``detail`` rides
+        along on the entry (which drones, and what each one said).
+        """
+        now = time.time()
+        self._audit({
+            "ts": now,
+            "time": _utc_iso(now),
+            "accepted": False,
+            "command": command.value,
+            "state": self._state.value,
+            "operator": operator,
+            "trigger": trigger,
+            "reason": reason,
+            **(detail or {}),
+        })
+
     def apply(self, command: Command, *, operator: str, trigger: str) -> dict | None:
         """Validate ``command`` and move to its target state.
 
