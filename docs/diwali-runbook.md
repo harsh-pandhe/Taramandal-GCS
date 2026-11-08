@@ -45,7 +45,7 @@ Tier for every row: simulation (T1 or T2); there is no hardware step unless #135
 | -40 | **Studio: Generate Sequence first**, then wait for `Built` and `Safety passed · exports enabled` (2.4). Then export the signed show (JSON, or CSV at 35) | Generate 1.3 s at 3 drones, 4.2 s at 35, 3.1 s at 100 | Badge `Not flight-certified`, `Safety failed` or `Unverified`, exports locked | Do not export and do not call it certified. Press Generate again; if it stays locked, switch to the show built and certified by `tools/diwali_run_all.sh` (2.3). **Pacing: use Standard, never Fast (2.7)** | badge states 4 Nov at 3 drones; 35 and 100 on 2 Nov, **NOT VERIFIED since** |
 | -35 | **Upload** the show and its `.sig.json` together; the mission stages itself 0.5 s later (2.3) | upload about 4 s and missions verified about 1 s at 35 drones (5 Nov) | `400 File too large` (over 5 MB or 100,000 rows: 35 as CSV fits, 100 never does); `403` key not trusted; "signature not verified"; missions not verified | Read the message; do not use `--allow-unsigned`. Check `trusted_keys` and the file size | 35 drones 5 Nov (API runner); dashboard upload 4 Nov at 3 drones |
 | -30 | **PRE-ARM CHECK & TAKEOFF, then LAUNCH FLEET.** On the sim backend there is no latch step (2.3). On PX4 the two-step latch applies and has not been clicked through the dashboard | launch to `FORMATION_HOLD`: 4 s (3 drones T1), 38 s (35 drones T1, three runs), about 19 s (5 drones T2) | `LAUNCH BLOCKED` with red gates; **or the fleet header stays `TAKEOFF` and START SHOW stays greyed** | Red gate: read the reasons, do not bypass. **Stuck in `TAKEOFF`: a planned drone did not get up (2.6): read which one, then EMER LAND and relaunch** | T1 4 to 5 Nov; T2 5 drones 3 Nov and 8 launches in #240 on 4 to 5 Nov |
-| -25 | **START SHOW** when the header says `FORMATION_HOLD` (not before) | the show: 84.2 s at 3 drones; 209.5 s or 197.8 s at 35 (2.3) | `409 launch_incomplete` (API only, the dashboard button is greyed); deviation panel red; a drone drops out | Stop the take. Do not carry on with a drone missing | 3 drones 4 Nov; 35 drones started 5 Nov but no 35-drone show was flown to the end on 4 to 6 Nov (2 Nov: 211.9, 213.2, 213.8 s) |
+| -25 | **START SHOW** when the header says `FORMATION_HOLD` (not before) | the show: 84.2 s at 3 drones; at 35 see the two-column length table in 2.3 (207.6 s repo build, 217.9 s built in Studio, figures-only) | `409 launch_incomplete` (API only, the dashboard button is greyed); deviation panel red; a drone drops out | Stop the take. Do not carry on with a drone missing | 3 drones 4 Nov; 35 drones started 5 Nov but no 35-drone show was flown to the end on 4 to 6 Nov (2 Nov: 211.9, 213.2, 213.8 s) |
 | during | **Watch the fleet header and the deviation panel.** Do not touch the dashboard | n/a | `failsafe:proximity` or `failsafe:geofence` RTL; drones heading home; deviation panel red; a stall (T1: show more than about 15 s over plan) | Let the RTL finish; do not click. Read the trigger in `GET /api/fleet-state` history. Discard the take (5.2). E-STOP only to stop a flyaway: it kills motors | RTL 2 Nov (T1 35 drones); E-STOP command path 4 Nov (sim only) |
 | end | **Land.** After `SHOW_COMPLETE` the only landing control is EMER LAND then CONFIRM LAND? (there is no plain Land) | T1 3 drones: `DISARMED` about 1 s after the command; T2 5 drones: about 6 s. 35 drones: not timed in this pass | Fleet not `DISARMED` within about 15 s; a drone still armed | `POST /api/rtl` is the second try; E-STOP is the last (5.2). On T2, read each drone's tracking error before counting the take (2.5) | 4 Nov (T1 3 drones); 3 Nov (T2) |
 | between takes | **Restart the stack** (`Ctrl+C`, `./tara up` again). `diwali_t1_run.py` refuses anything but `STAGED`; the GCS allows `LAUNCH` from `DISARMED` too (read from `fleet_fsm.py`, **NOT VERIFIED** through the dashboard) | about 20 s | Runner says "fleet is DISARMED, not STAGED" | Restart; do not hunt for a way round it on the day | refusal 4 Nov |
@@ -209,18 +209,35 @@ python tools/diwali_sim_scale.py $D/dist/diwali_100.json --out $D/sim_100.json  
 **Real show lengths, not the typed ones.** From `examples/diwali/README.md`: each build was certified through the
 real `/api/export` (flight export, 0 violations). They are 2.6 to 3.5 times the typed scene times, because the
 velocity, acceleration and jerk limits stretch every leg. Plan the slot from the real length, then add the launch
-(38 s at 35 drones, T1) and the landing. **These lengths are from the pacing before #244 and may change when it
-merges (2.7): re-certify and re-read them then. NOT VERIFIED in this pass.**
+(38 s at 35 drones, T1) and the landing.
 
-| Show | Drones | Typed (nominal) | Real, certified | Min separation | `.tara` size |
-|---|---:|---:|---:|---:|---:|
-| 3-drone segment (T2 and the T1 clip) | 3 | 64 s | 84.2 s | 2.20 m | 40 KB |
-| Lettered: diya, rangoli, ring, sphere burst | 35 | 74 s | 209.5 s | 2.05 m | 1.2 MB |
-| Lettered, with DIWALI (not legible at 35) | 35 | n/a | 230.8 s | 2.05 m | 1.3 MB |
-| Lettered: HAPPY, DIWALI, diya, rangoli, sphere burst | 100 | 94 s | 352.5 s | 2.05 m | 5.6 MB |
-| **Figures-only fallback** (#237): diya, sphere burst, diya | 35 | 76 s | **197.8 s** | 2.05 m | 1.1 MB |
-| **Figures-only fallback**: diya, rangoli, sphere burst, diya | 100 | 82 s | **269.6 s** | 2.05 m | 4.3 MB |
-| Ring and sphere burst (sim scale only) | 500 | 42 s | 216.4 s | 2.05 m | 17 MB |
+**Two lengths for the same storyboard.** The repo example build (`tools/diwali_build.mjs`, the file in
+`examples/diwali/results/`) solves the drone-to-point assignment chain in the browser code (`computeAssignmentChainLocal`).
+**Generate Sequence in Studio asks the backend (`POST /api/assign-chain`) instead.** The two return different chains, and the
+**Return leg** comes out a different length; every other leg is identical. So quote the column that matches the step:
+**"Built in Studio" for anything an operator builds on the day, "Repo example build" only for the certified files.**
+The certificate (`certify_*.json`) covers the repo example build, not the Studio-built one. At 35 drones Studio's own
+validation passed live on the Studio-built show (2.05 m minimum separation, 34.11 m peak, jerk 17.32 m/s³, same as the
+certified build). **Why the Return leg differs is NOT VERIFIED** (most likely equal-cost assignments broken differently by
+the two solvers; not root-caused). Measured 9 Nov on `f556537`, same builder, standard pacing, 10 Hz.
+
+| Show | Drones | Typed (nominal) | Repo example build | Built in Studio | Min separation | `.tara` size |
+|---|---:|---:|---:|---:|---:|---:|
+| 3-drone segment (T2 and the T1 clip) † | 3 | 64 s | 84.2 s | not measured | 2.20 m | 40 KB |
+| Lettered: diya, rangoli, ring, sphere burst † | 35 | 74 s | 209.5 s | 209.8 s (old pacing) | 2.05 m | 1.2 MB |
+| Lettered, with DIWALI (not legible at 35) † | 35 | n/a | 230.8 s | not measured | 2.05 m | 1.3 MB |
+| Lettered: HAPPY, DIWALI, diya, rangoli, sphere burst | 100 | 94 s | **416.9 s** | **420.7 s** ‡ | 2.05 m | 6.7 MB |
+| **Figures-only fallback** (#237): diya, sphere burst, diya | 35 | 76 s | **207.6 s** | **217.9 s** (3 min 37.9 s) | 2.05 m | 1.2 MB |
+| **Figures-only fallback**: diya, rangoli, sphere burst, diya | 100 | 82 s | **324.8 s** | **316.6 s** ‡ | 2.05 m | 5.2 MB |
+| Ring and sphere burst (sim scale only) † | 500 | 42 s | 216.4 s | not measured | 2.05 m | 17 MB |
+
+† Pacing before #244 (PX4-safe caps), not rebuilt; the length would be longer now. The 209.8 s Studio figure is from
+the old-pacing check in 2.4.
+‡ Computed with Studio's own build code (`computeAssignmentChain` against the real backend, then `buildSequencedShow`,
+standard pacing), **not read off the Studio screen**; the 217.9 s at 35 drones was read off the Studio screen and the same
+code reproduced it exactly. **The Studio-built 100-drone shows were not validated or exported here: NOT VERIFIED.**
+The direction is not consistent: at 100 drones the figures-only show is 8.2 s *shorter* in Studio, the lettered one 3.8 s
+*longer*. Min separation and `.tara` size in the table are those of the repo example build.
 
 The 35-drone figures-only show uses the stock `diya_flame.svg`; the 100-drone one uses `diya_festive.svg` (the
 stock diya is refused at 90 drones or more). The 100-drone shows still cannot go through the GCS (limits above).
@@ -288,7 +305,9 @@ PREVIEW, Play (4.15 s of the 84.2 s timeline played in about 4 s) and `Esc` also
   "Rebuild needed" badge, "Unverified · exports locked" and its stored timeline. Either way, press Generate
   Sequence before the camera rolls.
 - The preview is **rebuilt by the Studio UI**, so its length differs a little from the certified file: 209.8 s
-  vs 209.5 s at 35, 354.6 s vs 352.5 s at 100. It is the same storyboard, not the certified file.
+  vs 209.5 s at 35, 354.6 s vs 352.5 s at 100 (old pacing). It is the same storyboard, not the certified file. The cause
+  is that Studio takes its assignment chain from the backend while the example build solves it locally, which changes
+  the Return leg only (see the two-column length table in 2.3; on current pacing: 217.9 s vs 207.6 s at 35).
 - Measured: page load ~11 s; Generate Sequence 4.2 s (35) and 3.1 s (100) to a built show; at 4x speed the 35
   show played 203.7 s of its timeline in about 52 s of wall time. No console errors at either size.
 - Playwright used software WebGL, so the frame rate of a real GPU session is **NOT VERIFIED**.
