@@ -1,0 +1,881 @@
+{
+  "run_id": "cold-start-2",
+  "case": "cold_start_late_observer",
+  "verdict": "FAIL",
+  "context": {
+    "run_id": "cold-start-2",
+    "case": "cold_start_late_observer",
+    "stack": "tara up --backend px4 -n 1 (headless)",
+    "allow_unsigned": false,
+    "commit": "1d2d3a4936d63990094aa666beff75a94985328e",
+    "started_utc": "2026-11-07T16:46:32Z",
+    "host_load_before": "0.34 1.19 1.29",
+    "host_load_at_start": "0.34 1.19 1.29",
+    "host_load_at_end": "0.47 1.13 1.26",
+    "other_running_containers": [],
+    "fresh_container": true,
+    "microsd_dirs_before_stack": 0,
+    "px4_version": "v1.16.2",
+    "image_id": "sha256:424c464813742ee541ad2a554ee4bfa5e709beeeaebfb1dbfe9384459d92d3cb",
+    "docker_server": "29.8.0 on linux/amd64",
+    "host_cpus": "16",
+    "host_kernel": "7.0.0-38-generic",
+    "headless": true,
+    "gazebo_window": false,
+    "rviz": false,
+    "recording": false,
+    "px4_ulogs_saved": 2,
+    "scenario_exit_code": 0
+  },
+  "checks": [
+    {
+      "name": "preflight was red (GCS) when the GCS-level commands were sent",
+      "ok": true,
+      "detail": "{\"t\": 14.62, \"http\": 200, \"ready\": false, \"blocking\": [\"No drone passes every blocking pre-arm gate.\"], \"drone0\": {\"ready\": false, \"gates\": [{\"rule\": \"connected\", \"title\": \"Vehicle link up\", \"severity\": \"BLOCKING\", \"passed\": true, \"state\": "
+    },
+    {
+      "name": "hover-sequence before green is refused, with a reason",
+      "ok": true,
+      "detail": "{\"http\": 412, \"body\": \"{\\\"detail\\\": {\\\"message\\\": \\\"Single-drone sequence refused: pre-arm gates are red.\\\", \\\"profile\\\": \\\"SIMULATION\\\", \\\"blocking_reasons\\\": [\\\"Battery state of charge \\\\u2014 0.0% (floor 50%)\\\", \\\"EKF health & home lock \\\\u2014 Not armable, no home lock\\\"]}}\"}"
+    },
+    {
+      "name": "launch before green is refused, with a reason",
+      "ok": true,
+      "detail": "{\"http\": 412, \"body\": \"{\\\"detail\\\": {\\\"message\\\": \\\"Launch refused: pre-arm gates are red.\\\", \\\"profile\\\": \\\"SIMULATION\\\", \\\"blocking_reasons\\\": [\\\"No drone passes every blocking pre-arm gate.\\\"]}}\"}"
+    },
+    {
+      "name": "fleet stayed out of PREARM/ARMED/TAKEOFF after those attempts",
+      "ok": true,
+      "detail": "fleet_state=STAGED"
+    },
+    {
+      "name": "PX4's own first `arm` answer was a refusal (PX4 not yet armable), exercised for real",
+      "ok": false,
+      "detail": "tries=1 first={\"t\": 16.61, \"result\": \"ACCEPTED\", \"gcs_preflight_ready_at_that_time\": true, \"px4_health\": {\"local_position_ok\": true, \"global_position_ok\": false, \"home_position_ok\": true, \"armable\": false}}"
+    },
+    {
+      "name": "PX4 later accepted `arm` (disarmed again at once)",
+      "ok": true,
+      "detail": "t=16.60815143585205"
+    },
+    {
+      "name": "GCS preflight turned green",
+      "ok": true,
+      "detail": "t_first_green_s=15.87"
+    },
+    {
+      "name": "a normal hover completes once preflight is green",
+      "ok": true,
+      "detail": "200"
+    }
+  ],
+  "notes": {
+    "t_gcs_api_login_s": 13.9,
+    "t_drone_connected_to_gcs_s": 14.6,
+    "first_preflight_after_connect": {
+      "t": 14.62,
+      "http": 200,
+      "ready": false,
+      "blocking": [
+        "No drone passes every blocking pre-arm gate."
+      ],
+      "drone0": {
+        "ready": false,
+        "gates": [
+          {
+            "rule": "connected",
+            "title": "Vehicle link up",
+            "severity": "BLOCKING",
+            "passed": true,
+            "state": "pass",
+            "detail": "Link up"
+          },
+          {
+            "rule": "comm_latency",
+            "title": "Comm latency",
+            "severity": "WARNING",
+            "passed": true,
+            "state": "pass",
+            "detail": "0 ms (limit < 150 ms)"
+          },
+          {
+            "rule": "heartbeat",
+            "title": "Heartbeat continuity",
+            "severity": "WARNING",
+            "passed": false,
+            "state": "warn",
+            "detail": "0.0s without a dropped heartbeat (need 10s)"
+          },
+          {
+            "rule": "gnss_fix",
+            "title": "GNSS / RTK fix",
+            "severity": "BLOCKING",
+            "passed": true,
+            "state": "pass",
+            "detail": "FIX_3D (need FIX_3D or better)"
+          },
+          {
+            "rule": "battery_soc",
+            "title": "Battery state of charge",
+            "severity": "BLOCKING",
+            "passed": false,
+            "state": "fail",
+            "detail": "0.0% (floor 50%)"
+          },
+          {
+            "rule": "battery_cell_voltage",
+            "title": "Cell voltage",
+            "severity": "IGNORED",
+            "passed": false,
+            "state": "ignored",
+            "detail": "0.000 V/cell (0.00 V / 4S) (floor 4.15 V)"
+          },
+          {
+            "rule": "battery_cell_balance",
+            "title": "Cell balance",
+            "severity": "IGNORED",
+            "passed": false,
+            "state": "ignored",
+            "detail": "Per-cell voltages not reported by this vehicle"
+          },
+          {
+            "rule": "ekf_health",
+            "title": "EKF health & home lock",
+            "severity": "BLOCKING",
+            "passed": false,
+            "state": "fail",
+            "detail": "Not armable, no home lock"
+          },
+          {
+            "rule": "trajectory_hash",
+            "title": "Trajectory hash match",
+            "severity": "WARNING",
+            "passed": false,
+            "state": "warn",
+            "detail": "No show loaded"
+          },
+          {
+            "rule": "pad_clearance",
+            "title": "Launch pad clearance",
+            "severity": "WARNING",
+            "passed": true,
+            "state": "pass",
+            "detail": "Inside geofence, no other drone"
+          }
+        ]
+      }
+    },
+    "cold_start_v2": {
+      "t_first_not_ready_s": 14.62,
+      "first_ready": false,
+      "gcs_hover_sequence": {
+        "http": 412,
+        "body": "{\"detail\": {\"message\": \"Single-drone sequence refused: pre-arm gates are red.\", \"profile\": \"SIMULATION\", \"blocking_reasons\": [\"Battery state of charge \\u2014 0.0% (floor 50%)\", \"EKF health & home lock \\u2014 Not armable, no home lock\"]}}"
+      },
+      "gcs_latch_request": {
+        "http": 200
+      },
+      "gcs_launch": {
+        "http": 412,
+        "body": "{\"detail\": {\"message\": \"Launch refused: pre-arm gates are red.\", \"profile\": \"SIMULATION\", \"blocking_reasons\": [\"No drone passes every blocking pre-arm gate.\"]}}"
+      },
+      "fleet_state_after_gcs_attempts": "STAGED",
+      "observer_started_at_s": 14.6,
+      "arm_tries_count": 1,
+      "arm_tries_first5": [
+        {
+          "t": 16.61,
+          "result": "ACCEPTED",
+          "gcs_preflight_ready_at_that_time": true,
+          "px4_health": {
+            "local_position_ok": true,
+            "global_position_ok": false,
+            "home_position_ok": true,
+            "armable": false
+          }
+        }
+      ],
+      "arm_tries_last": {
+        "t": 16.61,
+        "result": "ACCEPTED",
+        "gcs_preflight_ready_at_that_time": true,
+        "px4_health": {
+          "local_position_ok": true,
+          "global_position_ok": false,
+          "home_position_ok": true,
+          "armable": false
+        }
+      },
+      "observer_events": [
+        [
+          15.74,
+          "connected",
+          true
+        ],
+        [
+          16.57,
+          "armed",
+          false
+        ],
+        [
+          16.57,
+          "mode",
+          "HOLD"
+        ],
+        [
+          16.57,
+          "landed_state",
+          "ON_GROUND"
+        ]
+      ],
+      "t_px4_arm_accepted_s": 16.6,
+      "t_gcs_preflight_first_green_s": 15.87
+    },
+    "preflight_samples": 6,
+    "preflight_timeline_first_and_last": [
+      {
+        "t": 14.62,
+        "http": 200,
+        "ready": false,
+        "blocking": [
+          "No drone passes every blocking pre-arm gate."
+        ],
+        "drone0": {
+          "ready": false,
+          "gates": [
+            {
+              "rule": "connected",
+              "title": "Vehicle link up",
+              "severity": "BLOCKING",
+              "passed": true,
+              "state": "pass",
+              "detail": "Link up"
+            },
+            {
+              "rule": "comm_latency",
+              "title": "Comm latency",
+              "severity": "WARNING",
+              "passed": true,
+              "state": "pass",
+              "detail": "0 ms (limit < 150 ms)"
+            },
+            {
+              "rule": "heartbeat",
+              "title": "Heartbeat continuity",
+              "severity": "WARNING",
+              "passed": false,
+              "state": "warn",
+              "detail": "0.0s without a dropped heartbeat (need 10s)"
+            },
+            {
+              "rule": "gnss_fix",
+              "title": "GNSS / RTK fix",
+              "severity": "BLOCKING",
+              "passed": true,
+              "state": "pass",
+              "detail": "FIX_3D (need FIX_3D or better)"
+            },
+            {
+              "rule": "battery_soc",
+              "title": "Battery state of charge",
+              "severity": "BLOCKING",
+              "passed": false,
+              "state": "fail",
+              "detail": "0.0% (floor 50%)"
+            },
+            {
+              "rule": "battery_cell_voltage",
+              "title": "Cell voltage",
+              "severity": "IGNORED",
+              "passed": false,
+              "state": "ignored",
+              "detail": "0.000 V/cell (0.00 V / 4S) (floor 4.15 V)"
+            },
+            {
+              "rule": "battery_cell_balance",
+              "title": "Cell balance",
+              "severity": "IGNORED",
+              "passed": false,
+              "state": "ignored",
+              "detail": "Per-cell voltages not reported by this vehicle"
+            },
+            {
+              "rule": "ekf_health",
+              "title": "EKF health & home lock",
+              "severity": "BLOCKING",
+              "passed": false,
+              "state": "fail",
+              "detail": "Not armable, no home lock"
+            },
+            {
+              "rule": "trajectory_hash",
+              "title": "Trajectory hash match",
+              "severity": "WARNING",
+              "passed": false,
+              "state": "warn",
+              "detail": "No show loaded"
+            },
+            {
+              "rule": "pad_clearance",
+              "title": "Launch pad clearance",
+              "severity": "WARNING",
+              "passed": true,
+              "state": "pass",
+              "detail": "Inside geofence, no other drone"
+            }
+          ]
+        }
+      },
+      {
+        "t": 14.66,
+        "http": 200,
+        "ready": false,
+        "blocking": [
+          "No drone passes every blocking pre-arm gate."
+        ],
+        "drone0": {
+          "ready": false,
+          "gates": [
+            {
+              "rule": "connected",
+              "title": "Vehicle link up",
+              "severity": "BLOCKING",
+              "passed": true,
+              "state": "pass",
+              "detail": "Link up"
+            },
+            {
+              "rule": "comm_latency",
+              "title": "Comm latency",
+              "severity": "WARNING",
+              "passed": true,
+              "state": "pass",
+              "detail": "0 ms (limit < 150 ms)"
+            },
+            {
+              "rule": "heartbeat",
+              "title": "Heartbeat continuity",
+              "severity": "WARNING",
+              "passed": false,
+              "state": "warn",
+              "detail": "0.1s without a dropped heartbeat (need 10s)"
+            },
+            {
+              "rule": "gnss_fix",
+              "title": "GNSS / RTK fix",
+              "severity": "BLOCKING",
+              "passed": true,
+              "state": "pass",
+              "detail": "FIX_3D (need FIX_3D or better)"
+            },
+            {
+              "rule": "battery_soc",
+              "title": "Battery state of charge",
+              "severity": "BLOCKING",
+              "passed": false,
+              "state": "fail",
+              "detail": "0.0% (floor 50%)"
+            },
+            {
+              "rule": "battery_cell_voltage",
+              "title": "Cell voltage",
+              "severity": "IGNORED",
+              "passed": false,
+              "state": "ignored",
+              "detail": "0.000 V/cell (0.00 V / 4S) (floor 4.15 V)"
+            },
+            {
+              "rule": "battery_cell_balance",
+              "title": "Cell balance",
+              "severity": "IGNORED",
+              "passed": false,
+              "state": "ignored",
+              "detail": "Per-cell voltages not reported by this vehicle"
+            },
+            {
+              "rule": "ekf_health",
+              "title": "EKF health & home lock",
+              "severity": "BLOCKING",
+              "passed": false,
+              "state": "fail",
+              "detail": "Not armable, no home lock"
+            },
+            {
+              "rule": "trajectory_hash",
+              "title": "Trajectory hash match",
+              "severity": "WARNING",
+              "passed": false,
+              "state": "warn",
+              "detail": "No show loaded"
+            },
+            {
+              "rule": "pad_clearance",
+              "title": "Launch pad clearance",
+              "severity": "WARNING",
+              "passed": true,
+              "state": "pass",
+              "detail": "Inside geofence, no other drone"
+            }
+          ]
+        }
+      },
+      {
+        "t": 14.97,
+        "http": 200,
+        "ready": false,
+        "blocking": [
+          "No drone passes every blocking pre-arm gate."
+        ],
+        "drone0": {
+          "ready": false,
+          "gates": [
+            {
+              "rule": "connected",
+              "title": "Vehicle link up",
+              "severity": "BLOCKING",
+              "passed": true,
+              "state": "pass",
+              "detail": "Link up"
+            },
+            {
+              "rule": "comm_latency",
+              "title": "Comm latency",
+              "severity": "WARNING",
+              "passed": true,
+              "state": "pass",
+              "detail": "0 ms (limit < 150 ms)"
+            },
+            {
+              "rule": "heartbeat",
+              "title": "Heartbeat continuity",
+              "severity": "WARNING",
+              "passed": false,
+              "state": "warn",
+              "detail": "0.4s without a dropped heartbeat (need 10s)"
+            },
+            {
+              "rule": "gnss_fix",
+              "title": "GNSS / RTK fix",
+              "severity": "BLOCKING",
+              "passed": true,
+              "state": "pass",
+              "detail": "FIX_3D (need FIX_3D or better)"
+            },
+            {
+              "rule": "battery_soc",
+              "title": "Battery state of charge",
+              "severity": "BLOCKING",
+              "passed": true,
+              "state": "pass",
+              "detail": "100.0% (floor 50%)"
+            },
+            {
+              "rule": "battery_cell_voltage",
+              "title": "Cell voltage",
+              "severity": "IGNORED",
+              "passed": false,
+              "state": "ignored",
+              "detail": "4.050 V/cell (16.20 V / 4S) (floor 4.15 V)"
+            },
+            {
+              "rule": "battery_cell_balance",
+              "title": "Cell balance",
+              "severity": "IGNORED",
+              "passed": false,
+              "state": "ignored",
+              "detail": "Per-cell voltages not reported by this vehicle"
+            },
+            {
+              "rule": "ekf_health",
+              "title": "EKF health & home lock",
+              "severity": "BLOCKING",
+              "passed": false,
+              "state": "fail",
+              "detail": "Not armable"
+            },
+            {
+              "rule": "trajectory_hash",
+              "title": "Trajectory hash match",
+              "severity": "WARNING",
+              "passed": false,
+              "state": "warn",
+              "detail": "No show loaded"
+            },
+            {
+              "rule": "pad_clearance",
+              "title": "Launch pad clearance",
+              "severity": "WARNING",
+              "passed": true,
+              "state": "pass",
+              "detail": "Inside geofence, no other drone"
+            }
+          ]
+        }
+      },
+      {
+        "t": 15.27,
+        "http": 200,
+        "ready": false,
+        "blocking": [
+          "No drone passes every blocking pre-arm gate."
+        ],
+        "drone0": {
+          "ready": false,
+          "gates": [
+            {
+              "rule": "connected",
+              "title": "Vehicle link up",
+              "severity": "BLOCKING",
+              "passed": true,
+              "state": "pass",
+              "detail": "Link up"
+            },
+            {
+              "rule": "comm_latency",
+              "title": "Comm latency",
+              "severity": "WARNING",
+              "passed": true,
+              "state": "pass",
+              "detail": "0 ms (limit < 150 ms)"
+            },
+            {
+              "rule": "heartbeat",
+              "title": "Heartbeat continuity",
+              "severity": "WARNING",
+              "passed": false,
+              "state": "warn",
+              "detail": "0.7s without a dropped heartbeat (need 10s)"
+            },
+            {
+              "rule": "gnss_fix",
+              "title": "GNSS / RTK fix",
+              "severity": "BLOCKING",
+              "passed": true,
+              "state": "pass",
+              "detail": "FIX_3D (need FIX_3D or better)"
+            },
+            {
+              "rule": "battery_soc",
+              "title": "Battery state of charge",
+              "severity": "BLOCKING",
+              "passed": true,
+              "state": "pass",
+              "detail": "100.0% (floor 50%)"
+            },
+            {
+              "rule": "battery_cell_voltage",
+              "title": "Cell voltage",
+              "severity": "IGNORED",
+              "passed": false,
+              "state": "ignored",
+              "detail": "4.050 V/cell (16.20 V / 4S) (floor 4.15 V)"
+            },
+            {
+              "rule": "battery_cell_balance",
+              "title": "Cell balance",
+              "severity": "IGNORED",
+              "passed": false,
+              "state": "ignored",
+              "detail": "Per-cell voltages not reported by this vehicle"
+            },
+            {
+              "rule": "ekf_health",
+              "title": "EKF health & home lock",
+              "severity": "BLOCKING",
+              "passed": false,
+              "state": "fail",
+              "detail": "Not armable"
+            },
+            {
+              "rule": "trajectory_hash",
+              "title": "Trajectory hash match",
+              "severity": "WARNING",
+              "passed": false,
+              "state": "warn",
+              "detail": "No show loaded"
+            },
+            {
+              "rule": "pad_clearance",
+              "title": "Launch pad clearance",
+              "severity": "WARNING",
+              "passed": true,
+              "state": "pass",
+              "detail": "Inside geofence, no other drone"
+            }
+          ]
+        }
+      },
+      {
+        "t": 15.57,
+        "http": 200,
+        "ready": false,
+        "blocking": [
+          "No drone passes every blocking pre-arm gate."
+        ],
+        "drone0": {
+          "ready": false,
+          "gates": [
+            {
+              "rule": "connected",
+              "title": "Vehicle link up",
+              "severity": "BLOCKING",
+              "passed": true,
+              "state": "pass",
+              "detail": "Link up"
+            },
+            {
+              "rule": "comm_latency",
+              "title": "Comm latency",
+              "severity": "WARNING",
+              "passed": true,
+              "state": "pass",
+              "detail": "0 ms (limit < 150 ms)"
+            },
+            {
+              "rule": "heartbeat",
+              "title": "Heartbeat continuity",
+              "severity": "WARNING",
+              "passed": false,
+              "state": "warn",
+              "detail": "1.0s without a dropped heartbeat (need 10s)"
+            },
+            {
+              "rule": "gnss_fix",
+              "title": "GNSS / RTK fix",
+              "severity": "BLOCKING",
+              "passed": true,
+              "state": "pass",
+              "detail": "FIX_3D (need FIX_3D or better)"
+            },
+            {
+              "rule": "battery_soc",
+              "title": "Battery state of charge",
+              "severity": "BLOCKING",
+              "passed": true,
+              "state": "pass",
+              "detail": "100.0% (floor 50%)"
+            },
+            {
+              "rule": "battery_cell_voltage",
+              "title": "Cell voltage",
+              "severity": "IGNORED",
+              "passed": false,
+              "state": "ignored",
+              "detail": "4.050 V/cell (16.20 V / 4S) (floor 4.15 V)"
+            },
+            {
+              "rule": "battery_cell_balance",
+              "title": "Cell balance",
+              "severity": "IGNORED",
+              "passed": false,
+              "state": "ignored",
+              "detail": "Per-cell voltages not reported by this vehicle"
+            },
+            {
+              "rule": "ekf_health",
+              "title": "EKF health & home lock",
+              "severity": "BLOCKING",
+              "passed": false,
+              "state": "fail",
+              "detail": "Not armable"
+            },
+            {
+              "rule": "trajectory_hash",
+              "title": "Trajectory hash match",
+              "severity": "WARNING",
+              "passed": false,
+              "state": "warn",
+              "detail": "No show loaded"
+            },
+            {
+              "rule": "pad_clearance",
+              "title": "Launch pad clearance",
+              "severity": "WARNING",
+              "passed": true,
+              "state": "pass",
+              "detail": "Inside geofence, no other drone"
+            }
+          ]
+        }
+      },
+      {
+        "t": 15.87,
+        "http": 200,
+        "ready": true,
+        "blocking": [],
+        "drone0": {
+          "ready": true,
+          "gates": [
+            {
+              "rule": "connected",
+              "title": "Vehicle link up",
+              "severity": "BLOCKING",
+              "passed": true,
+              "state": "pass",
+              "detail": "Link up"
+            },
+            {
+              "rule": "comm_latency",
+              "title": "Comm latency",
+              "severity": "WARNING",
+              "passed": true,
+              "state": "pass",
+              "detail": "4 ms (limit < 150 ms)"
+            },
+            {
+              "rule": "heartbeat",
+              "title": "Heartbeat continuity",
+              "severity": "WARNING",
+              "passed": false,
+              "state": "warn",
+              "detail": "1.3s without a dropped heartbeat (need 10s)"
+            },
+            {
+              "rule": "gnss_fix",
+              "title": "GNSS / RTK fix",
+              "severity": "BLOCKING",
+              "passed": true,
+              "state": "pass",
+              "detail": "FIX_3D (need FIX_3D or better)"
+            },
+            {
+              "rule": "battery_soc",
+              "title": "Battery state of charge",
+              "severity": "BLOCKING",
+              "passed": true,
+              "state": "pass",
+              "detail": "100.0% (floor 50%)"
+            },
+            {
+              "rule": "battery_cell_voltage",
+              "title": "Cell voltage",
+              "severity": "IGNORED",
+              "passed": false,
+              "state": "ignored",
+              "detail": "4.050 V/cell (16.20 V / 4S) (floor 4.15 V)"
+            },
+            {
+              "rule": "battery_cell_balance",
+              "title": "Cell balance",
+              "severity": "IGNORED",
+              "passed": false,
+              "state": "ignored",
+              "detail": "Per-cell voltages not reported by this vehicle"
+            },
+            {
+              "rule": "ekf_health",
+              "title": "EKF health & home lock",
+              "severity": "BLOCKING",
+              "passed": true,
+              "state": "pass",
+              "detail": "Armable, home position locked"
+            },
+            {
+              "rule": "trajectory_hash",
+              "title": "Trajectory hash match",
+              "severity": "WARNING",
+              "passed": false,
+              "state": "warn",
+              "detail": "No show loaded"
+            },
+            {
+              "rule": "pad_clearance",
+              "title": "Launch pad clearance",
+              "severity": "WARNING",
+              "passed": true,
+              "state": "pass",
+              "detail": "Inside geofence, no other drone"
+            }
+          ]
+        }
+      }
+    ],
+    "preflight_red_reasons_seen": [
+      "No drone passes every blocking pre-arm gate."
+    ]
+  },
+  "exception": null,
+  "cadence": {
+    "landed_state": {
+      "items": 24,
+      "span_s": 19.8,
+      "mean_hz": 1.16,
+      "median_interval_s": 1.0,
+      "p99_interval_s": 1.0002,
+      "max_gap_s": 1.0,
+      "gaps_over_2_5s": 0,
+      "longest_run_of_identical_values": 10
+    },
+    "position_velocity_ned": {
+      "items": 616,
+      "span_s": 20.5,
+      "mean_hz": 30.01,
+      "median_interval_s": 0.0321,
+      "p99_interval_s": 0.0362,
+      "max_gap_s": 0.037,
+      "gaps_over_2_5s": 0
+    }
+  },
+  "observer_events": [
+    [
+      15.74,
+      "connected",
+      true
+    ],
+    [
+      16.57,
+      "armed",
+      false
+    ],
+    [
+      16.57,
+      "mode",
+      "HOLD"
+    ],
+    [
+      16.57,
+      "landed_state",
+      "ON_GROUND"
+    ],
+    [
+      17.57,
+      "armed",
+      true
+    ],
+    [
+      17.57,
+      "mode",
+      "OFFBOARD"
+    ],
+    [
+      19.57,
+      "landed_state",
+      "IN_AIR"
+    ],
+    [
+      29.57,
+      "mode",
+      "LAND"
+    ],
+    [
+      29.57,
+      "landed_state",
+      "LANDING"
+    ],
+    [
+      32.57,
+      "landed_state",
+      "ON_GROUND"
+    ],
+    [
+      34.57,
+      "armed",
+      false
+    ],
+    [
+      34.57,
+      "mode",
+      "HOLD"
+    ]
+  ]
+}

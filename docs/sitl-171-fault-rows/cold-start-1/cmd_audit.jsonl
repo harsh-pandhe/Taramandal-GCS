@@ -1,0 +1,5 @@
+{"backend": "px4", "event": "login", "fidelity": "px4-sitl", "operator": "cmdr", "origin_ip": "127.0.0.1", "role": "FLIGHT_COMMANDER", "ts": 1794069662.2925608}
+{"backend": "px4", "event": "command", "fidelity": "px4-sitl", "method": "POST", "operator": "cmdr", "origin_ip": "127.0.0.1", "path": "/api/single-drone/hover-sequence", "role": "FLIGHT_COMMANDER", "status": 412, "ts": 1794069663.2214518}
+{"backend": "px4", "event": "command", "fidelity": "px4-sitl", "method": "POST", "operator": "cmdr", "origin_ip": "127.0.0.1", "path": "/api/preflight/latch/request", "role": "FLIGHT_COMMANDER", "status": 200, "ts": 1794069663.2291033}
+{"backend": "px4", "event": "command", "fidelity": "px4-sitl", "method": "POST", "operator": "cmdr", "origin_ip": "127.0.0.1", "path": "/api/launch", "role": "FLIGHT_COMMANDER", "status": 412, "ts": 1794069663.2349083}
+{"backend": "px4", "event": "command", "fidelity": "px4-sitl", "method": "POST", "operator": "cmdr", "origin_ip": "127.0.0.1", "path": "/api/drone/0/land", "role": "FLIGHT_COMMANDER", "status": 200, "ts": 1794069663.2809095}
