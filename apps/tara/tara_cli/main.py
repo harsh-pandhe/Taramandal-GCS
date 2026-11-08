@@ -223,10 +223,14 @@ def compile(
         help="Validate altitude and collision limits before compilation.",
     ),
 ) -> None:
-    """Compile canonical show trajectories into deterministic binary .tarm payloads (issue #56)."""
+    """Compile canonical show trajectories into deterministic binary .tarm payloads (issue #56).
+
+    Each drone's file is in its own launch-pad frame and byte-identical to the one the GCS
+    uploads for the same show."""
     from tara_core import Show
     from tara_core.compiler import compile_show
     from tara_core.validate import altitude_errors, collision_errors
+    from tara_gcs.drone_manager import _pad_offset
 
     try:
         suffix = show.suffix.lower()
@@ -255,7 +259,15 @@ def compile(
             raise typer.Exit(1)
 
     try:
-        missions, manifest = compile_show(show_obj, output_dir=output_dir)
+        # Compile in each drone's own pad frame, exactly as the GCS does when it
+        # uploads a show (DroneManager.upload_show): the file header promises
+        # drone-local NED, so a fleet-frame file loaded onto a drone that is not
+        # at the origin pad would command a sideways move at t = 0. The pad grid
+        # is the GCS's own, imported rather than copied so the two cannot drift.
+        # Slot N is compiled for drone N, which is what the GCS assigns when the
+        # whole fleet is healthy; offline there is no health to remap around.
+        origins = {slot: _pad_offset(slot) for slot in show_obj.drones}
+        missions, manifest = compile_show(show_obj, output_dir=output_dir, origins=origins)
     except Exception as exc:
         typer.secho(f"[tara] compilation failed: {exc}", fg=typer.colors.RED, err=True)
         raise typer.Exit(1)
