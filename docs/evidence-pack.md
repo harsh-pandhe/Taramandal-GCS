@@ -200,6 +200,8 @@ claim (`/api/validate`), not a physical flight claim.**
 | Sequencer-transmit visual baseline refresh | `packages/tara-studio-web/e2e/studio.spec.js-snapshots/`; [PR #247](https://github.com/harsh-pandhe/Taramandal-GCS/pull/247) | #247 `fbf3ad9` | — | Refreshed Studio Playwright visual baseline after locked-KML button restyle; all 54/54 visual baselines passing |
 | TDMA slot jitter & collision model | `packages/tara-sim/tara_sim/rf_channel.py`, `apps/tara/tara_cli/main.py`; [PR #248](https://github.com/harsh-pandhe/Taramandal-GCS/pull/248) (part of #207) | #248 `2a3f18d` | — | TDMA slot jitter and inter-slot collisions in tara_sim's RF channel model, with `tara up --jitter-ms` CLI support and 63 unit/integration tests |
 | Diwali shows re-certified on PX4-safe pacing | `examples/diwali/README.md`, `examples/diwali/results/`, `tools/diwali_build.mjs`; [PR #249](https://github.com/harsh-pandhe/Taramandal-GCS/pull/249) (part of #122) | #249 `80b2beb` | 35, 100 | Re-built and re-certified 35-drone and 100-drone Diwali shows under PX4-safe pacing caps (climb $\le 2.4\,\text{m/s}$, descent $\le 1.2\,\text{m/s}$); updated sim benchmarks and vertical speed validation |
+| Raster-formation refusal threshold (no clear silhouette) | `packages/tara-studio/tara_studio/raster_formation.py`, `tests/test_raster_music_hardening.py`; [PR #250](https://github.com/harsh-pandhe/Taramandal-GCS/pull/250) (follow-up to #239, part of #90) | #250 `f556537` | — | `REFUSE_CONTOURS_FACTOR` 10 → 5, so an image with more than 5,000 separate shapes is refused instead of yielding a formation from its 1,000 longest contours; one new test pins the 1 px checkerboard case that slipped through at 10×. Refusal path only, no limit relaxed. Re-run on `f556537`: `test_raster_music_hardening.py` 37 passed |
+| Deterministic binary mission compiler and `tara compile` CLI (T1, software only) | `packages/tara-core/tara_core/compiler.py`, `tests/test_compiler.py`, `apps/tara/tara_cli/main.py`, `apps/tara/tests/test_compile_cli.py`; direct commit, issue [#56](https://github.com/harsh-pandhe/Taramandal-GCS/issues/56) (V3 roadmap, not on the V1 demo path) | d22b7c1 | — | Per-drone `.tarm` files (40 B header + 16 B records; 15 min at 2 Hz = 28,856 B) with per-drone and manifest SHA-256. Re-run on `f556537`, Python 3.12.3 / Linux: `test_compiler.py` + `test_compile_cli.py` 17 passed, and the #47 encoder it wraps (`test_mission.py`) 29 passed. **Not flown on any controller.** Audit [on #56](https://github.com/harsh-pandhe/Taramandal-GCS/issues/56#issuecomment-6725861387) found two open gaps: the CLI compiles in the fleet frame while the GCS upload compiles in each drone's pad frame (bytes differ for any drone not at the origin pad), and the CLI gate is weaker than Studio's `certify_feasibility_report`. No cross-platform golden digest exists yet (CI is Linux only) |
 
 ## 5. Hardware BOM, wiring and configuration
 
@@ -233,6 +235,13 @@ track has been sourced. Placeholder section.
   implemented and merged (`8d5f209`) but kept open pending a maintainer
   decision on whether pre-#167 `.tara` files need a migration/version gate
   — noted here since it touches this pack's pad-spacing finding above.
+- **The binary mission compiler (#56, `d22b7c1`) is software-only and its
+  CLI output is not yet safe to load onto a drone.** `tara compile` writes
+  fleet-frame files where the GCS uploads pad-frame files, and its safety
+  gate is narrower than Studio's export gate; details and a reproduction are
+  in the [audit on #56](https://github.com/harsh-pandhe/Taramandal-GCS/issues/56#issuecomment-6725861387).
+  Nothing in the V1 evidence above depends on it: the V1 chain uses the GCS
+  upload path.
 - **V2 roadmap** (#123): the professional Studio/GCS workflow set — things
   like the full observability/replay tooling in #65, music-aware
   choreography in #91, and the broader AI copilot work in #89/#90/#94 — is
