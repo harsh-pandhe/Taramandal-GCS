@@ -360,3 +360,15 @@ def test_cors_on_the_new_endpoints_matches_the_existing_ones(path):
     bad = client.options(path, headers={"Origin": "http://evil.example", "Access-Control-Request-Method": "POST"})
     assert ok.status_code == 200 and ok.headers["access-control-allow-origin"] == origin
     assert bad.status_code == 400 and "access-control-allow-origin" not in bad.headers
+
+
+def test_a_one_pixel_checkerboard_between_5x_and_10x_the_cap_is_refused():
+    """Pins the case that slipped through when the refusal factor was 10: a 128x128 1 px
+    checkerboard has ~8,200 separate shapes, over MAX_CONTOURS * 5 but under * 10."""
+    checker = _png(Image.fromarray((((np.indices((128, 128)).sum(0)) % 2) * 255).astype(np.uint8), "L"))
+    n = _contours_of(checker)
+    assert n > raster_formation.MAX_CONTOURS * 5, n
+    assert n < raster_formation.MAX_CONTOURS * 10, n
+    r = _raster(checker, n_drones=25)
+    assert r.status_code == 400
+    assert "no clear silhouette" in r.json()["detail"]
