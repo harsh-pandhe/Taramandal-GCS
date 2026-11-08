@@ -5,6 +5,8 @@
   "verdict": "INVALID: VM swapped during stack start (pswpout +108371 pages)",
   "invalid": "VM swapped during stack start (pswpout +108371 pages)",
   "host_load_before_1_5_15min": "2.55 2.20 1.21",
+  "host_load_at_start_1_5_15min": "3.55 2.50 1.36",
+  "host_load_at_end_1_5_15min": "3.55 2.50 1.36",
   "memory": {
    "samples": 23,
    "vm_mem_total_mib": 3737,
@@ -65,6 +67,8 @@
   "verdict": "PASS",
   "invalid": null,
   "host_load_before_1_5_15min": "2.20 2.30 1.35",
+  "host_load_at_start_1_5_15min": "2.83 2.42 1.43",
+  "host_load_at_end_1_5_15min": "4.02 3.21 1.87",
   "memory": {
    "samples": 90,
    "vm_mem_total_mib": 3737,
@@ -132,6 +136,8 @@
   "verdict": "PASS",
   "invalid": null,
   "host_load_before_1_5_15min": "1.84 2.74 1.78",
+  "host_load_at_start_1_5_15min": "2.57 2.82 1.85",
+  "host_load_at_end_1_5_15min": "2.13 2.62 1.91",
   "memory": {
    "samples": 89,
    "vm_mem_total_mib": 3737,
@@ -199,6 +205,8 @@
   "verdict": "PASS",
   "invalid": null,
   "host_load_before_1_5_15min": "1.13 2.27 1.83",
+  "host_load_at_start_1_5_15min": "1.32 2.18 1.82",
+  "host_load_at_end_1_5_15min": "3.21 2.70 2.06",
   "memory": {
    "samples": 90,
    "vm_mem_total_mib": 3737,
@@ -267,6 +275,8 @@
   "verdict": "FAIL: tool verdict FAIL: emergency transition; final state RTL; per-drone check failed for drones 0, 1, 2, 3, 4",
   "invalid": null,
   "host_load_before_1_5_15min": "2.65 2.65 2.08",
+  "host_load_at_start_1_5_15min": "3.78 2.90 2.19",
+  "host_load_at_end_1_5_15min": "47.90 26.39 11.81",
   "memory": {
    "samples": 169,
    "vm_mem_total_mib": 3737,
@@ -345,6 +355,95 @@
     "peak_alt_m": 9.99,
     "planned_peak_alt_m": 12.0,
     "max_tracking_error_m": 8.928
+   }
+  ]
+ },
+ "final-n5-p2": {
+  "commit": "f556537b75289c1c029cfd9044b21d7efe0647c7",
+  "counted": true,
+  "verdict": "PASS",
+  "invalid": null,
+  "host_load_before_1_5_15min": "2.91 15.99 51.35",
+  "host_load_at_start_1_5_15min": "5.28 14.42 48.78",
+  "host_load_at_end_1_5_15min": "8.84 12.30 43.00",
+  "memory": {
+   "samples": 100,
+   "vm_mem_total_mib": 3737,
+   "vm_swap_total_mib": 1023,
+   "min_available_mib": 1947,
+   "swap_out_pages_during_run": 0
+  },
+  "launch_failures": {
+   "samples_with_changes": 11,
+   "ever_non_empty": false,
+   "fleet_states_seen": [
+    "ARMED",
+    "DISARMED",
+    "FORMATION_HOLD",
+    "LANDING",
+    "RUNNING",
+    "SHOW_COMPLETE",
+    "STAGED",
+    "TAKEOFF"
+   ]
+  },
+  "px4_logs_kept": {
+   "ulog": {
+    "0": true,
+    "1": true,
+    "2": true,
+    "3": true,
+    "4": true
+   },
+   "console": {
+    "0": true,
+    "1": true,
+    "2": true,
+    "3": true,
+    "4": true
+   },
+   "all": true
+  },
+  "per_drone_flight_check": [
+   {
+    "flew_show": true,
+    "offboard_seen_by_gcs": true,
+    "climbed": true,
+    "peak_alt_m": 10.41,
+    "planned_peak_alt_m": 10.4,
+    "max_tracking_error_m": 0.18
+   },
+   {
+    "flew_show": true,
+    "offboard_seen_by_gcs": true,
+    "climbed": true,
+    "peak_alt_m": 13.62,
+    "planned_peak_alt_m": 13.6,
+    "max_tracking_error_m": 0.293
+   },
+   {
+    "flew_show": true,
+    "offboard_seen_by_gcs": true,
+    "climbed": true,
+    "peak_alt_m": 15.22,
+    "planned_peak_alt_m": 15.2,
+    "max_tracking_error_m": 0.326
+   },
+   {
+    "flew_show": true,
+    "offboard_seen_by_gcs": true,
+    "climbed": true,
+    "peak_alt_m": 10.54,
+    "planned_peak_alt_m": 10.5,
+    "max_tracking_error_m": 0.307
+   },
+   {
+    "flew_show": true,
+    "offboard_seen_by_gcs": true,
+    "climbed": true,
+    "peak_alt_m": 12.04,
+    "planned_peak_alt_m": 12.0,
+    "max_tracking_error_m": 0.246
    }
   ]
  }
