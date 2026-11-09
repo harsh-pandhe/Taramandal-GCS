@@ -446,5 +446,185 @@
     "max_tracking_error_m": 0.246
    }
   ]
+ },
+ "final-n5-p3": {
+  "commit": "f556537b75289c1c029cfd9044b21d7efe0647c7",
+  "counted": true,
+  "verdict": "PASS",
+  "invalid": null,
+  "host_load_before_1_5_15min": "2.83 1.99 2.02",
+  "host_load_at_start_1_5_15min": "4.49 2.59 2.22",
+  "host_load_at_end_1_5_15min": "7.65 4.73 3.08",
+  "memory": {
+   "samples": 100,
+   "vm_mem_total_mib": 3737,
+   "vm_swap_total_mib": 1023,
+   "min_available_mib": 2064,
+   "swap_out_pages_during_run": 0
+  },
+  "launch_failures": {
+   "samples_with_changes": 12,
+   "ever_non_empty": false,
+   "fleet_states_seen": [
+    "ARMED",
+    "DISARMED",
+    "FORMATION_HOLD",
+    "LANDING",
+    "PREARM",
+    "RUNNING",
+    "SHOW_COMPLETE",
+    "STAGED",
+    "TAKEOFF"
+   ]
+  },
+  "px4_logs_kept": {
+   "ulog": {
+    "0": true,
+    "1": true,
+    "2": true,
+    "3": true,
+    "4": true
+   },
+   "console": {
+    "0": true,
+    "1": true,
+    "2": true,
+    "3": true,
+    "4": true
+   },
+   "all": true
+  },
+  "per_drone_flight_check": [
+   {
+    "flew_show": true,
+    "offboard_seen_by_gcs": true,
+    "climbed": true,
+    "peak_alt_m": 10.45,
+    "planned_peak_alt_m": 10.4,
+    "max_tracking_error_m": 0.147
+   },
+   {
+    "flew_show": true,
+    "offboard_seen_by_gcs": true,
+    "climbed": true,
+    "peak_alt_m": 13.6,
+    "planned_peak_alt_m": 13.6,
+    "max_tracking_error_m": 0.276
+   },
+   {
+    "flew_show": true,
+    "offboard_seen_by_gcs": true,
+    "climbed": true,
+    "peak_alt_m": 15.19,
+    "planned_peak_alt_m": 15.2,
+    "max_tracking_error_m": 0.247
+   },
+   {
+    "flew_show": true,
+    "offboard_seen_by_gcs": true,
+    "climbed": true,
+    "peak_alt_m": 10.42,
+    "planned_peak_alt_m": 10.5,
+    "max_tracking_error_m": 0.274
+   },
+   {
+    "flew_show": true,
+    "offboard_seen_by_gcs": true,
+    "climbed": true,
+    "peak_alt_m": 12.03,
+    "planned_peak_alt_m": 12.0,
+    "max_tracking_error_m": 0.192
+   }
+  ]
+ },
+ "final-n5-p4": {
+  "commit": "f556537b75289c1c029cfd9044b21d7efe0647c7",
+  "counted": true,
+  "verdict": "PASS",
+  "invalid": null,
+  "host_load_before_1_5_15min": "2.04 3.77 2.96",
+  "host_load_at_start_1_5_15min": "2.81 3.68 2.97",
+  "host_load_at_end_1_5_15min": "6.71 4.83 3.50",
+  "memory": {
+   "samples": 100,
+   "vm_mem_total_mib": 3737,
+   "vm_swap_total_mib": 1023,
+   "min_available_mib": 2067,
+   "swap_out_pages_during_run": 0
+  },
+  "launch_failures": {
+   "samples_with_changes": 14,
+   "ever_non_empty": false,
+   "fleet_states_seen": [
+    "ARMED",
+    "DISARMED",
+    "FORMATION_HOLD",
+    "LANDING",
+    "PREARM",
+    "RUNNING",
+    "SHOW_COMPLETE",
+    "STAGED",
+    "TAKEOFF"
+   ]
+  },
+  "px4_logs_kept": {
+   "ulog": {
+    "0": true,
+    "1": true,
+    "2": true,
+    "3": true,
+    "4": true
+   },
+   "console": {
+    "0": true,
+    "1": true,
+    "2": true,
+    "3": true,
+    "4": true
+   },
+   "all": true
+  },
+  "per_drone_flight_check": [
+   {
+    "flew_show": true,
+    "offboard_seen_by_gcs": true,
+    "climbed": true,
+    "peak_alt_m": 10.41,
+    "planned_peak_alt_m": 10.4,
+    "max_tracking_error_m": 0.171
+   },
+   {
+    "flew_show": true,
+    "offboard_seen_by_gcs": true,
+    "climbed": true,
+    "peak_alt_m": 13.58,
+    "planned_peak_alt_m": 13.6,
+    "max_tracking_error_m": 0.288
+   },
+   {
+    "flew_show": true,
+    "offboard_seen_by_gcs": true,
+    "climbed": true,
+    "peak_alt_m": 15.28,
+    "planned_peak_alt_m": 15.2,
+    "max_tracking_error_m": 0.235
+   },
+   {
+    "flew_show": true,
+    "offboard_seen_by_gcs": true,
+    "climbed": true,
+    "peak_alt_m": 10.47,
+    "planned_peak_alt_m": 10.5,
+    "max_tracking_error_m": 0.287
+   },
+   {
+    "flew_show": true,
+    "offboard_seen_by_gcs": true,
+    "climbed": true,
+    "peak_alt_m": 12.05,
+    "planned_peak_alt_m": 12.0,
+    "max_tracking_error_m": 0.292
+   }
+  ]
  }
 }
