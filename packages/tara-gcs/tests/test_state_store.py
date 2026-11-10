@@ -1,7 +1,10 @@
+import json
 import os
 
+import pytest
 
-from tara_gcs.state_store import discard_show_state, load_show_state, save_show_state
+from tara_gcs import state_store
+from tara_gcs.state_store import discard_show_state, load_show_state, prime_trajectory_cache, save_show_state
 
 
 def test_save_and_load_round_trip(tmp_path):
@@ -60,14 +63,6 @@ def test_save_does_not_leave_tmp_file_behind(tmp_path):
 # --- The trajectory is encoded once per loaded show, not once per snapshot ----------------------------------------
 # A snapshot is written every few seconds while a show plays. Re-encoding a 200 MB trajectory each time froze the GCS
 # event loop for about 3 s (269 drones x 9,722 waypoints), which stalled the simulated fleet behind its plan.
-
-import json
-
-import pytest
-
-from tara_gcs import state_store
-from tara_gcs.state_store import prime_trajectory_cache
-
 
 @pytest.fixture(autouse=True)
 def _fresh_cache():
