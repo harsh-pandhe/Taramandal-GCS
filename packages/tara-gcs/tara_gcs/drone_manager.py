@@ -26,6 +26,7 @@ from tara_core import (
 from tara_core.show import Show
 from mavsdk.offboard import PositionNedYaw, PositionGlobalYaw, OffboardError, VelocityNedYaw, AccelerationNed
 from tara_gcs.broadcast_manager import BROADCAST_SYSID
+from tara_gcs.led import led_at
 from tara_gcs.preflight import GNSS_FIX_TYPES
 from tara_gcs.mavsdk_lifeline import GcsBoundSystem
 from tara_gcs.fleet_fsm import (
@@ -617,6 +618,15 @@ class DroneManager:
                 "planned_y": 0.0,
                 "planned_z": 0.0,
                 "planned_valid": False,
+                # LED colour (0-255) the show commands this drone to display
+                # at the current playback time, from the colours Studio bakes
+                # into the waypoints. led_valid is False when the show carries
+                # no colour data (or no show is playing), so a dashboard can
+                # fall back to something else instead of drawing black.
+                "led_r": 0.0,
+                "led_g": 0.0,
+                "led_b": 0.0,
+                "led_valid": False,
                 # Pre-arm checklist inputs (tara_gcs.preflight, issue #48).
                 # time.monotonic() when the link last came up with no dropped
                 # heartbeat or failed latency probe since; None while down.
@@ -2308,6 +2318,7 @@ class DroneManager:
         tel = self.telemetry[drone_id]
         tel["aborted"] = {"type": mode, "at": time.time()}
         tel["planned_valid"] = False
+        tel["led_valid"] = False
         logging.warning(f"ABORT: Drone {drone_id} aborting out of the show ({mode.upper()}); the rest of the fleet continues.")
 
         command = {"rtl": self._rtl_one, "land": self._land_one, "estop": self._estop_one}[mode]
@@ -2851,6 +2862,12 @@ class DroneManager:
                         tel["planned_y"] = target["y"]
                         tel["planned_z"] = -target["z"]
                         tel["planned_valid"] = True
+                        led = led_at(wps, elapsed)
+                        if led is None:
+                            tel["led_valid"] = False
+                        else:
+                            tel["led_r"], tel["led_g"], tel["led_b"] = led
+                            tel["led_valid"] = True
 
                         if onboard:
                             continue  # the drone is flying this itself
@@ -2935,6 +2952,7 @@ class DroneManager:
             # as the fleet lands or returns home.
             for tel in self.telemetry.values():
                 tel["planned_valid"] = False
+                tel["led_valid"] = False
             # A finished (or abandoned-by-shutdown) onboard show needs no
             # CANCEL: drones hold their last waypoint on their own.
             if onboard:

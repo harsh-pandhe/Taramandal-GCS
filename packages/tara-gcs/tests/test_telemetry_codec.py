@@ -57,14 +57,14 @@ class TestFastFrame:
         frame = encode_fast_frame(_telemetry(3))
         floats = struct.unpack(f"<{3 * FLOATS_PER_DRONE}f", frame)
         # drone 0: fleet xyz=0,0,0 local xyz=0,0,0 heading=0 armed=1 connected=1,
-        # then planned xyz=0.5,0.25,-0.75 and planned_valid=1
-        assert floats[0:13] == (
-            0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 1.0, 0.5, 0.25, -0.75, 1.0,
+        # then planned xyz=0.5,0.25,-0.75 and planned_valid=1, then the LED fields (dark, invalid)
+        assert floats[0:17] == (
+            0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 1.0, 0.5, 0.25, -0.75, 1.0, 0.0, 0.0, 0.0, 0.0,
         )
         # drone 1: fleet xyz=1,2,-3 local xyz=0.5,0.25,-0.75 heading=10
         # armed=0(odd) connected=1, planned xyz=1.5,2.25,-3.75, valid=1
-        assert floats[13:26] == (
-            1.0, 2.0, -3.0, 0.5, 0.25, -0.75, 10.0, 0.0, 1.0, 1.5, 2.25, -3.75, 1.0,
+        assert floats[17:34] == (
+            1.0, 2.0, -3.0, 0.5, 0.25, -0.75, 10.0, 0.0, 1.0, 1.5, 2.25, -3.75, 1.0, 0.0, 0.0, 0.0, 0.0,
         )
 
     def test_missing_fields_default_to_zero(self):
@@ -75,8 +75,8 @@ class TestFastFrame:
     def test_scales_to_100_drones(self):
         frame = encode_fast_frame(_telemetry(100))
         assert len(frame) == 100 * BYTES_PER_DRONE
-        # ~5.2KB at 100 drones, not several hundred KB of JSON.
-        assert len(frame) < 6000
+        # ~6.8KB at 100 drones (68 bytes each), not several hundred KB of JSON.
+        assert len(frame) < 7000
 
     def test_drone_order_is_by_sorted_id_not_insertion_order(self):
         telemetry = {5: {"fleet_x": 5.0}, 1: {"fleet_x": 1.0}, 3: {"fleet_x": 3.0}}
@@ -149,3 +149,27 @@ class TestPlannedPosition:
         # also rode the 1Hz JSON channel the two would disagree between ticks.
         drone = encode_slow_frame(_telemetry(1))["drones"]["0"]
         assert not any(field.startswith("planned_") for field in drone)
+
+
+class TestLedColour:
+    """The show's baked LED colour rides the fast channel next to the planned point, so a colour
+    change reaches the dashboard at the same 20 Hz as movement."""
+
+    def test_led_fields_follow_the_planned_fields_and_default_to_dark_and_invalid(self):
+        floats = struct.unpack(f"<{FLOATS_PER_DRONE}f", encode_fast_frame({0: {"fleet_x": 1.0}}))
+        assert floats[13:17] == (0.0, 0.0, 0.0, 0.0)
+
+    def test_led_colour_round_trips(self):
+        telemetry = {0: {"led_r": 255.0, "led_g": 128.0, "led_b": 7.5, "led_valid": True}}
+        floats = struct.unpack(f"<{FLOATS_PER_DRONE}f", encode_fast_frame(telemetry))
+        assert floats[13:17] == (255.0, 128.0, 7.5, 1.0)
+
+    def test_record_is_17_floats_and_the_planned_fields_did_not_move(self):
+        assert FLOATS_PER_DRONE == 17
+        telemetry = {0: {"planned_x": 1.0, "planned_y": 2.0, "planned_z": 3.0, "planned_valid": True}}
+        floats = struct.unpack(f"<{FLOATS_PER_DRONE}f", encode_fast_frame(telemetry))
+        assert floats[9:13] == (1.0, 2.0, 3.0, 1.0)
+
+    def test_led_is_not_on_the_slow_channel(self):
+        drone = encode_slow_frame({0: {"led_r": 9.0, "led_valid": True}})["drones"]["0"]
+        assert "led_r" not in drone and "led_valid" not in drone

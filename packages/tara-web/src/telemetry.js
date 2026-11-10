@@ -7,6 +7,9 @@ export const FAST_FIELDS = [
   'local_x', 'local_y', 'local_z',
   'heading', 'armed', 'connected',
   'planned_x', 'planned_y', 'planned_z', 'planned_valid',
+  // The LED colour (0-255) the show commands right now, from the colours Studio
+  // bakes into the waypoints; led_valid is 0 when the show carries none.
+  'led_r', 'led_g', 'led_b', 'led_valid',
 ];
 export const FLOATS_PER_DRONE = FAST_FIELDS.length;
 export const BYTES_PER_DRONE = FLOATS_PER_DRONE * 4;
@@ -33,6 +36,10 @@ export function decodeFastFrame(buffer) {
       planned_y: floats[base + 10],
       planned_z: floats[base + 11],
       planned_valid: floats[base + 12] !== 0,
+      led_r: floats[base + 13],
+      led_g: floats[base + 14],
+      led_b: floats[base + 15],
+      led_valid: floats[base + 16] !== 0,
     };
   }
   return drones;

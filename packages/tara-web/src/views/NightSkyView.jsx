@@ -47,6 +47,15 @@ const OFF_PLANNED_X = 9;
 const OFF_PLANNED_Y = 10;
 const OFF_PLANNED_Z = 11;
 const OFF_PLANNED_VALID = 12;
+const OFF_LED_R = 13;
+const OFF_LED_G = 14;
+const OFF_LED_B = 15;
+const OFF_LED_VALID = 16;
+
+// An LED at or below this (0-1) is OFF in the show (a dark-flight stretch, a blink's off half, a
+// formation's unused drones). It is drawn as a barely-there dark point with no glow, the way
+// Studio shows it, instead of as a dim coloured one.
+const LED_OFF_LEVEL = 0.03;
 
 // Critical drones pulse rather than sitting at a flat red — a moving signal is
 // what actually catches a director's eye across a 1000-point sky.
@@ -101,7 +110,7 @@ function GroundSilhouette({ radius = 60 }) {
 // Position/colour are pushed straight into the instance buffers in useFrame
 // rather than through React state, so 1000 drones updating at telemetry rate
 // doesn't mean 1000 re-renders/frame.
-function FleetPoints({ fleetRef, onSummary }) {
+function FleetPoints({ fleetRef, onSummary, modeRef }) {
   const bodyRef = useRef(null);
   const glowRef = useRef(null);
   const { camera } = useThree();
@@ -173,6 +182,10 @@ function FleetPoints({ fleetRef, onSummary }) {
     counts[BAND_CRITICAL] = 0;
     let worstError = 0;
     let worstId = null;
+    let ledDrones = 0;
+    // Show colours are the default whenever the GCS streams them; the operator can switch back to
+    // the deviation colours, which the HUD counts always describe.
+    const useLed = modeRef.current === 'led';
 
     for (let i = 0; i < n; i++) {
       const base = i * FLOATS_PER_DRONE;
@@ -213,19 +226,45 @@ function FleetPoints({ fleetRef, onSummary }) {
       dummy.updateMatrix();
       body.setMatrixAt(i, dummy.matrix);
 
-      const rgb = BAND_COLORS[band];
-      const gain = band === BAND_CRITICAL ? flash : 1.0;
-      color.setRGB(rgb[0] * gain, rgb[1] * gain, rgb[2] * gain);
+      const ledValid = data[base + OFF_LED_VALID] !== 0;
+      if (ledValid) ledDrones += 1;
+      const showLed = useLed && ledValid && connected;
+      let glowScale = band === BAND_CRITICAL ? 3.4 : 2.0;
+      let glowBoost = band === BAND_CRITICAL ? 0.85 : 0.45;
+      if (showLed) {
+        const lr = data[base + OFF_LED_R] / 255;
+        const lg = data[base + OFF_LED_G] / 255;
+        const lb = data[base + OFF_LED_B] / 255;
+        if (Math.max(lr, lg, lb) <= LED_OFF_LEVEL) {
+          color.setRGB(0.07, 0.07, 0.09, THREE.SRGBColorSpace); // LED off: a barely-there point
+          glowScale = 0;
+        } else {
+          // Studio's 0-255 values are sRGB; without the colour space they would be read as linear
+          // light and every mid-tone would come out washed out.
+          color.setRGB(lr, lg, lb, THREE.SRGBColorSpace);
+        }
+        // A drone off its trajectory must still stand out in the show's own colours: its halo
+        // grows and pulses red on top of whatever it is showing.
+        if (band === BAND_CRITICAL) {
+          glowScale = Math.max(glowScale, 3.4);
+          glowBoost = 0.85 * flash;
+        }
+      } else {
+        const rgb = BAND_COLORS[band];
+        const gain = band === BAND_CRITICAL ? flash : 1.0;
+        color.setRGB(rgb[0] * gain, rgb[1] * gain, rgb[2] * gain);
+      }
       body.setColorAt(i, color);
 
       // Glow billboards face the camera each frame. Critical drones get a
       // wider halo on top of the flash so they stay findable even when the
       // fleet is dense enough that individual LEDs overlap.
-      dummy.scale.setScalar(band === BAND_CRITICAL ? 3.4 : 2.0);
+      dummy.scale.setScalar(glowScale);
       dummy.quaternion.copy(camera.quaternion);
       dummy.updateMatrix();
       glow.setMatrixAt(i, dummy.matrix);
-      color.multiplyScalar(band === BAND_CRITICAL ? 0.85 : 0.45);
+      if (showLed && band === BAND_CRITICAL) color.setRGB(1.0, 0.18, 0.28);
+      color.multiplyScalar(glowBoost);
       glow.setColorAt(i, color);
     }
 
@@ -258,6 +297,7 @@ function FleetPoints({ fleetRef, onSummary }) {
         warning: counts[BAND_WARNING],
         critical: counts[BAND_CRITICAL],
         unmonitored: counts[BAND_UNMONITORED],
+        led: ledDrones,
         worstError,
         worstId,
       });
@@ -285,7 +325,7 @@ function FleetPoints({ fleetRef, onSummary }) {
   );
 }
 
-function DeviationHUD({ summary }) {
+function DeviationHUD({ summary, colorMode, onColorMode }) {
   const rows = [
     { label: 'NOMINAL', key: 'nominal', color: '#22e08a', hint: `< ${NOMINAL_MAX_M}m` },
     { label: 'WARNING', key: 'warning', color: '#fbbf24', hint: `${NOMINAL_MAX_M}–${WARNING_MAX_M}m` },
@@ -295,6 +335,29 @@ function DeviationHUD({ summary }) {
   return (
     <div className="nightsky-hud" data-testid="deviation-hud">
       <div className="nightsky-hud-title">TRAJECTORY DEVIATION</div>
+      {summary.led > 0 && (
+        <div className="nightsky-hud-mode" role="group" aria-label="Drone colours" data-testid="hud-color-mode">
+          <span className="nightsky-hud-mode-label">DRONE COLOURS</span>
+          <button
+            type="button"
+            className={colorMode === 'led' ? 'active' : ''}
+            aria-pressed={colorMode === 'led'}
+            onClick={() => onColorMode('led')}
+            data-testid="hud-mode-led"
+          >
+            SHOW
+          </button>
+          <button
+            type="button"
+            className={colorMode === 'deviation' ? 'active' : ''}
+            aria-pressed={colorMode === 'deviation'}
+            onClick={() => onColorMode('deviation')}
+            data-testid="hud-mode-deviation"
+          >
+            DEVIATION
+          </button>
+        </div>
+      )}
       {rows.map((row) => (
         <div className="nightsky-hud-row" key={row.key}>
           <span className="nightsky-hud-dot" style={{ background: row.color }} />
@@ -333,6 +396,7 @@ const EMPTY_SUMMARY = {
   warning: 0,
   critical: 0,
   unmonitored: 0,
+  led: 0,
   worstError: 0,
   worstId: null,
 };
@@ -368,6 +432,10 @@ export default function NightSkyView({ telemetry, fleetBuffer, frameloop = 'alwa
       fleet.data[base + OFF_PLANNED_Y] = drone.planned_y || 0;
       fleet.data[base + OFF_PLANNED_Z] = drone.planned_z || 0;
       fleet.data[base + OFF_PLANNED_VALID] = drone.planned_valid ? 1 : 0;
+      fleet.data[base + OFF_LED_R] = drone.led_r || 0;
+      fleet.data[base + OFF_LED_G] = drone.led_g || 0;
+      fleet.data[base + OFF_LED_B] = drone.led_b || 0;
+      fleet.data[base + OFF_LED_VALID] = drone.led_valid ? 1 : 0;
     }
     fleet.count = n;
     fleetRef.current = fleet;
@@ -377,6 +445,13 @@ export default function NightSkyView({ telemetry, fleetBuffer, frameloop = 'alwa
   // wouldn't change a pixel of the HUD so a steady show doesn't re-render
   // React four times a second for nothing.
   const summaryRef = useRef(EMPTY_SUMMARY);
+  // The show's own colours by default; the ref is what the render loop reads, the state what the HUD shows.
+  const [colorMode, setColorMode] = useState('led');
+  const colorModeRef = useRef('led');
+  const handleColorMode = (mode) => {
+    colorModeRef.current = mode;
+    setColorMode(mode);
+  };
   const handleSummary = useMemo(
     () => (next) => {
       const prev = summaryRef.current;
@@ -386,6 +461,7 @@ export default function NightSkyView({ telemetry, fleetBuffer, frameloop = 'alwa
         prev.warning === next.warning &&
         prev.critical === next.critical &&
         prev.unmonitored === next.unmonitored &&
+        prev.led === next.led &&
         Math.abs(prev.worstError - next.worstError) < 0.01
       ) {
         return;
@@ -420,7 +496,7 @@ export default function NightSkyView({ telemetry, fleetBuffer, frameloop = 'alwa
 
         <Starfield />
         <GroundSilhouette radius={60} />
-        <FleetPoints fleetRef={fleetRef} onSummary={handleSummary} />
+        <FleetPoints fleetRef={fleetRef} onSummary={handleSummary} modeRef={colorModeRef} />
 
         <OrbitControls
           target={[0, 5, 0]}
@@ -434,7 +510,7 @@ export default function NightSkyView({ telemetry, fleetBuffer, frameloop = 'alwa
         </EffectComposer>
       </Canvas>
 
-      <DeviationHUD summary={summary} />
+      <DeviationHUD summary={summary} colorMode={colorMode} onColorMode={handleColorMode} />
     </div>
   );
 }

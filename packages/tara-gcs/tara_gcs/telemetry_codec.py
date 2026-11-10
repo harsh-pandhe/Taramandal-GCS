@@ -9,9 +9,9 @@ into two channels instead, each streamed at the rate it actually needs:
     position, heading, armed, connected — the fields a live 3D view and the
     per-drone coordinate readout both need to update smoothly. One flat
     ``Float32Array``, no JSON parsing, no per-field key names sent over the
-    wire — 13 floats x 4 bytes = 52 bytes per drone (5.2KB/frame at 100 drones,
-    20Hz -> ~104KB/s, versus several hundred KB/s of JSON for the same data).
-    At the 1000-drone ceiling that is 52KB/frame, ~1MB/s — still an order of
+    wire — 17 floats x 4 bytes = 68 bytes per drone (6.8KB/frame at 100 drones,
+    20Hz -> ~136KB/s, versus several hundred KB/s of JSON for the same data).
+    At the 1000-drone ceiling that is 68KB/frame, ~1.4MB/s — still an order of
     magnitude under the equivalent JSON.
   * **Slow channel** (JSON text, ``SLOW_HZ``): battery, GPS, flight mode,
     comm latency, home position, and the static UDP port — everything that
@@ -41,6 +41,7 @@ FAST_FIELDS = (
     "local_x", "local_y", "local_z",
     "heading", "armed", "connected",
     "planned_x", "planned_y", "planned_z", "planned_valid",
+    "led_r", "led_g", "led_b", "led_valid",
 )
 FLOATS_PER_DRONE = len(FAST_FIELDS)
 BYTES_PER_DRONE = FLOATS_PER_DRONE * 4
@@ -99,6 +100,13 @@ def encode_fast_frame(telemetry: dict[int, dict]) -> bytes:
         values.append(float(tel.get("planned_y", 0.0)))
         values.append(float(tel.get("planned_z", 0.0)))
         values.append(1.0 if tel.get("planned_valid") else 0.0)
+        # LED colour (0-255) the show commands at this instant, from the colours
+        # baked into the trajectory; ``led_valid`` says whether the show has any
+        # (a show without light data leaves the dashboard on its own colours).
+        values.append(float(tel.get("led_r", 0.0)))
+        values.append(float(tel.get("led_g", 0.0)))
+        values.append(float(tel.get("led_b", 0.0)))
+        values.append(1.0 if tel.get("led_valid") else 0.0)
     return struct.pack(f"<{len(values)}f", *values) if values else b""
 
 
