@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react';
 import { Download, Globe, Activity, ShieldCheck, ShieldAlert, LogIn, LogOut, CheckCircle, AlertTriangle } from 'lucide-react';
 import { NumberField } from '../common/index.jsx';
+import ConfirmDialog from '../modals/ConfirmDialog.jsx';
+import { transmitMessage } from '../../engine/confirmations.js';
 import { exportGate } from '../../engine/exportGate.js';
 import {
   getSigningStatus, getGcsSession, gcsLogin, gcsLogout, onGcsSessionChange, previewExportSuccessMessage,
@@ -90,8 +92,9 @@ function GcsSignIn() {
 /** Venue georeference plus export / GCS upload actions. */
 export default function TransmitPanel({
   homeLat, homeLon, onHomeLat, onHomeLon,
-  onExport, onExportPreview, onSendToGCS, sending, hasShow, validation, validating,
+  onExport, onExportPreview, onSendToGCS, sending, hasShow, validation, validating, droneCount,
 }) {
+  const [confirmingSend, setConfirmingSend] = useState(false);
   // One predicate with the header's badge (issue #132): see engine/exportGate.js.
   const { isCertified, isFailed, isUnverified, canExport } = exportGate({ hasShow, validation });
 
@@ -217,7 +220,7 @@ export default function TransmitPanel({
       </button>
 
       <GcsSignIn />
-      <button type="button" className="btn-primary btn-inline btn-gcs" onClick={onSendToGCS} disabled={sending || !canExport}>
+      <button type="button" className="btn-primary btn-inline btn-gcs" onClick={() => setConfirmingSend(true)} disabled={sending || !canExport}>
         <Activity size={15} /> {sending ? 'Sending…' : 'Transmit to GCS Fleet'}
       </button>
 
@@ -226,6 +229,16 @@ export default function TransmitPanel({
         travels with the trajectory. A signed export downloads as two files,
         the show and its <code>.sig.json</code>; transmit sends both.
       </p>
+
+      {confirmingSend && (
+        <ConfirmDialog
+          title="Transmit to GCS"
+          message={transmitMessage(droneCount)}
+          confirmLabel="Transmit to GCS"
+          onCancel={() => setConfirmingSend(false)}
+          onConfirm={() => { setConfirmingSend(false); onSendToGCS(); }}
+        />
+      )}
     </div>
   );
 }

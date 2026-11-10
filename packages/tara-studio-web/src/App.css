@@ -1117,6 +1117,14 @@ input[type="number"] { font-family: var(--mono); font-variant-numeric: tabular-n
 .modal-close { background: none; border: none; color: var(--text-faint); cursor: pointer; display: flex; }
 .modal-close:hover { color: var(--danger); }
 
+.confirm-dialog { width: min(440px, 100%); }
+.confirm-dialog-message { margin: 0; padding: 1rem; font-size: var(--fs-sm); line-height: 1.5; color: var(--text-dim); }
+.confirm-dialog-actions { display: flex; justify-content: flex-end; gap: 0.5rem; padding: 0 1rem 1rem; }
+.btn-danger-solid {
+  background: var(--danger); color: var(--bg-base); border: 1px solid var(--danger);
+  border-radius: var(--r-sm); cursor: pointer;
+}
+
 .shape-library { width: min(860px, 100%); }
 .shape-library-body {
   display: grid; grid-template-columns: 1fr 260px; gap: 1rem;

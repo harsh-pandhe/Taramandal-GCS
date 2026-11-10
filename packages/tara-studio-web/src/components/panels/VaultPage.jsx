@@ -1,5 +1,8 @@
+import { useState } from 'react';
 import { Plus, Trash, CheckCircle, AlertTriangle, History } from 'lucide-react';
 import { versionsOf } from '../../engine/projectVersions.js';
+import { confirmationFor } from '../../engine/confirmations.js';
+import ConfirmDialog from '../modals/ConfirmDialog.jsx';
 
 const fmtSavedAt = (iso) => {
   const d = new Date(iso);
@@ -9,8 +12,21 @@ const fmtSavedAt = (iso) => {
 /** Saved projects, kept in the backend's Project Vault (issue #101). */
 export default function VaultPage({
   projectsList, activeProjectId, onLoad, onCreate, onDelete, onRestore,
-  status = 'ready', error = null, onRetry,
+  status = 'ready', error = null, onRetry, isDirty = false,
 }) {
+  const [pending, setPending] = useState(null);   // { action, dialog }
+
+  const run = (action) => {
+    if (action.kind === 'delete') onDelete(action.id);
+    else if (action.kind === 'load') onLoad(action.id);
+    else onCreate();
+  };
+  const request = (action) => {
+    const proj = projectsList.find((p) => p.id === action.id);
+    const dialog = confirmationFor(action, { isDirty, projectName: proj?.name ?? '' });
+    if (dialog) setPending({ action, dialog }); else run(action);
+  };
+
   return (
     <main className="studio-viewport-page">
       <div className="page-header">
@@ -18,7 +34,7 @@ export default function VaultPage({
           <h2>Project Vault</h2>
           <p>Save progress, switch workspaces, or reload a stored choreography.</p>
         </div>
-        <button type="button" className="btn-primary btn-inline" onClick={onCreate} disabled={status !== 'ready'}>
+        <button type="button" className="btn-primary btn-inline" onClick={() => request({ kind: 'create' })} disabled={status !== 'ready'}>
           <Plus size={15} /> New Show
         </button>
       </div>
@@ -43,7 +59,7 @@ export default function VaultPage({
           <div
             className={`vault-card${proj.id === activeProjectId ? ' active' : ''}`}
             key={proj.id}
-            onClick={() => onLoad(proj.id)}
+            onClick={() => request({ kind: 'load', id: proj.id })}
           >
             <h3 className="vault-proj-name">{proj.name}</h3>
             <div className="vault-proj-meta">
@@ -85,12 +101,12 @@ export default function VaultPage({
             )}
 
             <div className="vault-card-actions">
-              <button type="button" className="btn-primary btn-sm" onClick={(e) => { e.stopPropagation(); onLoad(proj.id); }}>
+              <button type="button" className="btn-primary btn-sm" onClick={(e) => { e.stopPropagation(); request({ kind: 'load', id: proj.id }); }}>
                 Load
               </button>
               <button
                 type="button" className="btn-danger-outline btn-sm"
-                onClick={(e) => { e.stopPropagation(); onDelete(proj.id); }}
+                onClick={(e) => { e.stopPropagation(); request({ kind: 'delete', id: proj.id }); }}
                 disabled={projectsList.length <= 1}
                 aria-label={`Delete ${proj.name}`}
               >
@@ -100,6 +116,14 @@ export default function VaultPage({
           </div>
         ))}
       </div>
+
+      {pending && (
+        <ConfirmDialog
+          {...pending.dialog}
+          onCancel={() => setPending(null)}
+          onConfirm={() => { const { action } = pending; setPending(null); run(action); }}
+        />
+      )}
     </main>
   );
 }

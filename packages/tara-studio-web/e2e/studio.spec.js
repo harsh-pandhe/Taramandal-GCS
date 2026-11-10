@@ -323,6 +323,7 @@ test.describe('undo/redo', () => {
 
     await page.getByRole('button', { name: 'Project Vault' }).click();
     await page.getByRole('button', { name: 'Load', exact: true }).first().click();
+    await page.getByRole('alertdialog').getByRole('button', { name: 'Discard changes and load' }).click();
     await page.getByRole('button', { name: 'Sequencer', exact: true }).click();
     await expect(undo(page)).toBeDisabled();
     await expect(redo(page)).toBeDisabled();
@@ -802,9 +803,11 @@ test.describe('signed export and transmit', () => {
     page.on('dialog', (d) => d.accept());
     await consoleTab(page, 'TRANSMIT');
     const transmit = page.getByRole('button', { name: /Transmit to GCS Fleet/ });
+    const confirm = () => page.getByRole('alertdialog').getByRole('button', { name: 'Transmit to GCS' }).click();
 
     // Not signed in yet: the GCS says 401 and the Studio explains what to do.
     await transmit.click();
+    await confirm();
     await expect(page.getByText(/needs an operator sign-in/)).toBeVisible();
 
     await page.getByLabel('GCS operator').fill('chloe');
@@ -813,6 +816,7 @@ test.describe('signed export and transmit', () => {
     await expect(page.getByTestId('gcs-session')).toContainText('chloe · CHOREOGRAPHER');
 
     await transmit.click();
+    await confirm();
     await expect.poll(() => uploads.length).toBe(2);
     const sent = uploads[1];
     expect(sent.auth).toBe('Bearer gcs-tok');
@@ -820,6 +824,39 @@ test.describe('signed export and transmit', () => {
     expect(sent.body).toContain('name="signature"; filename="choreography.json.sig.json"');
     expect(sent.body).toContain(EXPORT.content.trim());
     expect(sent.body).toContain(EXPORT.signature.content.trim());
+  });
+
+  test('Cancel on the Transmit confirmation sends nothing (issue #92)', async ({ page }) => {
+    const uploads = [];
+    await page.route('**/api/upload-trajectory', (route) => {
+      uploads.push(route.request().url());
+      return route.fulfill({ json: { status: 'success', signature: { verified: true, signer: 'Studio laptop' } } });
+    });
+    page.on('dialog', (d) => d.accept());
+    await consoleTab(page, 'TRANSMIT');
+    const transmit = page.getByRole('button', { name: /Transmit to GCS Fleet/ });
+    const dialog = page.getByRole('alertdialog');
+
+    await transmit.click();
+    await expect(dialog).toContainText('drones');
+    await expect(dialog.getByRole('button', { name: 'Cancel' })).toBeFocused();
+    await dialog.getByRole('button', { name: 'Cancel' }).click();
+    await expect(dialog).toHaveCount(0);
+    await expect(transmit).toBeFocused();
+
+    await transmit.click();
+    await page.keyboard.press('Escape');
+    await expect(dialog).toHaveCount(0);
+
+    await transmit.click();
+    await page.mouse.click(5, 5);                       // the backdrop
+    await expect(dialog).toHaveCount(0);
+    expect(uploads).toHaveLength(0);
+
+    // The route works: confirming is what sends.
+    await transmit.click();
+    await dialog.getByRole('button', { name: 'Transmit to GCS' }).click();
+    await expect.poll(() => uploads.length).toBe(1);
   });
 });
 
