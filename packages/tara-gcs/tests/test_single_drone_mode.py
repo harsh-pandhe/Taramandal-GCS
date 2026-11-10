@@ -683,23 +683,28 @@ async def test_single_drone_hover_dwell_fails_closed_on_disconnect(commander, pa
         await asyncio.sleep(0.5)
 
         target_alt = 0.3
-        # Match the climb loop's own break-out tolerance (max(0.15, 0.1 *
-        # target_alt_m)) exactly, not a looser ad-hoc value: a looser
-        # threshold here starts this timer before the climb loop itself
-        # considers the target reached, racing the climb's own stall/ceiling
-        # checks against this test's disconnect injection (issue #145
-        # review, Harsh, 2026-10-27 - flagged as the flakiness root cause).
-        alt_tolerance_m = max(0.15, 0.1 * target_alt)
+        # Disconnect only once the sequence itself has recorded HOVER_REACHED,
+        # not on a timer started from the telemetry. The climb loop polls every
+        # 0.1 s; a timer (0.3 s after the altitude first looked right) can fire
+        # before a starved event loop has let the climb loop notice the target
+        # was reached, and then the disconnect lands in the climb phase ("during
+        # climb"), not the dwell this test is about (issue #145 review, Harsh,
+        # 2026-10-27 - flagged as the flakiness root cause; seen again in CI on
+        # an unrelated PR). The sequence's own step list is the reliable signal.
+        original_phase = manager._run_single_drone_flight_phase
         original_ingest = manager._ingest_bulk_telemetry
-        state = {"first_reached_at": None}
+        captured = {"steps": []}
+
+        async def capture_steps(drone_id, drone, tel, target_alt_m, hover_s, steps):
+            captured["steps"] = steps
+            return await original_phase(drone_id, drone, tel, target_alt_m, hover_s, steps)
+
         def disconnect_after_climb(snap, include_slow):
             original_ingest(snap, include_slow)
-            tel = manager.telemetry[0]
-            if abs(tel.get("local_z", 0.0) - target_alt) <= alt_tolerance_m:
-                if state["first_reached_at"] is None:
-                    state["first_reached_at"] = time.monotonic()
-                elif time.monotonic() - state["first_reached_at"] > 0.3:
-                    tel["connected"] = False
+            if any(s.get("step") == "HOVER_REACHED" for s in captured["steps"]):
+                manager.telemetry[0]["connected"] = False
+
+        monkeypatch.setattr(manager, "_run_single_drone_flight_phase", capture_steps)
         monkeypatch.setattr(manager, "_ingest_bulk_telemetry", disconnect_after_climb)
 
         with pytest.raises(HTTPException) as exc:
