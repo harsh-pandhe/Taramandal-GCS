@@ -123,6 +123,21 @@ def test_event_list_filters_and_limits(tmp_path, clock):
     assert limited["total"] == 3 and limited["limited"] and len(limited["events"]) == 1
 
 
+def test_caller_supplied_limits_are_clamped_to_the_hard_caps(tmp_path, clock, monkeypatch):
+    """A client asking for 10**9 events/frames (or 0 / negative) gets the server's cap, not an unbounded reply."""
+    ev = [("command", 20 + i, {"command": "land", "operator": "o", "trigger": "api"}) for i in range(5)]
+    rec = _record(tmp_path / "bb", clock, events=ev)
+    s = br.ReplaySession.load(rec.path, "x")
+    monkeypatch.setattr(br, "HARD_MAX_EVENTS", 2)
+    monkeypatch.setattr(br, "HARD_MAX_FRAMES", 3)
+    huge = s.event_list(None, limit=10**9)
+    assert len(huge["events"]) == 2 and huge["total"] == 5 and huge["limited"]
+    assert len(s.event_list(None, limit=0)["events"]) == 1 and len(s.event_list(None, limit=-7)["events"]) == 1
+    frames = s.frames(max_frames=10**9, max_samples=10**9)
+    assert frames["count"] <= 3 and frames["stride"] > 1
+    assert s.frames(max_frames=-5)["count"] == 1
+
+
 def test_truncated_and_still_open_sessions_are_readable(tmp_path, clock):
     rec = _record(tmp_path / "bb", clock, close=False, events=[("proximity_breach", 50, {"drones": [0, 1], "distance_m": 1.0})])
     rec.flush()
