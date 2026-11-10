@@ -16,6 +16,7 @@ from pydantic import BaseModel, Field
 from tara_gcs.blackbox import DEFAULT_DIR as BLACKBOX_DEFAULT_DIR
 from tara_gcs.blackbox_service import BlackboxService
 from tara_gcs.drone_manager import DroneManager
+from tara_gcs.state_store import prime_trajectory_cache
 from tara_gcs.fleet_fsm import Command, IllegalTransitionError
 from tara_gcs.trajectory_parser import parse_trajectory_bytes
 from tara_gcs.telemetry_codec import FAST_HZ, SLOW_HZ, encode_fast_frame, encode_slow_frame
@@ -1005,6 +1006,9 @@ async def upload_mission(operator: Commander):
     _check_command(Command.UPLOAD_MISSION, operator.id, "POST /api/upload-mission")
     if not drone_manager.active_trajectory:
         raise HTTPException(status_code=400, detail="No active trajectory loaded. Please upload a trajectory first.")
+    # Encode the trajectory for the periodic show-state snapshot now, while nothing is flying,
+    # so the first snapshot a few seconds into the show does not freeze the event loop for it.
+    prime_trajectory_cache(drone_manager.active_trajectory)
     try:
         return await drone_manager.upload_show(drone_manager.active_trajectory)
     except ValueError as e:

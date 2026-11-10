@@ -18,6 +18,40 @@ logger = logging.getLogger("TaramandalGCS")
 DEFAULT_STATE_PATH = os.path.join(os.path.dirname(__file__), "show_state.json")
 
 
+# The encoded trajectory of the show that is playing, with what it was encoded from.
+_trajectory_cache: dict = {"ref": None, "fingerprint": None, "json": None}
+
+
+def _trajectory_json(trajectory_data: dict) -> str:
+    """JSON object of the trajectory with string keys, encoded once per loaded show.
+
+    Reused while the same trajectory object is presented with the same slots and
+    waypoint-list lengths. A trajectory is replaced as a whole when a new show is
+    loaded, never edited in place, so a different show always misses the cache.
+    """
+    fingerprint = tuple((k, id(v), len(v)) for k, v in trajectory_data.items())
+    cache = _trajectory_cache
+    if cache["ref"] is trajectory_data and cache["fingerprint"] == fingerprint:
+        return cache["json"]
+    text = json.dumps({str(drone_id): wps for drone_id, wps in trajectory_data.items()})
+    cache.update(ref=trajectory_data, fingerprint=fingerprint, json=text)
+    return text
+
+
+def prime_trajectory_cache(trajectory_data: dict) -> None:
+    """Encodes the trajectory now, so the first snapshot of a show is not the one that pays for it.
+
+    Called when the show's missions are uploaded: nothing is flying yet, whereas the first snapshot
+    happens a few seconds into the show.
+    """
+    _trajectory_json(trajectory_data)
+
+
+def release_trajectory_cache() -> None:
+    """Drops the cached encoding (a show that is no longer playing needs none)."""
+    _trajectory_cache.update(ref=None, fingerprint=None, json=None)
+
+
 def save_show_state(
     path: str,
     trajectory_data: dict,
@@ -35,15 +69,20 @@ def save_show_state(
     Written via write-to-temp-then-replace so a crash mid-write can't leave a
     half-written file that fails to load on the next startup.
     """
-    payload = {
-        "version": 1,
-        "saved_at": time.time(),
-        "mode": mode,
-        "show_started_at": show_started_at,
-        # JSON object keys must be strings; drone ids are restored to int on load.
-        "trajectory": {str(drone_id): wps for drone_id, wps in trajectory_data.items()},
-        "telemetry": telemetry,
-    }
+    # The trajectory is by far the largest part (200 MB at 269 drones x 9,722
+    # waypoints) and does not change while a show plays, so it is encoded once and
+    # reused by every later snapshot (see _trajectory_json). Re-encoding it every
+    # STATE_SNAPSHOT_INTERVAL_S froze the event loop for 2.6-3.5 s each time, which
+    # stalled the simulated fleet behind its plan. The result is the same JSON
+    # document the dict payload used to produce.
+    head = (
+        '{"version": 1, "saved_at": ' + json.dumps(time.time())
+        + ', "mode": ' + json.dumps(mode)
+        + ', "show_started_at": ' + json.dumps(show_started_at)
+        + ', "trajectory": '
+    )
+    tail = ', "telemetry": ' + json.dumps(telemetry) + "}"
+    trajectory_text = _trajectory_json(trajectory_data)
 
     directory = os.path.dirname(path) or "."
     os.makedirs(directory, exist_ok=True)
@@ -54,7 +93,11 @@ def save_show_state(
             # dumps uses the C one. Same output, but at 1,000 drones it is
             # ~5ms instead of ~23ms of event-loop time every snapshot, which
             # was enough on its own to make physics ticks late (issue #51).
-            f.write(json.dumps(payload))
+            # Three writes rather than one concatenation: joining would copy the
+            # (hundreds of MB) trajectory text again on every snapshot.
+            f.write(head)
+            f.write(trajectory_text)
+            f.write(tail)
         os.replace(tmp_path, path)
     except BaseException:
         try:
@@ -86,6 +129,7 @@ def load_show_state(path: str) -> dict | None:
 
 def discard_show_state(path: str) -> None:
     """Deletes the saved state file, if present. Safe to call when none exists."""
+    release_trajectory_cache()
     try:
         os.remove(path)
     except FileNotFoundError:
