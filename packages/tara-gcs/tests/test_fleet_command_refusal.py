@@ -256,3 +256,79 @@ def test_fleet_command_result_views():
     assert not FleetCommandResult("land", {}).refused
     assert not FleetCommandResult("land", {}).all_refused
     assert FleetCommandResult("land", {0: "x"}).all_refused
+
+
+@pytest.mark.parametrize("route, trigger, action, target", CASES, ids=CASE_IDS)
+async def test_the_emergency_is_visible_while_a_drone_command_is_still_in_flight(fleet, route, trigger, action, target):
+    """A launch, a confirm or a single-drone sequence running meanwhile must see the emergency at
+    once, as it did when the lifecycle moved first - not only after the slowest vehicle answered."""
+    started, release = asyncio.Event(), asyncio.Event()
+
+    async def slow():
+        started.set()
+        await release.wait()
+
+    getattr(fleet.drones[1].action, action).side_effect = slow
+    assert not fleet._emergency_in_progress()
+
+    task = asyncio.create_task(getattr(fleet, trigger)(operator="test", trigger="test"))
+    await asyncio.wait_for(started.wait(), 2)
+    assert fleet.fleet_fsm.state is S.RUNNING  # the lifecycle has not moved yet ...
+    assert fleet._emergency_in_progress()  # ... but the emergency is already under way
+
+    release.set()
+    await task
+    assert fleet.fleet_fsm.state is target
+    assert fleet._emergency_in_progress()
+    assert fleet._emergency_commands_in_flight == 0
+
+
+async def test_a_launch_step_is_preempted_while_the_command_is_in_flight(fleet):
+    """The launch's own preemption check (issue #145 review, B3) fires during the fan-out too."""
+    started, release = asyncio.Event(), asyncio.Event()
+
+    async def slow():
+        started.set()
+        await release.wait()
+
+    fleet.drones[1].action.land.side_effect = slow
+    task = asyncio.create_task(fleet.trigger_land(operator="test", trigger="test"))
+    await asyncio.wait_for(started.wait(), 2)
+
+    assert await fleet._confirm_offboard(0) == "preempted"
+
+    release.set()
+    await task
+
+
+@pytest.mark.parametrize("route, trigger, action, target", CASES, ids=CASE_IDS)
+async def test_a_total_refusal_leaves_no_emergency_behind(fleet, route, trigger, action, target):
+    """Nothing is landing / returning / killed, so nothing else should stand down for it."""
+    for i in range(3):
+        _refuse(fleet, i, action, "COMMAND_DENIED")
+
+    with pytest.raises(HTTPException):
+        await _call(route)
+
+    assert fleet._emergency_commands_in_flight == 0
+    assert not fleet._emergency_in_progress()
+
+
+async def test_the_in_flight_marker_is_cleared_when_the_command_is_cancelled(fleet):
+    started, release = asyncio.Event(), asyncio.Event()
+
+    async def slow():
+        started.set()
+        await release.wait()
+
+    fleet.drones[1].action.land.side_effect = slow
+    task = asyncio.create_task(fleet.trigger_land(operator="test", trigger="test"))
+    await asyncio.wait_for(started.wait(), 2)
+    assert fleet._emergency_in_progress()
+
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+    assert fleet._emergency_commands_in_flight == 0
+    assert not fleet._emergency_in_progress()

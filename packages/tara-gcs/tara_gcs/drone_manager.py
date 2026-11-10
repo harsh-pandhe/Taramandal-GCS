@@ -532,6 +532,12 @@ class DroneManager:
             audit_path=audit_path,
             context=lambda: {"backend": self.backend, "fidelity": self.fidelity},
         )
+        # Fleet-wide LAND / RTL / E-STOP commands currently being sent. The
+        # lifecycle only moves once they are answered (and not at all if every
+        # drone refused), but a launch, a confirm or a single-drone sequence
+        # running meanwhile must already treat the fleet as in an emergency, as it
+        # did when the lifecycle moved first. Read via _emergency_in_progress().
+        self._emergency_commands_in_flight = 0
         self.launch_task = None
         # When the last launch task ended (monotonic seconds), or None. Lets the
         # lifecycle monitor give an arm that has not reached telemetry yet a
@@ -1405,7 +1411,7 @@ class DroneManager:
         so an emergency during a launch doesn't get followed by the rest of the
         fleet arming and climbing.
         """
-        if self.fleet_fsm.state in EMERGENCY_STATES:
+        if self._emergency_in_progress():
             logging.warning(
                 f"Drone {drone_id}: launch aborted — fleet is in {self.fleet_fsm.state.value}."
             )
@@ -1524,7 +1530,7 @@ class DroneManager:
             logging.info(f"Drone {drone_id} waiting to become armable with home lock...")
             async def _wait_armable():
                 async for health in drone.telemetry.health():
-                    if self.fleet_fsm.state in EMERGENCY_STATES:
+                    if self._emergency_in_progress():
                         break
                     if health.is_armable and health.is_home_position_ok:
                         logging.info(f"Drone {drone_id} is now armable with home position locked.")
@@ -1621,7 +1627,7 @@ class DroneManager:
         "preempted" if an emergency took over meanwhile; else why not."""
         deadline = time.monotonic() + self.OFFBOARD_CONFIRM_TIMEOUT_S
         while True:
-            if self.fleet_fsm.state in EMERGENCY_STATES:
+            if self._emergency_in_progress():
                 return "preempted"
             tel = self.telemetry[drone_id]
             fresh = self.is_heartbeat_fresh(tel)
@@ -1691,7 +1697,7 @@ class DroneManager:
         of OFFBOARD someone else has it, a pilot or a PX4 failsafe, and the GCS
         sends nothing (the same yield as the single-drone takeover check).
         """
-        if self.fleet_fsm.state in EMERGENCY_STATES:
+        if self._emergency_in_progress():
             return  # the emergency command already covers this drone
         tel = self.telemetry[drone_id]
         if not tel.get("armed"):
@@ -1758,19 +1764,27 @@ class DroneManager:
         connected nothing refused, so the lifecycle still moves as before.
         """
         ids = list(self.drones)
-        raw = await self._for_each_drone([one(i) for i in ids], return_exceptions=True)
-        errors: dict[int, str | None] = {}
-        for drone_id, outcome in zip(ids, raw):
-            if isinstance(outcome, asyncio.CancelledError):
-                raise outcome
-            if isinstance(outcome, BaseException):  # a primitive raised (e.g. drone dropped mid-command)
-                outcome = str(outcome) or type(outcome).__name__
-            errors[drone_id] = outcome
-        result = FleetCommandResult(command=command.value, errors=errors)
+        # Visible to _emergency_in_progress() from the moment the commands start
+        # going out until the lifecycle has moved (or has been left alone because
+        # every drone refused), so a launch in progress stops arming and climbing
+        # drones right away instead of after the slowest vehicle has answered.
+        self._emergency_commands_in_flight += 1
+        try:
+            raw = await self._for_each_drone([one(i) for i in ids], return_exceptions=True)
+            errors: dict[int, str | None] = {}
+            for drone_id, outcome in zip(ids, raw):
+                if isinstance(outcome, asyncio.CancelledError):
+                    raise outcome
+                if isinstance(outcome, BaseException):  # a primitive raised (e.g. drone dropped mid-command)
+                    outcome = str(outcome) or type(outcome).__name__
+                errors[drone_id] = outcome
+            result = FleetCommandResult(command=command.value, errors=errors)
 
-        if not result.all_refused:
-            self.fleet_fsm.apply(command, operator=operator, trigger=trigger)
-            result.fleet_state_advanced = True
+            if not result.all_refused:
+                self.fleet_fsm.apply(command, operator=operator, trigger=trigger)
+                result.fleet_state_advanced = True
+        finally:
+            self._emergency_commands_in_flight -= 1
         if result.refused:
             refused = {str(i): errors[i] for i in result.refused_ids}
             scope = "every connected drone" if result.all_refused else f"drone(s) {result.refused_ids}"
@@ -2103,8 +2117,13 @@ class DroneManager:
         """True once the fleet FSM has already moved to an emergency state
         (RTL/LAND/ESTOP) - issue #145 review, B3: something else is already
         commanding this drone by then, so the single-drone sequence must stop
-        issuing its own commands rather than racing or duplicating them."""
-        return self.fleet_fsm.state in EMERGENCY_STATES
+        issuing its own commands rather than racing or duplicating them.
+
+        Also true while a fleet-wide LAND / RTL / E-STOP is still being sent:
+        the lifecycle moves only after the vehicles have answered (and not at
+        all if every one refused), but the emergency is under way from the
+        moment the commands go out (issue #171)."""
+        return self._emergency_commands_in_flight > 0 or self.fleet_fsm.state in EMERGENCY_STATES
 
     async def _run_single_drone_flight_phase(
         self, drone_id: int, drone, tel: dict, target_alt_m: float, hover_s: float, steps: list[dict],
