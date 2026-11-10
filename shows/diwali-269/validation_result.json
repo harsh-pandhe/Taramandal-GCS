@@ -1,0 +1,27 @@
+{
+  "fleet": 269,
+  "duration_s": 972.1,
+  "http": 200,
+  "validator": {
+    "status": "PASSED",
+    "feasibility_certified": true,
+    "metrics": {
+      "min_distance_m": 2.05,
+      "max_velocity_m_s": 3.02,
+      "max_acceleration_m_s2": 3,
+      "max_yaw_rate_deg_s": 0,
+      "max_altitude_m": 112,
+      "min_altitude_m": 0,
+      "max_jerk_m_s3": 17.32
+    },
+    "violation_counts": {
+      "proximity": 0,
+      "velocity": 0,
+      "acceleration": 0,
+      "yaw_rate": 0,
+      "altitude": 0,
+      "ground": 0,
+      "jerk": 0
+    }
+  }
+}
