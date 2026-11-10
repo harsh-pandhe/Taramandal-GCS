@@ -1,3 +1,4 @@
+# ruff: noqa: E401, E402, E701, E702, F811  (analysis script that records how this show was made; not product code)
 """PROVENANCE ONLY. Needs the earlier scene folders (formations_v13/) that are not in this repo; the final result of the chain is ../formations/. Kept to show how every spare drone was assigned a motif / how each moving part was labelled."""
 """Label the parts that will move: the Mandir flag (s11) and Lakshmi's body parts (s12).  Positions are NOT changed.
 formations_v14 = formations_v13 with only s11 and s12 relabelled (+ meta); every other scene file is copied byte-for-byte.   python prep_lakshmi14.py"""

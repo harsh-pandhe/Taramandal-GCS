@@ -1,3 +1,4 @@
+# ruff: noqa: E401, E402, E701, E702, F811  (analysis script that records how this show was made; not product code)
 import json, sys, numpy as np
 import os
 # usage: python measure_motion.py <folder with choreo.json, timeline.json, target_idx.json> <formations folder>

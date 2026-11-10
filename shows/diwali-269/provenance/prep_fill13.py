@@ -1,3 +1,4 @@
+# ruff: noqa: E401, E402, E701, E702, F811  (analysis script that records how this show was made; not product code)
 """PROVENANCE ONLY. Needs the earlier scene folders (formations_v12/) that are not in this repo; the final result of the chain is ../formations/. Kept to show how every spare drone was assigned a motif / how each moving part was labelled."""
 """Give every scene that still has dark (spare) drones something to do with them.  formations_v13 = formations_v12 with only the scenes below
 rewritten (their lit points are untouched, the spare drones become motifs).  Everything that is not listed is copied byte-for-byte.
