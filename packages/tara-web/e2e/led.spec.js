@@ -111,7 +111,9 @@ test.describe('show LED colours on the night sky', () => {
 
     // A colour change in the show reaches the screen (blue now), still on plan.
     await page.evaluate((cfg) => window.__nightsky.setFleet(cfg), LED_FLEET([20, 40, 255]));
-    await expect.poll(async () => (await fleetColor(page)).b).toBeGreaterThan(80);
+    // A canvas screenshot under software GL takes seconds on a CI runner, longer than the 5 s default of
+    // expect.poll, so it never got a result; give it the same allowance as the empty-sky poll below.
+    await expect.poll(async () => (await fleetColor(page)).b, { timeout: 30_000 }).toBeGreaterThan(80);
     const blue = await fleetColor(page);
     expect(blue.b).toBeGreaterThan(blue.r * 1.4);
     expect(blue.b).toBeGreaterThan(blue.g);
