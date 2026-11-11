@@ -261,6 +261,55 @@ def show_hash(trajectory: Mapping) -> str:
     return trajectory_hash({str(k): v for k, v in trajectory.items()})
 
 
+class _HashCache:
+    """Remembers the hash of each slot and of the whole show between evaluations.
+
+    The dashboard polls ``/api/preflight-check`` every few seconds, and every
+    evaluation used to re-encode every drone's whole waypoint list to JSON and
+    hash it, plus the whole show once more. At 269 drones x 9,722 waypoints that
+    is seconds of CPU inside the event loop per poll: the loop stalled, the
+    simulated drones fell behind the plan (a 4 to 27 m "deviation" on the Night
+    Sky HUD) and the proximity failsafe tripped.
+
+    The hashes depend only on the waypoint data, and a loaded trajectory is
+    replaced as a whole (``DroneManager.active_trajectory = ...``), never edited
+    in place. An entry is therefore reused only while the very same waypoint list
+    object is presented with the same length; any other list, or a changed length,
+    is hashed afresh. The cache keeps a reference to what it hashed, so an object
+    id cannot be recycled into a false hit, and it drops everything when no show
+    is loaded. A byte-for-byte in-place edit that keeps the length would go
+    unnoticed, which nothing in the GCS does.
+    """
+
+    def __init__(self) -> None:
+        self._slots: dict = {}  # slot key -> (waypoint list, its length, digest)
+        self._show: tuple | None = None  # (trajectory, fingerprint, digest)
+
+    def slot(self, drone_id, waypoints) -> str:
+        hit = self._slots.get(drone_id)
+        if hit is not None and hit[0] is waypoints and hit[1] == len(waypoints):
+            return hit[2]
+        digest = trajectory_hash(waypoints)
+        self._slots[drone_id] = (waypoints, len(waypoints), digest)
+        return digest
+
+    def show(self, trajectory: Mapping | None) -> str | None:
+        if not trajectory:
+            self._slots.clear()
+            self._show = None
+            return None
+        fingerprint = tuple((k, id(v), len(v)) for k, v in trajectory.items())
+        if self._show is not None and self._show[0] is trajectory and self._show[1] == fingerprint:
+            return self._show[2]
+        digest = show_hash(trajectory)
+        self._show = (trajectory, fingerprint, digest)
+        # Forget slots that belong to a show that is no longer loaded.
+        self._slots = {
+            k: v for k, v in self._slots.items() if _slot_waypoints(trajectory, k) is v[0]
+        }
+        return digest
+
+
 def _slot_waypoints(trajectory: Mapping, drone_id: int):
     if drone_id in trajectory:
         return trajectory[drone_id]
@@ -445,6 +494,7 @@ class PreArmChecklistEngine:
         self.hold_s = hold_s
         self._pending: dict[str, _Pending] = {}  # kind ("latch"/"override") -> pending step 1
         self._active: dict[str, _Active] = {}  # kind -> confirmed step 2
+        self._hashes = _HashCache()
 
     # --- Two-step confirmation -------------------------------------------
 
@@ -627,7 +677,7 @@ class PreArmChecklistEngine:
             "blocking_reasons": blocking,
             "allow_partial_fleet": policy.allow_partial_fleet,
             "expected_drones": expected_drones,
-            "show_hash": show_hash(trajectory) if trajectory else None,
+            "show_hash": self._hashes.show(trajectory),
             "rules": [
                 {
                     "id": rule.id,
@@ -776,7 +826,7 @@ class PreArmChecklistEngine:
         waypoints = _slot_waypoints(trajectory, drone_id)
         if not waypoints:
             return False, "No trajectory slot for this drone"
-        expected = trajectory_hash(waypoints)
+        expected = self._hashes.slot(drone_id, waypoints)
         onboard = tel.get("mission_hash")
         if onboard is None:
             if self.policy.require_onboard_mission_hash:
