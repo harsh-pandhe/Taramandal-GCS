@@ -27,6 +27,10 @@ const OFF_PLANNED_X = 9;
 const OFF_PLANNED_Y = 10;
 const OFF_PLANNED_Z = 11;
 const OFF_PLANNED_VALID = 12;
+const OFF_LED_R = 13;
+const OFF_LED_G = 14;
+const OFF_LED_B = 15;
+const OFF_LED_VALID = 16;
 
 function Harness() {
   const fleetRef = useRef({
@@ -45,7 +49,9 @@ function Harness() {
     // `deviations[i]` metres off its planned point along +Z (altitude). A
     // per-drone deviation array is what lets one test assert all three colour
     // bands in a single frame.
-    function setFleet({ count, deviations = [], connected = true }) {
+    // `led`, when given, is one [r, g, b] (0-255) per drone, or null for a drone whose show has no
+    // colour data; omitted, no drone carries LED data (the pre-colour behaviour).
+    function setFleet({ count, deviations = [], connected = true, led = null }) {
       for (let i = 0; i < count; i++) {
         const base = i * FLOATS_PER_DRONE;
         // Spread the fleet over a grid so drones don't overlap on screen.
@@ -64,6 +70,11 @@ function Harness() {
         fleet.data[base + OFF_PLANNED_Y] = plannedY;
         fleet.data[base + OFF_PLANNED_Z] = plannedZ;
         fleet.data[base + OFF_PLANNED_VALID] = 1;
+        const colour = led ? led[i] ?? null : null;
+        fleet.data[base + OFF_LED_R] = colour ? colour[0] : 0;
+        fleet.data[base + OFF_LED_G] = colour ? colour[1] : 0;
+        fleet.data[base + OFF_LED_B] = colour ? colour[2] : 0;
+        fleet.data[base + OFF_LED_VALID] = colour ? 1 : 0;
       }
       fleet.count = count;
     }

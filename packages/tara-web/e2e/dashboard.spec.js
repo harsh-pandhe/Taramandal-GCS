@@ -16,6 +16,7 @@ import { signIn } from './session.js';
 const FAST_FIELDS = [
   'fleet_x', 'fleet_y', 'fleet_z', 'local_x', 'local_y', 'local_z', 'heading',
   'armed', 'connected', 'planned_x', 'planned_y', 'planned_z', 'planned_valid',
+  'led_r', 'led_g', 'led_b', 'led_valid',
 ];
 
 function fastFrame(drones) {
