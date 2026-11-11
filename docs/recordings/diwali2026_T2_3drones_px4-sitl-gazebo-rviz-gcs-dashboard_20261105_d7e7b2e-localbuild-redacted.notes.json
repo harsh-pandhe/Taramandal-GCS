@@ -1,0 +1,54 @@
+{
+ "clip": "diwali2026_T2_3drones_px4-sitl-gazebo-rviz-gcs-dashboard_20261105_d7e7b2e-localbuild-redacted.mp4",
+ "original_clip_not_in_repo": "diwali2026_T2_3drones_px4-sitl-gazebo-rviz-gcs-dashboard_20261105_d7e7b2e-localbuild.mp4",
+ "tier": "T2 (PX4 SITL + Gazebo), simulation, 3 drones. Not hardware.",
+ "repo_commit": "d7e7b2eb25af2f3e46db9156719089909e978f5a",
+ "recorded_utc": "2026-11-05T09:57:19Z to 09:59:54Z (first 5.7 s trimmed: blank page load)",
+ "capture": "ffmpeg n9.0.2 x11grab, display :1, 1440x900 region at (0,60); H.264 crf 23; 2:31; layout: GCS dashboard (Chromium app window, 720 px) | Gazebo Sim above RViz",
+ "stack": "N=3 ./tara up --backend px4 -n 3 --gui (the repo's own command), RViz launched separately by t2-rig/t2_rviz.sh with taramandal_t2_n3.rviz",
+ "px4": "same locally patched native v1.16.2 build as the 1-drone clip (t2-rig/px4-local-patches.patch)",
+ "gazebo": "Gazebo Sim 8.10.0 (conda-forge); the project's container image has 8.15.0",
+ "rviz2": "ROS 2 Jazzy rviz2 14.1.24 (RoboStack), OpenGL 4.6 on the NVIDIA GPU",
+ "deviations_from_repo_defaults": [
+  "RViz run with a local copy of the repo config (side docks hidden by one synthetic click, camera 24 m back, larger TF markers) instead of --rviz",
+  "Gazebo GUI config trimmed (no entity tree or inspector); follow-camera on the middle drone x500_1 from 10 m behind and 7 m above via gz service",
+  "dashboard EXECUTION = streamed (stock PX4 has no onboard executor)"
+ ],
+ "show": "examples/diwali/segments/diwali_3drone_segment.json (certified 84.2 s, 3 drones, min separation 2.20 m at export), signed with the demo key (signer label 'Studio SITL #172'); the GCS reported 92.3 s including the start leg from the formation layers",
+ "gcs_log": "3/3 missions verified, 0 drones excluded, launch authorized for drones 0,1,2; STAGED, PREARM, ARMED, TAKEOFF, FORMATION_HOLD, RUNNING, SHOW_COMPLETE; no abort, no RTL, no emergency transition; no failsafe or denied command in the three PX4 logs",
+ "gazebo_real_time_factor_read_from_gui": "98.4 to 99.1 %",
+ "host_load_1min": "0.91 at the gate, 5.5 when the driver started, 8.2 at the end",
+ "not_checked": "flown separation and tracking error from Gazebo ground truth were not measured for this clip",
+ "take_validity": {
+  "window_resizes": 0,
+  "unscripted_page_changes": 0
+ },
+ "not_in_clip": [
+  "hardware",
+  "landing (ends at SHOW_COMPLETE)",
+  "Studio preview",
+  "mouse pointer",
+  "audio",
+  "Gazebo ground truth vs the plan"
+ ],
+ "redaction": {
+  "what": "In every frame the RViz window's title bar text is covered by a solid grey box with the label 'RViz'. That text was the local path of the RViz config file and contained the recording machine's username and home directory. Nothing else in the picture was changed.",
+  "box_px": "x 735, y 403, width 600, height 27, in the 1440x900 capture",
+  "method": "ffmpeg drawbox (solid fill) and drawtext, re-encoded with libx264 crf 22 (original: crf 23 or 24); same frame size, 30 fps, duration and frame count as the original",
+  "frames": 4541,
+  "check": "in all frames, every pixel inside the box outside the label is between 31 and 45 against a fill of 42; title text is about 100 or brighter",
+  "original_sha256": "f5d803d13cafa1c27181134b789b02dd9fe2cb7b318dcd971c95770dbf4321e8",
+  "redacted_sha256": "96434a91ac7db8c521863ea73cd5d2d2036bc1d085de38e59603c123bcd67fe1"
+ },
+ "privacy_review_2026-11-07": {
+  "method": "1 frame per second of the original viewed on contact sheets (all of the 3 clips: 126, 151 and 236 s), full-resolution frames at several points (the 1-drone clip at the start and middle, the 3-drone clip at the start, and title-bar crops from all three clips), a 5 frames-per-second scan of the dashboard column for sudden light overlays, embedded metadata and strings of the video files, and the notes file",
+  "found": "RViz title bar with the local path and username (now covered). Nothing else: no password-manager or other browser bubble, no desktop notification, no token, no terminal, no browser address bar. The login screen shows the demo operator id 'cmdr' and a masked passphrase field; the upload panel shows the demo signing key id.",
+  "limit": "a pop-up shorter than about 0.2 s over the Gazebo or RViz panes would not have been seen; none was flagged in the dashboard column at 5 fps"
+ },
+ "referenced_files_not_included": {
+  "paths": [
+   "t2-rig/"
+  ],
+  "reason": "5 of their 46 files contain the recording machine's absolute paths (a username), so they are not part of this change"
+ }
+}
