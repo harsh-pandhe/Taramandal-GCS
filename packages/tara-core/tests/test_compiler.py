@@ -234,6 +234,28 @@ class TestGoldenVectors:
         assert manifest_re.show_id == manifest.show_id
 
 
+    def test_pinned_golden_bytes_and_digest(self):
+        """A literal expected file, so a change in rounding, field order, padding, endianness or
+        CRC fails here on any platform rather than just matching a second run of itself.
+
+        Header: 'TMSN', version 1, flags 1 (LED), drone 1, reserved 0, 3 records, 5000 ms,
+        show id 00..0f, CRC-32 of the records. Then three 16-byte records."""
+        wps = [
+            {"time": 0.0, "x": 0.0, "y": 0.0, "z": -2.0, "yaw": 0.0, "r": 255, "g": 0, "b": 0},
+            {"time": 2.5, "x": 12.34, "y": -5.67, "z": -15.5, "yaw": 180.0, "r": 0, "g": 255, "b": 128},
+            {"time": 5.0, "x": 20.0, "y": 10.0, "z": -2.0, "yaw": 359.0, "r": 0, "g": 0, "b": 255},
+        ]
+        compiled = compile_drone_mission(wps, drone_id=1, show_id=bytes(range(SHOW_ID_SIZE)))
+        assert compiled.payload.hex() == (
+            "544d534e0100010001000000030000008813000000010203040506070809"
+            "0a0b0c0d0e0f8a522d41"
+            "000000000000000038ff0000ff000000"
+            "c4090000d204c9fdf2f9504600ff8000"
+            "88130000d007e80338ff3c8c0000ff00"
+        )
+        assert compiled.sha256 == "26e0670ed1281f1845825857d9ab7e75f6874cc236186273da09ab80c226172b"
+
+
 class TestCompileShowFilesystem:
     """Output directory creation, .tarm file emission, and manifest serialization."""
 

@@ -195,6 +195,51 @@ def sign(
     typer.echo("[tara] upload both files together; changing either one invalidates the signature.")
 
 
+def _violation_lines(report: dict, label: str) -> list[str]:
+    """One line per failing check in a Studio feasibility report, with its first offender."""
+    lines = []
+    for category, items in report.get("violations", {}).items():
+        if items:
+            first = ", ".join(f"{k}={round(v, 3) if isinstance(v, float) else v}" for k, v in items[0].items())
+            lines.append(f"{label}: {category}: {len(items)} violation(s), first: {first}")
+    return lines or [f"{label}: {report.get('summary', 'failed feasibility certification')}"]
+
+
+def _feasibility_errors(show_obj, missions, origins) -> list[str]:
+    """Run Studio's export gate, as Studio runs it, on the show and on the bytes about to be written.
+
+    Studio refuses a flight export unless ``certify_feasibility_report`` passes on the show as
+    given and again on the compiled file decoded back, because centimetre rounding can push a
+    marginal show over a velocity, acceleration or jerk limit (issues #157, #175). This does the
+    same: the second pass decodes the exact payloads and shifts them back to the fleet frame.
+    Fails closed: if the gate itself cannot run, that is an error, not a pass.
+    """
+    from tara_core import Show, decompile_drone_mission
+    from tara_core.validate import altitude_errors
+
+    try:
+        from tara_studio.validator import certify_feasibility_report
+
+        errors: list[str] = []
+        certified, report = certify_feasibility_report(show_obj)
+        if not certified:
+            return _violation_lines(report, "as designed")
+
+        decoded = {}
+        for drone_id, mission in missions.items():
+            ox, oy = origins[drone_id]
+            _, waypoints = decompile_drone_mission(mission.payload)
+            decoded[drone_id] = [{**wp, "x": wp["x"] + ox, "y": wp["y"] + oy} for wp in waypoints]
+        compiled_show = Show.from_any(decoded)
+        errors += [f"as compiled (after centimetre rounding): {e}" for e in altitude_errors(compiled_show)]
+        certified, report = certify_feasibility_report(compiled_show)
+        if not certified:
+            errors += _violation_lines(report, "as compiled (after centimetre rounding)")
+        return errors
+    except Exception as exc:
+        return [f"could not run the feasibility gate, so the show is not certified: {exc!r}"]
+
+
 @app.command()
 def compile(
     show: Path = typer.Argument(
@@ -212,13 +257,22 @@ def compile(
     validate: bool = typer.Option(
         True,
         "--validate/--no-validate",
-        help="Validate altitude and collision limits before compilation.",
+        help=(
+            "Run the safety gates before writing anything: altitude, separation and Studio's full "
+            "feasibility certification (velocity, acceleration, yaw rate, jerk). --no-validate skips "
+            "these gates only; input that cannot be compiled faithfully is always refused."
+        ),
     ),
 ) -> None:
-    """Compile canonical show trajectories into deterministic binary .tarm payloads (issue #56)."""
+    """Compile canonical show trajectories into deterministic binary .tarm payloads (issue #56).
+
+    Each drone's file is in its own launch-pad frame and byte-identical to the one the GCS
+    uploads for the same show. A show that Studio would refuse to export is refused here too,
+    with the reasons, and nothing is written."""
     from tara_core import Show
-    from tara_core.compiler import compile_show
+    from tara_core.compiler import compile_input_errors, compile_show, write_compiled_show
     from tara_core.validate import altitude_errors, collision_errors
+    from tara_gcs.drone_manager import _pad_offset
 
     try:
         suffix = show.suffix.lower()
@@ -234,22 +288,49 @@ def compile(
         typer.secho(f"[tara] failed to load show {show}: {exc}", fg=typer.colors.RED, err=True)
         raise typer.Exit(1)
 
+    input_errors = compile_input_errors(show_obj)
+    if input_errors:
+        for err in input_errors:
+            typer.secho(f"[tara] invalid show: {err}", fg=typer.colors.RED, err=True)
+        raise typer.Exit(1)
+
     if validate:
-        alt_errs = altitude_errors(show_obj)
-        if alt_errs:
-            for err in alt_errs:
-                typer.secho(f"[tara] safety error: {err}", fg=typer.colors.RED, err=True)
-            raise typer.Exit(1)
-        col_errs = collision_errors(show_obj)
-        if col_errs:
-            for err in col_errs:
+        safety_errors = altitude_errors(show_obj) + collision_errors(show_obj)
+        if safety_errors:
+            for err in safety_errors:
                 typer.secho(f"[tara] safety error: {err}", fg=typer.colors.RED, err=True)
             raise typer.Exit(1)
 
     try:
-        missions, manifest = compile_show(show_obj, output_dir=output_dir)
+        # Compile in each drone's own pad frame, exactly as the GCS does when it
+        # uploads a show (DroneManager.upload_show): the file header promises
+        # drone-local NED, so a fleet-frame file loaded onto a drone that is not
+        # at the origin pad would command a sideways move at t = 0. The pad grid
+        # is the GCS's own, imported rather than copied so the two cannot drift.
+        # Slot N is compiled for drone N, which is what the GCS assigns when the
+        # whole fleet is healthy; offline there is no health to remap around.
+        origins = {slot: _pad_offset(slot) for slot in show_obj.drones}
+        missions, manifest = compile_show(show_obj, origins=origins)
     except Exception as exc:
         typer.secho(f"[tara] compilation failed: {exc}", fg=typer.colors.RED, err=True)
+        raise typer.Exit(1)
+
+    if validate:
+        gate_errors = _feasibility_errors(show_obj, missions, origins)
+        if gate_errors:
+            for err in gate_errors:
+                typer.secho(f"[tara] refused: {err}", fg=typer.colors.RED, err=True)
+            typer.secho(
+                "[tara] nothing was written. Fix the show in Studio and compile again.",
+                fg=typer.colors.RED,
+                err=True,
+            )
+            raise typer.Exit(1)
+
+    try:
+        write_compiled_show(missions, manifest, output_dir)
+    except OSError as exc:
+        typer.secho(f"[tara] could not write to {output_dir}: {exc}", fg=typer.colors.RED, err=True)
         raise typer.Exit(1)
 
     typer.echo(f"[tara] compiled show (id {manifest.show_id}) with {manifest.drone_count} drones into {output_dir}")

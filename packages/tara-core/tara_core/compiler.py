@@ -40,6 +40,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -113,11 +114,81 @@ __all__ = [
     "DroneManifestEntry",
     "compile_drone_mission",
     "compile_show",
+    "compile_input_errors",
     "compute_payload_sha256",
     "decompile_drone_mission",
     "load_show",
+    "write_compiled_show",
 ]
 
+
+
+def _is_number(value: Any) -> bool:
+    return isinstance(value, (int, float)) and not isinstance(value, bool)
+
+
+def compile_input_errors(show: Show, max_errors: int = 10) -> list[str]:
+    """Describe everything about a show that makes it impossible to compile faithfully.
+
+    The mission encoder raises on some of these with a bare Python message
+    ("cannot convert float NaN to integer"), lets a LED value of 300 wrap to 44
+    without a word, and the safety validators compare against NaN as if it were
+    in range. This runs first, so the answer is a list of what is wrong and
+    where, not a traceback or a quietly altered file.
+
+    Checks, per drone: at least one waypoint; ``time``/``x``/``y``/``z``/``yaw``
+    are finite numbers (not NaN, infinity, null or text); ``time`` is not
+    negative; ``r``/``g``/``b`` (and ``w``) are whole numbers 0-255 when present.
+    Missing keys are already refused by :meth:`Show.from_any`.
+
+    Args:
+        show: The show to check.
+        max_errors: Stop after this many.
+
+    Returns:
+        Human-readable errors; empty means the input is structurally sound. It does
+        not judge safety: that is the validators' job.
+    """
+    errors: list[str] = []
+
+    def add(message: str) -> bool:
+        errors.append(message)
+        return len(errors) >= max_errors
+
+    if not show.drones:
+        add("the show has no drones")
+        return errors
+
+    for drone_id in sorted(show.drones):
+        waypoints = show.drones[drone_id]
+        if not waypoints:
+            if add(f"drone {drone_id} has no waypoints"):
+                return errors
+            continue
+        for index, wp in enumerate(waypoints):
+            where = f"drone {drone_id} waypoint {index}"
+            for key in ("time", "x", "y", "z", "yaw"):
+                if key not in wp:
+                    # time/x/y/z are guaranteed by Show.from_any; yaw is optional.
+                    continue
+                value = wp[key]
+                if not _is_number(value):
+                    if add(f"{where}: {key} is {value!r}, not a number"):
+                        return errors
+                elif not math.isfinite(value):
+                    if add(f"{where}: {key} is {value}, not a finite number"):
+                        return errors
+                elif key == "time" and value < 0:
+                    if add(f"{where}: time is {value}, before the show starts"):
+                        return errors
+            for key in ("r", "g", "b", "w"):
+                if key not in wp:
+                    continue
+                value = wp[key]
+                if not _is_number(value) or not math.isfinite(value) or value != int(value) or not 0 <= value <= 255:
+                    if add(f"{where}: LED channel {key} is {value!r}, not a whole number from 0 to 255"):
+                        return errors
+    return errors
 
 
 def compute_payload_sha256(payload: bytes) -> str:
@@ -322,18 +393,29 @@ def compile_show(
     )
 
     if output_dir is not None:
-        out_path = Path(output_dir)
-        out_path.mkdir(parents=True, exist_ok=True)
-        for did, mission in missions.items():
-            tarm_file = out_path / drone_entries[did].file_name
-            tarm_file.write_bytes(mission.payload)
-        manifest_file = out_path / MANIFEST_FILENAME
-        manifest_file.write_text(
-            json.dumps(manifest.to_dict(), indent=2) + "\n",
-            encoding="utf-8",
-        )
+        write_compiled_show(missions, manifest, output_dir)
 
     return missions, manifest
+
+
+def write_compiled_show(
+    missions: dict[int, CompiledDroneMission],
+    manifest: CompilationManifest,
+    output_dir: Path | str,
+) -> None:
+    """Write each drone's ``.tarm`` and ``manifest.json`` into ``output_dir``.
+
+    Split out of :func:`compile_show` so a caller can compile in memory, check
+    the exact bytes, and only then put files on disk.
+    """
+    out_path = Path(output_dir)
+    out_path.mkdir(parents=True, exist_ok=True)
+    for did, mission in missions.items():
+        (out_path / manifest.drones[did].file_name).write_bytes(mission.payload)
+    (out_path / MANIFEST_FILENAME).write_text(
+        json.dumps(manifest.to_dict(), indent=2) + "\n",
+        encoding="utf-8",
+    )
 
 
 def decompile_drone_mission(blob: bytes) -> tuple[MissionHeader, list[dict]]:

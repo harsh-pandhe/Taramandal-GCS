@@ -14,9 +14,11 @@ from .compiler import (
     CompiledDroneMission,
     DroneManifestEntry,
     compile_drone_mission,
+    compile_input_errors,
     compile_show,
     compute_payload_sha256,
     decompile_drone_mission,
+    write_compiled_show,
 )
 from .geometry import (
     EARTH_RADIUS_M,
@@ -68,6 +70,7 @@ __all__ = [
     "close_pairs",
     "collision_errors",
     "compile_drone_mission",
+    "compile_input_errors",
     "compile_mission",
     "compile_show",
     "compute_payload_sha256",
@@ -90,4 +93,5 @@ __all__ = [
     "sweep_times",
     "total_cost",
     "validate_show",
+    "write_compiled_show",
 ]
