@@ -356,6 +356,144 @@ The same folder has the tool record per flown repeat, and the full PX4 parameter
 in force, from one drone. The ulogs, console logs and black-box files are kept on the
 dev machine.
 
+### G. Final regression on `f556537` (main, 7 of 7 CI green)
+
+**Flown on `f556537`: the first 5-drone run at 19:29 UTC on 2026-11-08 (00:59 IST on 2026-11-09), the rerun at 20:24 UTC (01:54 IST)**, with #244
+(PX4-safe pacing) merged and CI green on that commit. The 3-drone show is the
+committed `diwali_3drone_segment.json` (the rebuild on this commit is not
+byte-identical to it, so the committed file was flown). The 5-drone show was rebuilt
+on this commit and **differs from the one flown in sections E and F** because of
+#244's pacing. **All four 5-drone runs below flew the same 5-drone show file.**
+
+Same setup as sections D and E: signed re-export, no `--allow-unsigned`, a new
+container per run, no other `tara-sitl-*` container running, and 1-minute host load
+under 4 before each run. The rule for PASS was fixed in advance: the tool passes,
+every drone passes the per-drone check (OFFBOARD seen, peak altitude within 1 m of
+plan, tracking under 2 m), PX4 ulogs and console logs exist for every drone, and
+`launch_failures` stays empty in every 2 s `/api/status` sample. The last two 5-drone
+runs (p3, p4) also had a stricter host gate: both the 1-minute and the 15-minute load
+average under 4, held for 60 s.
+
+| Run | Counted | Drones | Tool verdict | Per-drone check | `launch_failures` | ulogs + console logs | Studio min sep (m) | Gazebo min sep (m) | Max tracking error (m) | Worst landing error (m) | RTF | Longest stall (s) | Start leg (s) | Emergency transitions | Final state | Host load before (1 / 5 / 15 min) |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| final-n3-p1 | no (VM swapped during stack start) | 3 | not flown | n/a | empty | all 3 | n/a | n/a | n/a | n/a | n/a | n/a | n/a | n/a | n/a | 2.55 / 2.20 / 1.21 |
+| final-n3-p1-retry1 | yes (p1 rerun) | 3 | PASS | ok | empty | all 3 | 2.20 | 2.122 | 0.332 | 0.070 | 0.999 | 0.05 | 8.0 | 0 | DISARMED | 2.20 / 2.30 / 1.35 |
+| final-n3-p2 | yes | 3 | PASS | ok | empty | all 3 | 2.20 | 2.114 | 0.519 | 0.041 | 1.000 | 0.03 | 8.0 | 0 | DISARMED | 1.84 / 2.74 / 1.78 |
+| final-n3-p3 | yes | 3 | PASS | ok | empty | all 3 | 2.20 | 2.154 | 0.274 | 0.062 | 1.000 | 0.02 | 8.0 | 0 | DISARMED | 1.13 / 2.27 / 1.83 |
+| final-n5-p1 | yes | 5 | **FAIL: emergency transition; final state RTL** | **FAIL (5 of 5)** | empty | all 5 | 2.20 | 2.142 | **11.97** | 32.893 | **0.575** | 0.19 | 13.4 | 3 | RTL | 2.65 / 2.65 / 2.08 |
+| final-n5-p2 (rerun, same show) | yes | 5 | **PASS** | ok | empty | all 5 | 2.20 | 2.150 | 0.326 | 0.085 | **0.998** | 0.03 | 13.4 | 0 | DISARMED | **2.91 / 15.99 / 51.35** |
+| final-n5-p3 (quiet gate) | yes | 5 | **PASS** | ok | empty | all 5 | 2.20 | 2.137 | 0.276 | 0.084 | 1.000 | 0.04 | 13.4 | 0 | DISARMED | 2.83 / 1.99 / 2.02 |
+| final-n5-p4 (quiet gate) | yes | 5 | **PASS** | ok | empty | all 5 | 2.20 | 2.134 | 0.292 | 0.077 | 1.000 | 0.02 | 13.4 | 0 | DISARMED | 2.04 / 3.77 / 2.96 |
+
+**The 3-drone half passes: three consecutive runs, each in a fresh container.** The
+first attempt (`final-n3-p1`) was voided because the VM swapped while the stack was
+starting (108,371 pages out) and the drones never flew. It was rerun and not counted.
+Memory and swap inside the Docker VM were clean in all counted runs (minimum available
+1,947 MiB, 0 swap-out pages). `launch_failures` was empty in every sample of every run.
+
+**5 drones, same show file, same commit, a fresh container each: four counted runs, 1 FAIL and 3 PASS.**
+
+| | `final-n5-p1` | `final-n5-p2` | `final-n5-p3` | `final-n5-p4` |
+|---|---|---|---|---|
+| Result | **FAIL**, fleet in RTL | PASS | PASS | PASS |
+| Per-drone peak altitude vs plan | 8.0 to 10.5 m against 10.4 to 15.2 m planned; no drone passed the check | all within 0.04 m | all flew | all flew |
+| Max tracking error per drone (m) | 8.7 to 12.0 | 0.18 to 0.33 | max 0.276 | max 0.292 |
+| Failsafes | geofence, proximity, RTL | none | none | none |
+| RTF over the show | 0.575 | 0.998 | 1.000 | 1.000 |
+| Longest sim stall (tool) | 0.19 s | 0.03 s | 0.04 s | 0.02 s |
+| Host load before (1 / 5 / 15 min) | 2.65 / 2.65 / 2.08 | 2.91 / 15.99 / 51.35 | 2.83 / 1.99 / 2.02 | 2.04 / 3.77 / 2.96 |
+| Host 1-min load at start / at end of flight | 3.78 / 47.90 | 5.28 / 8.84 | 4.49 / 7.65 | 2.81 / 6.71 |
+| Docker VM min available memory / VM swap-out | 2,099 MiB / 0 | 1,947 MiB / 0 | 2,064 MiB / 0 | 2,067 MiB / 0 |
+| **Host** min available memory during the flight | not sampled | not sampled | 2,010 MiB | 4,088 MiB |
+| **Host** swap used, min to max during the flight | not sampled | not sampled | 1,529 to **3,977** of 4,095 MiB | 3,201 to 3,301 MiB |
+| **Host** pages swapped out / in during the flight | not sampled | not sampled | **715,858** / 142,668 | 7,246 / 24,916 |
+| Host memory pressure (PSI `some avg10`, max) | not sampled | not sampled | 0.62 | 0.00 |
+| Container CPU (`docker stats`, mean / max) | not sampled | 232% / 389% | 230% / 384% | 207% / 344% |
+| Samples | none | 39 x 5 s | 39 x 5 s | 39 x 5 s |
+
+The 5 s samples (`final-n5-p2.stats.jsonl`, `-p3`, `-p4`) hold the raw `free -m` text,
+`/proc/meminfo` and `/proc/vmstat` counters, PSI, `docker stats` and the Docker VM's own
+CPU, memory and swap. `final-n5-stats-summary.json` has the figures above. p2 was
+sampled before host memory was added to the sampler, so it has Docker VM and container
+figures only.
+
+**RTF through the run, in 10 s blocks of show time** (computed the same way for both
+runs, from the Gazebo pose samples; `final-n5-rtf-by-block.json`):
+
+| Show time (s) | up to 30 | 30-40 | 40-50 | 50-60 | 60-70 | 70-130 | 130-250 |
+|---|---|---|---|---|---|---|---|
+| `final-n5-p1` | 1.00 | 0.97 | **0.35** | 0.30 | 0.29 | 0.25-0.29 | 0.17-0.29 (never recovered) |
+| `final-n5-p2` | 1.00 | 1.00 | 1.00 | 1.00 | 0.98 | 1.00 | run ended at ~130 s |
+| `final-n5-p3` | 1.00 | 1.00 | 1.00 | 1.00 | 1.00 | 1.00 | run ended at ~130 s |
+| `final-n5-p4` | 1.00 | 1.00 | 1.00 | 1.00 | 1.00 | 1.00 | run ended at ~130 s |
+
+**What the first run looked like.** All five drones fell behind plan together: the
+first sample over 2 m of error is at show time 45.0 to 46.2 s for every drone, each
+about 2 m below its planned altitude. The sim's real-time factor fell from 1.0 to 0.35 in
+the block starting at show time 40 s and stayed at 0.17 to 0.30 for the rest of the
+flight, so the fleet, streamed in real time, was ahead of a slowed sim. PX4 logged an
+attitude failure on drone 1 (19:30:35 UTC) and `Accel #0 fail: TIMEOUT` on drone 2
+(19:30:41 UTC) mid-flight (the show started at 19:29:31 and reached SHOW_COMPLETE at
+19:31:11). The tool's stall detector did not fire (the sim kept moving, slowly), there was
+no swap and memory stayed above 2 GiB inside the VM, so the run does not meet the
+"swapped, stalled or failed to start" rule for being discarded, and it is counted.
+
+**Does swap or VM memory explain the failure? Not on the evidence we have.**
+
+- **The Docker VM did not swap or run short in any run.** Its minimum available memory
+  was 1.9 to 2.1 GiB of 3.7 GiB (from the run's 2 s memory log) and its swap-out counter did not move, in the failed run
+  and in the three passes. The VM's own memory is not the explanation.
+- **Host swap was heavy during a passing run.** In `final-n5-p3` the host swapped out
+  715,858 pages (about 2.7 GiB) while the five drones flew, host swap rose from 1.5 to
+  4.0 GiB used (of 4.1), and host available memory fell to 2.0 GiB. That run still held
+  RTF 1.00 in every 10 s block and passed. In `final-n5-p4` the host was holding about
+  3.2 GiB of swap but swapped little (7,246 pages out), and it also passed. So host swap
+  activity of this size does not, by itself, slow the sim.
+- **Run 1 has no host memory samples**, so its host swap and memory are NOT VERIFIED
+  either way. The leads that exist for it are circumstantial: an Ollama "disabling mmap
+  for llama-server load due to host memory pressure" log line at 00:57:45 IST, about a
+  minute and a half before it started; a host 1-minute load of 47.9 when it ended; and
+  other jobs running on this machine (a pytest run, a `sim_scale_site.py` run and an
+  Ollama `llama-server` were seen later; which were running during run 1 was not
+  recorded). The failure itself is a sudden, sustained, fleet-wide slowdown of the sim
+  (RTF 1.0 to 0.35 at show time 40 s, never recovered), not drones diverging one at a
+  time.
+- **What we can say:** on a host with both load averages under 4, two runs in a row
+  passed. In the earlier rerun (p2), which started with a 15-minute load average of 51,
+  the show also passed. The one failure happened on a host that was probably busy but
+  whose busyness was not measured. That is consistent with host contention and does not
+  establish it. It remains one failure in four runs, with an unknown cause.
+
+**How the quiet gate went.** p3 passed the gate at load 2.83 / 1.99 / 2.02 and p4 at
+2.04 / 3.77 / 2.96 (both load averages under 4 held for 60 s, no running `tara-sitl-*`
+container). Load still rose to 7.7 (p3) and 6.7 (p4) during the flights, partly from the
+`tara-sitl-final` container itself (about 2.1 to 2.3 CPUs). Other Claude Code sessions
+and a Studio server were running on the machine and were not closed (they are not
+this run's to close); the gate does not look at them, only at load.
+
+**What the sampler did not capture.** The sampler also tried to read Gazebo's world
+statistics from inside the container every 5 s; no Gazebo stats topic was found from
+that `docker exec` (the cause was not checked), so there is no RTF time series from the
+sampler. The RTF figures come from the Gazebo pose samples. The host process list was
+not sampled in any run.
+
+**What this does and does not show.**
+
+- On this commit the 5-drone show flew to a clean PASS in 3 of 4 runs and failed once.
+  Four runs do not say how often it fails; one failure in four is a rate with a very wide
+  uncertainty. The earlier 5-drone passes (sections E and F) were a different show file.
+- It does not repeat the drone-3 event from section F (one drone armed, never took off).
+  In the failed run all five drones took off and flew, then lagged.
+- The 3-drone result is the same show as section E and passes the same way.
+- **#172 is not called accepted.** The one failure is unexplained.
+
+**Records.** The tool JSONs for the seven counted runs, `final-gate-summary.json` (the
+per-drone check, `launch_failures`, memory, host load and log presence for all eight
+attempts, including the voided one), `final-n5-p2/p3/p4.stats.jsonl`,
+`final-n5-stats-summary.json` and `final-n5-rtf-by-block.json` are committed here. CSVs, signed shows, PX4 ulogs and
+console logs, and the GCS black-box files are on the dev machine in
+`~/Desktop/tara-sitl-scratch-final/runs`. Nothing in this PR changes product code.
+
 ## Findings
 
 These are filed here and on #172. None was fixed in this PR, per the lane
@@ -420,8 +558,8 @@ on the pad (Studio/GCS interface).**
 ## Not done
 
 - **RViz and the recording** (see Setup).
-- **The acceptance decision.** Sections D and E are evidence. Harsh decides whether
-  they meet #172.
+- **The acceptance decision.** Sections D, E and G are evidence. #172 is **not**
+  called accepted: in section G the 5-drone show passed 3 of 4 runs and failed once, unexplained. Harsh decides what meets #172.
 - **`execution="onboard"`.** Stock PX4 SITL has no onboard show executor (out
   of scope per #172).
 
