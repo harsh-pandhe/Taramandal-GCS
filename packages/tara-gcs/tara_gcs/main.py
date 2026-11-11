@@ -4,7 +4,7 @@ import logging
 import os
 from pathlib import Path
 import time
-from typing import Annotated
+from typing import Annotated, Any
 from fastapi import (
     Depends, FastAPI, File, HTTPException, Request, UploadFile, WebSocket, WebSocketDisconnect,
     WebSocketException, status,
@@ -86,7 +86,7 @@ ports = [14540 + i for i in range(NUM_DRONES)]
 # fleet, which scales past the ~10-drone ceiling real SITL hits on one
 # machine. Port values are irrelevant for "sim" — only the count matters.
 VEHICLE_BACKEND = os.environ.get("VEHICLE_BACKEND", "px4")
-kwargs = {}
+kwargs: dict[str, Any] = {}
 if os.environ.get("GCS_STATE_PATH"):
     kwargs["state_path"] = os.environ["GCS_STATE_PATH"]
 if os.environ.get("GCS_AUDIT_PATH"):
@@ -98,6 +98,8 @@ if os.environ.get("SIM_PACKET_LOSS_BASE"):
     kwargs["sim_packet_loss_base"] = float(os.environ["SIM_PACKET_LOSS_BASE"])
 if os.environ.get("SIM_PACKET_LOSS_PER_100M"):
     kwargs["sim_packet_loss_per_100m"] = float(os.environ["SIM_PACKET_LOSS_PER_100M"])
+if os.environ.get("SIM_TDMA_JITTER_MS"):
+    kwargs["sim_tdma_jitter_ms"] = float(os.environ["SIM_TDMA_JITTER_MS"])
 drone_manager = DroneManager(ports=ports, backend=VEHICLE_BACKEND, **kwargs)
 
 # Owns the Gazebo/PX4/RViz processes the dashboard's Simulation Control Bar
