@@ -57,19 +57,33 @@ def _force_flight_mode(manager, monkeypatch, *, takeover_when):
 
     Overrides the sim's own flight_mode field after every telemetry ingest so
     the test controls exactly what the sequence sees.
+
+    The takeover is held back until the sequence has itself observed OFFBOARD.
+    The sequence only counts a mode change as a takeover *away from* a mode it
+    has seen (``_check_operator_takeover``), so if POSCTL were reported from the
+    first armed sample - which a slow ingest on a loaded runner allows, because
+    the vehicle can already be above takeover_when's threshold by then - the
+    sequence would never see a takeover and would land over the "pilot".
     """
     original_ingest = manager._ingest_bulk_telemetry
-    state = {"taken_over": False}
+    original_check = manager._check_operator_takeover
+    state = {"taken_over": False, "offboard_seen": False}
+
+    def check(drone_id, tel, offboard_seen):
+        seen = original_check(drone_id, tel, offboard_seen)
+        state["offboard_seen"] = state["offboard_seen"] or seen
+        return seen
 
     def ingest(snap, include_slow):
         original_ingest(snap, include_slow)
         tel = manager.telemetry[0]
         if not tel.get("armed"):
             return
-        if not state["taken_over"] and takeover_when(tel):
+        if not state["taken_over"] and state["offboard_seen"] and takeover_when(tel):
             state["taken_over"] = True
         tel["flight_mode"] = "POSCTL" if state["taken_over"] else "OFFBOARD"
 
+    monkeypatch.setattr(manager, "_check_operator_takeover", check)
     monkeypatch.setattr(manager, "_ingest_bulk_telemetry", ingest)
     return state
 
