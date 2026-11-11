@@ -1,0 +1,268 @@
+{
+ "segments": [
+  {
+   "kind": "takeoff",
+   "label": "Takeoff",
+   "k": null,
+   "t0": 0,
+   "t1": 15.2
+  },
+  {
+   "kind": "morph",
+   "label": "Climb-out",
+   "k": 0,
+   "t0": 15.2,
+   "t1": 71.2
+  },
+  {
+   "kind": "hold",
+   "label": "Golden Spiral",
+   "k": 0,
+   "t0": 71.2,
+   "t1": 85.2
+  },
+  {
+   "kind": "morph",
+   "label": "Morph → Diya",
+   "k": 1,
+   "t0": 85.2,
+   "t1": 123.6
+  },
+  {
+   "kind": "hold",
+   "label": "Diya",
+   "k": 1,
+   "t0": 123.6,
+   "t1": 157.6
+  },
+  {
+   "kind": "morph",
+   "label": "Morph → Happy Diwali",
+   "k": 2,
+   "t0": 157.6,
+   "t1": 182.5
+  },
+  {
+   "kind": "hold",
+   "label": "Happy Diwali",
+   "k": 2,
+   "t0": 182.5,
+   "t1": 210.5
+  },
+  {
+   "kind": "morph",
+   "label": "Morph → Lord Ganesha",
+   "k": 3,
+   "t0": 210.5,
+   "t1": 236.5
+  },
+  {
+   "kind": "hold",
+   "label": "Lord Ganesha",
+   "k": 3,
+   "t0": 236.5,
+   "t1": 272.5
+  },
+  {
+   "kind": "morph",
+   "label": "Morph → Shri Ram",
+   "k": 4,
+   "t0": 272.5,
+   "t1": 299.7
+  },
+  {
+   "kind": "hold",
+   "label": "Shri Ram",
+   "k": 4,
+   "t0": 299.7,
+   "t1": 317.7
+  },
+  {
+   "kind": "morph",
+   "label": "Morph → Shri Ram advances",
+   "k": 5,
+   "t0": 317.7,
+   "t1": 326.4
+  },
+  {
+   "kind": "hold",
+   "label": "Shri Ram advances",
+   "k": 5,
+   "t0": 326.4,
+   "t1": 328.4
+  },
+  {
+   "kind": "morph",
+   "label": "Morph → The baan is loosed",
+   "k": 6,
+   "t0": 328.4,
+   "t1": 345.7
+  },
+  {
+   "kind": "hold",
+   "label": "The baan is loosed",
+   "k": 6,
+   "t0": 345.7,
+   "t1": 353.7
+  },
+  {
+   "kind": "morph",
+   "label": "Morph → Ripple Rings",
+   "k": 7,
+   "t0": 353.7,
+   "t1": 379.9
+  },
+  {
+   "kind": "hold",
+   "label": "Ripple Rings",
+   "k": 7,
+   "t0": 379.9,
+   "t1": 397.9
+  },
+  {
+   "kind": "morph",
+   "label": "Morph → Rangoli",
+   "k": 8,
+   "t0": 397.9,
+   "t1": 423.3
+  },
+  {
+   "kind": "hold",
+   "label": "Rangoli",
+   "k": 8,
+   "t0": 423.3,
+   "t1": 447.3
+  },
+  {
+   "kind": "morph",
+   "label": "Morph → Firecrackers & Sparkles",
+   "k": 9,
+   "t0": 447.3,
+   "t1": 469
+  },
+  {
+   "kind": "hold",
+   "label": "Firecrackers & Sparkles",
+   "k": 9,
+   "t0": 469,
+   "t1": 505
+  },
+  {
+   "kind": "morph",
+   "label": "Morph → Ayodhya Mandir",
+   "k": 10,
+   "t0": 505,
+   "t1": 553.8
+  },
+  {
+   "kind": "hold",
+   "label": "Ayodhya Mandir",
+   "k": 10,
+   "t0": 553.8,
+   "t1": 581.8
+  },
+  {
+   "kind": "morph",
+   "label": "Morph → Lakshmi with Lotus",
+   "k": 11,
+   "t0": 581.8,
+   "t1": 610.2
+  },
+  {
+   "kind": "hold",
+   "label": "Lakshmi with Lotus",
+   "k": 11,
+   "t0": 610.2,
+   "t1": 642.2
+  },
+  {
+   "kind": "morph",
+   "label": "Morph → Grand Finale",
+   "k": 12,
+   "t0": 642.2,
+   "t1": 667.6
+  },
+  {
+   "kind": "hold",
+   "label": "Grand Finale",
+   "k": 12,
+   "t0": 667.6,
+   "t1": 701.6
+  },
+  {
+   "kind": "morph",
+   "label": "Return",
+   "k": 12,
+   "t0": 701.6,
+   "t1": 952.7
+  },
+  {
+   "kind": "land",
+   "label": "Landing",
+   "k": null,
+   "t0": 952.7,
+   "t1": 972.1
+  }
+ ],
+ "names": [
+  "Golden Spiral",
+  "Diya",
+  "Happy Diwali",
+  "Lord Ganesha",
+  "Shri Ram",
+  "Shri Ram advances",
+  "The baan is loosed",
+  "Ripple Rings",
+  "Rangoli",
+  "Firecrackers & Sparkles",
+  "Ayodhya Mandir",
+  "Lakshmi with Lotus",
+  "Grand Finale"
+ ],
+ "kinds": [
+  "reveal",
+  "reveal",
+  "reveal",
+  "reveal",
+  "reveal",
+  "lit",
+  "lit",
+  "reveal",
+  "reveal",
+  "reveal",
+  "reveal",
+  "reveal",
+  "reveal"
+ ],
+ "holds": [
+  14,
+  34,
+  28,
+  36,
+  18,
+  2,
+  8,
+  18,
+  24,
+  36,
+  28,
+  32,
+  34
+ ],
+ "trans": [
+  12,
+  12,
+  12,
+  12,
+  12,
+  3,
+  9,
+  12,
+  12,
+  12,
+  12,
+  12,
+  12
+ ],
+ "duration_s": 972.1
+}

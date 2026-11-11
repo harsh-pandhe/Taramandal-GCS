@@ -1,0 +1,96 @@
+{
+ "fleet": 269,
+ "scenes": [
+  {
+   "scene": "Golden Spiral",
+   "kind": "reveal",
+   "lit": 269,
+   "off": 0,
+   "closest_all": 3.0
+  },
+  {
+   "scene": "Diya",
+   "kind": "reveal",
+   "lit": 269,
+   "off": 0,
+   "closest_all": 3.08
+  },
+  {
+   "scene": "Happy Diwali",
+   "kind": "reveal",
+   "lit": 269,
+   "off": 0,
+   "closest_all": 2.85
+  },
+  {
+   "scene": "Lord Ganesha",
+   "kind": "reveal",
+   "lit": 269,
+   "off": 0,
+   "closest_all": 2.9
+  },
+  {
+   "scene": "Shri Ram",
+   "kind": "reveal",
+   "lit": 269,
+   "off": 0,
+   "closest_all": 2.86
+  },
+  {
+   "scene": "Shri Ram advances",
+   "kind": "lit",
+   "lit": 269,
+   "off": 0,
+   "closest_all": 2.86
+  },
+  {
+   "scene": "The baan is loosed",
+   "kind": "lit",
+   "lit": 269,
+   "off": 0,
+   "closest_all": 2.86
+  },
+  {
+   "scene": "Ripple Rings",
+   "kind": "reveal",
+   "lit": 269,
+   "off": 0,
+   "closest_all": 3.1
+  },
+  {
+   "scene": "Rangoli",
+   "kind": "reveal",
+   "lit": 269,
+   "off": 0,
+   "closest_all": 2.9
+  },
+  {
+   "scene": "Firecrackers & Sparkles",
+   "kind": "reveal",
+   "lit": 269,
+   "off": 0,
+   "closest_all": 2.86
+  },
+  {
+   "scene": "Ayodhya Mandir",
+   "kind": "reveal",
+   "lit": 269,
+   "off": 0,
+   "closest_all": 2.94
+  },
+  {
+   "scene": "Lakshmi with Lotus",
+   "kind": "reveal",
+   "lit": 269,
+   "off": 0,
+   "closest_all": 2.91
+  },
+  {
+   "scene": "Grand Finale",
+   "kind": "reveal",
+   "lit": 269,
+   "off": 0,
+   "closest_all": 2.89
+  }
+ ]
+}
