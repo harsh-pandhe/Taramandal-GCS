@@ -16,6 +16,7 @@
 import { makeScene } from './sequencer.js';
 import { MAX_FLEET_SIZE } from './api.js';
 import { applyFleetCommand } from './fleetCommands.js';
+import { validateSceneCommand, sceneSignature } from './sceneValidation.js';
 
 const quote = (name) => `"${name}"`;
 
@@ -82,6 +83,20 @@ export const sceneCommands = {
   }),
 
   reorder: (from, to) => ({ type: 'scene/reorder', label: 'Reorder scenes', from, to }),
+
+  /**
+   * Several scene commands as one all-or-nothing, single-undo-step edit (#89).
+   * `expectIds` and `expectSignature` (see sceneSignature) pin it to the scene
+   * list and content it was built from. Never carries a mergeKey, so it is
+   * never folded into a neighbouring edit.
+   */
+  batch: (commands, expectIds, expectSignature, label) => ({
+    type: 'scene/batch',
+    label: label ?? `Apply ${commands.length} scene edit${commands.length === 1 ? '' : 's'}`,
+    commands: [...commands],
+    expectIds: [...expectIds],
+    expectSignature,
+  }),
 };
 
 const applySceneCommand = (scenes, command) => {
@@ -140,6 +155,35 @@ const applySceneCommand = (scenes, command) => {
   }
 };
 
+// Dry-runs a scene/batch against `doc`, step by step, through the strict
+// validator; { ok: true, doc } or { ok: false, reason }. All-or-nothing.
+const evaluateBatch = (doc, command) => {
+  const fail = (reason) => ({ ok: false, reason });
+  if (!Array.isArray(doc?.scenes)) return fail('document has no scene list');
+  if (command.mergeKey != null) return fail('a batch may not carry a mergeKey');
+  if (!Array.isArray(command.commands) || command.commands.length === 0) return fail('batch has no commands');
+  if (!Array.isArray(command.expectIds)) return fail('batch is not pinned to a scene list');
+  const ids = doc.scenes.map((s) => s.id);
+  if (command.expectIds.length !== ids.length || command.expectIds.some((id, i) => id !== ids[i])) {
+    return fail('stale: scenes changed since the proposal was made');
+  }
+  if (typeof command.expectSignature !== 'string') return fail('batch is not pinned to the scene contents');
+  if (command.expectSignature !== sceneSignature(doc)) return fail('stale: scenes changed since the proposal was made');
+  let scenes = doc.scenes;
+  for (const [i, sub] of command.commands.entries()) {
+    const check = validateSceneCommand({ ...doc, scenes }, sub);
+    if (!check.ok) return fail(`step ${i + 1}: ${check.reason}`);
+    scenes = applySceneCommand(scenes, sub);
+  }
+  return { ok: true, doc: { ...doc, scenes } };
+};
+
+/** Why a scene/batch would be refused against `doc`, or null if it would apply. */
+export const batchRefusal = (doc, command) => {
+  const r = evaluateBatch(doc, command ?? {});
+  return r.ok ? null : r.reason;
+};
+
 /**
  * Applies one command to the Studio document. Unknown command types are a
  * no-op (the same document comes back) rather than an error, so a history
@@ -147,6 +191,10 @@ const applySceneCommand = (scenes, command) => {
  */
 export const applyCommand = (doc, command) => {
   if (!command || typeof command.type !== 'string') return doc;
+  if (command.type === 'scene/batch') {
+    const r = evaluateBatch(doc, command);
+    return r.ok ? r.doc : doc;
+  }
   if (command.type.startsWith('scene/')) {
     const scenes = applySceneCommand(doc.scenes, command);
     return scenes === doc.scenes ? doc : { ...doc, scenes };
