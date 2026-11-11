@@ -26,8 +26,21 @@ tells them apart by ``event.data`` type without needing a wrapper protocol.
 Drones are keyed by their sorted integer ID; the fast frame's Nth
 ``BYTES_PER_DRONE``-byte record is drone ID N (the *sorted position*, not the ID
 value — but `DroneManager.telemetry` keys are always a contiguous
-``range(len(ports))``, so today the two coincide). There is no header — the
-client determines drone count as ``buffer.byteLength / BYTES_PER_DRONE``.
+``range(len(ports))``, so today the two coincide).
+
+Every fast frame starts with a ``HEADER_FLOATS``-float header::
+
+    [FRAME_MAGIC, FRAME_VERSION, FLOATS_PER_DRONE]
+
+so a receiver can tell a frame it understands from one it does not. Without it a
+GCS and a dashboard built from different versions of ``FAST_FIELDS`` read each
+other's records at the wrong stride and show plausible-looking wrong positions,
+silently (found when the LED fields grew the record from 13 to 17 floats, #266).
+The receiver refuses a frame whose header differs from its own and says why.
+Bump ``FRAME_VERSION`` for any layout change that keeps ``FLOATS_PER_DRONE``
+(a reordered or re-scaled field); a changed width is caught by the third word
+on its own. The client reads the drone count as
+``(byteLength - HEADER_BYTES) / BYTES_PER_DRONE``.
 """
 
 from __future__ import annotations
@@ -45,6 +58,15 @@ FAST_FIELDS = (
 )
 FLOATS_PER_DRONE = len(FAST_FIELDS)
 BYTES_PER_DRONE = FLOATS_PER_DRONE * 4
+
+#: Frame header, in float32 words: magic, layout version, floats per drone. Kept
+#: in sync by hand with packages/tara-web/src/telemetry.js. The magic is an
+#: integer well away from any value a position or flag word takes at word 0 of a
+#: pre-header frame (fleet_x of drone 0), so an old GCS is rejected, not misread.
+FRAME_MAGIC = 7243.0
+FRAME_VERSION = 1.0
+HEADER_FLOATS = 3
+HEADER_BYTES = HEADER_FLOATS * 4
 
 SLOW_FIELDS = (
     "flight_mode",
@@ -76,10 +98,11 @@ def encode_fast_frame(telemetry: dict[int, dict]) -> bytes:
         telemetry: ``DroneManager.telemetry`` — drone id -> status dict.
 
     Returns:
-        A little-endian ``Float32Array``-compatible byte string, drones in
-        sorted-ID order, ``FLOATS_PER_DRONE`` floats each.
+        A little-endian ``Float32Array``-compatible byte string: the
+        ``HEADER_FLOATS`` header, then the drones in sorted-ID order,
+        ``FLOATS_PER_DRONE`` floats each. An empty fleet is the header alone.
     """
-    values: list[float] = []
+    values: list[float] = [FRAME_MAGIC, FRAME_VERSION, float(FLOATS_PER_DRONE)]
     for drone_id in sorted(telemetry.keys()):
         tel = telemetry[drone_id]
         values.append(float(tel.get("fleet_x", 0.0)))
@@ -107,7 +130,7 @@ def encode_fast_frame(telemetry: dict[int, dict]) -> bytes:
         values.append(float(tel.get("led_g", 0.0)))
         values.append(float(tel.get("led_b", 0.0)))
         values.append(1.0 if tel.get("led_valid") else 0.0)
-    return struct.pack(f"<{len(values)}f", *values) if values else b""
+    return struct.pack(f"<{len(values)}f", *values)
 
 
 def encode_slow_frame(telemetry: dict[int, dict], fleet_state: dict | None = None) -> dict:

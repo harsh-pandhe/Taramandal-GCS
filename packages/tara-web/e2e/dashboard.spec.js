@@ -19,12 +19,16 @@ const FAST_FIELDS = [
   'led_r', 'led_g', 'led_b', 'led_valid',
 ];
 
-function fastFrame(drones) {
-  const buf = Buffer.alloc(drones.length * FAST_FIELDS.length * 4);
+// Header words (src/telemetry.js FRAME_MAGIC, FRAME_VERSION, fields per drone).
+const FRAME_HEADER = [7243, 1, FAST_FIELDS.length];
+
+function fastFrame(drones, header = FRAME_HEADER) {
+  const buf = Buffer.alloc((header.length + drones.length * FAST_FIELDS.length) * 4);
+  header.forEach((w, k) => buf.writeFloatLE(w, k * 4));
   drones.forEach((d, i) => {
     FAST_FIELDS.forEach((field, j) => {
       const v = typeof d[field] === 'boolean' ? Number(d[field]) : (d[field] ?? 0);
-      buf.writeFloatLE(v, (i * FAST_FIELDS.length + j) * 4);
+      buf.writeFloatLE(v, (header.length + i * FAST_FIELDS.length + j) * 4);
     });
   });
   return buf;
@@ -62,12 +66,12 @@ const CHOREO = {
 };
 
 /** Opens the dashboard with `drones` streaming in; returns the requests the backend received. */
-async function openDashboard(page, drones, { launch = { status: 'success', message: 'ok' }, mode = null, heartbeat = {} } = {}) {
+async function openDashboard(page, drones, { launch = { status: 'success', message: 'ok' }, mode = null, heartbeat = {}, frameHeader = FRAME_HEADER } = {}) {
   const requests = [];
   const record = (route) => { requests.push(new URL(route.request().url()).pathname); };
 
   await page.routeWebSocket('**/ws/telemetry', (ws) => {
-    ws.send(fastFrame(drones));
+    ws.send(fastFrame(drones, frameHeader));
     ws.send(slowFrame(drones));
   });
   await page.route('**/choreography.json', (route) => route.fulfill({ json: CHOREO }));
@@ -153,6 +157,25 @@ test('a small fleet renders one detail card per drone with its telemetry', async
   await expect(page.getByText('95% (16.40V)')).toHaveCount(3);
   await expect(page.getByText('Active Drones: 3/3')).toBeVisible();
   await expect(page.getByRole('button', { name: 'PRE-ARM CHECK & TAKEOFF' })).toBeVisible();
+});
+
+test('a fast frame from a different layout is refused with a reason, not drawn', async ({ page }) => {
+  // A GCS still on the 13-field layout: same magic and version, narrower record.
+  await openDashboard(page, fleet(3, (i) => (i === 2 ? { armed: true } : {})), { frameHeader: [7243, 1, 13] });
+
+  await expect(page.getByText(/layout v1 with 13 fields per drone; this dashboard reads v1 with 17/)).toBeVisible();
+  // Armed state only travels in the binary frame (the same fleet shows ARMED
+  // once in the first test): none of this frame's records were applied.
+  await expect(droneCard(page, '02')).toBeVisible();
+  await expect(page.getByText('ARMED', { exact: true })).toHaveCount(0);
+});
+
+test('a fast frame with no header (an older GCS) is refused with a reason', async ({ page }) => {
+  await openDashboard(page, fleet(3, (i) => (i === 2 ? { armed: true } : {})), { frameHeader: [] });
+
+  await expect(page.getByText(/no recognised header/)).toBeVisible();
+  await expect(droneCard(page, '02')).toBeVisible();
+  await expect(page.getByText('ARMED', { exact: true })).toHaveCount(0);
 });
 
 test('pre-arm check modal opens from flight operations and shows interlocks', async ({ page }) => {

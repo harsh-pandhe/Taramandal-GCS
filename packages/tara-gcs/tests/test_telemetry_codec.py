@@ -8,9 +8,21 @@ import struct
 from tara_gcs.telemetry_codec import (
     BYTES_PER_DRONE,
     FLOATS_PER_DRONE,
+    FRAME_MAGIC,
+    FRAME_VERSION,
+    HEADER_BYTES,
+    HEADER_FLOATS,
     encode_fast_frame,
     encode_slow_frame,
 )
+
+
+def _floats(frame, n):
+    """The ``n`` drone records of a frame as one flat tuple, header checked and skipped."""
+    assert len(frame) == HEADER_BYTES + n * BYTES_PER_DRONE
+    words = struct.unpack(f"<{HEADER_FLOATS + n * FLOATS_PER_DRONE}f", frame)
+    assert words[:HEADER_FLOATS] == (FRAME_MAGIC, FRAME_VERSION, float(FLOATS_PER_DRONE))
+    return words[HEADER_FLOATS:]
 
 
 def _telemetry(n):
@@ -48,14 +60,22 @@ def _telemetry(n):
 class TestFastFrame:
     def test_byte_length_matches_drone_count(self):
         frame = encode_fast_frame(_telemetry(10))
-        assert len(frame) == 10 * BYTES_PER_DRONE
+        assert len(frame) == HEADER_BYTES + 10 * BYTES_PER_DRONE
 
-    def test_empty_fleet_is_empty_bytes(self):
-        assert encode_fast_frame({}) == b""
+    def test_empty_fleet_is_the_header_alone(self):
+        frame = encode_fast_frame({})
+        assert len(frame) == HEADER_BYTES
+        assert _floats(frame, 0) == ()
+
+    def test_header_declares_magic_version_and_record_width(self):
+        """The wire contract the dashboard checks before trusting any record (#266 follow-up)."""
+        words = struct.unpack("<3f", encode_fast_frame(_telemetry(2))[:HEADER_BYTES])
+        assert words == (7243.0, 1.0, 17.0)
+        assert (HEADER_FLOATS, HEADER_BYTES) == (3, 12)
 
     def test_values_round_trip_in_sorted_drone_order(self):
         frame = encode_fast_frame(_telemetry(3))
-        floats = struct.unpack(f"<{3 * FLOATS_PER_DRONE}f", frame)
+        floats = _floats(frame, 3)
         # drone 0: fleet xyz=0,0,0 local xyz=0,0,0 heading=0 armed=1 connected=1,
         # then planned xyz=0.5,0.25,-0.75 and planned_valid=1, then the LED fields (dark, invalid)
         assert floats[0:17] == (
@@ -69,19 +89,19 @@ class TestFastFrame:
 
     def test_missing_fields_default_to_zero(self):
         frame = encode_fast_frame({0: {}})
-        floats = struct.unpack(f"<{FLOATS_PER_DRONE}f", frame)
+        floats = _floats(frame, 1)
         assert floats == (0.0,) * FLOATS_PER_DRONE
 
     def test_scales_to_100_drones(self):
         frame = encode_fast_frame(_telemetry(100))
-        assert len(frame) == 100 * BYTES_PER_DRONE
+        assert len(frame) == HEADER_BYTES + 100 * BYTES_PER_DRONE
         # ~6.8KB at 100 drones (68 bytes each), not several hundred KB of JSON.
         assert len(frame) < 7000
 
     def test_drone_order_is_by_sorted_id_not_insertion_order(self):
         telemetry = {5: {"fleet_x": 5.0}, 1: {"fleet_x": 1.0}, 3: {"fleet_x": 3.0}}
         frame = encode_fast_frame(telemetry)
-        floats = struct.unpack(f"<{3 * FLOATS_PER_DRONE}f", frame)
+        floats = _floats(frame, 3)
         assert (
             floats[0],
             floats[FLOATS_PER_DRONE],
@@ -125,12 +145,12 @@ class TestPlannedPosition:
         # must read false so the client shows "unmonitored" rather than a
         # perfect-zero deviation against a planned position of (0, 0, 0).
         frame = encode_fast_frame({0: {"fleet_x": 12.0}})
-        floats = struct.unpack(f"<{FLOATS_PER_DRONE}f", frame)
+        floats = _floats(frame, 1)
         assert floats[9:13] == (0.0, 0.0, 0.0, 0.0)
 
     def test_planned_valid_is_encoded_as_a_float_flag(self):
         frame = encode_fast_frame({0: {"planned_valid": True}})
-        floats = struct.unpack(f"<{FLOATS_PER_DRONE}f", frame)
+        floats = _floats(frame, 1)
         assert floats[12] == 1.0
 
     def test_planned_position_round_trips(self):
@@ -141,7 +161,7 @@ class TestPlannedPosition:
                 "planned_valid": True,
             }
         }
-        floats = struct.unpack(f"<{FLOATS_PER_DRONE}f", encode_fast_frame(telemetry))
+        floats = _floats(encode_fast_frame(telemetry), 1)
         assert floats[9:12] == (10.5, 19.0, 30.25)
 
     def test_planned_fields_are_not_duplicated_on_the_slow_channel(self):
@@ -156,18 +176,18 @@ class TestLedColour:
     change reaches the dashboard at the same 20 Hz as movement."""
 
     def test_led_fields_follow_the_planned_fields_and_default_to_dark_and_invalid(self):
-        floats = struct.unpack(f"<{FLOATS_PER_DRONE}f", encode_fast_frame({0: {"fleet_x": 1.0}}))
+        floats = _floats(encode_fast_frame({0: {"fleet_x": 1.0}}), 1)
         assert floats[13:17] == (0.0, 0.0, 0.0, 0.0)
 
     def test_led_colour_round_trips(self):
         telemetry = {0: {"led_r": 255.0, "led_g": 128.0, "led_b": 7.5, "led_valid": True}}
-        floats = struct.unpack(f"<{FLOATS_PER_DRONE}f", encode_fast_frame(telemetry))
+        floats = _floats(encode_fast_frame(telemetry), 1)
         assert floats[13:17] == (255.0, 128.0, 7.5, 1.0)
 
     def test_record_is_17_floats_and_the_planned_fields_did_not_move(self):
         assert FLOATS_PER_DRONE == 17
         telemetry = {0: {"planned_x": 1.0, "planned_y": 2.0, "planned_z": 3.0, "planned_valid": True}}
-        floats = struct.unpack(f"<{FLOATS_PER_DRONE}f", encode_fast_frame(telemetry))
+        floats = _floats(encode_fast_frame(telemetry), 1)
         assert floats[9:13] == (1.0, 2.0, 3.0, 1.0)
 
     def test_led_is_not_on_the_slow_channel(self):
