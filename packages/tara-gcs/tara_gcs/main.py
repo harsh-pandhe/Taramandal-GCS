@@ -6,7 +6,7 @@ from pathlib import Path
 import time
 from typing import Annotated, Any
 from fastapi import (
-    Depends, FastAPI, File, HTTPException, Request, UploadFile, WebSocket, WebSocketDisconnect,
+    Depends, FastAPI, File, HTTPException, Query, Request, UploadFile, WebSocket, WebSocketDisconnect,
     WebSocketException, status,
 )
 from fastapi.middleware.cors import CORSMiddleware
@@ -14,6 +14,13 @@ from fastapi.responses import FileResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, Field
 from tara_gcs.blackbox import DEFAULT_DIR as BLACKBOX_DEFAULT_DIR
+from tara_gcs.blackbox_replay import (
+    ReplayError,
+    ReplayStore,
+    SAFETY_EVENT_KINDS,
+    SessionNotFound,
+    list_sessions,
+)
 from tara_gcs.blackbox_service import BlackboxService
 from tara_gcs.drone_manager import DroneManager
 from tara_gcs.fleet_fsm import Command, IllegalTransitionError
@@ -311,6 +318,104 @@ def _build_blackbox_service() -> BlackboxService | None:
 async def blackbox_status(operator: Viewer):
     """Whether the flight recorder is running, where it writes, and what it has captured."""
     return blackbox_service.status() if blackbox_service else {"enabled": False, "recording": False}
+
+
+def _blackbox_dir() -> str:
+    """Where session files are read from: the running recorder's directory, or - if the
+    recorder is disabled - the configured one, so earlier sessions can still be replayed."""
+    if blackbox_service is not None:
+        return blackbox_service.directory
+    return os.environ.get("GCS_BLACKBOX_DIR") or BLACKBOX_DEFAULT_DIR
+
+
+_replay_store: ReplayStore | None = None
+
+
+def _replay() -> ReplayStore:
+    global _replay_store
+    directory = _blackbox_dir()
+    if _replay_store is None or _replay_store.directory != directory:
+        _replay_store = ReplayStore(directory)
+    return _replay_store
+
+
+async def _replay_session(session_id: str):
+    """Decode a session in a worker thread: it is blocking CPU work and the GCS event loop
+    also runs the 10 Hz safety monitors."""
+    store = _replay()
+    try:
+        return await asyncio.to_thread(store.get, session_id)
+    except SessionNotFound:
+        raise HTTPException(status_code=404, detail=f"No such recorded session: {session_id!r}.")
+    except ReplayError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+
+
+@app.get("/api/blackbox/sessions")
+async def blackbox_sessions(operator: Viewer):
+    """Recorded flight sessions, newest first (issue #65 replay)."""
+    live = blackbox_service.status().get("path") if blackbox_service else None
+    sessions = await asyncio.to_thread(list_sessions, _blackbox_dir(), live_path=live)
+    return {"sessions": sessions}
+
+
+@app.get("/api/blackbox/sessions/{session_id}")
+async def blackbox_session(session_id: str, operator: Viewer):
+    """One session: header, duration, drone ids, event counts. A session that is still
+    being recorded (or was cut short by a crash) is returned as far as it decodes, with
+    ``truncated: true``."""
+    session = await _replay_session(session_id)
+    return session.summary(reveal_identities=False)
+
+
+@app.get("/api/blackbox/sessions/{session_id}/events")
+async def blackbox_session_events(
+    session_id: str,
+    operator: Viewer,
+    kinds: str | None = None,
+    safety_only: bool = False,
+    limit: int = 5000,
+    identities: bool = False,
+):
+    """Events in time order. ``kinds`` is a comma-separated filter; ``safety_only`` keeps the
+    proximity and geofence events the timeline pins as markers.
+
+    Operator ids are replaced by stable pseudonyms and IP addresses hidden, for every role.
+    ``identities=true`` returns the real values, and only to a FLIGHT_COMMANDER (403 for anyone
+    else, so a lower role is told rather than silently shown less)."""
+    if identities and operator.role < Role.FLIGHT_COMMANDER:
+        raise HTTPException(
+            status_code=403,
+            detail=f"{operator.id} is a {operator.role.name}; operator ids and IPs in a recording need FLIGHT_COMMANDER.",
+        )
+    session = await _replay_session(session_id)
+    wanted: set[str] | None = {k for k in (kinds or "").split(",") if k} or None
+    if safety_only:
+        wanted = set(SAFETY_EVENT_KINDS) if wanted is None else wanted & SAFETY_EVENT_KINDS
+    return session.event_list(wanted, limit=limit, reveal_identities=identities)
+
+
+@app.get("/api/blackbox/sessions/{session_id}/frames")
+async def blackbox_session_frames(
+    session_id: str,
+    operator: Viewer,
+    from_ms: int | None = None,
+    to_ms: int | None = None,
+    step_ms: Annotated[int, Query(ge=0)] = 0,
+    max_frames: int = 1500,
+    max_samples: int = 50_000,
+    drones: str | None = None,
+):
+    """Telemetry frames in ``[from_ms, to_ms]`` (times relative to the session start), in
+    metres / degrees / percent / volts. ``step_ms`` keeps one frame per step; ``max_frames``
+    and ``max_samples`` (frames x drones) cap the reply; the response's ``stride`` says if frames
+    were skipped to fit."""
+    try:
+        wanted = [int(d) for d in drones.split(",") if d.strip()] if drones else None
+    except ValueError:
+        raise HTTPException(status_code=422, detail="drones must be a comma-separated list of integers.")
+    session = await _replay_session(session_id)
+    return session.frames(from_ms, to_ms, step_ms=step_ms, max_frames=max_frames, max_samples=max_samples, drones=wanted)
 
 
 @app.get("/api/audit/commands")
