@@ -334,7 +334,7 @@ export default function App() {
                 validating={validating}
                 venue={{ homeLat, homeLon, onHomeLat: setHomeLat, onHomeLon: setHomeLon }}
                 transmit={{
-                  onExport: handleExport, onExportPreview: handleExportPreview, onSendToGCS: handleSendToGCS, sending,
+                  onExport: handleExport, onExportPreview: handleExportPreview, onSendToGCS: handleSendToGCS, sending, droneCount: numDrones,
                 }}
                 audio={{
                   track: audio, zoom, onZoom: setZoom,
@@ -395,6 +395,7 @@ export default function App() {
             status={projects.status}
             error={projects.error}
             onRetry={projects.retry}
+            isDirty={projects.isDirty}
           />
         )}
 

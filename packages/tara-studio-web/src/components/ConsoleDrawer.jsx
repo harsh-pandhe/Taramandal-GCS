@@ -67,7 +67,7 @@ export default function ConsoleDrawer({
             homeLat={venue.homeLat} homeLon={venue.homeLon}
             onHomeLat={venue.onHomeLat} onHomeLon={venue.onHomeLon}
             onExport={transmit.onExport} onExportPreview={transmit.onExportPreview} onSendToGCS={transmit.onSendToGCS}
-            sending={transmit.sending} hasShow={!!choreoData}
+            sending={transmit.sending} droneCount={transmit.droneCount} hasShow={!!choreoData}
             validation={validation} validating={validating}
           />
         )}
