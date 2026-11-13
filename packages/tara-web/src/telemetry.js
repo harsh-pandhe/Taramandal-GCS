@@ -29,10 +29,18 @@ export class FrameFormatError extends Error {
   }
 }
 
-// Returns the drone count of a well-formed frame; throws FrameFormatError
-// otherwise. `floats` is the whole frame as a Float32Array.
-function checkFrame(buffer, floats) {
-  if (buffer.byteLength % 4 !== 0 || floats.length < HEADER_FLOATS) {
+// Reads a fast frame: returns { floats, n } (the whole frame as a Float32Array
+// and its drone count), or throws FrameFormatError. A byte length that is not a
+// multiple of 4 is checked first, because `new Float32Array` would throw a plain
+// RangeError that the caller does not expect.
+function readFrame(buffer) {
+  if (buffer.byteLength % 4 !== 0) {
+    throw new FrameFormatError(
+      `telemetry frame of ${buffer.byteLength} bytes is not a whole number of 32-bit words`,
+    );
+  }
+  const floats = new Float32Array(buffer);
+  if (floats.length < HEADER_FLOATS) {
     throw new FrameFormatError(
       `telemetry frame of ${buffer.byteLength} bytes is too short to carry a header`,
     );
@@ -54,14 +62,13 @@ function checkFrame(buffer, floats) {
       `telemetry frame body of ${body} floats is not a whole number of ${FLOATS_PER_DRONE}-field records`,
     );
   }
-  return body / FLOATS_PER_DRONE;
+  return { floats, n: body / FLOATS_PER_DRONE };
 }
 
 // Returns an array of per-drone objects, index === drone id (server keys are
 // always a contiguous range(len(ports)), so sorted position and id coincide).
 export function decodeFastFrame(buffer) {
-  const floats = new Float32Array(buffer);
-  const n = checkFrame(buffer, floats);
+  const { floats, n } = readFrame(buffer);
   const drones = new Array(n);
   for (let i = 0; i < n; i++) {
     const base = HEADER_FLOATS + i * FLOATS_PER_DRONE;
@@ -96,8 +103,8 @@ export function decodeFastFrame(buffer) {
 // Returns the drone count actually decoded; throws FrameFormatError like
 // decodeFastFrame.
 export function decodeFastFrameInto(buffer, out) {
-  const floats = new Float32Array(buffer);
-  const n = Math.min(checkFrame(buffer, floats), Math.floor(out.length / FLOATS_PER_DRONE));
+  const { floats, n: frameN } = readFrame(buffer);
+  const n = Math.min(frameN, Math.floor(out.length / FLOATS_PER_DRONE));
   out.set(floats.subarray(HEADER_FLOATS, HEADER_FLOATS + n * FLOATS_PER_DRONE));
   return n;
 }

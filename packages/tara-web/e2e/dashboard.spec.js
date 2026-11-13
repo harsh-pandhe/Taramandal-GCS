@@ -66,12 +66,12 @@ const CHOREO = {
 };
 
 /** Opens the dashboard with `drones` streaming in; returns the requests the backend received. */
-async function openDashboard(page, drones, { launch = { status: 'success', message: 'ok' }, mode = null, heartbeat = {}, frameHeader = FRAME_HEADER } = {}) {
+async function openDashboard(page, drones, { launch = { status: 'success', message: 'ok' }, mode = null, heartbeat = {}, frameHeader = FRAME_HEADER, trimBytes = 0 } = {}) {
   const requests = [];
   const record = (route) => { requests.push(new URL(route.request().url()).pathname); };
 
   await page.routeWebSocket('**/ws/telemetry', (ws) => {
-    ws.send(fastFrame(drones, frameHeader));
+    ws.send(trimBytes ? fastFrame(drones, frameHeader).subarray(0, -trimBytes) : fastFrame(drones, frameHeader));
     ws.send(slowFrame(drones));
   });
   await page.route('**/choreography.json', (route) => route.fulfill({ json: CHOREO }));
@@ -176,6 +176,12 @@ test('a fast frame with no header (an older GCS) is refused with a reason', asyn
   await expect(page.getByText(/no recognised header/)).toBeVisible();
   await expect(droneCard(page, '02')).toBeVisible();
   await expect(page.getByText('ARMED', { exact: true })).toHaveCount(0);
+});
+
+test('a fast frame that is not a whole number of 32-bit words is refused with a reason', async ({ page }) => {
+  await openDashboard(page, fleet(3), { frameHeader: [7243, 1, 17], trimBytes: 2 });
+
+  await expect(page.getByText(/not a whole number of 32-bit words/)).toBeVisible();
 });
 
 test('pre-arm check modal opens from flight operations and shows interlocks', async ({ page }) => {
