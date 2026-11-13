@@ -401,7 +401,9 @@ const EMPTY_SUMMARY = {
   worstId: null,
 };
 
-export default function NightSkyView({ telemetry, fleetBuffer, frameloop = 'always' }) {
+// `showDeviationHud` is false for a replay: a recording carries no planned
+// trajectory, so the deviation counts would read "tracked 0" for the whole flight.
+export default function NightSkyView({ telemetry, fleetBuffer, frameloop = 'always', showDeviationHud = true }) {
   const [summary, setSummary] = useState(EMPTY_SUMMARY);
 
   // The fleet lives in one preallocated Float32Array for the lifetime of the
@@ -510,7 +512,9 @@ export default function NightSkyView({ telemetry, fleetBuffer, frameloop = 'alwa
         </EffectComposer>
       </Canvas>
 
-      <DeviationHUD summary={summary} colorMode={colorMode} onColorMode={handleColorMode} />
+      {showDeviationHud && (
+        <DeviationHUD summary={summary} colorMode={colorMode} onColorMode={handleColorMode} />
+      )}
     </div>
   );
 }
