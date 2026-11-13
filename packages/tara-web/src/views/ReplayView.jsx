@@ -46,6 +46,8 @@ export default function ReplayView() {
     fleetBuffer.current = { data: new Float32Array(MAX_NIGHTSKY_DRONES * FLOATS_PER_DRONE), count: 0 };
   }
   const tRef = useRef(0);
+  // Only the latest LOAD may apply its result; an older, slower response is dropped.
+  const loadSeq = useRef(0);
   const framesRef = useRef([]);
 
   useEffect(() => {
@@ -70,22 +72,25 @@ export default function ReplayView() {
 
   const load = useCallback(
     async (id) => {
+      const mine = ++loadSeq.current;
       setLoading(true);
       setLoadError('');
       setPlaying(false);
       setSelectedEvent(null);
       try {
         const data = await loadSession(id);
+        if (mine !== loadSeq.current) return;
         framesRef.current = data.frames.frames;
         setLoaded(data);
         seek(data.frames.t_ms_first ?? data.summary.first_tick_ms ?? 0);
       } catch (err) {
+        if (mine !== loadSeq.current) return;
         framesRef.current = [];
         fleetBuffer.current.count = 0;
         setLoaded(null);
         setLoadError(err.message);
       } finally {
-        setLoading(false);
+        if (mine === loadSeq.current) setLoading(false);
       }
     },
     [seek],
