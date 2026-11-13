@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { decodeFastFrame, decodeFastFrameInto, FLOATS_PER_DRONE } from '../telemetry';
+import { decodeFastFrame, decodeFastFrameInto, FLOATS_PER_DRONE, FrameFormatError } from '../telemetry';
 import { MAX_NIGHTSKY_DRONES, WS_URL } from '../config';
 import { WS_AUTH_PROTOCOL, clearSession, getSession } from '../session';
 
@@ -35,6 +35,9 @@ export default function useTelemetrySocket(setErrorMsg) {
     let ws;
     let reconnectTimer;
     let disposed = false;
+    // True while the banner for a refused fast frame is showing, so one bad
+    // stream raises it once (not 20 times a second) and a good frame clears it.
+    let formatErrorShown = false;
 
     function connect() {
       if (disposed) return;
@@ -63,13 +66,30 @@ export default function useTelemetrySocket(setErrorMsg) {
       ws.onmessage = (event) => {
         if (disposed) return;
         if (event.data instanceof ArrayBuffer) {
-          // Feed the flat buffer first: the 3D view reads it every frame and
-          // must not wait on React's state commit.
-          fleetBufferRef.current.count = decodeFastFrameInto(
-            event.data,
-            fleetBufferRef.current.data,
-          );
-          const fastDrones = decodeFastFrame(event.data);
+          let fastDrones;
+          try {
+            // Feed the flat buffer first: the 3D view reads it every frame and
+            // must not wait on React's state commit.
+            fleetBufferRef.current.count = decodeFastFrameInto(
+              event.data,
+              fleetBufferRef.current.data,
+            );
+            fastDrones = decodeFastFrame(event.data);
+          } catch (err) {
+            if (!(err instanceof FrameFormatError)) throw err;
+            // Refuse the frame rather than draw positions read at the wrong
+            // stride, and say so: the dashboard and the GCS are different builds.
+            fleetBufferRef.current.count = 0;
+            if (!formatErrorShown) {
+              formatErrorShown = true;
+              setErrorMsg(`Telemetry not shown: ${err.message}. Reload the dashboard; if this stays, the GCS and the dashboard are different versions.`);
+            }
+            return;
+          }
+          if (formatErrorShown) {
+            formatErrorShown = false;
+            setErrorMsg('');
+          }
           setTelemetry((prev) => {
             const next = { ...prev };
             fastDrones.forEach((fields, id) => {
