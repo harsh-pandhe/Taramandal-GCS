@@ -1,0 +1,164 @@
+import { expect, test } from '@playwright/test';
+import { signIn } from './session.js';
+
+// Replay mode (issue #65): the REPLAY tab lists recorded flights from the GCS's
+// read-only /api/blackbox/* routes, plays one in the night-sky view and pins the
+// safety events on a timeline. The GCS is mocked here with the real response
+// shapes (tara_gcs/blackbox_replay.py); the replay API itself is tested in
+// packages/tara-gcs/tests/test_blackbox_replay.py.
+
+const SESSION = {
+  id: 'blackbox-20261110-101500',
+  bytes: 4096,
+  modified: 1794000000,
+  started: '2026-11-10T10:15:00Z',
+  context: {},
+  live: false,
+};
+
+// 3 drones, one frame per second for a minute; drone k flies east at 1 m/s.
+const FRAMES = Array.from({ length: 61 }, (_, s) => ({
+  t_ms: s * 1000,
+  ids: [0, 1, 2],
+  x_m: [0, 1, 2].map((k) => s + k * 10),
+  y_m: [0, 5, 10],
+  z_m: [10, 10, 10],
+  heading_deg: [90, 90, 90],
+  flags: [3, 3, 1],
+}));
+
+const EVENTS = [
+  { type: 'event', t: 20000, kind: 'proximity_breach', drones: [0, 1], distance_m: 1.4 },
+  { type: 'event', t: 25000, kind: 'proximity_clear', drones: [0, 1] },
+  { type: 'event', t: 40000, kind: 'geofence_hard_breach', drone: 2, distance_m: 61.5, limit_m: 60 },
+];
+
+const SUMMARY = {
+  id: SESSION.id,
+  header: {},
+  identities_hidden: true,
+  duration_ms: 60000,
+  first_tick_ms: 0,
+  ticks: 61,
+  drone_ids: [0, 1, 2],
+  events: 7,
+  event_kinds: {},
+  flag_bits: { connected: 0, armed: 1 },
+  truncated: false,
+  bytes: 4096,
+};
+
+async function openReplay(page, { sessions = [SESSION], frames = { stride: 1, count: 61, t_ms_first: 0, t_ms_last: 60000, frames: FRAMES }, sessionStatus = 200 } = {}) {
+  const requested = [];
+  await signIn(page);
+  await page.routeWebSocket('**/ws/telemetry', () => {});
+  await page.route('**/choreography.json', (route) => route.fulfill({ json: { drones: [] } }));
+  await page.route('**/api/blackbox/**', (route) => {
+    const url = new URL(route.request().url());
+    requested.push(url.pathname + url.search);
+    if (url.pathname === '/api/blackbox/sessions') return route.fulfill({ json: { sessions } });
+    if (sessionStatus !== 200) return route.fulfill({ status: sessionStatus, json: { detail: 'no such session' } });
+    if (url.pathname.endsWith('/events')) return route.fulfill({ json: { events: EVENTS, total: 3, limited: false, identities_hidden: true } });
+    if (url.pathname.endsWith('/frames')) return route.fulfill({ json: frames });
+    return route.fulfill({ json: SUMMARY });
+  });
+  await page.goto('/');
+  await page.getByRole('button', { name: 'REPLAY' }).click();
+  return requested;
+}
+
+test('lists the recordings and loads one with its safety events on the timeline', async ({ page }) => {
+  const requested = await openReplay(page);
+
+  await expect(page.getByLabel('RECORDING')).toContainText('2026');
+  await page.getByRole('button', { name: 'LOAD' }).click();
+
+  await expect(page.getByTestId('replay-clock')).toHaveText('00:00 / 01:00');
+  // A recording has no planned trajectory, so the live view's deviation HUD is not shown.
+  await expect(page.getByTestId('deviation-hud')).toHaveCount(0);
+  await expect(page.getByText('3 drones · 7 events recorded')).toBeVisible();
+  await expect(page.getByRole('button', { name: /proximity breach at 00:20/ })).toBeVisible();
+  await expect(page.getByRole('button', { name: /geofence hard breach at 00:40/ })).toBeVisible();
+  await expect(page.getByText('3 safety events on the timeline')).toBeVisible();
+  // The markers come from the safety filter, not from the whole event list.
+  expect(requested.some((r) => r.includes('/events?safety_only=true'))).toBe(true);
+});
+
+test('clicking a marker jumps to that moment and shows the event', async ({ page }) => {
+  await openReplay(page);
+  await page.getByRole('button', { name: 'LOAD' }).click();
+
+  await page.getByRole('button', { name: /geofence hard breach at 00:40/ }).click();
+
+  await expect(page.getByTestId('replay-clock')).toHaveText('00:40 / 01:00');
+  await expect(page.getByLabel('Timeline')).toHaveValue('40000');
+  const detail = page.getByTestId('replay-detail');
+  await expect(detail).toContainText('GEOFENCE HARD BREACH');
+  await expect(detail).toContainText('distance_m');
+  await expect(detail).toContainText('61.5');
+  // Internal record fields are not shown as event details.
+  await expect(detail).not.toContainText('wall');
+});
+
+test('play advances the clock, and scrubbing stops playback', async ({ page }) => {
+  await openReplay(page);
+  await page.getByRole('button', { name: 'LOAD' }).click();
+
+  await page.getByLabel('Playback speed').selectOption('10');
+  await page.getByRole('button', { name: 'Play', exact: true }).click();
+  await expect.poll(async () => Number(await page.getByLabel('Timeline').inputValue()), { timeout: 10_000 }).toBeGreaterThan(5000);
+
+  await page.getByLabel('Timeline').fill('30000');
+  await expect(page.getByTestId('replay-clock')).toHaveText('00:30 / 01:00');
+  await expect(page.getByRole('button', { name: 'Play', exact: true })).toBeVisible();
+});
+
+test('says so when there are no recordings', async ({ page }) => {
+  await openReplay(page, { sessions: [] });
+  await expect(page.getByText(/No recorded flights yet/)).toBeVisible();
+});
+
+test('a recording the GCS refuses is reported with its reason, not shown as empty', async ({ page }) => {
+  await openReplay(page, { sessionStatus: 404 });
+  await page.getByRole('button', { name: 'LOAD' }).click();
+  await expect(page.getByText('Could not load this recording: no such session')).toBeVisible();
+  await expect(page.getByTestId('replay-clock')).toHaveCount(0);
+});
+
+test('fillFleetBuffer blends positions between recorded frames and marks planned/LED data not valid', async ({ page }) => {
+  await openReplay(page);
+  const result = await page.evaluate(async (frames) => {
+    const { fillFleetBuffer, frameIndexAt } = await import('/src/replay.js');
+    const { FAST_FIELDS, FLOATS_PER_DRONE } = await import('/src/telemetry.js');
+    const buffer = { data: new Float32Array(10 * FLOATS_PER_DRONE).fill(-7), count: 0 };
+    const n = fillFleetBuffer(frames, 2500, buffer); // halfway between the 2 s and 3 s frames
+    const at = (k, name) => buffer.data[k * FLOATS_PER_DRONE + FAST_FIELDS.indexOf(name)];
+    return {
+      n,
+      count: buffer.count,
+      x: [0, 1, 2].map((k) => at(k, 'fleet_x')),
+      z: at(0, 'fleet_z'),
+      armed: [0, 1, 2].map((k) => at(k, 'armed')),
+      connected: [0, 1, 2].map((k) => at(k, 'connected')),
+      plannedValid: at(0, 'planned_valid'),
+      ledValid: at(0, 'led_valid'),
+      before: frameIndexAt(frames, -5),
+      after: frameIndexAt(frames, 10 ** 9),
+      untouchedBeyondFleet: buffer.data[3 * FLOATS_PER_DRONE],
+      none: fillFleetBuffer([], 0, buffer),
+    };
+  }, FRAMES);
+
+  expect(result.n).toBe(3);
+  expect(result.count).toBe(3);
+  expect(result.x).toEqual([2.5, 12.5, 22.5]); // x = s + 10k, halfway between s=2 and s=3
+  expect(result.z).toBe(10);
+  expect(result.armed).toEqual([1, 1, 0]);
+  expect(result.connected).toEqual([1, 1, 1]);
+  expect(result.plannedValid).toBe(0);
+  expect(result.ledValid).toBe(0);
+  expect(result.before).toBe(0);
+  expect(result.after).toBe(60);
+  expect(result.untouchedBeyondFleet).toBe(-7);
+  expect(result.none).toBe(0);
+});

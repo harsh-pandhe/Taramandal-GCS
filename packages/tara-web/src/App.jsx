@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import EarthView from './views/EarthView';
 import NightSkyView from './views/NightSkyView';
+import ReplayView from './views/ReplayView';
 import HeaderBar from './components/layout/HeaderBar';
 import ViewTabs from './components/layout/ViewTabs';
 import ErrorBanner from './components/alerts/ErrorBanner';
@@ -83,6 +84,8 @@ function Dashboard({ session }) {
           <NightSkyView telemetry={telemetry} fleetBuffer={fleetBufferRef} />
         </div>
       )}
+
+      {viewMode === 'replay' && <ReplayView />}
 
       {/* Main Grid Layout */}
       <div className="dashboard-grid" style={{ display: viewMode === 'operations' ? undefined : 'none' }}>
