@@ -6,9 +6,11 @@ It writes two files into --out (default ./replay-perf):
   blackbox-perf100.jsonl.gz   the recording (what the GCS would have written)
   overview.json               the three replay API replies a browser gets when it loads that recording
                               (summary, safety events, the default whole-session frame overview)
+  window30.json               one 30 s window at the full 10 Hz (what the replay's zoom asks the GCS for)
 
 Then run the browser half against it:
-  REPLAY_PERF_DATA=<out>/overview.json npx playwright test e2e/replay-perf.spec.js   (in packages/tara-web)
+  REPLAY_PERF_DATA=<out>/overview.json REPLAY_PERF_WINDOW=<out>/window30.json \
+      npx playwright test e2e/replay-perf.spec.js   (in packages/tara-web)
 
 Usage, from the repo root:  python tools/replay_perf_record.py [--out DIR]
 """
@@ -74,6 +76,9 @@ def report(path: str, out: Path) -> None:
         window = session.frames(from_ms=300_000, to_ms=330_000, step_ms=step, max_frames=5000, max_samples=200_000)
         print(f"30 s window at step {step} ms: {window['count']} frames, "
               f"{len(json.dumps(window)) / 1e6:.2f} MB, {(time.perf_counter() - t) * 1000:.0f} ms")
+    # One 30 s window at the full 10 Hz, for e2e/replay-perf.spec.js (REPLAY_PERF_WINDOW) to serve as the zoom reply.
+    (out / "window30.json").write_text(json.dumps(
+        session.frames(from_ms=300_000, to_ms=330_000, max_frames=5000, max_samples=200_000)))
     (out / "overview.json").write_text(json.dumps({
         "summary": session.summary(),
         "events": session.event_list(br.SAFETY_EVENT_KINDS),

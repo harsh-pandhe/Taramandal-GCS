@@ -10,15 +10,24 @@ import { signIn } from './session.js';
 //   python tools/replay_perf_record.py --out /some/dir
 //   REPLAY_PERF_DATA=/some/dir/overview.json npx playwright test e2e/replay-perf.spec.js
 //
+// Optional: REPLAY_PERF_WINDOW=/some/dir/window30.json (a 30 s full-rate window, as
+// tools/replay_perf_record.py writes it) makes the mocked GCS answer full-rate window
+// requests with that window shifted to the time asked for, so the cost of loading and
+// swapping windows is part of the measurement. Without it window requests fail, and the
+// replay stays on the overview.
+//
 // The numbers are printed as JSON and attached to the test.
 
 const DATA_PATH = process.env.REPLAY_PERF_DATA;
+const WINDOW_PATH = process.env.REPLAY_PERF_WINDOW;
 
 test.skip(!DATA_PATH, 'set REPLAY_PERF_DATA to the overview.json from tools/replay_perf_record.py');
 
 test('replay of a 100-drone, 15-minute recording: playback, scrubbing and buffer-fill cost', async ({ page }) => {
   test.setTimeout(240_000);
   const DATA = JSON.parse(fs.readFileSync(DATA_PATH, 'utf8'));
+  const WINDOW = WINDOW_PATH ? JSON.parse(fs.readFileSync(WINDOW_PATH, 'utf8')) : null;
+  let windowRequests = 0;
   await signIn(page);
   await page.routeWebSocket('**/ws/telemetry', () => {});
   await page.route('**/choreography.json', (r) => r.fulfill({ json: { drones: [] } }));
@@ -28,6 +37,14 @@ test('replay of a 100-drone, 15-minute recording: playback, scrubbing and buffer
       return route.fulfill({ json: { sessions: [{ id: 'perf', bytes: 1, modified: 1, started: '2026-11-14T00:00:00Z', context: {}, live: false }] } });
     }
     if (p.endsWith('/events')) return route.fulfill({ json: DATA.events });
+    if (p.endsWith('/frames') && new URL(route.request().url()).searchParams.has('from_ms')) {
+      windowRequests += 1;
+      if (!WINDOW) return route.fulfill({ status: 404, json: { detail: 'no window data' } });
+      const from = Number(new URL(route.request().url()).searchParams.get('from_ms'));
+      const shift = from - WINDOW.t_ms_first;
+      const frames = WINDOW.frames.map((f) => ({ ...f, t_ms: f.t_ms + shift }));
+      return route.fulfill({ json: { ...WINDOW, t_ms_first: from, t_ms_last: from + (WINDOW.t_ms_last - WINDOW.t_ms_first), frames } });
+    }
     if (p.endsWith('/frames')) return route.fulfill({ json: DATA.frames });
     return route.fulfill({ json: DATA.summary });
   });
@@ -95,7 +112,7 @@ test('replay of a 100-drone, 15-minute recording: playback, scrubbing and buffer
     return { drones: buffer.count, per_call_ms: +((performance.now() - t) / calls).toFixed(4) };
   }, DATA.frames.frames);
 
-  const result = { loadMs, ...measured, fill };
+  const result = { loadMs, windowRequests, fullRateWindows: !!WINDOW, ...measured, fill };
   console.log(`REPLAY PERF ${JSON.stringify(result)}`);
   await test.info().attach('replay-perf.json', { body: JSON.stringify(result, null, 1), contentType: 'application/json' });
 });

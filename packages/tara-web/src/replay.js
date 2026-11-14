@@ -40,6 +40,49 @@ export async function loadSession(id) {
   return { summary, events, frames };
 }
 
+// Full-rate detail (issue #65): the whole-session overview is thinned to fit one
+// reply, so playing or scrubbing also loads a window of every recorded tick
+// around the current time. The window is sized so frames x drones stays near
+// this many samples (about 3 MB of JSON at 100 drones).
+export const DETAIL_SAMPLE_BUDGET = 30_000;
+const DETAIL_MIN_SPAN_MS = 3_000;
+const DETAIL_MAX_SPAN_MS = 60_000;
+
+/** Milliseconds between recorded ticks, from the session summary (100 ms = 10 Hz if it cannot tell). */
+export function tickIntervalMs(summary) {
+  const first = summary?.first_tick_ms;
+  const ticks = summary?.ticks;
+  if (!Number.isFinite(first) || !Number.isFinite(ticks) || ticks < 2) return 100;
+  return Math.max(1, Math.round((summary.duration_ms - first) / (ticks - 1)));
+}
+
+/** How much time one full-rate window covers for `droneCount` drones. */
+export function detailSpanMs(droneCount, tickMs) {
+  const frames = Math.floor(DETAIL_SAMPLE_BUDGET / Math.max(1, droneCount));
+  return Math.min(DETAIL_MAX_SPAN_MS, Math.max(DETAIL_MIN_SPAN_MS, frames * tickMs));
+}
+
+/** The window to load for time `tMs`: starts a quarter-span before it so playing forward has room, kept inside the session. */
+export function detailWindowFor(tMs, spanMs, startMs, endMs) {
+  const from = Math.max(startMs, Math.min(tMs - spanMs * 0.25, endMs - spanMs));
+  return { from: Math.max(startMs, from), to: Math.min(endMs, Math.max(startMs, from) + spanMs) };
+}
+
+/** True when `win` can serve `tMs` with `marginMs` to spare before it runs out (playing forward). */
+export function windowCovers(win, tMs, marginMs = 0) {
+  return !!win && win.frames.length > 1 && tMs >= win.from && tMs <= win.to - marginMs;
+}
+
+/** The frames to draw time `tMs` from: the full-rate window when it covers `tMs`, else the overview. */
+export function pickFrames(overviewFrames, win, tMs) {
+  return windowCovers(win, tMs) ? win.frames : overviewFrames;
+}
+
+export async function loadWindow(id, fromMs, toMs) {
+  const q = `from_ms=${Math.round(fromMs)}&to_ms=${Math.round(toMs)}&max_frames=5000&max_samples=200000`;
+  return getJson(`/api/blackbox/sessions/${encodeURIComponent(id)}/frames?${q}`);
+}
+
 /** Index of the last frame at or before `tMs` (0 if `tMs` is before the first one). */
 export function frameIndexAt(frames, tMs) {
   let lo = 0;
