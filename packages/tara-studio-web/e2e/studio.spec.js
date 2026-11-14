@@ -535,6 +535,84 @@ test.describe('scene edit proposal (issue #89)', () => {
   });
 });
 
+// Issue #94, slice 1: the local planner only drafts. Its answer is compiled to one
+// batch and takes the same preview / safety check / Apply path as a typed edit.
+// /api/ai/plan is stubbed (no Ollama); behaviour only, no screenshot baseline.
+test.describe('local planner (issue #94, slice 1)', () => {
+  const holdOfFirstScene = (page) => page.locator('.scene-card').first().getByLabel('Hold (s)');
+  const ask = async (page, sentence) => {
+    await consoleTab(page, 'AI');
+    await page.getByPlaceholder('make scene 2 a heart').fill(sentence);
+    await page.getByRole('button', { name: 'Ask planner' }).click();
+  };
+  const ops = (...list) => ({ status: 'ok', ops: list, unsupported: [] });
+
+  test('plan -> proposal card -> PASSED check -> Apply is one undo step', async ({ page }) => {
+    await openStudio(page, PASSED_REPORT);
+    const requests = [];
+    await page.route('**/api/ai/plan', (route) => {
+      requests.push(route.request().postDataJSON());
+      return route.fulfill({ json: ops({ op: 'patch', scene: 1, hold_seconds: 8 }) });
+    });
+    await ask(page, 'hold the first scene a little longer');
+
+    const card = page.getByTestId('edit-proposal');
+    await expect(card).toContainText('Planner: Edit scene 1');
+    await expect(card).toContainText('6 s → 8 s');
+    await expect(page.getByTestId('edit-check')).toContainText('PASSED');
+    expect(requests).toHaveLength(1);
+    expect(requests[0].repair_note).toBeNull();
+    expect(requests[0].scenes.map((s) => s.number)).toEqual([1, 2]);
+    expect(JSON.stringify(requests[0])).not.toContain('scene-'); // no ids go to the model
+
+    // A dry run: nothing is edited until Apply.
+    await consoleTab(page, 'SEQUENCE');
+    await expect(holdOfFirstScene(page)).toHaveValue('6');
+    await expect(page.getByRole('button', { name: 'Undo', exact: true })).toBeDisabled();
+
+    await consoleTab(page, 'AI');
+    await page.getByRole('button', { name: 'Apply edit' }).click();
+    await consoleTab(page, 'SEQUENCE');
+    await expect(holdOfFirstScene(page)).toHaveValue('8');
+    await page.getByRole('button', { name: 'Undo', exact: true }).click();
+    await expect(holdOfFirstScene(page)).toHaveValue('6');
+    await expect(page.getByRole('button', { name: 'Undo', exact: true })).toBeDisabled();
+  });
+
+  test('an out-of-range answer is repaired once, then shown as a refusal', async ({ page }) => {
+    await openStudio(page, PASSED_REPORT);
+    const requests = [];
+    await page.route('**/api/ai/plan', (route) => {
+      requests.push(route.request().postDataJSON());
+      return route.fulfill({ json: ops({ op: 'patch', scene: 1, hold_seconds: 500 }) });
+    });
+    await ask(page, 'hold the first scene for ages');
+
+    const status = page.getByTestId('edit-plan-status');
+    await expect(status).toContainText("The planner's draft was refused");
+    await expect(status).toContainText('outside the allowed range 0 to 120');
+    expect(requests).toHaveLength(2); // the first call and exactly one repair
+    expect(requests[0].repair_note).toBeNull();
+    expect(requests[1].repair_note).toMatch(/outside the allowed range 0 to 120/);
+    await expect(page.getByTestId('edit-proposal')).toHaveCount(0);
+
+    await consoleTab(page, 'SEQUENCE');
+    await expect(holdOfFirstScene(page)).toHaveValue('6');
+  });
+
+  test('Ollama being down is reported plainly, with no proposal', async ({ page }) => {
+    await openStudio(page, PASSED_REPORT);
+    await page.route('**/api/ai/plan', (route) => route.fulfill({ json: { status: 'unavailable', ops: [], unsupported: [], error: 'refused' } }));
+    await ask(page, 'make scene 1 a sphere');
+    await expect(page.getByTestId('edit-plan-status')).toContainText('Ollama is not reachable');
+    await expect(page.getByTestId('edit-proposal')).toHaveCount(0);
+    // The typed grammar button is unaffected.
+    await page.getByPlaceholder('make scene 2 a heart').fill('set hold of scene 1 to 8 s');
+    await page.getByRole('button', { name: 'Preview edit' }).click();
+    await expect(page.getByTestId('edit-proposal')).toContainText('Set hold of scene 1');
+  });
+});
+
 // Issue #100: a save no longer overwrites the previous one.
 test('project save history can be browsed and restored', async ({ page }) => {
   await openStudio(page);
