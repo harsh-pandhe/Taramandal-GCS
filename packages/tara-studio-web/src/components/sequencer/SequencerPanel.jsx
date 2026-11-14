@@ -4,6 +4,7 @@ import HistoryBar from './HistoryBar.jsx';
 import NeedsAttention from './NeedsAttention.jsx';
 import { PACING_OPTIONS } from '../../engine/sequencer.js';
 import { violationsByScene } from '../../engine/violationScenes.js';
+import { exportGate } from '../../engine/exportGate.js';
 
 /**
  * The scene list editor: the stack of scene cards plus the build action.
@@ -20,7 +21,7 @@ export default function SequencerPanel({
     dragIndex, dropIndex, onDragStart, onDragOver, onDrop, onDragEnd,
   } = list;
   const failing = new Set(
-    validation?.status === 'FAILED'
+    exportGate({ hasShow: true, validation }).isFailed
       ? violationsByScene({ violations: validation.violations, segments, scenes, stale }).groups.map((g) => g.sceneId)
       : [],
   );

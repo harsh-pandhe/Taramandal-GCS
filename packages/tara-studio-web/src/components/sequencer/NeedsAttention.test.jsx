@@ -39,6 +39,19 @@ describe('NeedsAttention', () => {
     expect(NeedsAttention({})).toBeNull();
   });
 
+  // The app's gate (engine/exportGate.js) calls a PASSED report that is not flight-certified FAILED,
+  // so this list must appear for it: it is the most common way a show fails.
+  it('also appears when the hard limits pass but the show is not flight-certified (jerk)', () => {
+    const jerk = { time: 10, drone: 2, jerk: 21, limit: 15 };
+    const notCertified = { status: 'PASSED', feasibility_certified: false, violations: { jerk: [jerk] } };
+    const text = textOf(render({ validation: notCertified }));
+    expect(text).toContain('Needs attention');
+    expect(text).toContain('01 · Five');
+    expect(text).toContain('Drone 2 changed acceleration at 21.0 m/s³');
+    const jerkListedAsPassed = { status: 'PASSED', violations: { jerk: [jerk] } };
+    expect(textOf(render({ validation: jerkListedAsPassed }))).toContain('01 · Five');
+  });
+
   it('shows a block per failing scene, with counts and at most 3 explanations', () => {
     const tree = render();
     const text = textOf(tree);

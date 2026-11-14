@@ -1,5 +1,6 @@
 import { AlertTriangle } from 'lucide-react';
 import { violationsByScene, WHERE_TEXT } from '../../engine/violationScenes.js';
+import { exportGate } from '../../engine/exportGate.js';
 
 const SHOWN = 3;
 const LABEL = { yaw_rate: 'yaw rate' };
@@ -26,14 +27,16 @@ const renderItems = (items) => (
  * Plain-words list of what failed the safety check, grouped by the scene that
  * was playing when it happened (issue #92).
  *
- * Renders nothing unless the last check FAILED and there is something to show,
+ * Renders nothing unless the last check failed (as exportGate defines it) and there is something to show,
  * so every other state of the Sequence tab is exactly as it was. Every prop is
  * optional.
  */
 export default function NeedsAttention({
   validation, segments, scenes, stale, onScrub, onSelectScene,
 }) {
-  if (!validation || validation.status !== 'FAILED') return null;
+  // The app's own definition of failed (exportGate): a report that passes the hard limits
+  // but is not flight-certified (jerk) is failed too, and is the case that most needs this list.
+  if (!validation || !exportGate({ hasShow: true, validation }).isFailed) return null;
   const { groups, unassigned, stale: isStale } = violationsByScene({
     violations: validation.violations, segments, scenes, stale,
   });
