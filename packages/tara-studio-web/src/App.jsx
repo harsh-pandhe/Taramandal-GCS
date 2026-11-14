@@ -12,6 +12,7 @@ import VaultPage from './components/panels/VaultPage.jsx';
 import useStudioHistory from './hooks/useStudioHistory.js';
 import useSceneList from './hooks/useSceneList.js';
 import useAIProposal from './hooks/useAIProposal.js';
+import useIntentProposal from './hooks/useIntentProposal.js';
 import usePlayback from './hooks/usePlayback.js';
 import useFleet, { defaultFleet } from './hooks/useFleet.js';
 import useShowBuilder from './hooks/useShowBuilder.js';
@@ -74,6 +75,11 @@ export default function App() {
   const fleet = useFleet(history);
   const builder = useShowBuilder();
   const ai = useAIProposal(list.scenes, list.addScene);
+  // Typed scene edits (#89): a dry run that never writes to history, the
+  // builder or the projects until Apply. Before the unlock early return below.
+  const intent = useIntentProposal({
+    doc: history.doc, execute: history.execute, numDrones: fleet.dronesList.length, rate, pacing,
+  });
 
   const { scenes } = list;
   const { choreoData, validation, validationSignature, validating, loading, error } = builder;
@@ -331,6 +337,7 @@ export default function App() {
                 onOpenLibrary={setLibrarySceneId}
                 onOpenRasterImport={() => setRasterModalOpen(true)}
                 ai={ai}
+                intent={intent}
                 light={{
                   effect: lightEffect, onEffect: setLightEffect,
                   baseColor: lightColor, onBaseColor: setLightColor,
