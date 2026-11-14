@@ -123,6 +123,15 @@ export default function EarthView({ telemetry, venueLat = 12.9716, venueLon = 77
         point.color = color;
       }
     });
+    // A drone that is no longer in the telemetry leaves the map. Live telemetry keeps every id it
+    // has seen, so this only matters when the source can lose a drone: a replay of a recording
+    // in which the fleet changes, or switching to another recording.
+    for (const [id, point] of dronePointById.current) {
+      if (!(id in telemetry)) {
+        points.remove(point);
+        dronePointById.current.delete(id);
+      }
+    }
   }, [telemetry, venueLat, venueLon]);
 
   return <div ref={containerRef} className="earth-view-container" />;

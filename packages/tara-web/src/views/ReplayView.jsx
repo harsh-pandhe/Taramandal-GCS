@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
+import EarthView from './EarthView';
 import NightSkyView from './NightSkyView';
 import { MAX_NIGHTSKY_DRONES } from '../config';
 import { FLOATS_PER_DRONE } from '../telemetry';
@@ -14,6 +15,7 @@ import {
   loadSession,
   loadWindow,
   pickFrames,
+  telemetryAt,
   tickIntervalMs,
   timelineFraction,
   windowCovers,
@@ -67,6 +69,11 @@ export default function ReplayView() {
   const winFailedAt = useRef(-Infinity);
   const seekTimer = useRef(null);
   const [windowInfo, setWindowInfo] = useState(null); // { from, to } of the loaded window
+  // Which 3D view plays the recording. The night-sky view is fed every animation frame from the
+  // buffer; the Earth view (a Cesium viewer) is fed a telemetry object at the 10 Hz readout rate.
+  const [view, setView] = useState('night');
+  const viewRef = useRef('night');
+  const [earthTel, setEarthTel] = useState({});
 
   useEffect(() => {
     let cancelled = false;
@@ -84,6 +91,14 @@ export default function ReplayView() {
 
   const drawAt = useCallback((ms) => {
     fillFleetBuffer(pickFrames(framesRef.current, winRef.current, ms), ms, fleetBuffer.current);
+  }, []);
+
+  // The 10 Hz readout: the clock, and the Earth view's telemetry when that view is showing.
+  const publish = useCallback((ms) => {
+    setTMs(ms);
+    if (viewRef.current === 'earth') {
+      setEarthTel(telemetryAt(pickFrames(framesRef.current, winRef.current, ms), ms));
+    }
   }, []);
 
   // Loads the full-rate window for `ms` unless the current one already covers it
@@ -107,6 +122,7 @@ export default function ReplayView() {
           winRef.current = { from: w.from, to: w.to, frames: reply.frames };
           setWindowInfo({ from: w.from, to: w.to });
           drawAt(tRef.current);
+          publish(tRef.current);
         })
         .catch(() => {
           winFailedAt.current = performance.now();
@@ -117,18 +133,18 @@ export default function ReplayView() {
           if (sessionRef.current?.token === s.token) ensureWindow(tRef.current, marginMs);
         });
     },
-    [drawAt],
+    [drawAt, publish],
   );
 
   const seek = useCallback(
     (ms) => {
       tRef.current = ms;
       drawAt(ms);
-      setTMs(ms);
+      publish(ms);
       clearTimeout(seekTimer.current);
       seekTimer.current = setTimeout(() => ensureWindow(ms), SEEK_DEBOUNCE_MS);
     },
-    [drawAt, ensureWindow],
+    [drawAt, ensureWindow, publish],
   );
 
   useEffect(() => () => clearTimeout(seekTimer.current), []);
@@ -148,6 +164,7 @@ export default function ReplayView() {
         winRef.current = null;
         winFailedAt.current = -Infinity;
         setWindowInfo(null);
+        setEarthTel({});
         sessionRef.current = {
           token: mine,
           id,
@@ -163,6 +180,7 @@ export default function ReplayView() {
         winRef.current = null;
         sessionRef.current = null;
         setWindowInfo(null);
+        setEarthTel({});
         fleetBuffer.current.count = 0;
         setLoaded(null);
         setLoadError(err.message);
@@ -190,7 +208,7 @@ export default function ReplayView() {
       drawAt(next);
       if (now - lastUi >= UI_TICK_MS || next >= endMs) {
         lastUi = now;
-        setTMs(next);
+        publish(next);
         // Fetch the next window before this one runs out.
         if (sessionRef.current) ensureWindow(next, sessionRef.current.spanMs * 0.15);
       }
@@ -202,13 +220,19 @@ export default function ReplayView() {
     };
     raf = requestAnimationFrame(step);
     return () => cancelAnimationFrame(raf);
-  }, [playing, loaded, speed, endMs, drawAt, ensureWindow]);
+  }, [playing, loaded, speed, endMs, drawAt, ensureWindow, publish]);
 
   const atEnd = loaded && tMs >= endMs;
   const togglePlay = () => {
     if (!loaded) return;
     if (atEnd) seek(startMs);
     setPlaying((p) => !p);
+  };
+
+  const changeView = (next) => {
+    viewRef.current = next;
+    setView(next);
+    if (next === 'earth') setEarthTel(telemetryAt(pickFrames(framesRef.current, winRef.current, tRef.current), tRef.current));
   };
 
   const events = loaded?.events.events ?? [];
@@ -221,7 +245,11 @@ export default function ReplayView() {
   return (
     <div className="replay-view">
       <div className="replay-stage earth-view-panel" data-testid="replay-stage">
-        <NightSkyView telemetry={{}} fleetBuffer={fleetBuffer} showDeviationHud={false} />
+        {view === 'earth' ? (
+          <EarthView key={loaded?.summary.id ?? 'none'} telemetry={earthTel} />
+        ) : (
+          <NightSkyView telemetry={{}} fleetBuffer={fleetBuffer} showDeviationHud={false} />
+        )}
         {!loaded && (
           <div className="replay-empty">
             {loading ? 'Loading recording…' : 'Pick a recorded flight to replay it here.'}
@@ -230,6 +258,19 @@ export default function ReplayView() {
       </div>
 
       <div className="replay-controls" data-testid="replay-controls">
+        <div className="replay-row" role="group" aria-label="3D view">
+          <span className="replay-label">VIEW</span>
+          {[['night', 'NIGHT SKY'], ['earth', 'EARTH']].map(([id, label]) => (
+            <button
+              key={id}
+              className={`view-tab ${view === id ? 'active' : ''}`}
+              aria-pressed={view === id}
+              onClick={() => changeView(id)}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
         <div className="replay-row">
           <label className="replay-label" htmlFor="replay-session">
             RECORDING
