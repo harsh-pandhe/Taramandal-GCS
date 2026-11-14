@@ -42,6 +42,7 @@
 
 import { buildFormation, MAX_ALTITUDE_M } from './formations.js';
 import { SHOW_ALT, padAt, hoverAt } from './layout.js';
+import { STANDARD_SITE } from './site.js';
 import { optimalAssignment } from './assignment.js';
 import { ShowRefusalError } from './showErrors.js';
 
@@ -405,13 +406,13 @@ const returnLayers = (spots, homes) => {
  * over a paced duration. Building, predicting the duration and drawing the
  * timeline all read this one plan, so they cannot disagree.
  */
-const planShow = (scenes, n, targetIdx, pacing = 'standard') => {
+const planShow = (scenes, n, targetIdx, pacing = 'standard', site = STANDARD_SITE) => {
   const P = pacingOf(pacing);
-  const ground = Array.from({ length: n }, (_, i) => padAt(i));
-  const hover = Array.from({ length: n }, (_, i) => hoverAt(i));
+  const ground = Array.from({ length: n }, (_, i) => padAt(i, site));
+  const hover = Array.from({ length: n }, (_, i) => hoverAt(i, site));
   const assignment = normalizeAssignment(targetIdx, scenes.length, n);
   const scenePos = scenes.map((s, k) => {
-    const f = buildFormation(s.shapeType, s.shapePayload, n, s.scale);
+    const f = buildFormation(s.shapeType, s.shapePayload, n, s.scale, site);
     return Array.from({ length: n }, (_, i) => f[assignment.scenes[k][i]] ?? f[i]);
   });
 
@@ -535,7 +536,7 @@ const legSteps = (leg, r) => (leg.kind === 'hold'
  * With both, and the same `targetIdx`, this equals the built show's `_duration`
  * exactly.
  */
-export const computeShowDuration = (scenes, n = null, rate = null, targetIdx = null, pacing = 'standard') => {
+export const computeShowDuration = (scenes, n = null, rate = null, targetIdx = null, pacing = 'standard', site = STANDARD_SITE) => {
   if (!scenes.length) return 0;
 
   if (!n || n < 1) {
@@ -547,7 +548,7 @@ export const computeShowDuration = (scenes, n = null, rate = null, targetIdx = n
   }
 
   const r = rate && rate >= 1 ? rate : null;
-  const { legs } = planShow(scenes, n, targetIdx, pacing);
+  const { legs } = planShow(scenes, n, targetIdx, pacing, site);
   const total = legs.reduce((sum, leg) => sum + (r ? legSteps(leg, r) / r : leg.secs), 0);
   return round2(total);
 };
@@ -563,12 +564,12 @@ export const computeShowDuration = (scenes, n = null, rate = null, targetIdx = n
  *        naive mapping, which is only collision-free by luck.
  * @returns {{drones: Array, _duration: number, _targetIdx: number[][]}}
  */
-export const buildSequencedShow = (scenes, n, rate, targetIdx = null, pacing = 'standard') => {
+export const buildSequencedShow = (scenes, n, rate, targetIdx = null, pacing = 'standard', site = STANDARD_SITE) => {
   if (!scenes.length || n < 1) return { drones: [], _duration: 0 };
 
   const r = Math.max(1, rate), dt = 1 / r;
   const ease = pacingOf(pacing).profile === 'smootherstep' ? smoother : smooth;
-  const { legs, ground, assignment } = planShow(scenes, n, targetIdx, pacing);
+  const { legs, ground, assignment } = planShow(scenes, n, targetIdx, pacing, site);
   const wps = Array.from({ length: n }, () => []);
   let t = 0;
 
@@ -606,10 +607,10 @@ export const buildSequencedShow = (scenes, n, rate, targetIdx = null, pacing = '
 // grid makes the climb-out an optimal assignment too (the backend's chain
 // otherwise starts every drone on its own index of the first formation), and
 // ending on it picks the return spots.
-const chainForms = (scenes, n) => [
-  Array.from({ length: n }, (_, i) => hoverAt(i)),
-  ...scenes.map((s) => buildFormation(s.shapeType, s.shapePayload, n, s.scale)),
-  Array.from({ length: n }, (_, i) => hoverAt(i)),
+const chainForms = (scenes, n, site = STANDARD_SITE) => [
+  Array.from({ length: n }, (_, i) => hoverAt(i, site)),
+  ...scenes.map((s) => buildFormation(s.shapeType, s.shapePayload, n, s.scale, site)),
+  Array.from({ length: n }, (_, i) => hoverAt(i, site)),
 ];
 
 /**
@@ -621,11 +622,11 @@ const chainForms = (scenes, n) => [
  * @throws if the backend is unreachable — the caller falls back to
  *         computeAssignmentChainLocal.
  */
-export const computeAssignmentChain = async (scenes, n, apiBase) => {
+export const computeAssignmentChain = async (scenes, n, apiBase, site = STANDARD_SITE) => {
   const resp = await fetch(`${apiBase}/api/assign-chain`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ forms: chainForms(scenes, n) }),
+    body: JSON.stringify({ forms: chainForms(scenes, n, site) }),
   });
   if (!resp.ok) throw new Error(`assign-chain failed (${resp.status})`);
   const data = await resp.json();
@@ -633,8 +634,8 @@ export const computeAssignmentChain = async (scenes, n, apiBase) => {
 };
 
 /** Same chain as computeAssignmentChain, solved in the browser. */
-export const computeAssignmentChainLocal = (scenes, n) => {
-  const forms = chainForms(scenes, n);
+export const computeAssignmentChainLocal = (scenes, n, site = STANDARD_SITE) => {
+  const forms = chainForms(scenes, n, site);
   const chain = [identity(n)];
   for (let s = 0; s < forms.length - 1; s++) {
     const from = chain[s].map((k) => forms[s][k]);
@@ -653,7 +654,7 @@ export const computeAssignmentChainLocal = (scenes, n) => {
  * the time the user typed, and the blocks have to line up with the trajectory
  * the viewport is actually playing.
  */
-export const buildTimelineSegments = (scenes, n = null, rate = null, targetIdx = null, pacing = 'standard') => {
+export const buildTimelineSegments = (scenes, n = null, rate = null, targetIdx = null, pacing = 'standard', site = STANDARD_SITE) => {
   const segs = [];
   let t = 0;
   const r = rate && rate >= 1 ? rate : null;
@@ -680,7 +681,7 @@ export const buildTimelineSegments = (scenes, n = null, rate = null, targetIdx =
     return segs;
   }
 
-  const { legs } = planShow(scenes, n, targetIdx, pacing);
+  const { legs } = planShow(scenes, n, targetIdx, pacing, site);
   // The return swap is several legs; the timeline shows it as one block.
   let i = 0;
   while (i < legs.length) {

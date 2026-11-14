@@ -7,10 +7,11 @@
  */
 
 import { ShowRefusalError } from './showErrors.js';
+import { STANDARD_SITE, siteProfile } from './site.js';
 
 const MAX_SVG_BYTES = 500_000;
 export const MIN_DESIGN_SPACING_M = 2.0;
-export const SITE_RADIUS_M = 30.0;
+export const SITE_RADIUS_M = siteProfile(STANDARD_SITE).radius_m; // the standard site; per-show sites are in site.js
 export const MAX_ALTITUDE_M = 120.0;
 
 // Known over-rejection (issue #122/#146 review, documented rather than fixed -
@@ -707,7 +708,8 @@ export const BUILTIN_SVGS = {
  * Converts raw SVG text into a 3D formation point cloud [ {x, y, z}, ... ].
  * Enforces canonical 30.0m site limits, altitude ceiling (120m), and design spacing (2.0m).
  */
-export function svgToFormation(svgTextOrKey, n, { scale = 20.0, altitude = 15.0, plane = 'XY' } = {}) {
+export function svgToFormation(svgTextOrKey, n, { scale = 20.0, altitude = 15.0, plane = 'XY', site = STANDARD_SITE } = {}) {
+  const SITE_RADIUS_M = siteProfile(site).radius_m;
   const svgText = (typeof svgTextOrKey === 'string' && BUILTIN_SVGS[svgTextOrKey]) || svgTextOrKey;
   const contours = parseSvgToContours(svgText);
 

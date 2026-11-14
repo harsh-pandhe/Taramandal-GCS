@@ -27,7 +27,7 @@ import zipfile
 import pandas as pd
 from pydantic import ValidationError
 
-from tara_core import DEFAULT_LIMITS, SHOW_FORMAT_VERSION, Show
+from tara_core import DEFAULT_LIMITS, SHOW_FORMAT_VERSION, STANDARD_SITE, Show, limits_for_site
 from tara_core.validate import altitude_errors, collision_errors
 
 logger = logging.getLogger("TaramandalGCS")
@@ -82,6 +82,26 @@ def parse_trajectory_bytes(content: bytes, filename: str) -> dict:
         return parse_trajectory_file(content.decode('utf-8'), filename)
     except Exception as e:
         raise ValueError(f"Error parsing trajectory bytes ({filename}): {str(e)}")
+
+
+def show_site(content: bytes, filename: str) -> str:
+    """The site profile a JSON show names in its top-level ``"site"`` key.
+
+    Absent (and for every non-JSON format) it is the standard site, exactly as before profiles existed.
+
+    Raises:
+        ValueError: If the key is present but not a known profile: a show naming a site this build does not
+            know must be refused, never flown on a guessed pad grid.
+    """
+    if not (filename or "").lower().endswith(".json"):
+        return STANDARD_SITE
+    try:
+        data = json.loads(content.decode("utf-8"))
+    except (UnicodeDecodeError, ValueError):
+        return STANDARD_SITE  # the parser reports a malformed file itself
+    site = data.get("site", STANDARD_SITE) if isinstance(data, dict) else STANDARD_SITE
+    limits_for_site(site)
+    return site
 
 
 def gate_show(canonical: dict) -> dict:
