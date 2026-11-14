@@ -103,6 +103,21 @@ function sameIds(a, b) {
   return true;
 }
 
+// The two recorded frames either side of `tMs` and how far between them it falls
+// (alpha 0 = the earlier one). Null for an empty recording. Shared by every view
+// so they all blend the same way.
+function blendAt(frames, tMs) {
+  const i = frameIndexAt(frames, tMs);
+  if (i < 0) return null;
+  const a = frames[i];
+  const b = frames[Math.min(i + 1, frames.length - 1)];
+  const span = b.t_ms - a.t_ms;
+  const alpha = span > 0 && sameIds(a.ids, b.ids) ? Math.min(1, Math.max(0, (tMs - a.t_ms) / span)) : 0;
+  return { a, b, alpha };
+}
+
+const blended = (at, key, k) => (at.alpha === 0 ? at.a[key][k] : at.a[key][k] + (at.b[key][k] - at.a[key][k]) * at.alpha);
+
 /**
  * Writes the fleet at time `tMs` into `buffer` ({ data: Float32Array, count }) in
  * the layout the night-sky view reads (telemetry.js FAST_FIELDS), positions
@@ -112,24 +127,20 @@ function sameIds(a, b) {
  * Returns the drone count.
  */
 export function fillFleetBuffer(frames, tMs, buffer) {
-  const i = frameIndexAt(frames, tMs);
-  if (i < 0) {
+  const at = blendAt(frames, tMs);
+  if (!at) {
     buffer.count = 0;
     return 0;
   }
-  const a = frames[i];
-  const b = frames[Math.min(i + 1, frames.length - 1)];
-  const span = b.t_ms - a.t_ms;
-  const alpha = span > 0 && sameIds(a.ids, b.ids) ? Math.min(1, Math.max(0, (tMs - a.t_ms) / span)) : 0;
+  const { a } = at;
   const n = Math.min(a.ids.length, Math.floor(buffer.data.length / FLOATS_PER_DRONE));
   const out = buffer.data;
   for (let k = 0; k < n; k++) {
     const base = k * FLOATS_PER_DRONE;
-    const mix = (key) => (alpha === 0 ? a[key][k] : a[key][k] + (b[key][k] - a[key][k]) * alpha);
     out.fill(0, base, base + FLOATS_PER_DRONE);
-    out[base + OFF.fleet_x] = mix('x_m');
-    out[base + OFF.fleet_y] = mix('y_m');
-    out[base + OFF.fleet_z] = mix('z_m');
+    out[base + OFF.fleet_x] = blended(at, 'x_m', k);
+    out[base + OFF.fleet_y] = blended(at, 'y_m', k);
+    out[base + OFF.fleet_z] = blended(at, 'z_m', k);
     out[base + OFF.heading] = a.heading_deg ? a.heading_deg[k] : 0;
     const flags = a.flags ? a.flags[k] : 0;
     out[base + OFF.armed] = flags & FLAG_ARMED ? 1 : 0;
@@ -137,6 +148,32 @@ export function fillFleetBuffer(frames, tMs, buffer) {
   }
   buffer.count = n;
   return n;
+}
+
+/**
+ * The fleet at time `tMs` as the object the Earth view reads: `{ [droneId]: { id,
+ * fleet_x, fleet_y, fleet_z, heading, armed, connected } }`, positions blended
+ * the same way as fillFleetBuffer. Empty for an empty recording. Allocates, so it
+ * is for the 10 Hz readout rate, not every animation frame.
+ */
+export function telemetryAt(frames, tMs) {
+  const at = blendAt(frames, tMs);
+  const out = {};
+  if (!at) return out;
+  const { a } = at;
+  for (let k = 0; k < a.ids.length; k++) {
+    const flags = a.flags ? a.flags[k] : 0;
+    out[String(a.ids[k])] = {
+      id: a.ids[k],
+      fleet_x: blended(at, 'x_m', k),
+      fleet_y: blended(at, 'y_m', k),
+      fleet_z: blended(at, 'z_m', k),
+      heading: a.heading_deg ? a.heading_deg[k] : 0,
+      armed: !!(flags & FLAG_ARMED),
+      connected: !!(flags & FLAG_CONNECTED),
+    };
+  }
+  return out;
 }
 
 /** Where `tMs` falls on a timeline from `startMs` to `endMs`, as a 0..1 fraction. */

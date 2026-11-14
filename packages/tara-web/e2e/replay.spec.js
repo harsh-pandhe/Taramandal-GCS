@@ -215,6 +215,52 @@ test('the full-rate window helpers: size, placement, coverage and which frames g
   expect(r.picked).toEqual([true, 'overview']);
 });
 
+test('the replay can be shown on the Earth view and switched back, without errors', async ({ page }) => {
+  const errors = [];
+  page.on('pageerror', (e) => errors.push(e.message));
+  // The Earth view asks OpenStreetMap for imagery; the test does not depend on the internet.
+  await page.route('**/tile.openstreetmap.org/**', (route) => route.abort());
+  await openReplay(page);
+  await page.getByRole('button', { name: 'LOAD' }).click();
+  await expect(page.getByTestId('replay-clock')).toHaveText('00:00 / 01:00');
+
+  const group = page.getByRole('group', { name: '3D view' });
+  await expect(group.getByRole('button', { name: 'NIGHT SKY' })).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.locator('.cesium-viewer')).toHaveCount(0);
+
+  await group.getByRole('button', { name: 'EARTH' }).click();
+  await expect(group.getByRole('button', { name: 'EARTH' })).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.getByTestId('replay-stage').locator('.cesium-viewer')).toBeVisible();
+
+  // The same controls drive it: jump to a marker, play, scrub.
+  await page.getByRole('button', { name: /geofence hard breach at 00:40/ }).click();
+  await expect(page.getByTestId('replay-clock')).toHaveText('00:40 / 01:00');
+  await page.getByRole('button', { name: 'Play', exact: true }).click();
+  await page.waitForTimeout(600);
+  await page.getByLabel('Timeline').fill('10000');
+  await expect(page.getByTestId('replay-clock')).toHaveText('00:10 / 01:00');
+
+  await group.getByRole('button', { name: 'NIGHT SKY' }).click();
+  await expect(page.locator('.cesium-viewer')).toHaveCount(0);
+  await expect(page.getByTestId('replay-stage')).toBeVisible();
+  expect(errors).toEqual([]);
+});
+
+test('telemetryAt gives the Earth view the fleet at a time: blended positions, flags as booleans, keyed by drone id', async ({ page }) => {
+  await openReplay(page);
+  const r = await page.evaluate(async (frames) => {
+    const { telemetryAt } = await import('/src/replay.js');
+    return { at: telemetryAt(frames, 2500), start: telemetryAt(frames, 0), empty: telemetryAt([], 5) };
+  }, FRAMES);
+
+  expect(Object.keys(r.at)).toEqual(['0', '1', '2']);
+  expect(r.at['0']).toEqual({ id: 0, fleet_x: 2.5, fleet_y: 0, fleet_z: 10, heading: 90, armed: true, connected: true });
+  expect(r.at['1'].fleet_x).toBe(12.5); // x = s + 10k, halfway between s = 2 and s = 3
+  expect(r.at['2']).toMatchObject({ fleet_x: 22.5, fleet_y: 10, armed: false, connected: true }); // flags 1: connected, not armed
+  expect(r.start['2'].fleet_x).toBe(20);
+  expect(r.empty).toEqual({});
+});
+
 test('fillFleetBuffer blends positions between recorded frames and marks planned/LED data not valid', async ({ page }) => {
   await openReplay(page);
   const result = await page.evaluate(async (frames) => {
