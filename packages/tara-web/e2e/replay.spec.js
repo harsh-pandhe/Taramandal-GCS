@@ -39,7 +39,7 @@ const SUMMARY = {
   identities_hidden: true,
   duration_ms: 60000,
   first_tick_ms: 0,
-  ticks: 61,
+  ticks: 601, // 10 Hz: one tick every 100 ms
   drone_ids: [0, 1, 2],
   events: 7,
   event_kinds: {},
@@ -48,17 +48,38 @@ const SUMMARY = {
   bytes: 4096,
 };
 
-async function openReplay(page, { sessions = [SESSION], frames = { stride: 1, count: 61, t_ms_first: 0, t_ms_last: 60000, frames: FRAMES }, sessionStatus = 200 } = {}) {
+// What the GCS answers for a window of every recorded tick: 100 ms apart.
+function windowReply(fromMs, toMs) {
+  const frames = [];
+  for (let t = fromMs; t <= toMs; t += 100) {
+    const s = t / 1000;
+    frames.push({ t_ms: t, ids: [0, 1, 2], x_m: [0, 1, 2].map((k) => s + k * 10), y_m: [0, 5, 10], z_m: [10, 10, 10], heading_deg: [90, 90, 90], flags: [3, 3, 1] });
+  }
+  return { stride: 1, count: frames.length, t_ms_first: fromMs, t_ms_last: toMs, frames };
+}
+
+async function openReplay(page, {
+  sessions = [SESSION],
+  frames = { stride: 10, count: 61, t_ms_first: 0, t_ms_last: 60000, frames: FRAMES },
+  sessionStatus = 200,
+  windowStatus = 200,
+} = {}) {
   const requested = [];
+  requested.times = []; // Date.now() of each request, parallel to `requested`
   await signIn(page);
   await page.routeWebSocket('**/ws/telemetry', () => {});
   await page.route('**/choreography.json', (route) => route.fulfill({ json: { drones: [] } }));
   await page.route('**/api/blackbox/**', (route) => {
     const url = new URL(route.request().url());
     requested.push(url.pathname + url.search);
+    requested.times.push(Date.now());
     if (url.pathname === '/api/blackbox/sessions') return route.fulfill({ json: { sessions } });
     if (sessionStatus !== 200) return route.fulfill({ status: sessionStatus, json: { detail: 'no such session' } });
     if (url.pathname.endsWith('/events')) return route.fulfill({ json: { events: EVENTS, total: 3, limited: false, identities_hidden: true } });
+    if (url.pathname.endsWith('/frames') && url.searchParams.has('from_ms')) {
+      if (windowStatus !== 200) return route.fulfill({ status: windowStatus, json: { detail: 'window failed' } });
+      return route.fulfill({ json: windowReply(Number(url.searchParams.get('from_ms')), Number(url.searchParams.get('to_ms'))) });
+    }
     if (url.pathname.endsWith('/frames')) return route.fulfill({ json: frames });
     return route.fulfill({ json: SUMMARY });
   });
@@ -123,6 +144,75 @@ test('a recording the GCS refuses is reported with its reason, not shown as empt
   await page.getByRole('button', { name: 'LOAD' }).click();
   await expect(page.getByText('Could not load this recording: no such session')).toBeVisible();
   await expect(page.getByTestId('replay-clock')).toHaveCount(0);
+});
+
+test('after a seek, a window of every recorded tick is loaded around that time and the view says so', async ({ page }) => {
+  const requested = await openReplay(page);
+  await page.getByRole('button', { name: 'LOAD' }).click();
+  await expect(page.getByTestId('replay-resolution')).toContainText('Overview: one sample per 1.0 s');
+
+  await page.getByRole('button', { name: /geofence hard breach at 00:40/ }).click();
+
+  await expect(page.getByTestId('replay-resolution')).toContainText('Showing every recorded sample from');
+  const windowRequests = requested.filter((r) => r.includes('from_ms='));
+  expect(windowRequests).toHaveLength(1);
+  // Asks for every tick (no step) with the API's hard caps, for a window that contains the time.
+  expect(windowRequests[0]).toMatch(/max_frames=5000&max_samples=200000/);
+  expect(windowRequests[0]).not.toContain('step_ms');
+  const from = Number(/from_ms=(\d+)/.exec(windowRequests[0])[1]);
+  const to = Number(/to_ms=(\d+)/.exec(windowRequests[0])[1]);
+  expect(from).toBeLessThanOrEqual(40000);
+  expect(to).toBeGreaterThanOrEqual(40000);
+});
+
+test('a failed window keeps the overview, shows no error, and is not asked for again straight away', async ({ page }) => {
+  const requested = await openReplay(page, { windowStatus: 500 });
+  await page.getByRole('button', { name: 'LOAD' }).click();
+
+  for (const label of [/proximity breach at 00:20/, /proximity clear at 00:25/, /geofence hard breach at 00:40/]) {
+    await page.getByRole('button', { name: label }).click();
+    await page.waitForTimeout(450);
+  }
+
+  await expect(page.getByTestId('replay-resolution')).toContainText('Overview: one sample per 1.0 s');
+  await expect(page.getByText(/Could not load/)).toHaveCount(0);
+  // Asked for at least once, and never again sooner than the 5 s retry wait. The spacing is checked
+  // rather than a count, so a slow machine that lets the wait run out mid-test is not a failure.
+  const times = requested.times.filter((_, i) => requested[i].includes('from_ms='));
+  expect(times.length).toBeGreaterThanOrEqual(1);
+  for (let i = 1; i < times.length; i++) expect(times[i] - times[i - 1]).toBeGreaterThanOrEqual(4500);
+});
+
+test('the full-rate window helpers: size, placement, coverage and which frames get drawn', async ({ page }) => {
+  await openReplay(page);
+  const r = await page.evaluate(async () => {
+    const m = await import('/src/replay.js');
+    const win = { from: 10000, to: 40000, frames: [{ t_ms: 10000 }, { t_ms: 10100 }] };
+    return {
+      span100: m.detailSpanMs(100, 100), // 300 frames x 100 ms
+      span1000: m.detailSpanMs(1000, 100), // 30 frames x 100 ms = 3 s, the floor
+      span3: m.detailSpanMs(3, 100), // capped at 60 s
+      tick: m.tickIntervalMs({ first_tick_ms: 0, duration_ms: 60000, ticks: 601 }),
+      tickUnknown: m.tickIntervalMs({}),
+      early: m.detailWindowFor(1000, 30000, 0, 900000),
+      middle: m.detailWindowFor(300000, 30000, 0, 900000),
+      late: m.detailWindowFor(895000, 30000, 0, 900000),
+      covers: [m.windowCovers(win, 20000), m.windowCovers(win, 9999), m.windowCovers(win, 40001), m.windowCovers(win, 39000, 2000), m.windowCovers(null, 1)],
+      oneFrame: m.windowCovers({ from: 0, to: 10, frames: [{ t_ms: 0 }] }, 5),
+      picked: [m.pickFrames(['overview'], win, 20000) === win.frames, m.pickFrames(['overview'], win, 50000)[0]],
+    };
+  });
+  expect(r.span100).toBe(30000);
+  expect(r.span1000).toBe(3000);
+  expect(r.span3).toBe(60000);
+  expect(r.tick).toBe(100);
+  expect(r.tickUnknown).toBe(100);
+  expect(r.early).toEqual({ from: 0, to: 30000 });
+  expect(r.middle).toEqual({ from: 292500, to: 322500 }); // a quarter of the span before the time
+  expect(r.late).toEqual({ from: 870000, to: 900000 }); // kept inside the session
+  expect(r.covers).toEqual([true, false, false, false, false]);
+  expect(r.oneFrame).toBe(false);
+  expect(r.picked).toEqual([true, 'overview']);
 });
 
 test('fillFleetBuffer blends positions between recorded frames and marks planned/LED data not valid', async ({ page }) => {

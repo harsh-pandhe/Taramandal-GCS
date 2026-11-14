@@ -3,6 +3,8 @@ import NightSkyView from './NightSkyView';
 import { MAX_NIGHTSKY_DRONES } from '../config';
 import { FLOATS_PER_DRONE } from '../telemetry';
 import {
+  detailSpanMs,
+  detailWindowFor,
   eventFields,
   eventLabel,
   fillFleetBuffer,
@@ -10,13 +12,21 @@ import {
   isBreach,
   listSessions,
   loadSession,
+  loadWindow,
+  pickFrames,
+  tickIntervalMs,
   timelineFraction,
+  windowCovers,
 } from '../replay';
 
 const SPEEDS = [0.5, 1, 2, 5, 10];
 // The scrubber's number and the clock re-render this often; the 3D view is fed
 // every animation frame straight from the buffer, without going through React.
 const UI_TICK_MS = 100;
+// After a seek, wait for the scrubber to settle before asking the GCS for detail.
+const SEEK_DEBOUNCE_MS = 200;
+// Do not ask again for a failed window for this long.
+const WINDOW_RETRY_MS = 5000;
 
 function sessionLabel(s) {
   const when = s.started ? new Date(s.started).toLocaleString() : s.id;
@@ -49,6 +59,14 @@ export default function ReplayView() {
   // Only the latest LOAD may apply its result; an older, slower response is dropped.
   const loadSeq = useRef(0);
   const framesRef = useRef([]);
+  // Full-rate detail (issue #65): one window of every recorded tick around the
+  // current time, used instead of the thinned overview while it covers the time.
+  const winRef = useRef(null); // { from, to, frames }
+  const sessionRef = useRef(null); // { token, id, spanMs, startMs, endMs }
+  const winBusy = useRef(false);
+  const winFailedAt = useRef(-Infinity);
+  const seekTimer = useRef(null);
+  const [windowInfo, setWindowInfo] = useState(null); // { from, to } of the loaded window
 
   useEffect(() => {
     let cancelled = false;
@@ -64,11 +82,56 @@ export default function ReplayView() {
     };
   }, []);
 
-  const seek = useCallback((ms) => {
-    tRef.current = ms;
-    fillFleetBuffer(framesRef.current, ms, fleetBuffer.current);
-    setTMs(ms);
+  const drawAt = useCallback((ms) => {
+    fillFleetBuffer(pickFrames(framesRef.current, winRef.current, ms), ms, fleetBuffer.current);
   }, []);
+
+  // Loads the full-rate window for `ms` unless the current one already covers it
+  // (with `marginMs` to spare when playing forward). One request at a time; a
+  // failed or empty window is not retried for WINDOW_RETRY_MS, and the overview
+  // keeps drawing meanwhile.
+  const ensureWindow = useCallback(
+    (ms, marginMs = 0) => {
+      const s = sessionRef.current;
+      if (!s || windowCovers(winRef.current, ms, marginMs) || winBusy.current) return;
+      if (performance.now() - winFailedAt.current < WINDOW_RETRY_MS) return;
+      const w = detailWindowFor(ms, s.spanMs, s.startMs, s.endMs);
+      winBusy.current = true;
+      loadWindow(s.id, w.from, w.to)
+        .then((reply) => {
+          if (sessionRef.current?.token !== s.token) return;
+          if (!reply.frames || reply.frames.length < 2) {
+            winFailedAt.current = performance.now();
+            return;
+          }
+          winRef.current = { from: w.from, to: w.to, frames: reply.frames };
+          setWindowInfo({ from: w.from, to: w.to });
+          drawAt(tRef.current);
+        })
+        .catch(() => {
+          winFailedAt.current = performance.now();
+        })
+        .finally(() => {
+          winBusy.current = false;
+          // The time may have moved on while this was in flight.
+          if (sessionRef.current?.token === s.token) ensureWindow(tRef.current, marginMs);
+        });
+    },
+    [drawAt],
+  );
+
+  const seek = useCallback(
+    (ms) => {
+      tRef.current = ms;
+      drawAt(ms);
+      setTMs(ms);
+      clearTimeout(seekTimer.current);
+      seekTimer.current = setTimeout(() => ensureWindow(ms), SEEK_DEBOUNCE_MS);
+    },
+    [drawAt, ensureWindow],
+  );
+
+  useEffect(() => () => clearTimeout(seekTimer.current), []);
 
   const load = useCallback(
     async (id) => {
@@ -81,11 +144,25 @@ export default function ReplayView() {
         const data = await loadSession(id);
         if (mine !== loadSeq.current) return;
         framesRef.current = data.frames.frames;
+        const start = data.frames.t_ms_first ?? data.summary.first_tick_ms ?? 0;
+        winRef.current = null;
+        winFailedAt.current = -Infinity;
+        setWindowInfo(null);
+        sessionRef.current = {
+          token: mine,
+          id,
+          spanMs: detailSpanMs(data.summary.drone_ids.length, tickIntervalMs(data.summary)),
+          startMs: start,
+          endMs: Math.max(data.summary.duration_ms, start),
+        };
         setLoaded(data);
-        seek(data.frames.t_ms_first ?? data.summary.first_tick_ms ?? 0);
+        seek(start);
       } catch (err) {
         if (mine !== loadSeq.current) return;
         framesRef.current = [];
+        winRef.current = null;
+        sessionRef.current = null;
+        setWindowInfo(null);
         fleetBuffer.current.count = 0;
         setLoaded(null);
         setLoadError(err.message);
@@ -110,10 +187,12 @@ export default function ReplayView() {
       const next = Math.min(endMs, tRef.current + (now - last) * speed);
       last = now;
       tRef.current = next;
-      fillFleetBuffer(framesRef.current, next, fleetBuffer.current);
+      drawAt(next);
       if (now - lastUi >= UI_TICK_MS || next >= endMs) {
         lastUi = now;
         setTMs(next);
+        // Fetch the next window before this one runs out.
+        if (sessionRef.current) ensureWindow(next, sessionRef.current.spanMs * 0.15);
       }
       if (next >= endMs) {
         setPlaying(false);
@@ -123,7 +202,7 @@ export default function ReplayView() {
     };
     raf = requestAnimationFrame(step);
     return () => cancelAnimationFrame(raf);
-  }, [playing, loaded, speed, endMs]);
+  }, [playing, loaded, speed, endMs, drawAt, ensureWindow]);
 
   const atEnd = loaded && tMs >= endMs;
   const togglePlay = () => {
@@ -188,8 +267,10 @@ export default function ReplayView() {
               </div>
             )}
             {loaded.frames.stride > 1 && (
-              <div className="replay-note">
-                Long recording: showing every {loaded.frames.stride}th sample, positions blended between them.
+              <div className="replay-note" data-testid="replay-resolution">
+                {windowInfo && tMs >= windowInfo.from && tMs <= windowInfo.to
+                  ? `Showing every recorded sample from ${formatClock(windowInfo.from - startMs)} to ${formatClock(windowInfo.to - startMs)}.`
+                  : `Overview: one sample per ${((loaded.frames.stride * tickIntervalMs(loaded.summary)) / 1000).toFixed(1)} s, positions blended between them. Full detail loads around the current time.`}
               </div>
             )}
             <div className="replay-row">
