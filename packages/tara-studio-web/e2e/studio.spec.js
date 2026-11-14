@@ -1139,3 +1139,65 @@ test.describe('stage camera', () => {
     await expect(page.getByRole('button', { name: 'FULL-SCREEN PREVIEW' })).toBeVisible();
   });
 });
+
+// Issue #92, "Needs attention". Behaviour, not appearance: no screenshot is
+// taken here, so no baseline depends on these.
+test.describe('needs attention', () => {
+  const failedInside = (time) => ({
+    status: 'FAILED',
+    summary: 'Choreography failed safety validation checks.',
+    metrics: { min_distance_m: 1.2, max_velocity_m_s: 3, max_acceleration_m_s2: 2, max_yaw_rate_deg_s: 0 },
+    violations: { proximity: [{ time, drones: [2, 3], distance: 1.2, limit: 2 }], velocity: [], acceleration: [] },
+  });
+
+  test('a failing scene is listed and "Go to scene" moves the playhead to the violation', async ({ page }) => {
+    await openStudio(page); // PASSED first: read the real timeline of the demo show
+    const title = await page.locator('.tl-seg.tl-hold').first().getAttribute('title'); // "5 · 9.0s – 15.0s"
+    const [, start, end] = title.match(/ · ([\d.]+)s – ([\d.]+)s$/);
+    const time = Math.round(((Number(start) + Number(end)) / 2) * 10) / 10;
+
+    // Newest route wins: the rebuild below is validated as FAILED inside that hold.
+    await page.route('**/api/validate', (route) => route.fulfill({ json: failedInside(time) }));
+    await page.getByRole('button', { name: 'Generate Sequence' }).click();
+
+    const panel = page.getByRole('region', { name: 'Needs attention' });
+    await expect(panel).toBeVisible();
+    await expect(panel).toContainText('1 proximity');
+    await expect(panel).toContainText(`Drones 2 and 3 came 1.2 m apart (limit 2.0 m) at ${time.toFixed(1)} s`);
+    await expect(page.locator('.scene-card.attention')).toHaveCount(1);
+
+    await panel.getByRole('button', { name: 'Go to scene' }).click();
+    await expect(page.locator('.vc-time')).toContainText(`${time.toFixed(2)}s`);
+  });
+
+  test('changing a scene afterwards (same duration) leaves only the "scenes changed" note', async ({ page }) => {
+    await openStudio(page);
+    const title = await page.locator('.tl-seg.tl-hold').first().getAttribute('title');
+    const [, start, end] = title.match(/ · ([\d.]+)s – ([\d.]+)s$/);
+    const time = Math.round(((Number(start) + Number(end)) / 2) * 10) / 10;
+    await page.route('**/api/validate', (route) => route.fulfill({ json: failedInside(time) }));
+    await page.getByRole('button', { name: 'Generate Sequence' }).click();
+    const panel = page.getByRole('region', { name: 'Needs attention' });
+    await expect(panel.getByRole('button', { name: 'Go to scene' })).toBeVisible();
+
+    // Same hold and morph times, different shape: the length-based flag cannot see this.
+    await page.locator('.scene-shape-btn').first().click();
+    await page.getByPlaceholder('e.g. 5 or TARA').fill('7');
+    await page.getByRole('button', { name: 'Use shape' }).click();
+
+    await expect(panel).toContainText('The scenes changed since the last safety check. Build again to refresh this list.');
+    await expect(panel.getByRole('button')).toHaveCount(0);
+    await expect(page.locator('.scene-card.attention')).toHaveCount(0);
+
+    // Building again makes it current, and the list comes back.
+    await page.getByRole('button', { name: 'Generate Sequence' }).click();
+    await expect(panel.getByRole('button', { name: 'Go to scene' }).first()).toBeVisible();
+  });
+
+  test('a passing show has no needs attention section', async ({ page }) => {
+    await openStudio(page, PASSED_REPORT);
+    await expect(page.locator('.scene-card')).toHaveCount(2);
+    await expect(page.getByRole('region', { name: 'Needs attention' })).toHaveCount(0);
+    await expect(page.locator('.scene-card.attention')).toHaveCount(0);
+  });
+});

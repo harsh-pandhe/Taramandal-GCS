@@ -1,23 +1,39 @@
 import { Plus, Sparkles, Image as ImageIcon } from 'lucide-react';
 import SceneCard from './SceneCard.jsx';
 import HistoryBar from './HistoryBar.jsx';
+import NeedsAttention from './NeedsAttention.jsx';
 import { PACING_OPTIONS } from '../../engine/sequencer.js';
+import { violationsByScene } from '../../engine/violationScenes.js';
+import { exportGate } from '../../engine/exportGate.js';
 
 /**
  * The scene list editor: the stack of scene cards plus the build action.
+ *
+ * validation / segments / stale / onScrub / onSelectScene are optional: they
+ * only feed the "Needs attention" list and the red marker on failing scenes.
  */
 export default function SequencerPanel({
   list, history, loading, onBuild, onOpenLibrary, onOpenRasterImport, pacing = 'standard', onPacing,
+  validation = null, segments = [], stale = false, onScrub, onSelectScene,
 }) {
   const {
     scenes, addScene, patchScene, duplicateScene, deleteScene, moveScene,
     dragIndex, dropIndex, onDragStart, onDragOver, onDrop, onDragEnd,
   } = list;
+  const failing = new Set(
+    exportGate({ hasShow: true, validation }).isFailed
+      ? violationsByScene({ violations: validation.violations, segments, scenes, stale }).groups.map((g) => g.sceneId)
+      : [],
+  );
 
   return (
     <div className="glass-panel-inner">
       <h4 className="section-subtitle">Scene Sequencer</h4>
       <HistoryBar history={history} />
+      <NeedsAttention
+        validation={validation} segments={segments} scenes={scenes} stale={stale}
+        onScrub={onScrub} onSelectScene={onSelectScene}
+      />
 
       <div className="scene-list">
         {scenes.map((scene, i) => (
@@ -26,6 +42,7 @@ export default function SequencerPanel({
             scene={scene}
             index={i}
             total={scenes.length}
+            attention={failing.has(scene.id)}
             isDragging={dragIndex === i}
             isDropTarget={dropIndex === i && dragIndex !== null && dragIndex !== i}
             onPatch={(patch) => patchScene(scene.id, patch)}

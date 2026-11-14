@@ -13,6 +13,7 @@ const TABS = ['sequence', 'light', 'audio', 'ai', 'safety', 'transmit'];
 export default function ConsoleDrawer({
   open, onClose, tab, onTab, list, history, loading, onBuild, onOpenLibrary, onOpenRasterImport, pacing, onPacing,
   light, choreoData, currentTime, lightingOpts, validation, validating, venue, transmit, audio, ai, intent,
+  segments, stale, onScrub, onSelectScene,
 }) {
   return (
     <div className={`control-drawer${open ? ' active' : ''}`}>
@@ -43,6 +44,8 @@ export default function ConsoleDrawer({
             onBuild={onBuild} onOpenLibrary={onOpenLibrary}
             onOpenRasterImport={onOpenRasterImport}
             pacing={pacing} onPacing={onPacing}
+            validation={validation} segments={segments} stale={stale}
+            onScrub={onScrub} onSelectScene={onSelectScene}
           />
         )}
         {tab === 'light' && (

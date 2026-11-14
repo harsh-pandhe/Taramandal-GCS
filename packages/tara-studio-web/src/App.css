@@ -985,6 +985,21 @@ input[type="number"] { font-family: var(--mono); font-variant-numeric: tabular-n
 }
 .scene-card.dragging { opacity: 0.4; }
 .scene-card.drop-target { border-color: var(--accent); transform: translateY(2px); }
+/* Issue #92: a scene named in the "Needs attention" list. */
+.scene-card.attention { border-left: 3px solid var(--danger); }
+.needs-attention { display: flex; flex-direction: column; gap: 0.6rem; }
+.needs-attention .section-subtitle { display: flex; align-items: center; gap: 0.4rem; color: var(--danger); }
+.na-block {
+  display: flex; flex-direction: column; gap: 0.45rem; padding: 0.6rem;
+  background: var(--bg-surface-2); border: 1px solid var(--border);
+  border-left: 3px solid var(--danger); border-radius: 6px;
+}
+.na-head { display: flex; justify-content: space-between; align-items: baseline; gap: 0.5rem; font-size: var(--fs-md); }
+.na-counts { color: var(--text-dim); font-size: var(--fs-sm); }
+.na-items { display: flex; flex-direction: column; gap: 0.35rem; }
+.na-item { flex-direction: column; gap: 0.15rem; font-family: inherit; }
+.na-where { color: var(--text-faint); font-size: var(--fs-xs); }
+.na-block .btn-sm { align-self: flex-start; }
 .scene-card-head { display: flex; align-items: center; gap: 0.4rem; }
 .scene-grip { color: var(--text-faint); cursor: grab; display: flex; }
 .scene-grip:active { cursor: grabbing; }
