@@ -453,6 +453,69 @@ test.describe('AI scene proposal (issue #133)', () => {
   });
 });
 
+// Issue #89: a typed scene edit is previewed and safety checked on a dry run
+// before it can be applied, and applying it is one undo step. Behaviour only;
+// the panel has no screenshot baseline.
+test.describe('scene edit proposal (issue #89)', () => {
+  const holdOfFirstScene = (page) => page.locator('.scene-card').first().getByLabel('Hold (s)');
+  const typeEdit = async (page, sentence) => {
+    await consoleTab(page, 'AI');
+    await page.getByPlaceholder('make scene 2 a heart').fill(sentence);
+    await page.getByRole('button', { name: 'Preview edit' }).click();
+  };
+
+  test('with a PASSED check, Apply edit changes the scene and one undo reverts it', async ({ page }) => {
+    await openStudio(page, PASSED_REPORT);
+    await typeEdit(page, 'set hold of scene 1 to 8 s');
+
+    const card = page.getByTestId('edit-proposal');
+    await expect(card).toContainText('Set hold of scene 1');
+    await expect(card).toContainText('6 s → 8 s');
+    await expect(page.getByTestId('edit-check')).toContainText('PASSED');
+    // A dry run: nothing is edited until Apply.
+    await consoleTab(page, 'SEQUENCE');
+    await expect(holdOfFirstScene(page)).toHaveValue('6');
+    await expect(page.getByRole('button', { name: 'Undo', exact: true })).toBeDisabled();
+
+    await consoleTab(page, 'AI');
+    await page.getByRole('button', { name: 'Apply edit' }).click();
+    await expect(page.getByTestId('edit-proposal')).toHaveCount(0);
+
+    await consoleTab(page, 'SEQUENCE');
+    await expect(holdOfFirstScene(page)).toHaveValue('8');
+    await page.locator('.history-list summary').click();
+    await expect(page.locator('.history-list li')).toHaveText(['Opened', 'Set hold of scene 1 ("5") to 8 s']);
+
+    await page.getByRole('button', { name: 'Undo', exact: true }).click();
+    await expect(holdOfFirstScene(page)).toHaveValue('6');
+    await expect(page.getByRole('button', { name: 'Undo', exact: true })).toBeDisabled();
+  });
+
+  test('with a FAILED check, Apply edit stays disabled and the violations are listed', async ({ page }) => {
+    await openStudio(page, FAILED_REPORT);
+    await typeEdit(page, 'set hold of scene 1 to 8 s');
+
+    await expect(page.getByTestId('edit-check')).toContainText('FAILED');
+    await expect(page.getByTestId('edit-proposal')).toContainText('Drones 2 & 3 1.2 m apart');
+    await expect(page.getByRole('button', { name: 'Apply edit' })).toBeDisabled();
+
+    await consoleTab(page, 'SEQUENCE');
+    await expect(holdOfFirstScene(page)).toHaveValue('6');
+  });
+
+  test('an edit to the scenes after the preview blocks Apply edit', async ({ page }) => {
+    await openStudio(page, PASSED_REPORT);
+    await typeEdit(page, 'set hold of scene 1 to 8 s');
+    await expect(page.getByRole('button', { name: 'Apply edit' })).toBeEnabled();
+
+    await consoleTab(page, 'SEQUENCE');
+    await page.getByRole('button', { name: 'Add Scene' }).click();
+    await consoleTab(page, 'AI');
+    await expect(page.getByTestId('edit-proposal')).toContainText('stale');
+    await expect(page.getByRole('button', { name: 'Apply edit' })).toBeDisabled();
+  });
+});
+
 // Issue #100: a save no longer overwrites the previous one.
 test('project save history can be browsed and restored', async ({ page }) => {
   await openStudio(page);
