@@ -2,6 +2,7 @@ import { useRef, useState } from 'react';
 import { Sparkles, Upload, X } from 'lucide-react';
 import { sanitizeSvg } from '../../engine/svgImporter.js';
 import { FORMATION_LABELS } from '../../engine/formations.js';
+import ScrollIntoView from '../ScrollIntoView.jsx';
 
 const SVG_ACCEPT = 'image/svg+xml,.svg';
 
@@ -134,6 +135,11 @@ export default function AIPanel({ ai }) {
             </button>
           </div>
         </div>
+      )}
+
+      {/* A tall proposal (with its "not represented" list) can end below the visible part of the scrolling drawer. */}
+      {(proposal || requestError) && (
+        <ScrollIntoView watch={`${proposal?.status}|${proposal?.name}|${proposal?.error}|${requestError}|${stale}`} />
       )}
     </div>
   );

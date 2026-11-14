@@ -368,6 +368,17 @@ test.describe('AI scene proposal (issue #133)', () => {
     await expect(page.locator('.ai-unsupported-list')).toContainText('colour change mid-show');
   });
 
+  // A proposal with a long "not represented" list ends below the visible part of the scrolling drawer.
+  test('a tall proposal is scrolled into view, with its Apply and Discard buttons', async ({ page }) => {
+    await stubPropose(page, { ...OK_PROPOSAL, unsupported: ['rotation', 'colour change mid-show', 'background music', 'drone count', 'fade out'] });
+    await page.getByPlaceholder(/heart shape/i).fill('A spinning rainbow heart with music');
+    await page.getByRole('button', { name: 'Propose' }).click();
+
+    await expect(page.locator('.ai-unsupported-list')).toContainText('fade out');
+    await expect(page.getByRole('button', { name: 'Apply', exact: true })).toBeInViewport();
+    await expect(page.getByRole('button', { name: 'Discard' })).toBeInViewport();
+  });
+
   test('Apply adds exactly one scene through the normal undoable path', async ({ page }) => {
     await stubPropose(page, OK_PROPOSAL);
 
