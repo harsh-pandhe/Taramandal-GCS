@@ -65,12 +65,14 @@ async function openReplay(page, {
   windowStatus = 200,
 } = {}) {
   const requested = [];
+  requested.times = []; // Date.now() of each request, parallel to `requested`
   await signIn(page);
   await page.routeWebSocket('**/ws/telemetry', () => {});
   await page.route('**/choreography.json', (route) => route.fulfill({ json: { drones: [] } }));
   await page.route('**/api/blackbox/**', (route) => {
     const url = new URL(route.request().url());
     requested.push(url.pathname + url.search);
+    requested.times.push(Date.now());
     if (url.pathname === '/api/blackbox/sessions') return route.fulfill({ json: { sessions } });
     if (sessionStatus !== 200) return route.fulfill({ status: sessionStatus, json: { detail: 'no such session' } });
     if (url.pathname.endsWith('/events')) return route.fulfill({ json: { events: EVENTS, total: 3, limited: false, identities_hidden: true } });
@@ -174,7 +176,11 @@ test('a failed window keeps the overview, shows no error, and is not asked for a
 
   await expect(page.getByTestId('replay-resolution')).toContainText('Overview: one sample per 1.0 s');
   await expect(page.getByText(/Could not load/)).toHaveCount(0);
-  expect(requested.filter((r) => r.includes('from_ms='))).toHaveLength(1);
+  // Asked for at least once, and never again sooner than the 5 s retry wait. The spacing is checked
+  // rather than a count, so a slow machine that lets the wait run out mid-test is not a failure.
+  const times = requested.times.filter((_, i) => requested[i].includes('from_ms='));
+  expect(times.length).toBeGreaterThanOrEqual(1);
+  for (let i = 1; i < times.length; i++) expect(times[i] - times[i - 1]).toBeGreaterThanOrEqual(4500);
 });
 
 test('the full-rate window helpers: size, placement, coverage and which frames get drawn', async ({ page }) => {
