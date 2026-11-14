@@ -178,6 +178,12 @@ const evaluateBatch = (doc, command) => {
   return { ok: true, doc: { ...doc, scenes } };
 };
 
+/**
+ * Dry-runs a scene/batch: { ok: true, doc } with the document it would produce,
+ * or { ok: false, reason }. Never applies anything; `doc` is not modified.
+ */
+export const previewBatch = (doc, command) => evaluateBatch(doc, command ?? {});
+
 /** Why a scene/batch would be refused against `doc`, or null if it would apply. */
 export const batchRefusal = (doc, command) => {
   const r = evaluateBatch(doc, command ?? {});

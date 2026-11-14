@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { applyCommand, sceneCommands, batchRefusal } from './commands.js';
+import { applyCommand, sceneCommands, batchRefusal, previewBatch } from './commands.js';
 import { validateSceneCommand, sceneSignature } from './sceneValidation.js';
 import { createHistory, execute, undo, redo, timeline } from './history.js';
 import { makeScene } from './sequencer.js';
@@ -260,4 +260,38 @@ describe('new engine files stay offline', () => {
       }
     });
   }
+});
+
+describe('previewBatch', () => {
+  const edit = (doc) => batch(doc, [sceneCommands.patch('a', { holdDurationSeconds: 9 })]);
+
+  it('returns the after-document without touching the original', () => {
+    const doc = mkDoc();
+    const r = previewBatch(doc, edit(doc));
+    expect(r.ok).toBe(true);
+    expect(r.doc.scenes[0].holdDurationSeconds).toBe(9);
+    expect(doc.scenes[0].holdDurationSeconds).toBe(6);
+    expect(r.doc).toEqual(applyCommand(doc, edit(doc)));
+  });
+
+  it('refuses a stale batch with the stale reason', () => {
+    const doc = mkDoc();
+    const cmd = edit(doc);
+    const later = { ...doc, scenes: doc.scenes.map((s) => (s.id === 'b' ? { ...s, name: 'Renamed' } : s)) };
+    const r = previewBatch(later, cmd);
+    expect(r.ok).toBe(false);
+    expect(r.reason).toMatch(/^stale/);
+  });
+
+  it('refuses an invalid step with its step number, matching batchRefusal', () => {
+    const doc = mkDoc();
+    const cmd = batch(doc, [sceneCommands.patch('a', { holdDurationSeconds: 999 })]);
+    const r = previewBatch(doc, cmd);
+    expect(r).toEqual({ ok: false, reason: batchRefusal(doc, cmd) });
+    expect(r.reason).toMatch(/step 1/);
+  });
+
+  it('is safe on garbage input', () => {
+    expect(previewBatch(mkDoc(), null).ok).toBe(false);
+  });
 });

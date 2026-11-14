@@ -5,13 +5,14 @@ import SafetyPanel from './panels/SafetyPanel.jsx';
 import TransmitPanel from './panels/TransmitPanel.jsx';
 import AudioPanel from './panels/AudioPanel.jsx';
 import AIPanel from './panels/AIPanel.jsx';
+import ProposalPanel from './panels/ProposalPanel.jsx';
 
 const TABS = ['sequence', 'light', 'audio', 'ai', 'safety', 'transmit'];
 
 /** The sliding control console: scene editing, lighting, safety, export. */
 export default function ConsoleDrawer({
   open, onClose, tab, onTab, list, history, loading, onBuild, onOpenLibrary, onOpenRasterImport, pacing, onPacing,
-  light, choreoData, currentTime, lightingOpts, validation, validating, venue, transmit, audio, ai,
+  light, choreoData, currentTime, lightingOpts, validation, validating, venue, transmit, audio, ai, intent,
 }) {
   return (
     <div className={`control-drawer${open ? ' active' : ''}`}>
@@ -60,7 +61,12 @@ export default function ConsoleDrawer({
             onSnapScenes={audio.onSnapScenes}
           />
         )}
-        {tab === 'ai' && <AIPanel ai={ai} />}
+        {tab === 'ai' && (
+          <>
+            <AIPanel ai={ai} />
+            {intent && <ProposalPanel intent={intent} />}
+          </>
+        )}
         {tab === 'safety' && <SafetyPanel validation={validation} validating={validating} choreoData={choreoData} />}
         {tab === 'transmit' && (
           <TransmitPanel
