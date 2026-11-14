@@ -1,5 +1,6 @@
 import { Bot, Wand2 } from 'lucide-react';
 import { violationLines } from '../../engine/proposalView.js';
+import ScrollIntoView from '../ScrollIntoView.jsx';
 
 const STATUS_CLASS = { PASSED: 'passed', FAILED: 'failed', REFUSED: 'failed', UNVERIFIED: 'unverified', CHECKING: 'unverified' };
 
@@ -99,6 +100,11 @@ export default function ProposalPanel({ intent }) {
             </button>
           </div>
         </div>
+      )}
+
+      {/* The result appears below a long panel in a scrolling drawer: bring it, and the Apply button, into view. */}
+      {(proposal || planStatus || error) && (
+        <ScrollIntoView watch={`${proposal?.summary}|${check?.status}|${planStatus}|${error}`} />
       )}
     </div>
   );

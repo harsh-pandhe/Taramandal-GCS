@@ -611,6 +611,34 @@ test.describe('local planner (issue #94, slice 1)', () => {
     await expect(page.getByTestId('edit-proposal')).toHaveCount(0);
   });
 
+  // Found driving the real UI against real Ollama: the result appeared below the fold of the
+  // scrolling console drawer, so clicking Ask planner looked like nothing had happened.
+  test('the proposal and its Apply button are scrolled into view when they appear (planner)', async ({ page }) => {
+    await openStudio(page, PASSED_REPORT);
+    await page.route('**/api/ai/plan', (route) => route.fulfill({ json: ops({ op: 'patch', scene: 1, hold_seconds: 8 }) }));
+    await ask(page, 'hold the first scene a little longer');
+    await expect(page.getByTestId('edit-check')).toContainText('PASSED');
+    await expect(page.getByRole('button', { name: 'Apply edit' })).toBeInViewport();
+  });
+
+  test('a planner message is scrolled into view when it appears', async ({ page }) => {
+    await openStudio(page, PASSED_REPORT);
+    await page.route('**/api/ai/plan', (route) => route.fulfill({
+      json: { status: 'ok', ops: [], unsupported: ['scene 9 does not exist (the show has 2 scenes)'] },
+    }));
+    await ask(page, 'make scene 9 a circle');
+    await expect(page.getByTestId('edit-plan-status')).toBeInViewport({ ratio: 1 });
+  });
+
+  test('the typed Preview edit result and its Apply button are scrolled into view too', async ({ page }) => {
+    await openStudio(page, PASSED_REPORT);
+    await consoleTab(page, 'AI');
+    await page.getByPlaceholder('make scene 2 a heart').fill('set hold of scene 1 to 8 s');
+    await page.getByRole('button', { name: 'Preview edit' }).click();
+    await expect(page.getByTestId('edit-check')).toContainText('PASSED');
+    await expect(page.getByRole('button', { name: 'Apply edit' })).toBeInViewport();
+  });
+
   test('Ollama being down is reported plainly, with no proposal', async ({ page }) => {
     await openStudio(page, PASSED_REPORT);
     await page.route('**/api/ai/plan', (route) => route.fulfill({ json: { status: 'unavailable', ops: [], unsupported: [], error: 'refused' } }));
