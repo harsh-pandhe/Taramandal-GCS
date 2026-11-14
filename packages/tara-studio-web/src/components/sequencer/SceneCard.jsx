@@ -15,6 +15,7 @@ export default function SceneCard({
   total,
   isDragging,
   isDropTarget,
+  attention = false,
   onPatch,
   onDuplicate,
   onDelete,
@@ -31,7 +32,7 @@ export default function SceneCard({
 
   return (
     <div
-      className={`scene-card${isDragging ? ' dragging' : ''}${isDropTarget ? ' drop-target' : ''}`}
+      className={`scene-card${isDragging ? ' dragging' : ''}${isDropTarget ? ' drop-target' : ''}${attention ? ' attention' : ''}`}
       draggable
       onDragStart={(e) => {
         // Firefox refuses to start a drag unless data is set.

@@ -4,6 +4,7 @@ import {
 } from '../engine/sequencer.js';
 import { ShowRefusalError } from '../engine/showErrors.js';
 import { createLatestRun } from '../engine/latestRun.js';
+import { sceneSignature } from '../engine/sceneValidation.js';
 import { API_BASE, validateShow } from '../engine/api.js';
 
 /**
@@ -17,6 +18,11 @@ import { API_BASE, validateShow } from '../engine/api.js';
 export default function useShowBuilder() {
   const [choreoData, setChoreoData] = useState(null);
   const [validation, setValidation] = useState(null);
+  // Content signature of the scenes the current `validation` was computed from
+  // (issue #92). Set in the same step as the result it belongs to, and only by
+  // the latest run, so an older build's signature can never pair with a newer
+  // result. Null = unknown (project load, UNVERIFIED, nothing built yet).
+  const [validationSignature, setValidationSignature] = useState(null);
   const [validating, setValidating] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
@@ -39,6 +45,7 @@ export default function useShowBuilder() {
     runRef.current.invalidate();
     setValidating(false);
     setValidation(value);
+    setValidationSignature(null);
   }, []);
 
   const build = useCallback(async (scenes, numDrones, rate, pacing = 'standard') => {
@@ -75,6 +82,7 @@ export default function useShowBuilder() {
       show = buildSequencedShow(scenes, numDrones, Number(rate), targetIdx, pacing);
       setChoreoData(show);
       setValidation(null);
+      setValidationSignature(null);
       // A new show: any validation still running belongs to the previous one.
       runId = runRef.current.begin();
     } catch (e) {
@@ -95,11 +103,13 @@ export default function useShowBuilder() {
     // nothing on screen saying why) - not for sequencing, which already
     // happens naturally since validateShow isn't awaited before returning.
     setValidating(true);
+    // Taken now, from the scenes this very show was built from.
+    const signature = sceneSignature({ scenes });
     const isCurrent = () => runRef.current.isCurrent(runId);
     validateShow(show)
       .then((v) => {
         if (!isCurrent()) return; // a newer show owns the validation state now
-        if (v && v.metrics) setValidation(v);
+        if (v && v.metrics) { setValidation(v); setValidationSignature(signature); }
         else setValidation({ status: 'UNVERIFIED', summary: 'Invalid response from validator.' });
       })
       .catch((err) => {
@@ -115,12 +125,13 @@ export default function useShowBuilder() {
     runRef.current.invalidate();
     setChoreoData(null);
     setValidation(null);
+    setValidationSignature(null);
     setValidating(false);
     setError(null);
   }, []);
 
   return {
-    choreoData, setChoreoData: setChoreoDataExternal, validation, setValidation: setValidationExternal,
+    choreoData, setChoreoData: setChoreoDataExternal, validation, setValidation: setValidationExternal, validationSignature,
     validating, loading, error, setError, build, clear,
   };
 }

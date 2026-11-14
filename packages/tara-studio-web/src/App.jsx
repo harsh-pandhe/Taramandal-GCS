@@ -26,6 +26,7 @@ import { buildColoredChoreo } from './engine/lighting.js';
 import { serializeTrack } from './engine/ledPatterns.js';
 import { buildAutoLightTrack } from './engine/autoLight.js';
 import { exportShow, sendShowToGCS, downloadExport } from './engine/api.js';
+import { violationsStale } from './engine/violationScenes.js';
 import './App.css';
 
 const AUTH_DISABLED = import.meta.env.VITE_DISABLE_AUTH === 'true';
@@ -75,7 +76,7 @@ export default function App() {
   const ai = useAIProposal(list.scenes, list.addScene);
 
   const { scenes } = list;
-  const { choreoData, validation, validating, loading, error } = builder;
+  const { choreoData, validation, validationSignature, validating, loading, error } = builder;
   const numDrones = fleet.dronesList.length;
 
   // Predicted length of the *current* scene list; the built show may be older.
@@ -115,6 +116,14 @@ export default function App() {
   // the built trajectory.
   const showDuration = builtDuration || predictedDuration;
   const timelineDuration = Math.max(showDuration, audio.duration);
+  // Issue #92: content-based, local to the "Needs attention" list. The `stale` flag
+  // below only compares lengths, so a swapped shape of the same length slips
+  // past it; this compares the full content of every scene against what the
+  // validation result was made from.
+  const needsAttentionStale = useMemo(
+    () => violationsStale(validationSignature, { scenes }),
+    [validationSignature, scenes],
+  );
   const stale = !!choreoData && Math.abs(builtDuration - predictedDuration) > 0.01;
 
   const playback = usePlayback(timelineDuration, audio.hasTrack ? audio.clock : null);
@@ -332,6 +341,10 @@ export default function App() {
                 lightingOpts={lightingOpts}
                 validation={validation}
                 validating={validating}
+                segments={segments}
+                stale={needsAttentionStale}
+                onScrub={(t) => { setIsPlaying(false); scrub(t); }}
+                onSelectScene={setActiveSceneId}
                 venue={{ homeLat, homeLon, onHomeLat: setHomeLat, onHomeLon: setHomeLon }}
                 transmit={{
                   onExport: handleExport, onExportPreview: handleExportPreview, onSendToGCS: handleSendToGCS, sending, droneCount: numDrones,
