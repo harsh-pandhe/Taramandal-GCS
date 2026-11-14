@@ -21,6 +21,25 @@ describe('checkProposal', () => {
     expect(r).toMatchObject({ status: 'PASSED', summary: 'PASSED summary' });
   });
 
+  // The app's own gate (engine/exportGate.js) calls these two FAILED; the panel must agree.
+  it('FAILED when the hard limits pass but the show is not flight-certified (feasibility_certified === false)', async () => {
+    const r = await run({ validate: async () => REPORT('PASSED', { feasibility_certified: false }) });
+    expect(r.status).toBe('FAILED');
+    expect(r.summary).toMatch(/not flight-certified/);
+  });
+
+  it('FAILED when a PASSED report still lists jerk violations, and keeps them', async () => {
+    const violations = { proximity: [], jerk: [{ drone: 1, time: 10, jerk: 21, limit: 15 }] };
+    const r = await run({ validate: async () => REPORT('PASSED', { violations }) });
+    expect(r.status).toBe('FAILED');
+    expect(r.violations).toEqual(violations);
+  });
+
+  it('still PASSED when the report says nothing about feasibility (older backend)', async () => {
+    const r = await run({ validate: async () => REPORT('PASSED') });
+    expect(r.status).toBe('PASSED');
+  });
+
   it('FAILED: carries the violations', async () => {
     const violations = { proximity: [{ time: 6.1, drones: [2, 3], distance: 1.2 }], velocity: [], acceleration: [] };
     const r = await run({ validate: async () => REPORT('FAILED', { violations }) });

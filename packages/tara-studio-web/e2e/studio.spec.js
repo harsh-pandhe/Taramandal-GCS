@@ -503,6 +503,25 @@ test.describe('scene edit proposal (issue #89)', () => {
     await expect(holdOfFirstScene(page)).toHaveValue('6');
   });
 
+  test('a report that passes the hard limits but is not flight-certified reads FAILED and keeps Apply edit disabled', async ({ page }) => {
+    // The same case the header badge and the Transmit tab call failed (engine/exportGate.js).
+    const jerkOnly = {
+      status: 'PASSED',
+      feasibility_certified: false,
+      summary: 'Choreography passed all safety checks.',
+      metrics: FAILED_REPORT.metrics,
+      violations: { jerk: [{ time: 6.1, drone: 2, jerk: 21, limit: 15 }] },
+    };
+    await openStudio(page, jerkOnly);
+    await typeEdit(page, 'set hold of scene 1 to 8 s');
+
+    await expect(page.getByTestId('edit-check')).toContainText('FAILED');
+    await expect(page.getByTestId('edit-check')).toContainText('not flight-certified');
+    await expect(page.getByRole('button', { name: 'Apply edit' })).toBeDisabled();
+    await consoleTab(page, 'SEQUENCE');
+    await expect(holdOfFirstScene(page)).toHaveValue('6');
+  });
+
   test('an edit to the scenes after the preview blocks Apply edit', async ({ page }) => {
     await openStudio(page, PASSED_REPORT);
     await typeEdit(page, 'set hold of scene 1 to 8 s');

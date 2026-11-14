@@ -8,6 +8,7 @@
 //   validate(show)   -> backend report { status, summary, metrics, violations }
 
 import { ShowRefusalError } from './showErrors.js';
+import { exportGate } from './exportGate.js';
 import {
   buildSequencedShow, computeAssignmentChain, computeAssignmentChainLocal,
 } from './sequencer.js';
@@ -34,12 +35,18 @@ export const checkProposal = async ({ afterDoc, build, validate }) => {
   }
   if (!report || !report.metrics) return unverified('Invalid response from validator.');
 
-  const status = ['PASSED', 'FAILED'].includes(report.status) ? report.status : 'UNVERIFIED';
-  return {
-    status,
-    summary: report.summary || (status === 'PASSED' ? 'Passed all safety checks.' : 'Not verified.'),
-    violations: report.violations ?? {},
-  };
+  // The same rule the header badge and the Transmit tab apply (exportGate): a
+  // report can say PASSED for the hard limits and still not be flight-certified
+  // (jerk), and that show cannot be exported. Judging by `status` alone would let
+  // this panel say PASSED, and enable Apply, for an edit the rest of Studio then
+  // shows as failed.
+  const gate = exportGate({ hasShow: true, validation: report });
+  const status = gate.isCertified ? 'PASSED' : gate.isFailed ? 'FAILED' : 'UNVERIFIED';
+  let summary = report.summary || (status === 'PASSED' ? 'Passed all safety checks.' : 'Not verified.');
+  if (gate.notFlightCertified) {
+    summary = 'Passes the hard limits but is not flight-certified (jerk), so the edited show could not be exported.';
+  }
+  return { status, summary, violations: report.violations ?? {} };
 };
 
 /**
