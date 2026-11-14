@@ -181,19 +181,11 @@ describe('robustness', () => {
 });
 
 describe('the one repair', () => {
-  it('an out-of-range answer is repaired once, with the exact refusal reason as the note', async () => {
-    proposePlan.mockResolvedValueOnce(TOO_BIG).mockResolvedValueOnce(GOOD);
-    const { intent } = await ask();
-    expect(proposePlan).toHaveBeenCalledTimes(2);
-    expect(proposePlan.mock.calls[0][0].repairNote).toBeNull();
-    expect(proposePlan.mock.calls[1][0].repairNote).toBe('step 1: scale 9 is outside the allowed range 0.25 to 3');
-    expect(intent.proposal).not.toBeNull();
-  });
-
-  it('still out of range after the repair: stops, shows the reason, no proposal, never a third call', async () => {
+  it('an out-of-range answer is refused with its reason and is NOT sent back for a repair', async () => {
+    // Real qwen2.5:7b, "set scale of scene 1 to 5": told the limit, it picked 0.25 (or 3) instead of leaving it to the operator.
     proposePlan.mockResolvedValue(TOO_BIG);
     const { tree, intent } = await ask();
-    expect(proposePlan).toHaveBeenCalledTimes(2);
+    expect(proposePlan).toHaveBeenCalledTimes(1);
     expect(intent.proposal).toBeNull();
     expect(checkProposal).not.toHaveBeenCalled();
     expect(textOf(tree)).toContain("The planner's draft was refused: step 1: scale 9 is outside the allowed range 0.25 to 3");

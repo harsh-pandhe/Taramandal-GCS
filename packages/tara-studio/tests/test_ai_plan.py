@@ -85,23 +85,68 @@ def test_a_bad_op_name_is_rejected(monkeypatch):
     assert '"patch" or "add"' in res.error
 
 
-@pytest.mark.parametrize("scene", [0, 3, -1, "1", None, True])
-def test_a_scene_number_outside_the_list_is_rejected(monkeypatch, scene):
+@pytest.mark.parametrize("scene", ["1", None, True, 2.5])
+def test_a_scene_that_is_not_a_whole_number_is_a_schema_error(monkeypatch, scene):
     res, _ = run(monkeypatch, {"ops": [{"op": "patch", "scene": scene, "scale": 2}], "unsupported": []})
     assert res.status == "schema_error"
     assert "1 to 2" in res.error
 
 
-def test_a_patch_with_no_fields_is_rejected(monkeypatch):
+@pytest.mark.parametrize("scene", [0, 3, 9, -1])
+def test_a_patch_of_a_scene_the_show_does_not_have_is_a_final_answer_not_a_repair(monkeypatch, scene):
+    """Real qwen2.5:7b, "make scene 9 a circle" on a 3-scene show: a repair note only made it add a scene
+    nobody asked for. The answer is "no ops" and the reason, with no schema_error to send back."""
+    res, _ = run(monkeypatch, {"ops": [{"op": "patch", "scene": scene, "scale": 2}], "unsupported": []})
+    assert res.status == "ok" and res.ops == []
+    assert res.unsupported == [f"scene {scene} does not exist (the show has 2 scenes)"]
+
+
+def test_an_add_that_names_a_scene_the_show_does_not_have_is_the_same_final_answer(monkeypatch):
+    res, _ = run(monkeypatch, {"ops": [{"op": "add", "scene": 9, "shape": "circle"}], "unsupported": []})
+    assert res.status == "ok" and res.ops == []
+    assert res.unsupported == ["scene 9 does not exist (the show has 2 scenes)"]
+
+
+def test_an_add_that_names_an_existing_scene_is_still_repaired(monkeypatch):
+    res, _ = run(monkeypatch, {"ops": [{"op": "add", "scene": 2, "shape": "circle"}], "unsupported": []})
+    assert res.status == "schema_error" and "add must use scene 0" in res.error
+
+
+def test_one_missing_scene_drops_the_whole_draft_rather_than_applying_part_of_it(monkeypatch):
+    res, _ = run(monkeypatch, {"ops": [
+        {"op": "patch", "scene": 1, "scale": 2}, {"op": "patch", "scene": 7, "scale": 2},
+    ], "unsupported": []})
+    assert res.status == "ok" and res.ops == []
+    assert res.unsupported == ["scene 7 does not exist (the show has 2 scenes)"]
+
+
+def test_a_draft_where_every_op_changes_nothing_says_nothing_to_change(monkeypatch):
+    """Real model, "turn the drones red": a no-op patch of every scene. Not a schema error to repair."""
+    noop = [{"op": "patch", "scene": 1, "shape": "circle", "scale": 1}, {"op": "patch", "scene": 2}]
+    res, _ = run(monkeypatch, {"ops": noop, "unsupported": []})
+    assert res.status == "ok" and res.ops == []
+    assert res.unsupported == ["no scene would change by this request"]
+
+
+def test_a_patch_with_no_fields_alone_is_nothing_to_change(monkeypatch):
     res, _ = run(monkeypatch, {"ops": [{"op": "patch", "scene": 1}], "unsupported": []})
-    assert res.status == "schema_error"
-    assert "changes no field" in res.error
+    assert res.status == "ok" and res.ops == []
+    assert res.unsupported == ["no scene would change by this request"]
 
 
-def test_a_patch_that_sets_what_is_already_set_is_rejected(monkeypatch):
-    res, _ = run(monkeypatch, {"ops": [{"op": "patch", "scene": 1, "shape": "circle", "scale": 1}], "unsupported": []})
+def test_a_no_op_next_to_a_real_edit_is_still_a_schema_error_to_repair(monkeypatch):
+    res, _ = run(monkeypatch, {"ops": [
+        {"op": "patch", "scene": 1, "scale": 2}, {"op": "patch", "scene": 2, "shape": "heart"},
+    ], "unsupported": []})
     assert res.status == "schema_error"
     assert "changes nothing" in res.error
+
+
+def test_a_missing_scene_next_to_a_no_op_is_a_schema_error_to_repair(monkeypatch):
+    res, _ = run(monkeypatch, {"ops": [
+        {"op": "patch", "scene": 7, "scale": 2}, {"op": "patch", "scene": 2},
+    ], "unsupported": []})
+    assert res.status == "schema_error"
 
 
 def test_a_bool_is_not_a_number(monkeypatch):
@@ -169,7 +214,7 @@ def test_a_non_object_reply_is_a_schema_error(monkeypatch):
 
 
 def test_a_schema_failure_is_never_retried_inside_the_backend(monkeypatch):
-    res, fake = run(monkeypatch, {"ops": [{"op": "patch", "scene": 9, "scale": 2}], "unsupported": []})
+    res, fake = run(monkeypatch, {"ops": [{"op": "patch", "scene": 1, "scale": "big"}], "unsupported": []})
     assert res.status == "schema_error"
     assert len(fake.calls) == 1
 

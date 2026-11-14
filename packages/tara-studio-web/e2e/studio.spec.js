@@ -579,7 +579,8 @@ test.describe('local planner (issue #94, slice 1)', () => {
     await expect(page.getByRole('button', { name: 'Undo', exact: true })).toBeDisabled();
   });
 
-  test('an out-of-range answer is repaired once, then shown as a refusal', async ({ page }) => {
+  test('an out-of-range answer is shown as a refusal with the range, in one call and with no repair', async ({ page }) => {
+    // Real qwen2.5:7b, asked to set a scale of 5, picked another value when told the limit; the operator decides instead.
     await openStudio(page, PASSED_REPORT);
     const requests = [];
     await page.route('**/api/ai/plan', (route) => {
@@ -591,13 +592,23 @@ test.describe('local planner (issue #94, slice 1)', () => {
     const status = page.getByTestId('edit-plan-status');
     await expect(status).toContainText("The planner's draft was refused");
     await expect(status).toContainText('outside the allowed range 0 to 120');
-    expect(requests).toHaveLength(2); // the first call and exactly one repair
+    expect(requests).toHaveLength(1);
     expect(requests[0].repair_note).toBeNull();
-    expect(requests[1].repair_note).toMatch(/outside the allowed range 0 to 120/);
     await expect(page.getByTestId('edit-proposal')).toHaveCount(0);
 
     await consoleTab(page, 'SEQUENCE');
     await expect(holdOfFirstScene(page)).toHaveValue('6');
+  });
+
+  test('a request for a scene the show does not have is reported as not supported, with no proposal', async ({ page }) => {
+    await openStudio(page, PASSED_REPORT);
+    await page.route('**/api/ai/plan', (route) => route.fulfill({
+      json: { status: 'ok', ops: [], unsupported: ['scene 9 does not exist (the show has 2 scenes)'] },
+    }));
+    await ask(page, 'make scene 9 a circle');
+
+    await expect(page.getByTestId('edit-plan-status')).toContainText('scene 9 does not exist (the show has 2 scenes)');
+    await expect(page.getByTestId('edit-proposal')).toHaveCount(0);
   });
 
   test('Ollama being down is reported plainly, with no proposal', async ({ page }) => {

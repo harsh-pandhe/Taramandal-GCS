@@ -137,6 +137,10 @@ export default function useIntentProposal({ doc, execute, numDrones, rate, pacin
             return;
           }
           if (compiled.kind === 'unsupported') { stop(compiled.reason); return; }
+          // A value the batch dry-run refuses (a scale or time outside Studio's range) is the
+          // operator's answer to give, not the model's to re-guess: sent back for a repair, the
+          // real qwen2.5:7b swapped "scale 5" for the smallest allowed value. Show the reason and stop.
+          if (compiled.kind === 'refused') { stop(`The planner's draft was refused: ${compiled.reason}`); return; }
           reason = compiled.reason;
         } else {
           reason = result?.error || 'the draft did not match the schema';

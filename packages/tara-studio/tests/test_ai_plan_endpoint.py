@@ -52,7 +52,7 @@ def test_ok_returns_200_with_ops(monkeypatch):
     [
         (urllib.error.URLError(ConnectionRefusedError("refused")), "unavailable"),
         (socket.timeout("slow"), "timeout"),
-        ({"ops": [{"op": "patch", "scene": 7, "scale": 2}], "unsupported": []}, "schema_error"),
+        ({"ops": [{"op": "patch", "scene": 1, "scale": "big"}], "unsupported": []}, "schema_error"),
         ({"ops": "x", "unsupported": []}, "schema_error"),
     ],
 )
