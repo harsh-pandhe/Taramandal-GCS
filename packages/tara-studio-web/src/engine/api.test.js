@@ -5,6 +5,7 @@ import {
   analyzeAudioTrack,
   convertRasterToFormation,
   exportShow,
+  proposePlan,
   proposeScene,
   sendShowToGCS,
 } from './api.js';
@@ -110,6 +111,33 @@ describe('exportShow preview_only (issue #161)', () => {
     const data = await exportShow({ choreo: CHOREO, format: 'json', homeLat: 1, homeLon: 2 });
     expect(data.filename).toBe('choreography.json');
     expect(calls).toHaveLength(1);
+  });
+});
+
+describe('proposePlan (issue #94)', () => {
+  it('posts prompt, scenes and repair_note to /api/ai/plan and returns the body as-is', async () => {
+    const calls = [];
+    vi.stubGlobal('fetch', vi.fn(async (url, init) => {
+      calls.push({ url, init });
+      return new Response(JSON.stringify({ status: 'ok', ops: [] }), { status: 200 });
+    }));
+    const scenes = [{ number: 1, name: 'A', shape: 'circle', scale: 1, hold_seconds: 6, transition_seconds: 4 }];
+    const result = await proposePlan({ prompt: 'p', scenes, repairNote: 'why' });
+    expect(calls[0].url).toBe(`${API_BASE}/api/ai/plan`);
+    expect(JSON.parse(calls[0].init.body)).toEqual({ prompt: 'p', scenes, repair_note: 'why' });
+    expect(result).toEqual({ status: 'ok', ops: [] });
+  });
+
+  it('sends repair_note: null on a first call', async () => {
+    const calls = [];
+    vi.stubGlobal('fetch', vi.fn(async (url, init) => { calls.push(init); return new Response('{}', { status: 200 }); }));
+    await proposePlan({ prompt: 'p', scenes: [] });
+    expect(JSON.parse(calls[0].body).repair_note).toBeNull();
+  });
+
+  it('rejects on a non-ok response', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ detail: [] }), { status: 422 })));
+    await expect(proposePlan({ prompt: 'p', scenes: [] })).rejects.toThrow(/422/);
   });
 });
 

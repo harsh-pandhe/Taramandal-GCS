@@ -207,6 +207,23 @@ export const proposeScene = async (prompt, svgText = null) => {
 };
 
 /**
+ * Local scene-edit planner (issue #94, slice 1): up to 3 patch/add ops for one
+ * sentence, as scene NUMBERS (never ids). `scenes` comes from summariseScenes.
+ * `repairNote` is the exact reason a previous draft was refused, sent at most
+ * once per user request. Always resolves with a `{status, ...}` body for a
+ * model failure; rejects only for a malformed request. The ops are a draft: only
+ * compilePlan -> batch -> applyBlock may turn them into an edit.
+ */
+export const proposePlan = async ({ prompt, scenes, repairNote = null }) => {
+  const res = await postJson(`${API_BASE}/api/ai/plan`, { prompt, scenes, repair_note: repairNote });
+  if (!res.ok) {
+    const details = await res.json().catch(() => ({}));
+    throw new Error(typeof details.detail === 'string' ? details.detail : `Planner request rejected (${res.status})`);
+  }
+  return res.json();
+};
+
+/**
  * Converts an uploaded raster image into drone formation geometry (issue #90).
  */
 export const convertRasterToFormation = async ({

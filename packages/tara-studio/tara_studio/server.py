@@ -42,6 +42,7 @@ from tara_studio.energy import (
 from tara_studio.exporter import export_json, export_csv, export_kml, export_tara, parse_tara
 from tara_studio.signing import SIGNABLE_FORMATS, SigningUnavailable, sign_export, signing_status
 from tara_studio.ai_author import propose as ai_propose
+from tara_studio.ai_plan import plan as ai_plan
 from tara_studio.project_api import router as project_router
 from tara_studio.led_engine import (
     apply_track_to_choreo,
@@ -938,6 +939,32 @@ def api_ai_propose(req: AIProposeRequest):
     validates a trajectory itself.
     """
     result = ai_propose(req.prompt, svg_text=req.svg)
+    return asdict(result)
+
+
+class AIPlanScene(BaseModel):
+    number: int = Field(..., ge=1, le=50)
+    name: str = Field(..., max_length=120)
+    shape: str = Field(..., max_length=40, pattern=r"^[a-z0-9_]+$", description="Shape token, as in ai_author.SHAPE_TOKENS")
+    scale: float = Field(..., allow_inf_nan=False)
+    hold_seconds: float = Field(..., allow_inf_nan=False)
+    transition_seconds: float = Field(..., allow_inf_nan=False)
+
+
+class AIPlanRequest(BaseModel):
+    prompt: str = Field(..., min_length=1, max_length=500, description="Operator's one-sentence edit request")
+    scenes: list[AIPlanScene] = Field(..., min_length=1, max_length=50)
+    repair_note: Optional[str] = Field(None, max_length=500, description="Why the previous draft was refused (one repair only)")
+
+
+@app.post("/api/ai/plan")
+def api_ai_plan(req: AIPlanRequest):
+    """Up to 3 scene ops for one sentence (issue #94, slice 1). Always 200 with
+    a `status`; a malformed body is the only 422. One model call per request,
+    no internal retry. The ops are a draft: the browser compiles them into one
+    scene/batch and the existing preview / safety check / Apply flow decides.
+    Values are not clamped here."""
+    result = ai_plan(req.prompt, [s.model_dump() for s in req.scenes], repair_note=req.repair_note)
     return asdict(result)
 
 

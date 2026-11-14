@@ -159,3 +159,28 @@ docstring in `ai_author.py` for the schema/repair design.
   no network egress for inference. If Ollama isn't running or the model
   isn't pulled, `propose()` reports `"unavailable"` and the rest of Studio's
   manual authoring workflow is unaffected.
+
+### Scene-edit planner (issue #94, slice 1)
+
+`POST /api/ai/plan` (`tara_studio.ai_plan`) turns one sentence plus a compact
+summary of the current scenes into at most 3 ops, each a `patch` of an
+existing scene or an `add`. Scenes are referred to by their 1-based number,
+never an id. It uses the same local `qwen2.5:7b` (Ollama, schema-constrained
+output) and the same env vars as `/api/ai/propose`; it is local-only, with no
+cloud call.
+
+- **Draft only.** The browser compiles the ops into one `scene/batch` and the
+  Studio's existing proposal flow (preview, dry-run safety check, explicit
+  Apply, one undo step) decides whether anything changes. The model never
+  sees ids and cannot reach safety limits, fleet, GCS or flight commands;
+  requests for those, for show length, music or colour go in `unsupported`.
+- **One repair in total.** The backend makes exactly one model call per
+  request and never retries internally. If the browser's own check refuses
+  the draft, it calls once more with `repair_note` set to the exact reason,
+  then stops and shows that reason: at most 2 model calls per user request.
+- **Refuse, never clamp.** Out-of-range values (scale above 3, hold above 120,
+  ...) are passed through unchanged and refused by the browser's batch check.
+  This differs from `/api/ai/propose`, which clamps.
+- Always HTTP 200 with a `status` (`ok`, `schema_error`, `unavailable`,
+  `timeout`); only a malformed request body is a 422. Tests fake the model
+  (`tests/test_ai_plan*.py`); none need a live Ollama.
