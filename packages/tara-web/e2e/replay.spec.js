@@ -91,7 +91,7 @@ async function openReplay(page, {
     }
     if (url.pathname.endsWith('/events')) return route.fulfill({ json: { events: EVENTS, total: 3, limited: false, identities_hidden: true } });
     if (url.pathname.endsWith('/frames') && url.searchParams.has('from_ms')) {
-      if (windowStatus !== 200) return route.fulfill({ status: windowStatus, json: { detail: 'window failed' } });
+      if (windowStatus !== 200) return route.fulfill({ status: windowStatus, json: { detail: windowStatus === 401 ? 'session expired' : 'window failed' } });
       return route.fulfill({ json: windowReply(Number(url.searchParams.get('from_ms')), Number(url.searchParams.get('to_ms'))) });
     }
     if (url.pathname.endsWith('/frames')) return route.fulfill({ json: frames });
@@ -355,6 +355,97 @@ test('activityText says what an event was', async ({ page }) => {
     accepted: '/api/land', refusedCommand: '/api/land (refused)', other: 'some thing',
     refusals: [true, true, false, false],
   });
+});
+
+// --- the full-rate windows are fetched and parsed in a worker (issue #284) ---------------------------
+
+const spyOnWorkers = (page) => page.addInitScript(() => {
+  const Real = window.Worker;
+  window.__workersStarted = 0;
+  window.Worker = function SpyWorker(...args) {
+    window.__workersStarted += 1;
+    return new Real(...args);
+  };
+});
+
+test('a full-rate window is fetched by a worker and still drives the view', async ({ page }) => {
+  await spyOnWorkers(page);
+  const requested = await openReplay(page);
+  await page.getByRole('button', { name: 'LOAD' }).click();
+  await page.getByRole('button', { name: /geofence hard breach at 00:40/ }).click();
+
+  await expect(page.getByTestId('replay-resolution')).toContainText('Showing every recorded sample from');
+  expect(await page.evaluate(() => window.__workersStarted)).toBe(1);
+  expect(requested.filter((r) => r.includes('from_ms='))).toHaveLength(1);
+  // The window's frames are typed-array views now; playback and the Earth view read them like the JSON arrays.
+  await page.getByRole('button', { name: 'Play', exact: true }).click();
+  await page.waitForTimeout(500);
+  await page.getByRole('group', { name: '3D view' }).getByRole('button', { name: 'EARTH' }).click();
+  await expect(page.getByTestId('replay-stage').locator('.cesium-viewer')).toBeVisible();
+});
+
+test('without Worker support the window is fetched on the main thread, as before', async ({ page }) => {
+  await page.addInitScript(() => { delete window.Worker; });
+  const requested = await openReplay(page);
+  await page.getByRole('button', { name: 'LOAD' }).click();
+  await page.getByRole('button', { name: /geofence hard breach at 00:40/ }).click();
+  await expect(page.getByTestId('replay-resolution')).toContainText('Showing every recorded sample from');
+  expect(requested.filter((r) => r.includes('from_ms='))).toHaveLength(1);
+});
+
+test('a worker that cannot start falls back to the main thread', async ({ page }) => {
+  await page.addInitScript(() => {
+    window.Worker = function BrokenWorker() { throw new Error('no workers here'); };
+  });
+  await openReplay(page);
+  await page.getByRole('button', { name: 'LOAD' }).click();
+  await page.getByRole('button', { name: /geofence hard breach at 00:40/ }).click();
+  await expect(page.getByTestId('replay-resolution')).toContainText('Showing every recorded sample from');
+});
+
+test('an expired session seen by the worker ends the session, like every other GCS call', async ({ page }) => {
+  await openReplay(page, { windowStatus: 401 });
+  // Loading a recording is enough: it asks for the window around its start by itself, and that answer
+  // is a 401. (No click after LOAD: the sign-in screen replaces the replay as soon as the 401 arrives.)
+  await page.getByRole('button', { name: 'LOAD' }).click();
+  await expect(page.getByRole('button', { name: 'SIGN IN' })).toBeVisible();
+});
+
+test('packing a window into typed arrays and back keeps what the replay reads', async ({ page }) => {
+  await openReplay(page);
+  const r = await page.evaluate(async (frames) => {
+    const { packFrames, unpackFrames, packedBuffers } = await import('/src/replayPack.js');
+    const { fillFleetBuffer, telemetryAt } = await import('/src/replay.js');
+    const { FLOATS_PER_DRONE } = await import('/src/telemetry.js');
+    // Frames whose fleet changes size, one without heading or flags, to cover the uneven cases.
+    const odd = [
+      { t_ms: 0, ids: [0, 1, 2], x_m: [1, 2, 3], y_m: [4, 5, 6], z_m: [7, 8, 9], heading_deg: [10, 20, 30], flags: [3, 3, 1] },
+      { t_ms: 100, ids: [0, 2], x_m: [1.5, 3.5], y_m: [4.5, 6.5], z_m: [7.5, 9.5] },
+      { t_ms: 200, ids: [], x_m: [], y_m: [], z_m: [] },
+    ];
+    const packed = packFrames(odd);
+    const back = unpackFrames(packed);
+    const buffers = packedBuffers(packed);
+    const same = (a, b) => { const A = { data: new Float32Array(10 * FLOATS_PER_DRONE), count: 0 }; const B = { data: new Float32Array(10 * FLOATS_PER_DRONE), count: 0 }; fillFleetBuffer(a, 50, A); fillFleetBuffer(b, 50, B); return A.count === B.count && A.data.every((v, i) => Math.abs(v - B.data[i]) < 1e-4); };
+    return {
+      counts: back.map((f) => f.ids.length),
+      t: back.map((f) => f.t_ms),
+      second: { ids: [...back[1].ids], x: [...back[1].x_m], heading: [...back[1].heading_deg], flags: [...back[1].flags] },
+      transferable: buffers.length,
+      sameFill: same(odd, back),
+      sameFillAtFrame: same(frames, unpackFrames(packFrames(frames))),
+      sameTelemetry: JSON.stringify(telemetryAt(odd, 50)) === JSON.stringify(telemetryAt(back, 50)),
+      empty: unpackFrames(packFrames([])).length,
+    };
+  }, FRAMES);
+  expect(r.counts).toEqual([3, 2, 0]);
+  expect(r.t).toEqual([0, 100, 200]);
+  expect(r.second).toEqual({ ids: [0, 2], x: [1.5, 3.5], heading: [0, 0], flags: [0, 0] }); // missing channels read as 0
+  expect(r.transferable).toBe(8);
+  expect(r.sameFill).toBe(true);
+  expect(r.sameFillAtFrame).toBe(true);
+  expect(r.sameTelemetry).toBe(true);
+  expect(r.empty).toBe(0);
 });
 
 test('geofenceRadiusFor takes a recording\'s radius only when it is a usable number', async ({ page }) => {
