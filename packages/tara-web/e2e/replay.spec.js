@@ -405,8 +405,9 @@ test('a worker that cannot start falls back to the main thread', async ({ page }
 
 test('an expired session seen by the worker ends the session, like every other GCS call', async ({ page }) => {
   await openReplay(page, { windowStatus: 401 });
+  // Loading a recording is enough: it asks for the window around its start by itself, and that answer
+  // is a 401. (No click after LOAD: the sign-in screen replaces the replay as soon as the 401 arrives.)
   await page.getByRole('button', { name: 'LOAD' }).click();
-  await page.getByRole('button', { name: /geofence hard breach at 00:40/ }).click();
   await expect(page.getByRole('button', { name: 'SIGN IN' })).toBeVisible();
 });
 
