@@ -23,7 +23,8 @@ from tara_gcs.blackbox_replay import (
 )
 from tara_gcs.blackbox_service import BlackboxService
 from tara_gcs.drone_manager import DroneManager
-from tara_gcs.state_store import prime_trajectory_cache
+from tara_gcs import fleet_discovery
+from tara_gcs.state_store import DEFAULT_STATE_PATH, prime_trajectory_cache
 from tara_gcs.fleet_fsm import Command, IllegalTransitionError
 from tara_gcs.trajectory_parser import parse_trajectory_bytes
 from tara_gcs.telemetry_codec import FAST_HZ, SLOW_HZ, encode_fast_frame, encode_slow_frame
@@ -321,6 +322,18 @@ def _build_blackbox_service() -> BlackboxService | None:
         return None
 
 
+#: Opt-in fleet discovery (issue #58): GCS_DISCOVERY=1 plus a key. None when off or when its settings
+#: are unusable; it never feeds DroneManager, it only keeps the registry and the heartbeat watchdog.
+fleet_discovery_service: "fleet_discovery.FleetDiscovery | None" = None
+
+
+@app.get("/api/fleet/registry")
+async def fleet_registry_status(operator: Viewer):
+    """Which drones have announced themselves, by hardware id, and which have gone quiet (issue #58).
+    ``{"enabled": false}`` when discovery is off."""
+    return fleet_discovery_service.status() if fleet_discovery_service else {"enabled": False}
+
+
 @app.get("/api/blackbox/status")
 async def blackbox_status(operator: Viewer):
     """Whether the flight recorder is running, where it writes, and what it has captured."""
@@ -503,6 +516,18 @@ async def startup_event():
     if blackbox_service:
         blackbox_service.start()
 
+    # Opt-in fleet discovery. A bad setting or a port that is taken is logged and the GCS starts without it.
+    global fleet_discovery_service
+    fleet_discovery_service = fleet_discovery.build_from_env(
+        store_dir=os.path.dirname(DEFAULT_STATE_PATH)
+    )
+    if fleet_discovery_service:
+        try:
+            await fleet_discovery_service.start()
+        except OSError:
+            logger.exception("Fleet discovery could not bind its port; starting the GCS without it")
+            fleet_discovery_service = None
+
     # Run drone manager connections in background with error handling
     async def run_connections():
         try:
@@ -514,6 +539,8 @@ async def startup_event():
 @app.on_event("shutdown")
 async def shutdown_event():
     logger.info("Shutting down Ground Control Station...")
+    if fleet_discovery_service:
+        await fleet_discovery_service.stop()
     await drone_manager.shutdown()
     if blackbox_service:  # after the fleet is down, so its last transitions are recorded
         await blackbox_service.stop()
