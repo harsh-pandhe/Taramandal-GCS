@@ -341,6 +341,31 @@ class TestChain:
         write_lines(vault, lines)
         assert fetch()["chainOk"] is False
 
+    @pytest.mark.parametrize("keep, label", [([2, 3, 4], "its first entries removed"), ([0, 1, 3, 4], "an entry removed from the middle")])
+    def test_a_log_resealed_after_entries_were_removed_is_still_not_ok(self, five, vault, keep, label):
+        """Every hash and every prev link is made correct again, so only the gap-free numbering can tell."""
+        lines = lines_of(vault)
+        prev = ""
+        resealed = []
+        for i in keep:
+            e = json.loads(lines[i])
+            e["prev"] = prev
+            e["hash"] = audit_log._entry_hash(e)
+            prev = e["hash"]
+            resealed.append(audit_log._canonical(e))
+        write_lines(vault, resealed)
+        got = fetch()
+        assert got["chainOk"] is False, label
+        assert got["corruptLines"] == 0  # the lines are all valid entries; it is the numbering that is wrong
+
+    def test_a_log_copied_from_another_project_is_not_ok(self, five, vault):
+        """Each entry carries its project id, so a log lifted from one project cannot pass as another's."""
+        make_project("other")
+        log_path(vault, "other").write_bytes(log_path(vault).read_bytes())
+        assert fetch("diwali")["chainOk"] is True
+        assert fetch("other")["chainOk"] is False
+        assert fetch("other")["total"] == 5  # still readable, and not hidden: it is flagged
+
     def test_deleting_a_line_breaks_it(self, five, vault):
         lines = lines_of(vault)
         del lines[2]
