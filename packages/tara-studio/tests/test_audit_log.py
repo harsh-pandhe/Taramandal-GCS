@@ -235,9 +235,9 @@ class TestClientEntryIsStrict:
         kinds = set(re.findall(r"\bkind = '(\w+)'", source))
         assert kinds == {"none", "open", "failed", "unverified"}
         assert set(audit_log.CHECK_KINDS) == kinds
-        allowed = {
-            a for a in audit_log.AuditCheck.model_fields["kind"].annotation.__args__[0].__args__
-        }
+        # What the model accepts, read from its JSON schema (public API), not pydantic internals.
+        schema = audit_log.AuditCheck.model_json_schema()["properties"]["kind"]
+        allowed = {v for branch in schema.get("anyOf", [schema]) for v in branch.get("enum", [])}
         assert allowed == kinds
 
 
@@ -535,11 +535,30 @@ class TestNoEditOrDelete:
         assert log_path(vault).read_bytes() == before
 
     def test_only_get_and_post_are_registered_for_the_audit_paths(self):
-        verbs = {
-            m for r in app.routes if "/audit" in getattr(r, "path", "")
-            for m in getattr(r, "methods", set())
+        """Read from the OpenAPI document, which is public API, not from app.routes: newer FastAPI
+        no longer lists included routers' routes there (it holds an opaque wrapper per router), so
+        a walk of app.routes finds nothing. The real-request tests above cover a route that is
+        hidden from the schema."""
+        http_verbs = {"get", "put", "post", "delete", "options", "head", "patch", "trace"}
+        audit_paths = {
+            path: {verb for verb in item if verb in http_verbs}
+            for path, item in app.openapi()["paths"].items()
+            if "/audit" in path
         }
-        assert verbs == {"GET", "POST"}
+        assert set(audit_paths) == {"/api/projects/{project_id}/audit"}   # found something, and only the one path
+        found = set().union(*audit_paths.values())
+        assert found, "found no audit methods at all: the check would pass vacuously"
+        assert found == {"get", "post"}
+
+    @pytest.mark.parametrize("method", ["put", "patch", "delete", "options", "trace"])
+    def test_every_other_verb_on_the_audit_path_is_refused_with_405(self, five, vault, method):
+        before = log_path(vault).read_bytes()
+        assert client.request(method.upper(), "/api/projects/diwali/audit").status_code == 405
+        assert log_path(vault).read_bytes() == before
+
+    def test_get_and_post_work_on_the_audit_path(self, project):
+        assert client.get("/api/projects/diwali/audit").status_code == 200
+        assert post(entry()).status_code == 201
 
     def test_the_log_object_has_no_method_that_rewrites_or_deletes(self):
         public = {n for n in dir(AuditLog) if not n.startswith("_")}
