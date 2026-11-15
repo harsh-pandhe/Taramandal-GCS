@@ -1329,3 +1329,48 @@ test.describe('needs attention', () => {
     await expect(page.locator('.scene-card.attention')).toHaveCount(0);
   });
 });
+
+// Issue #274: "Snap Scenes to Beats" moves scene ends onto the analysed beats by
+// changing holds only, as one undo step. Behaviour only: no screenshot is taken,
+// and the analysis response is stubbed so no backend is needed.
+test.describe('snap scenes to beats (issue #274)', () => {
+  test('Snap changes the holds, and one undo restores them', async ({ page }) => {
+    await openStudio(page, PASSED_REPORT);
+    // A beat every second, offset by 0.37 s, so scene ends do not already sit on a beat.
+    const beats = Array.from({ length: 80 }, (_, i) => ({ t: Math.round((0.37 + i) * 1000) / 1000, confidence: 0.5 }));
+    await page.route('**/api/music/analyze', (route) => route.fulfill({
+      json: {
+        analyzer_version: '1', duration_s: 80, sample_rate: 8000, bpm: 60, bpm_confidence: 0.9,
+        beats, onsets: [], bars: { beats_per_bar: 4, downbeat_beat_index: 0, confidence: 0.5, times: [] },
+        settings_used: { min_bpm: 60, max_bpm: 200, beats_per_bar: 4 },
+      },
+    }));
+
+    const hold = (n) => page.locator('.scene-card').nth(n).getByLabel('Hold (s)');
+    await expect(hold(0)).toHaveValue('6');
+    await expect(hold(1)).toHaveValue('6');
+
+    await consoleTab(page, 'AUDIO');
+    await page.locator('input[type="file"]').setInputFiles(markerWav());
+    await page.getByRole('button', { name: 'Analyze Beats & Tempo' }).click();
+    // The Snap button only exists once the (stubbed) analysis has come back.
+    const snap = page.getByRole('button', { name: 'Snap Scenes to Beats' });
+    await expect(snap).toBeVisible();
+    await snap.click();
+    await expect(page.getByTestId('snap-result')).toHaveText(/^Snapped 2 scenes, 0 already on a beat, 0 skipped$/);
+
+    await consoleTab(page, 'SEQUENCE');
+    for (const n of [0, 1]) {
+      await expect(hold(n)).toHaveValue(/^\d+(\.\d+)?$/);
+      await expect(hold(n)).not.toHaveValue('6');
+    }
+    await page.locator('.history-list summary').click();
+    await expect(page.locator('.history-list li')).toHaveText(['Opened', 'Snap scenes to beats']);
+
+    // Both scenes were one step, so one undo puts both back.
+    await page.getByRole('button', { name: 'Undo', exact: true }).click();
+    await expect(hold(0)).toHaveValue('6');
+    await expect(hold(1)).toHaveValue('6');
+    await expect(page.getByRole('button', { name: 'Undo', exact: true })).toBeDisabled();
+  });
+});

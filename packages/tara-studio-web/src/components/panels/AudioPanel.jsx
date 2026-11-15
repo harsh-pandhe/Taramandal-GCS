@@ -12,7 +12,7 @@ const fmt = (s) => {
 /** Soundtrack loading, transport volume, timeline zoom, beat detection, and the LED track. */
 export default function AudioPanel({
   audio, zoom, onZoom, ledTrack, onLedTrack, duration, currentTime, onScrub,
-  onSnapScenes,
+  onSnapScenes, snapMessage,
 }) {
   const inputRef = useRef(null);
 
@@ -101,6 +101,11 @@ export default function AudioPanel({
                   >
                     <Zap size={12} className="text-accent" /> Snap Scenes to Beats
                   </button>
+                )}
+                {snapMessage && (
+                  <div data-testid="snap-result" style={{ fontSize: '0.65rem', color: 'var(--text-dim)' }}>
+                    {snapMessage}
+                  </div>
                 )}
               </div>
             )}
