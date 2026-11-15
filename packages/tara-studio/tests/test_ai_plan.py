@@ -92,7 +92,16 @@ def test_a_scene_that_is_not_a_whole_number_is_a_schema_error(monkeypatch, scene
     assert "1 to 2" in res.error
 
 
-@pytest.mark.parametrize("scene", [0, 3, 9, -1])
+@pytest.mark.parametrize("scene", [0, -1])
+def test_scene_zero_or_below_is_a_schema_error_to_repair_not_a_missing_scene(monkeypatch, scene):
+    """Real qwen2.5:7b, "add a ring scene called Dhiraj's show": it answered with a patch of scene 0 (an add
+    mislabelled). That is not an operator naming a scene the show lacks, so it is repaired."""
+    res, _ = run(monkeypatch, {"ops": [{"op": "patch", "scene": scene, "scale": 2}], "unsupported": []})
+    assert res.status == "schema_error"
+    assert "1 to 2" in res.error
+
+
+@pytest.mark.parametrize("scene", [3, 9])
 def test_a_patch_of_a_scene_the_show_does_not_have_is_a_final_answer_not_a_repair(monkeypatch, scene):
     """Real qwen2.5:7b, "make scene 9 a circle" on a 3-scene show: a repair note only made it add a scene
     nobody asked for. The answer is "no ops" and the reason, with no schema_error to send back."""
@@ -409,3 +418,51 @@ def test_other_sentences_still_reach_the_model_once(monkeypatch, prompt):
 def test_the_guard_also_applies_to_a_repair_call(monkeypatch):
     res, fake = run(monkeypatch, {"ops": [], "unsupported": ["x"]}, prompt="make the show 2 minutes long", repair_note="n")
     assert fake.calls == [] and res.ops == []
+
+
+# --- review of #283, against the real qwen2.5:7b --------------------------------------------------
+
+@pytest.mark.parametrize("prompt", [
+    "make the show two minutes long",  # a spelled-out number slipped past the digits-only guard
+    "make the show a minute long",
+    "make the whole show 2 minutes long",
+    "make the whole show longer",
+    "shorten the entire show",
+    "make the show 90 seconds",
+    "make the show about five minutes",
+])
+def test_the_show_length_guard_catches_spelled_out_numbers_and_whole_show_lengths(prompt):
+    assert ai_plan.asks_for_show_length(prompt), prompt
+
+
+@pytest.mark.parametrize("prompt", [
+    "make the whole show bigger",  # about scale, not length: the "total show length" message would be wrong
+    "make the entire show a heart",
+    "make the show as a heart",  # "as" must not read as "a" + "s"
+    "make the show a heart",
+    "set hold of scene 1 to 2 minutes",
+    "make the opening scene longer",
+])
+def test_the_show_length_guard_leaves_other_requests_to_the_model(prompt):
+    assert not ai_plan.asks_for_show_length(prompt), prompt
+
+
+@pytest.mark.parametrize("prompt, name", [
+    ("add a sphere scene called Finale", "Finale"),
+    ("add a heart scene named 'Grand Opening'", "Grand Opening"),
+    ('add a scene titled "Night Sky" with a ring', "Night Sky"),
+    ("add a ring scene called Dhiraj's show", "Dhiraj's show"),
+    ("add a sphere scene called Finale and make it bigger", "Finale"),
+    # a name that belongs to an existing scene, not to the new one (the real model's draft was named "Opening")
+    ("add a heart scene after the one called Opening", None),
+    ("add a heart after the scene that is called Opening", None),
+    ("add a heart scene, call it Finale", None),
+])
+def test_the_name_fallback_only_takes_a_name_attached_to_a_scene(prompt, name):
+    assert ai_plan.name_from_prompt(prompt) == name
+
+
+def test_an_add_next_to_an_existing_scenes_name_is_not_given_that_name(monkeypatch):
+    res, _ = run(monkeypatch, {"ops": [{"op": "add", "scene": 0, "shape": "heart"}], "unsupported": []},
+                 prompt="add a heart scene after the one called Opening")
+    assert res.status == "ok" and "name" not in res.ops[0]

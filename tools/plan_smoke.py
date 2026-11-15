@@ -9,6 +9,11 @@ the file; blank lines and lines starting with ``#`` are skipped. With no file th
 built-in list below is used. Each sentence makes at most one model call (none for a
 show-length request, which the planner answers itself).
 
+Note: this is the planner alone, ONE model call per sentence. In the app a draft that fails the schema
+check is sent back to the model once, so a ``schema_error`` here is not necessarily what an operator sees.
+The built-in scenes have no scene called "Finale" on purpose: a sentence like "add a sphere scene called
+Finale" would otherwise be about a scene that already exists.
+
 This is a manual check, not a test: pytest never runs it against a real model
 (tests/test_plan_smoke.py only exercises ``run_smoke`` with a fake planner).
 Exit status: 0 ok, 2 Ollama unreachable / timed out, 1 bad input.
@@ -31,7 +36,7 @@ except ModuleNotFoundError:  # run from a checkout without the package installed
 DEFAULT_SCENES = [
     {"number": 1, "name": "Opening", "shape": "circle", "scale": 1.0, "hold_seconds": 6.0, "transition_seconds": 4.0},
     {"number": 2, "name": "Middle", "shape": "heart", "scale": 1.0, "hold_seconds": 6.0, "transition_seconds": 4.0},
-    {"number": 3, "name": "Finale", "shape": "sphere", "scale": 1.0, "hold_seconds": 6.0, "transition_seconds": 4.0},
+    {"number": 3, "name": "Closing", "shape": "sphere", "scale": 1.0, "hold_seconds": 6.0, "transition_seconds": 4.0},
 ]
 
 DEFAULT_SENTENCES = [

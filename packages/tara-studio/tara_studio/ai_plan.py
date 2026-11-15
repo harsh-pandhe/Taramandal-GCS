@@ -69,12 +69,18 @@ SHOW_LENGTH_UNSUPPORTED = (
 # scene ("set hold of scene 1 to 90 seconds") is an ordinary edit and is not caught.
 # Every quantifier is bounded and the alternatives do not overlap, so there is no
 # catastrophic backtracking on the 500-character prompt limit.
-_DUR = r"(?:\d{1,4}:\d{2}|\d{1,4}(?:\.\d{1,2})?\s*(?:minutes?|mins?|seconds?|secs?|s))"
+# A duration: 2:00, 90 s, 2 minutes, or a spelled-out number ("two minutes"). A number word needs a
+# space and a full unit, so "show as a heart" cannot read as "show a(s)".
+_NUM_WORD = r"(?:a|an|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|fifteen|twenty|thirty|forty|fifty|sixty)"
+_DUR = (
+    r"(?:\d{1,4}:\d{2}"
+    r"|\d{1,4}(?:\.\d{1,2})?\s*(?:minutes?|mins?|seconds?|secs?|s)"
+    rf"|{_NUM_WORD}\s+(?:minutes?|mins?|seconds?|secs?))"
+)
 _SHOW_LENGTH = re.compile(
     r"\b(?:show|total|overall|whole|entire)\s+(?:length|duration|runtime)\b"
     r"|\b(?:shorten|lengthen|extend|stretch|shrink)\s+(?:the\s+|this\s+|my\s+)?(?:(?:whole|entire)\s+)?show\b"
     r"|\b(?:shorter|longer)\s+show\b|\bshow\s+(?:shorter|longer)\b"
-    r"|\b(?:whole|entire)\s+show\b"
     rf"|\bshow\s+(?:(?:should\s+be|to\s+be|be|is|to|for)\s+)?(?:(?:about|around)\s+)?{_DUR}\b"
     rf"|\bit\s+(?:(?:about|around)\s+)?{_DUR}\s+long\b",
     re.IGNORECASE,
@@ -88,10 +94,11 @@ def asks_for_show_length(prompt: str) -> bool:
 
 # --- Name fallback for `add` ---------------------------------------------------
 # The model often leaves out the optional "name" of an added scene even when the
-# operator gave one. Only an explicit naming phrase is used: called/named/titled
-# followed by a quoted string, or by words up to punctuation or a stop word.
+# operator gave one. Only an explicit naming phrase attached to a scene is used:
+# "scene called/named/titled" followed by a quoted string, or by words up to punctuation
+# or a stop word. "after the one called Opening" is not a name for the new scene.
 _NAME_CUE = re.compile(
-    r"\b(?:called|named|titled)\s+"
+    r"\bscenes?\s+(?:called|named|titled)\s+"
     r"(?:\"([^\"]*)\"|'([^']*)'|“([^”]*)”|‘([^’]*)’|(.*))",
     re.IGNORECASE | re.DOTALL,
 )
@@ -224,7 +231,11 @@ def _op_errors(raw, scenes_by_number: dict[int, dict]) -> list[tuple[str, str]]:
             errors.append(("", f"patch scene must be a number from 1 to {len(scenes_by_number)}"))
             return errors
         if n not in scenes_by_number:
-            errors.append((SCENE, f"scene {n} does not exist (the show has {len(scenes_by_number)} scenes)"))
+            if n > len(scenes_by_number):
+                errors.append((SCENE, f"scene {n} does not exist (the show has {len(scenes_by_number)} scenes)"))
+            else:
+                # Scene 0 or below is the model mislabelling an add, not a scene the operator named.
+                errors.append(("", f"patch scene must be a number from 1 to {len(scenes_by_number)}"))
             return errors
         given = [k for k in _PATCH_FIELDS if k in raw]
         if not given:
@@ -236,7 +247,7 @@ def _op_errors(raw, scenes_by_number: dict[int, dict]) -> list[tuple[str, str]]:
     else:
         n = raw.get("scene")
         if n not in (0, None):
-            if isinstance(n, int) and not isinstance(n, bool) and n not in scenes_by_number:
+            if isinstance(n, int) and not isinstance(n, bool) and n > len(scenes_by_number):
                 # The model reaches for "add" when the operator named a scene that is not there.
                 errors.append((SCENE, f"scene {n} does not exist (the show has {len(scenes_by_number)} scenes)"))
             else:

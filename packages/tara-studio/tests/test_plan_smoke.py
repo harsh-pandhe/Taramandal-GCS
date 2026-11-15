@@ -48,7 +48,7 @@ def test_the_default_list_has_the_required_sentences_and_scenes():
               "make the show 2 minutes long", "make scene 9 a circle", "set scale of scene 1 to 5"):
         assert s in smoke.DEFAULT_SENTENCES
     assert [(s["number"], s["name"], s["shape"]) for s in smoke.DEFAULT_SCENES] == [
-        (1, "Opening", "circle"), (2, "Middle", "heart"), (3, "Finale", "sphere")]
+        (1, "Opening", "circle"), (2, "Middle", "heart"), (3, "Closing", "sphere")]
 
 
 def test_main_reads_a_sentence_file_skipping_comments_and_blanks(tmp_path, capsys):
