@@ -4,6 +4,8 @@ import NightSkyView from './NightSkyView';
 import { MAX_NIGHTSKY_DRONES } from '../config';
 import { FLOATS_PER_DRONE } from '../telemetry';
 import {
+  ACTIVITY_KINDS,
+  activityText,
   detailSpanMs,
   detailWindowFor,
   eventFields,
@@ -11,7 +13,9 @@ import {
   fillFleetBuffer,
   formatClock,
   isBreach,
+  isRefusal,
   listSessions,
+  loadActivity,
   loadSession,
   loadWindow,
   pickFrames,
@@ -30,6 +34,8 @@ const UI_TICK_MS = 100;
 const SEEK_DEBOUNCE_MS = 200;
 // Do not ask again for a failed window for this long.
 const WINDOW_RETRY_MS = 5000;
+// More activity markers than this are not drawn (they would be a smear on the track); the note says so.
+const MAX_ACTIVITY_MARKERS = 600;
 
 function sessionLabel(s) {
   const when = s.started ? new Date(s.started).toLocaleString() : s.id;
@@ -53,6 +59,10 @@ export default function ReplayView() {
   const [playing, setPlaying] = useState(false);
   const [speed, setSpeed] = useState(1);
   const [selectedEvent, setSelectedEvent] = useState(null);
+  // Commands and lifecycle transitions on the timeline (issue #284): off by default, loaded on first use.
+  const [showActivity, setShowActivity] = useState(false);
+  const [activity, setActivity] = useState(null); // { events, total, limited } for the loaded recording
+  const [activityError, setActivityError] = useState('');
 
   const fleetBuffer = useRef(null);
   if (fleetBuffer.current === null) {
@@ -173,6 +183,8 @@ export default function ReplayView() {
           startMs: start,
           endMs: Math.max(data.summary.duration_ms, start),
         };
+        setActivity(null);
+        setActivityError('');
         setLoaded(data);
         seek(start);
       } catch (err) {
@@ -222,6 +234,20 @@ export default function ReplayView() {
     raf = requestAnimationFrame(step);
     return () => cancelAnimationFrame(raf);
   }, [playing, loaded, speed, endMs, drawAt, ensureWindow, publish]);
+
+  // The commands and lifecycle events are fetched the first time they are asked for, per recording; a
+  // different recording drops an older answer.
+  const recordingId = loaded?.summary.id;
+  useEffect(() => {
+    if (!showActivity || !recordingId || activity) return undefined;
+    let cancelled = false;
+    loadActivity(recordingId)
+      .then((reply) => !cancelled && setActivity(reply))
+      .catch((err) => !cancelled && setActivityError(err.message));
+    return () => {
+      cancelled = true;
+    };
+  }, [showActivity, recordingId, activity]);
 
   const atEnd = loaded && tMs >= endMs;
   const togglePlay = () => {
@@ -343,7 +369,7 @@ export default function ReplayView() {
               </span>
             </div>
 
-            <div className="replay-timeline">
+            <div className={`replay-timeline${showActivity ? ' with-activity' : ''}`}>
               <input
                 type="range"
                 className="replay-scrubber"
@@ -369,6 +395,38 @@ export default function ReplayView() {
                   />
                 ))}
               </div>
+              {showActivity && activity && (
+                <div className="replay-markers replay-activity-markers" data-testid="replay-activity-markers">
+                  {activity.events.slice(0, MAX_ACTIVITY_MARKERS).map((event, i) => (
+                    <button
+                      key={`${event.t}-${event.kind}-${i}`}
+                      className={`replay-marker activity${isRefusal(event) ? ' refused' : ''}${event === selectedEvent ? ' selected' : ''}`}
+                      style={{ left: `${timelineFraction(event.t, startMs, endMs) * 100}%` }}
+                      title={`${formatClock(event.t - startMs)} ${activityText(event)}`}
+                      aria-label={`${activityText(event)} at ${formatClock(event.t - startMs)}`}
+                      onClick={() => jumpTo(event)}
+                    />
+                  ))}
+                </div>
+              )}
+            </div>
+            <div className="replay-row">
+              <button
+                className={`view-tab ${showActivity ? 'active' : ''}`}
+                aria-pressed={showActivity}
+                onClick={() => setShowActivity((on) => !on)}
+              >
+                COMMANDS &amp; LIFECYCLE
+              </button>
+              {showActivity && !activity && !activityError && <span className="replay-meta">Loading…</span>}
+              {showActivity && activity && (
+                <span className="replay-meta" data-testid="replay-activity-note">
+                  {activity.events.length
+                    ? `${Math.min(activity.events.length, MAX_ACTIVITY_MARKERS)} of ${activity.total} shown`
+                    : 'No commands or lifecycle changes were recorded.'}
+                </span>
+              )}
+              {activityError && <span className="replay-note replay-note-bad">Could not load them: {activityError}</span>}
             </div>
             <div className="replay-note">
               {events.length
@@ -380,9 +438,10 @@ export default function ReplayView() {
 
             {selectedEvent && (
               <div className="replay-detail" data-testid="replay-detail">
-                <strong className={isBreach(selectedEvent) ? 'replay-bad' : 'replay-good'}>
+                <strong className={isBreach(selectedEvent) || isRefusal(selectedEvent) ? 'replay-bad' : 'replay-good'}>
                   {eventLabel(selectedEvent).toUpperCase()}
                 </strong>{' '}
+                {ACTIVITY_KINDS.includes(selectedEvent.kind) && <span className="replay-meta">{activityText(selectedEvent)} · </span>}
                 at {formatClock(selectedEvent.t - startMs)}
                 <dl>
                   {eventFields(selectedEvent).map(([key, value]) => (

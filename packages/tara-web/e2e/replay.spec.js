@@ -33,6 +33,14 @@ const EVENTS = [
   { type: 'event', t: 40000, kind: 'geofence_hard_breach', drone: 2, distance_m: 61.5, limit_m: 60 },
 ];
 
+// Commands and lifecycle events, as the GCS answers `events?kinds=command,fsm_transition,fsm_rejected`.
+const ACTIVITY = [
+  { type: 'event', t: 5000, kind: 'command', command: '/api/launch', trigger: 'POST /api/launch', accepted: true, status: 200 },
+  { type: 'event', t: 8000, kind: 'fsm_transition', from: 'STAGED', to: 'ARMED', operator: 'operator-1a2b', trigger: 'api' },
+  { type: 'event', t: 30000, kind: 'fsm_rejected', command: 'start', state: 'ARMED', reason: 'preflight not passed', operator: 'operator-1a2b', trigger: 'api' },
+  { type: 'event', t: 45000, kind: 'command', command: '/api/land', trigger: 'POST /api/land', accepted: false, status: 409 },
+];
+
 const SUMMARY = {
   id: SESSION.id,
   header: {},
@@ -63,6 +71,8 @@ async function openReplay(page, {
   frames = { stride: 10, count: 61, t_ms_first: 0, t_ms_last: 60000, frames: FRAMES },
   sessionStatus = 200,
   windowStatus = 200,
+  activity = ACTIVITY,
+  activityStatus = 200,
 } = {}) {
   const requested = [];
   requested.times = []; // Date.now() of each request, parallel to `requested`
@@ -75,6 +85,10 @@ async function openReplay(page, {
     requested.times.push(Date.now());
     if (url.pathname === '/api/blackbox/sessions') return route.fulfill({ json: { sessions } });
     if (sessionStatus !== 200) return route.fulfill({ status: sessionStatus, json: { detail: 'no such session' } });
+    if (url.pathname.endsWith('/events') && url.searchParams.has('kinds')) {
+      if (activityStatus !== 200) return route.fulfill({ status: activityStatus, json: { detail: 'events unavailable' } });
+      return route.fulfill({ json: { events: activity, total: activity.length, limited: false, identities_hidden: true } });
+    }
     if (url.pathname.endsWith('/events')) return route.fulfill({ json: { events: EVENTS, total: 3, limited: false, identities_hidden: true } });
     if (url.pathname.endsWith('/frames') && url.searchParams.has('from_ms')) {
       if (windowStatus !== 200) return route.fulfill({ status: windowStatus, json: { detail: 'window failed' } });
@@ -259,6 +273,88 @@ test('telemetryAt gives the Earth view the fleet at a time: blended positions, f
   expect(r.at['2']).toMatchObject({ fleet_x: 22.5, fleet_y: 10, armed: false, connected: true }); // flags 1: connected, not armed
   expect(r.start['2'].fleet_x).toBe(20);
   expect(r.empty).toEqual({});
+});
+
+test('commands and lifecycle events are off until asked for, then load once and show as a second row of markers', async ({ page }) => {
+  const requested = await openReplay(page);
+  await page.getByRole('button', { name: 'LOAD' }).click();
+  await expect(page.getByTestId('replay-clock')).toHaveText('00:00 / 01:00');
+  const toggle = page.getByRole('button', { name: 'COMMANDS & LIFECYCLE' });
+  await expect(toggle).toHaveAttribute('aria-pressed', 'false');
+  await expect(page.getByTestId('replay-activity-markers')).toHaveCount(0);
+  expect(requested.some((r) => r.includes('kinds='))).toBe(false);
+
+  await toggle.click();
+  await expect(page.getByTestId('replay-activity-markers').getByRole('button')).toHaveCount(4);
+  await expect(page.getByTestId('replay-activity-note')).toHaveText('4 of 4 shown');
+  const asked = requested.filter((r) => r.includes('kinds='));
+  expect(asked).toHaveLength(1);
+  expect(asked[0]).toContain('kinds=command,fsm_transition,fsm_rejected');
+  expect(asked[0]).toContain('limit=2000');
+  // The safety markers are still there, and refusals are told apart from what the GCS accepted.
+  await expect(page.getByRole('button', { name: /proximity breach at 00:20/ })).toBeVisible();
+  await expect(page.getByTestId('replay-activity-markers').locator('.refused')).toHaveCount(2);
+
+  // Off hides them; on again does not ask the GCS again.
+  await toggle.click();
+  await expect(page.getByTestId('replay-activity-markers')).toHaveCount(0);
+  await toggle.click();
+  await expect(page.getByTestId('replay-activity-markers').getByRole('button')).toHaveCount(4);
+  expect(requested.filter((r) => r.includes('kinds='))).toHaveLength(1);
+});
+
+test('clicking a lifecycle marker jumps there and says what happened', async ({ page }) => {
+  await openReplay(page);
+  await page.getByRole('button', { name: 'LOAD' }).click();
+  await page.getByRole('button', { name: 'COMMANDS & LIFECYCLE' }).click();
+
+  await page.getByRole('button', { name: 'STAGED -> ARMED at 00:08' }).click();
+  await expect(page.getByTestId('replay-clock')).toHaveText('00:08 / 01:00');
+  const detail = page.getByTestId('replay-detail');
+  await expect(detail).toContainText('STAGED -> ARMED');
+  await expect(detail).toContainText('operator-1a2b'); // the GCS has already pseudonymised it
+  await page.getByRole('button', { name: 'refused start: preflight not passed at 00:30' }).click();
+  await expect(detail).toContainText('preflight not passed');
+  await page.getByRole('button', { name: '/api/land (refused) at 00:45' }).click();
+  await expect(page.getByTestId('replay-clock')).toHaveText('00:45 / 01:00');
+});
+
+test('says so when a recording has no commands', async ({ page }) => {
+  await openReplay(page, { activity: [] });
+  await page.getByRole('button', { name: 'LOAD' }).click();
+  await page.getByRole('button', { name: 'COMMANDS & LIFECYCLE' }).click();
+  await expect(page.getByTestId('replay-activity-note')).toHaveText('No commands or lifecycle changes were recorded.');
+});
+
+test('a failed load of the commands is reported and does not touch the rest of the replay', async ({ page }) => {
+  await openReplay(page, { activityStatus: 500 });
+  await page.getByRole('button', { name: 'LOAD' }).click();
+  await page.getByRole('button', { name: 'COMMANDS & LIFECYCLE' }).click();
+  await expect(page.getByText('Could not load them: events unavailable')).toBeVisible();
+  await expect(page.getByRole('button', { name: /proximity breach at 00:20/ })).toBeVisible();
+  await expect(page.getByTestId('replay-clock')).toBeVisible();
+});
+
+test('activityText says what an event was', async ({ page }) => {
+  await openReplay(page);
+  const r = await page.evaluate(async () => {
+    const { activityText, isRefusal } = await import('/src/replay.js');
+    return {
+      transition: activityText({ kind: 'fsm_transition', from: 'A', to: 'B' }),
+      noFields: activityText({ kind: 'fsm_transition' }),
+      refused: activityText({ kind: 'fsm_rejected', command: 'start', reason: 'no' }),
+      refusedBare: activityText({ kind: 'fsm_rejected' }),
+      accepted: activityText({ kind: 'command', command: '/api/land', accepted: true }),
+      refusedCommand: activityText({ kind: 'command', command: '/api/land', accepted: false }),
+      other: activityText({ kind: 'some_thing' }),
+      refusals: [isRefusal({ kind: 'fsm_rejected' }), isRefusal({ kind: 'command', accepted: false }), isRefusal({ kind: 'command', accepted: true }), isRefusal({ kind: 'fsm_transition' })],
+    };
+  });
+  expect(r).toEqual({
+    transition: 'A -> B', noFields: '? -> ?', refused: 'refused start: no', refusedBare: 'refused command',
+    accepted: '/api/land', refusedCommand: '/api/land (refused)', other: 'some thing',
+    refusals: [true, true, false, false],
+  });
 });
 
 test('geofenceRadiusFor takes a recording\'s radius only when it is a usable number', async ({ page }) => {
