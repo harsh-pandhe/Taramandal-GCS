@@ -85,9 +85,6 @@ _NAMES_A_SCENE = re.compile(r"\bscenes?\s*#?\s*\d", re.IGNORECASE)
 def asks_for_show_length(prompt: str) -> bool:
     return bool(_SHOW_LENGTH.search(prompt)) and not _NAMES_A_SCENE.search(prompt)
 
-def asks_for_show_length(prompt: str) -> bool:
-    return bool(_SHOW_LENGTH.search(prompt)) and not _NAMES_A_SCENE.search(prompt)
-
 
 # --- Name fallback for `add` ---------------------------------------------------
 # The model often leaves out the optional "name" of an added scene even when the
