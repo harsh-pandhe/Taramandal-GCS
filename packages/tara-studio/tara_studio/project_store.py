@@ -299,6 +299,20 @@ class ProjectStore:
             when = self._now().strftime("%Y%m%dT%H%M%S%fZ")
             shutil.move(str(directory), str(trash / f"{project_id}.{when}"))
 
+    def existing_dir(self, project_id: str) -> Path:
+        """The directory of a project that exists, for a separate file that lives
+        beside project.json and is not part of the project (it moves with the
+        directory and is never read or written by save).
+
+        Raises:
+            InvalidProject: ``project_id`` is not a safe directory name.
+            ProjectNotFound: no such project (a trashed one is not one).
+        """
+        with _LOCK:
+            if not self._exists(project_id):
+                raise ProjectNotFound(project_id)
+            return self._dir(project_id)
+
     def import_project(
         self,
         *,
