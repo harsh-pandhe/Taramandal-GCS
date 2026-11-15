@@ -61,7 +61,7 @@ export default function ConsoleDrawer({
             audio={audio.track} zoom={audio.zoom} onZoom={audio.onZoom}
             ledTrack={audio.ledTrack} onLedTrack={audio.onLedTrack}
             duration={audio.duration} currentTime={currentTime} onScrub={audio.onScrub}
-            onSnapScenes={audio.onSnapScenes}
+            onSnapScenes={audio.onSnapScenes} snapMessage={audio.snapMessage}
           />
         )}
         {tab === 'ai' && (

@@ -28,6 +28,8 @@ import { serializeTrack } from './engine/ledPatterns.js';
 import { buildAutoLightTrack } from './engine/autoLight.js';
 import { exportShow, sendShowToGCS, downloadExport } from './engine/api.js';
 import { violationsStale } from './engine/violationScenes.js';
+import { runBeatSnap } from './engine/beatSnap.js';
+import { sceneSignature } from './engine/sceneValidation.js';
 import './App.css';
 
 const AUTH_DISABLED = import.meta.env.VITE_DISABLE_AUTH === 'true';
@@ -64,6 +66,7 @@ export default function App() {
   const [ledTrack, setLedTrack] = useState([]);
   const [pacing, setPacing] = useState('standard');
   const [zoom, setZoom] = useState(1);
+  const [snapResult, setSnapResult] = useState(null);
   // Issue #132: hides the sidebar and console, leaving just the stage,
   // transport and timeline - a clean full-screen walkthrough for an
   // operator or a recorded demo, not a new rendering path.
@@ -216,19 +219,21 @@ export default function App() {
     if (next !== undefined) scrub(next);
   }, [segments, currentTime, scrub]);
 
-  // Issue #91: Adjusts scene hold durations to snap scene end boundaries to nearest musical beats/bars
+  // Issues #91 / #274: moves each scene's end (its hold only) to the nearest beat, as one
+  // undoable batch. `segments` is derived from the current scenes, so it is not stale here.
   const handleSnapScenesToBeats = useCallback(() => {
-    if (!audio.analysis?.beats?.length || !scenes.length) return;
-    let cumulative = 0;
-    scenes.forEach((scene) => {
-      const rawEnd = cumulative + scene.transition + scene.hold;
-      const snappedEnd = audio.snapTimeToBeat(rawEnd);
-      const delta = snappedEnd - rawEnd;
-      const newHold = Math.max(1.0, Math.round((scene.hold + delta) * 10) / 10);
-      list.patchScene(scene.id, { hold: newHold });
-      cumulative += scene.transition + newHold;
+    const { command, message, resultDoc } = runBeatSnap({
+      doc: history.doc, segments, analysis: audio.analysis, rate,
     });
-  }, [audio, scenes, list]);
+    if (command) history.execute(command);
+    // Remembers what the message is about: the analysis and the scenes as they are after it.
+    setSnapResult({ message, analysis: audio.analysis, signature: sceneSignature(resultDoc) });
+  }, [history, segments, audio.analysis, rate]);
+  // Shown only while it is still true: a different or cleared track, any later edit, an
+  // undo, or a project load changes one of the two and hides it.
+  const currentSignature = useMemo(() => sceneSignature(history.doc), [history.doc]);
+  const snapMessage = snapResult && snapResult.analysis === audio.analysis
+    && snapResult.signature === currentSignature ? snapResult.message : '';
 
   const handleExport = useCallback(async (format) => {
     if (!choreoData) return;
@@ -361,7 +366,7 @@ export default function App() {
                   ledTrack, onLedTrack: setLedTrack,
                   duration: timelineDuration,
                   onScrub: (t) => { setIsPlaying(false); scrub(t); },
-                  onSnapScenes: handleSnapScenesToBeats,
+                  onSnapScenes: handleSnapScenesToBeats, snapMessage,
                 }}
               />
             )}
