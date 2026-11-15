@@ -72,3 +72,4 @@ packages/tara-gcs/tara_gcs/fleet_audit.jsonl
 
 # Local secrets (GitHub token etc.) — never committed.
 .env
+packages/tara-gcs/tara_gcs/fleet_registry.json
