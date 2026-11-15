@@ -58,6 +58,23 @@ const stable = (v) => {
  * in order). A proposal records it so it can be refused if anything about the
  * scenes - not just their ids - changed afterwards.
  */
+/**
+ * Keys an earlier "Snap scenes to beats" wrote into scenes by mistake (issue #274): it patched a
+ * `hold` that scenes do not have (the field is `holdDurationSeconds`), so saved projects can carry
+ * `hold: null` (a NaN saved as JSON). Returns `scenes` itself when none has one, so a clean project
+ * keeps its array identity (the unsaved-changes check compares by identity).
+ */
+const STRAY_SCENE_KEYS = ['hold'];
+export const stripStraySceneKeys = (scenes) => {
+  if (!Array.isArray(scenes) || !scenes.some((s) => s && STRAY_SCENE_KEYS.some((k) => k in s))) return scenes;
+  return scenes.map((s) => {
+    if (!s || !STRAY_SCENE_KEYS.some((k) => k in s)) return s;
+    const clean = { ...s };
+    for (const k of STRAY_SCENE_KEYS) delete clean[k];
+    return clean;
+  });
+};
+
 export const sceneSignature = (doc) => stable(Array.isArray(doc?.scenes) ? doc.scenes : []);
 
 const validIndex = (i, n) => Number.isInteger(i) && i >= 0 && i < n;

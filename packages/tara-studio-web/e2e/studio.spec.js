@@ -1374,3 +1374,59 @@ test.describe('snap scenes to beats (issue #274)', () => {
     await expect(page.getByRole('button', { name: 'Undo', exact: true })).toBeDisabled();
   });
 });
+
+// Issue #282: what the audio panel and the waveform show for an analysis. The analyser's response is
+// stubbed with its real shape (beats are { t, confidence }, the confidence is bpm_confidence, bpm is
+// null when no tempo is found, there is no `sections`); the display used to read it wrongly.
+test.describe('music analysis display (issue #282)', () => {
+  const analysis = (over = {}) => ({
+    analyzer_version: '1', duration_s: 80, sample_rate: 8000, bpm: 90, bpm_confidence: 0.9,
+    beats: Array.from({ length: 80 }, (_, i) => ({ t: Math.round((0.37 + i) * 1000) / 1000, confidence: 0.5 })),
+    onsets: [], bars: { beats_per_bar: 4, downbeat_beat_index: 0, confidence: 0.5, times: [0.37, 4.37, 8.37, 12.37] },
+    settings_used: { min_bpm: 60, max_bpm: 200, beats_per_bar: 4 }, ...over,
+  });
+  const analyse = async (page, body) => {
+    await page.route('**/api/music/analyze', (route) => route.fulfill({ json: body }));
+    await consoleTab(page, 'AUDIO');
+    await page.locator('input[type="file"]').setInputFiles(markerWav());
+    await page.getByRole('button', { name: 'Analyze Beats & Tempo' }).click();
+    await expect(page.getByRole('button', { name: 'Snap Scenes to Beats' })).toBeVisible();
+  };
+
+  test('shows the tempo and the real confidence, with no "undefined" and no Sections', async ({ page }) => {
+    await openStudio(page, PASSED_REPORT);
+    await analyse(page, analysis());
+    const drawer = page.locator('.control-drawer');
+    await expect(drawer).toContainText('90.0 BPM');
+    await expect(drawer).toContainText('90% conf');
+    await expect(drawer).toContainText('Beats: 80');
+    await expect(drawer).not.toContainText('undefined');
+    await expect(drawer).not.toContainText('Sections');
+  });
+
+  test('says no tempo was found when the analyser could not find one', async ({ page }) => {
+    await openStudio(page, PASSED_REPORT);
+    await analyse(page, analysis({ bpm: null, bpm_confidence: 0, beats: [], bars: { beats_per_bar: 4, downbeat_beat_index: 0, confidence: 0, times: [] } }));
+    const drawer = page.locator('.control-drawer');
+    await expect(drawer).toContainText('No tempo found');
+    await expect(drawer).not.toContainText('undefined');
+    await expect(drawer).not.toContainText('% conf');
+  });
+
+  test('the waveform draws beat and downbeat ticks', async ({ page }) => {
+    await openStudio(page, PASSED_REPORT);
+    await analyse(page, analysis());
+    // Beat ticks are light, downbeat ticks amber; the waveform canvas is the only 2D canvas on the page.
+    await expect.poll(() => page.evaluate(() => {
+      for (const c of document.querySelectorAll('canvas')) {
+        let ctx; try { ctx = c.getContext('2d'); } catch { continue; }
+        if (!ctx || !c.width) continue;
+        const d = ctx.getImageData(0, 0, c.width, c.height).data;
+        let amber = 0;
+        for (let i = 0; i < d.length; i += 4) if (d[i + 3] > 80 && d[i] > 200 && d[i + 1] > 140 && d[i + 1] < 215 && d[i + 2] < 120) amber += 1;
+        if (amber > 0) return amber;
+      }
+      return 0;
+    })).toBeGreaterThan(0);
+  });
+});

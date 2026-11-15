@@ -178,3 +178,41 @@ describe('audioBufferToWav and arrayBufferToBase64', () => {
     expect(b64).toBe('SGVsbG8=');
   });
 });
+
+describe('drawWaveform beat ticks (issue #282)', () => {
+  const peaks = computePeaks(fakeBuffer([sine(48000, 8)]), 2000);
+  const COLUMNS = 200;
+  const draw = (opts) => {
+    const { canvas, rects } = stubCanvas(COLUMNS, 60);
+    drawWaveform(canvas, peaks, { duration: 10, startTime: 0, endTime: 10, ...opts });
+    return rects.slice(COLUMNS); // the waveform columns come first, ticks after
+  };
+
+  it('draws a tick for each beat when beats are the analyser\'s { t, confidence } objects', () => {
+    // Before the fix the objects were compared as numbers, so nothing matched and no tick ever drew.
+    const ticks = draw({ beats: [{ t: 2, confidence: 0.5 }, { t: 4, confidence: 0.5 }, { t: 6, confidence: 0.9 }] });
+    expect(ticks).toHaveLength(3);
+    expect(ticks.map((r) => r.x)).toEqual([40, 80, 120]);
+  });
+
+  it('still accepts plain numbers', () => {
+    expect(draw({ beats: [2, 4, 6] })).toHaveLength(3);
+  });
+
+  it('draws a downbeat as a taller tick when the bar times (plain numbers) match a beat', () => {
+    const ticks = draw({ beats: [{ t: 2 }, { t: 4 }, { t: 6 }], downbeats: [4] });
+    const [beat, down] = [ticks[0], ticks[1]];
+    expect(down.h).toBe(60); // full height
+    expect(beat.h).toBeLessThan(down.h);
+  });
+
+  it('only draws beats inside the visible window', () => {
+    expect(draw({ beats: [{ t: 1 }, { t: 5 }, { t: 9 }], startTime: 4, endTime: 6 })).toHaveLength(1);
+  });
+
+  it('ignores a beat that has no usable time instead of painting a NaN tick', () => {
+    const ticks = draw({ beats: [{ confidence: 1 }, null, { t: 'x' }, { t: 3 }] });
+    expect(ticks).toHaveLength(1);
+    expect(ticks.every((r) => Number.isFinite(r.x))).toBe(true);
+  });
+});

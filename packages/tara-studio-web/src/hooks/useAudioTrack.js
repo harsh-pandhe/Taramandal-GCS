@@ -26,7 +26,7 @@ export default function useAudioTrack() {
   const [error, setError] = useState('');
   const [volume, setVolumeState] = useState(1);
 
-  // Issue #91: Music-aware analysis state (BPM, beats, bars, sections)
+  // Issue #91: Music-aware analysis state (BPM, beats, bars)
   const [analysis, setAnalysis] = useState(null);
   const [analyzing, setAnalyzing] = useState(false);
   const [analysisError, setAnalysisError] = useState('');
@@ -87,26 +87,6 @@ export default function useAudioTrack() {
     }
   }, []);
 
-  const snapTimeToBeat = useCallback((t, snapToBar = false) => {
-    if (!analysis) return t;
-    const targets = snapToBar && analysis.bars?.times?.length
-      ? analysis.bars.times
-      : (analysis.beats?.length ? analysis.beats : null);
-    if (!targets || !targets.length) return t;
-
-    let closest = targets[0];
-    let minDiff = Math.abs(t - closest);
-    for (let i = 1; i < targets.length; i += 1) {
-      const diff = Math.abs(t - targets[i]);
-      if (diff < minDiff) {
-        minDiff = diff;
-        closest = targets[i];
-      }
-    }
-    // Only snap if within 0.75 seconds of a target
-    return minDiff <= 0.75 ? closest : t;
-  }, [analysis]);
-
   const clear = useCallback(() => {
     clockRef.current.stop();
     clockRef.current.buffer = null;
@@ -128,6 +108,6 @@ export default function useAudioTrack() {
     name, duration, peaks, loading, error, volume,
     hasTrack: !!peaks,
     analysis, analyzing, analysisError,
-    load, clear, setVolume, analyzeTrack, snapTimeToBeat,
+    load, clear, setVolume, analyzeTrack,
   };
 }
