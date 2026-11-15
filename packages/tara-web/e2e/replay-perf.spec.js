@@ -10,7 +10,7 @@ import { signIn } from './session.js';
 //   python tools/replay_perf_record.py --out /some/dir
 //   REPLAY_PERF_DATA=/some/dir/overview.json npx playwright test e2e/replay-perf.spec.js
 //
-// Optional: REPLAY_PERF_WINDOW=/some/dir/window30.json (a 30 s full-rate window, as
+// Optional: REPLAY_PERF_WINDOW=/some/dir/window.json (a full-rate window, as
 // tools/replay_perf_record.py writes it) makes the mocked GCS answer full-rate window
 // requests with that window shifted to the time asked for, so the cost of loading and
 // swapping windows is part of the measurement. Without it window requests fail, and the

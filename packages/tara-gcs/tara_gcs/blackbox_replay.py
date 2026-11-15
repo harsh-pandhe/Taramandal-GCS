@@ -27,6 +27,7 @@ loop must run it in a worker thread so a replay request never delays the
 from __future__ import annotations
 
 import json
+import math
 import os
 import hashlib
 import re
@@ -284,9 +285,29 @@ class ReplaySession:
             "events": len(self.events),
             "event_kinds": kinds,
             "flag_bits": FLAG_BITS,
+            "geofence_radius_m": self.geofence_radius_m(),
             "truncated": self.truncated,
             "bytes": self.size_bytes,
         }
+
+    def geofence_radius_m(self) -> float | None:
+        """The hard geofence radius the flight ran under, or None when the recording does not say.
+
+        The GCS stamps it on every event (main.py's recorder context), and the show's own envelope is
+        applied when it is uploaded, after the session header was written, so the last event that carries
+        one is the best answer; the header's context is the fallback.
+        """
+
+        def pick(source) -> float | None:
+            v = source.get("geofence_radius_m") if isinstance(source, dict) else None
+            ok = isinstance(v, (int, float)) and not isinstance(v, bool) and math.isfinite(v) and v > 0
+            return float(v) if ok else None
+
+        for event in reversed(self.events):
+            radius = pick(event)
+            if radius is not None:
+                return radius
+        return pick(self.header.get("context") if isinstance(self.header, dict) else None)
 
     # -------------------------------------------------------------- events
 

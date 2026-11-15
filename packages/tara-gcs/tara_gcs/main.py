@@ -308,7 +308,13 @@ def _build_blackbox_service() -> BlackboxService | None:
             directory=os.environ.get("GCS_BLACKBOX_DIR") or BLACKBOX_DEFAULT_DIR,
             max_total_mb=float(os.environ.get("GCS_BLACKBOX_MAX_MB", 500)),
             file_mb=float(os.environ.get("GCS_BLACKBOX_FILE_MB", 100)),
-            context=lambda: {**_backend_audit_context(), "operating_mode": current_operating_mode},
+            context=lambda: {
+                **_backend_audit_context(),
+                "operating_mode": current_operating_mode,
+                # The replay draws the site's geofence from this (issue #284); the show's envelope is
+                # applied at upload, so the radius on the latest event is the one the flight used.
+                "geofence_radius_m": drone_manager.geofence_radius,
+            },
         )
     except Exception:
         logger.exception("Black-box recorder settings are invalid; starting the GCS without it")

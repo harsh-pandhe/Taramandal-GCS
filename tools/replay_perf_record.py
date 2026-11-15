@@ -6,13 +6,14 @@ It writes two files into --out (default ./replay-perf):
   blackbox-perf100.jsonl.gz   the recording (what the GCS would have written)
   overview.json               the three replay API replies a browser gets when it loads that recording
                               (summary, safety events, the default whole-session frame overview)
-  window30.json               one 30 s window at the full 10 Hz (what the replay's zoom asks the GCS for)
+  window.json                 one window at the full 10 Hz, sized as the replay sizes it (30,000 samples: 30 s at 100
+                              drones, 3 s at 1,000), i.e. what the replay's zoom asks the GCS for
 
 Then run the browser half against it:
-  REPLAY_PERF_DATA=<out>/overview.json REPLAY_PERF_WINDOW=<out>/window30.json \
+  REPLAY_PERF_DATA=<out>/overview.json REPLAY_PERF_WINDOW=<out>/window.json \
       npx playwright test e2e/replay-perf.spec.js   (in packages/tara-web)
 
-Usage, from the repo root:  python tools/replay_perf_record.py [--out DIR]
+Usage, from the repo root:  python tools/replay_perf_record.py [--out DIR] [--drones 100] [--minutes 15]
 """
 
 from __future__ import annotations
@@ -33,19 +34,25 @@ import test_blackbox as tb  # noqa: E402  (its _sim_fleet/_fly_one_tick drive th
 from tara_gcs import blackbox_replay as br  # noqa: E402
 from tara_gcs.blackbox import BlackboxRecorder  # noqa: E402
 
-N_DRONES = 100
-MINUTES = 15
+#: The replay's full-rate window budget and bounds (packages/tara-web/src/replay.js: DETAIL_SAMPLE_BUDGET,
+#: detailSpanMs). Kept in step by hand: it only decides how big a window this tool writes.
+DETAIL_SAMPLE_BUDGET = 30_000
+TICK_MS = 100
 
 
-async def record(path: str) -> None:
-    dm, fs = await tb._sim_fleet(N_DRONES, sim_packet_loss_base=0.01, sim_packet_loss_per_100m=0.02)
+def detail_span_ms(drones: int) -> int:
+    return min(60_000, max(3_000, (DETAIL_SAMPLE_BUDGET // max(1, drones)) * TICK_MS))
+
+
+async def record(path: str, n_drones: int, minutes: int) -> None:
+    dm, fs = await tb._sim_fleet(n_drones, sim_packet_loss_base=0.01, sim_packet_loss_per_100m=0.02)
     clock = tb.FakeClock()
     rec = BlackboxRecorder(path, clock=clock, fsync_interval_s=None,
                            context=lambda: {"backend": dm.backend, "fidelity": dm.fidelity})
-    phases = np.arange(N_DRONES) * 0.37
+    phases = np.arange(n_drones) * 0.37
     started = time.time()
     try:
-        for k in range(MINUTES * 600):
+        for k in range(minutes * 600):
             tb._fly_one_tick(dm, fs, phases, k * 0.1, k)
             rec.record_tick(dm.telemetry, rf_drop_rate=fs.rf_channel.drop_rate())
             if k % 600 == 300:
@@ -62,7 +69,7 @@ async def record(path: str) -> None:
     print(f"recorded {rec.ticks} ticks, {os.path.getsize(path) / 1e6:.2f} MB, in {time.time() - started:.0f} s of wall time")
 
 
-def report(path: str, out: Path) -> None:
+def report(path: str, out: Path, n_drones: int) -> None:
     t = time.perf_counter()
     session = br.ReplaySession.load(path, "perf")
     print(f"decode of the whole recording: {time.perf_counter() - t:.2f} s ({len(session.ticks)} ticks)")
@@ -71,14 +78,17 @@ def report(path: str, out: Path) -> None:
     built = (time.perf_counter() - t) * 1000
     print(f"default overview: {overview['count']} frames, stride {overview['stride']}, "
           f"{len(json.dumps(overview)) / 1e6:.2f} MB of JSON, built in {built:.0f} ms")
-    for step in (1000, 500, 100):
+    span = detail_span_ms(n_drones)
+    from_ms = 300_000
+    for step in (1000, 500, 0):
         t = time.perf_counter()
-        window = session.frames(from_ms=300_000, to_ms=330_000, step_ms=step, max_frames=5000, max_samples=200_000)
-        print(f"30 s window at step {step} ms: {window['count']} frames, "
+        window = session.frames(from_ms=from_ms, to_ms=from_ms + span, step_ms=step, max_frames=5000, max_samples=200_000)
+        label = f"step {step} ms" if step else "every tick"
+        print(f"{span / 1000:.0f} s window at {label}: {window['count']} frames, stride {window['stride']}, "
               f"{len(json.dumps(window)) / 1e6:.2f} MB, {(time.perf_counter() - t) * 1000:.0f} ms")
-    # One 30 s window at the full 10 Hz, for e2e/replay-perf.spec.js (REPLAY_PERF_WINDOW) to serve as the zoom reply.
-    (out / "window30.json").write_text(json.dumps(
-        session.frames(from_ms=300_000, to_ms=330_000, max_frames=5000, max_samples=200_000)))
+    # One window at the full 10 Hz, for e2e/replay-perf.spec.js (REPLAY_PERF_WINDOW) to serve as the zoom reply.
+    (out / "window.json").write_text(json.dumps(
+        session.frames(from_ms=from_ms, to_ms=from_ms + span, max_frames=5000, max_samples=200_000)))
     (out / "overview.json").write_text(json.dumps({
         "summary": session.summary(),
         "events": session.event_list(br.SAFETY_EVENT_KINDS),
@@ -89,11 +99,13 @@ def report(path: str, out: Path) -> None:
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--out", type=Path, default=Path("replay-perf"))
+    ap.add_argument("--drones", type=int, default=100)
+    ap.add_argument("--minutes", type=int, default=15)
     args = ap.parse_args()
     args.out.mkdir(parents=True, exist_ok=True)
-    path = str(args.out / "blackbox-perf100.jsonl.gz")
-    asyncio.run(record(path))
-    report(path, args.out)
+    path = str(args.out / f"blackbox-perf{args.drones}.jsonl.gz")
+    asyncio.run(record(path, args.drones, args.minutes))
+    report(path, args.out, args.drones)
 
 
 if __name__ == "__main__":

@@ -108,6 +108,9 @@ def test_a_short_show_leaves_telemetry_commands_and_transitions_in_the_log(gcs, 
     log = read_blackbox(files[0])
     assert not log.truncated
     assert log.header["context"]["backend"] == "sim" and log.header["context"]["operating_mode"] == "SIMULATION"
+    # The site's geofence radius rides on the header and on every event, so a replay can draw it (issue #284).
+    assert log.header["context"]["geofence_radius_m"] > 0
+    assert log.events and all(e["geofence_radius_m"] > 0 for e in log.events)
 
     # Telemetry: the fleet climbed, armed, and came back down.
     assert all(t["ids"] == [0] for t in log.ticks)

@@ -261,6 +261,23 @@ test('telemetryAt gives the Earth view the fleet at a time: blended positions, f
   expect(r.empty).toEqual({});
 });
 
+test('geofenceRadiusFor takes a recording\'s radius only when it is a usable number', async ({ page }) => {
+  await openReplay(page);
+  const r = await page.evaluate(async () => {
+    const { geofenceRadiusFor } = await import('/src/replay.js');
+    const tag = (v) => (v === undefined ? 'default' : v); // undefined = the view keeps its own default
+    const odd = [0, -3, '60', null, undefined, NaN, Infinity, true];
+    return {
+      usable: [60, 63.95].map((v) => tag(geofenceRadiusFor({ geofence_radius_m: v }))),
+      notUsable: odd.map((v) => tag(geofenceRadiusFor({ geofence_radius_m: v }))),
+      noSummary: [tag(geofenceRadiusFor(null)), tag(geofenceRadiusFor({}))],
+    };
+  });
+  expect(r.usable).toEqual([60, 63.95]);
+  expect(r.notUsable.every((v) => v === 'default')).toBe(true);
+  expect(r.noSummary).toEqual(['default', 'default']);
+});
+
 test('fillFleetBuffer blends positions between recorded frames and marks planned/LED data not valid', async ({ page }) => {
   await openReplay(page);
   const result = await page.evaluate(async (frames) => {
