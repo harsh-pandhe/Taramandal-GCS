@@ -754,3 +754,102 @@ def test_delete_and_move_number_check_is_linear_on_adversarial_input():
     for p in ("9" * 500, "1 " * 250, "#" * 500, "scene" + " " * 495, "scene #" + " " * 490, "scenes " * 70, "#" + " " * 498 + "1"):
         ai_plan.prompt_numbers(p)
     assert time.perf_counter() - start < 0.5
+
+
+# --- review of #290, against the real qwen2.5:7b ------------------------------------------------------
+# A number must be written for the right role. Real draft: "move scene 1 after scene 3 and make scene 2 a
+# heart" -> after the one repair the model moved scene 2 (written, but for the heart).
+
+def test_prompt_refs_assigns_each_number_to_its_role():
+    refs = ai_plan.prompt_refs("move scene 1 after scene 3 and make scene 2 a heart")
+    assert refs == {"delete": set(), "move": {1}, "target": {3}}
+    assert ai_plan.prompt_refs("delete scene 2 and make scene 3 bigger") == {"delete": {2}, "move": set(), "target": set()}
+    assert ai_plan.prompt_refs("Get rid of #4, put Scene2 before the scene 1")["delete"] == {4}
+    assert ai_plan.prompt_refs("Get rid of #4, put Scene2 before the scene 1") == {"delete": {4}, "move": {2}, "target": {1}}
+    assert ai_plan.prompt_refs("make scene 2 bigger") == {"delete": set(), "move": set(), "target": set()}
+
+
+def test_a_move_of_a_scene_the_operator_named_for_something_else_is_a_final_answer(monkeypatch):
+    res, fake = ops_run(monkeypatch, "move scene 1 after scene 3 and make scene 2 a heart",
+                        {"op": "move", "scene": 2, "position": "after", "target": 3})
+    assert res.status == "ok" and res.ops == [] and len(fake.calls) == 1
+    assert "needs a scene number" in res.unsupported[0]
+
+
+def test_the_scene_moved_is_the_one_that_follows_the_move_verb(monkeypatch):
+    res, _ = ops_run(monkeypatch, "move scene 1 after scene 3 and make scene 2 a heart",
+                     {"op": "move", "scene": 1, "position": "after", "target": 3})
+    assert res.ops == [{"op": "move", "scene": 1, "position": "after", "target": 3}]
+
+
+@pytest.mark.parametrize("prompt, scene, ok", [
+    ("delete scene 2 and make scene 3 bigger", 2, True),
+    ("delete scene 2 and make scene 3 bigger", 3, False),  # 3 is written, but not for the delete
+    ("make scene 3 bigger and delete scene 2", 3, False),
+    ("make scene 3 bigger and delete scene 2", 2, True),
+    ("scene 3 is too long, remove scene 2", 3, False),
+    ("scene 3 is too long, remove scene 2", 2, True),
+])
+def test_the_scene_deleted_is_the_one_that_follows_the_delete_verb(monkeypatch, prompt, scene, ok):
+    res, fake = ops_run(monkeypatch, prompt, {"op": "delete", "scene": scene})
+    assert (res.ops == [{"op": "delete", "scene": scene}]) is ok and len(fake.calls) == 1
+    if not ok:
+        assert "needs a scene number" in res.unsupported[0]
+
+
+def test_a_move_target_must_follow_before_or_after(monkeypatch):
+    res, _ = ops_run(monkeypatch, "move scene 2 and scene 3 look odd", {"op": "move", "scene": 2, "position": "after", "target": 3})
+    assert res.ops == []  # 3 is written, but not as the place to move to
+
+
+@pytest.mark.parametrize("prompt", [
+    "move scene 2 to the end", "move scene 2 to the back", "put scene 2 last", "send scene 2 to the bottom",
+    "move scene 2 after the last scene", "move scene 2 to the end of the show",
+])
+def test_after_the_last_scene_is_the_end(monkeypatch, prompt):
+    """The real model answered "after scene 3", a target nobody wrote; the operator said the end."""
+    res, fake = ops_run(monkeypatch, prompt, {"op": "move", "scene": 2, "position": "after", "target": 3})
+    assert res.ops == [{"op": "move", "scene": 2, "position": "last"}] and len(fake.calls) == 1
+
+
+@pytest.mark.parametrize("prompt", ["move scene 3 to the start", "put scene 3 first", "move scene 3 before the first scene",
+                                    "move scene 3 to the beginning", "send scene 3 to the top"])
+def test_before_the_first_scene_is_the_start(monkeypatch, prompt):
+    res, _ = ops_run(monkeypatch, prompt, {"op": "move", "scene": 3, "position": "before", "target": 1})
+    assert res.ops == [{"op": "move", "scene": 3, "position": "first"}]
+
+
+@pytest.mark.parametrize("prompt, op", [
+    # a target the operator wrote is never rewritten
+    ("move scene 2 after scene 3 but keep the last hold", {"op": "move", "scene": 2, "position": "after", "target": 3}),
+    ("move scene 3 before scene 1, first of all", {"op": "move", "scene": 3, "position": "before", "target": 1}),
+])
+def test_a_written_target_is_kept_as_it_is(monkeypatch, prompt, op):
+    res, _ = ops_run(monkeypatch, prompt, op)
+    assert res.ops == [op]
+
+
+@pytest.mark.parametrize("prompt, op", [
+    ("move scene 2 to the end", {"op": "move", "scene": 2, "position": "after", "target": 2}),  # not the edge scene
+    ("move scene 2 somewhere", {"op": "move", "scene": 2, "position": "after", "target": 3}),  # no end/start words
+    ("move scene 2 to the start", {"op": "move", "scene": 2, "position": "after", "target": 3}),  # wrong direction
+    ("move scene 2 to the end", {"op": "move", "scene": 2, "position": "before", "target": 3}),  # not an edge move
+])
+def test_only_an_edge_target_with_the_matching_word_is_rewritten(monkeypatch, prompt, op):
+    res, _ = ops_run(monkeypatch, prompt, op)
+    assert res.ops == []
+
+
+def test_a_rewrite_does_not_hide_a_scene_that_was_never_written(monkeypatch):
+    res, _ = ops_run(monkeypatch, "move the heart scene to the end", {"op": "move", "scene": 2, "position": "after", "target": 3})
+    assert res.ops == [] and "needs a scene number" in res.unsupported[0]
+
+
+def test_the_role_patterns_are_linear_on_adversarial_input():
+    import time
+    start = time.perf_counter()
+    for p in ("delete " * 70, "move the " * 55, "put " + "the " * 120, "before " + " " * 480, "after #" + " " * 490,
+              "get rid of " + "scene " * 70, ("delete scene " * 40)[:500], "remove" + " " * 490):
+        ai_plan.prompt_refs(p)
+        ai_plan._normalise_moves([{"op": "move", "scene": 2, "position": "after", "target": 3}], p, 3, ai_plan.prompt_refs(p))
+    assert time.perf_counter() - start < 0.5

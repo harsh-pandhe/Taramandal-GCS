@@ -206,10 +206,19 @@ cloud call.
   - `delete` and `move` need their scene number (and a move's target) written
     as a scene reference in the operator's sentence ("scene 2", "Scene2", "scenes 2", "#2", "scene #2";
     a bare number such as "hold 3 seconds" or "after 3" does not count, and the 12
-    in "scene 12" is not a 2). Otherwise the answer is final, with no ops and
-    no repair: "deleting a scene needs a scene number, e.g. 'delete scene 2'".
-    So "remove the boring scenes" and "delete the last scene" are refused, never
-    guessed. `duplicate` does not need this.
+    in "scene 12" is not a 2). The number must also belong to its verb: the scene
+    deleted follows delete/remove/drop/get rid of, the scene moved follows
+    move/put/send/shift/relocate/reorder, and a move's target follows
+    before/after. (A real draft for "move scene 1 after scene 3 and make scene 2 a
+    heart" moved scene 2: the 2 was written, but for the heart.) Otherwise the
+    answer is final, with no ops and no repair: "deleting a scene needs a scene
+    number, e.g. 'delete scene 2'". So "remove the boring scenes" and "delete the
+    last scene" are refused, never guessed. `duplicate` does not need this.
+  - One rewrite, and only this one: the model turns "move scene 2 to the end" into
+    "after scene 3", a target nobody wrote. When the sentence says end/last/back/
+    bottom (or start/first/beginning/top/front) and the target is just that edge
+    scene, it is changed to `last`/`first`. A target the operator did write is
+    never rewritten.
   - A scene number or target above the show's scene count is the same final
     "does not exist" answer as for a patch. Scene 0 or below (the model
     mislabelling the op) and a move target equal to its own scene are a

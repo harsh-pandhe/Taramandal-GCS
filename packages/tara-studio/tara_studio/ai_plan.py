@@ -245,7 +245,46 @@ def prompt_numbers(prompt: str) -> set[int]:
     return {int(m) for m in _SCENE_REF.findall(prompt)}
 
 
-def _scene_op_errors(op: str, raw: dict, by_number: dict[int, dict], written: set[int]) -> list[tuple[str, str]]:
+# A written number must also belong to the right word. "move scene 1 after scene 3 and make scene 2 a
+# heart" wrote 1, 3 and 2, and a real qwen2.5:7b draft moved scene 2: the 2 was written, but for the heart.
+# So the scene being deleted must follow a delete verb, the scene being moved a move verb, and a move's
+# target "before"/"after". Same shape as _SCENE_REF, each pattern anchored on a literal word.
+_REF = r"(?:the\s+)?(?:scenes?\s*(?:#\s*)?|#\s*)(\d+)\b"
+_DELETE_REF = re.compile(rf"\b(?:delete|remove|drop|get\s+rid\s+of)\s+{_REF}", re.IGNORECASE | re.ASCII)
+_MOVE_REF = re.compile(rf"\b(?:move|put|send|shift|relocate|reorder)\s+{_REF}", re.IGNORECASE | re.ASCII)
+_TARGET_REF = re.compile(rf"\b(?:before|after)\s+{_REF}", re.IGNORECASE | re.ASCII)
+_END_CUE = re.compile(r"\b(?:end|last|bottom|back)\b", re.IGNORECASE | re.ASCII)
+_START_CUE = re.compile(r"\b(?:start|beginning|first|top|front)\b", re.IGNORECASE | re.ASCII)
+
+
+def prompt_refs(prompt: str) -> dict[str, set[int]]:
+    """Scene numbers the operator wrote for each role: ``delete`` and ``move`` (the scene acted on) and
+    ``target`` (the scene a move is before/after)."""
+    return {
+        "delete": {int(m) for m in _DELETE_REF.findall(prompt)},
+        "move": {int(m) for m in _MOVE_REF.findall(prompt)},
+        "target": {int(m) for m in _TARGET_REF.findall(prompt)},
+    }
+
+
+def _normalise_moves(raw_ops: list, prompt: str, count: int, refs: dict[str, set[int]]) -> list:
+    """The model turns "move scene 2 to the end" into "after scene 3", a target the operator never wrote.
+    "After the last scene" is the same place as "the end", so when the sentence says end/last (or
+    start/first) and the target is just that edge scene, say ``last``/``first`` instead. Nothing else is
+    rewritten, and a target the operator did write is left alone."""
+    out = []
+    for raw in raw_ops:
+        if isinstance(raw, dict) and raw.get("op") == "move" and _is_int(raw.get("target")):
+            t, pos = raw["target"], raw.get("position")
+            if pos == "after" and t == count and t not in refs["target"] and _END_CUE.search(prompt):
+                raw = {k: v for k, v in raw.items() if k != "target"} | {"position": "last"}
+            elif pos == "before" and t == 1 and t not in refs["target"] and _START_CUE.search(prompt):
+                raw = {k: v for k, v in raw.items() if k != "target"} | {"position": "first"}
+        out.append(raw)
+    return out
+
+
+def _scene_op_errors(op: str, raw: dict, by_number: dict[int, dict], refs: dict[str, set[int]]) -> list[tuple[str, str]]:
     """move / delete / duplicate: which scene, the move's position and target, and the literal-number rule."""
     n = raw.get("scene")
     count = len(by_number)
@@ -262,7 +301,7 @@ def _scene_op_errors(op: str, raw: dict, by_number: dict[int, dict], written: se
         stray += [k for k in ("position", "target") if k in raw]
     if stray:
         errors.append(("", f"{op} takes no {', '.join(stray)}"))
-    needed = [n]
+    unwritten = [] if n in refs["delete" if op == "delete" else "move"] else [n]
     example = "delete scene 2"
     if op == "move":
         example = "move scene 2 to the end"
@@ -281,19 +320,19 @@ def _scene_op_errors(op: str, raw: dict, by_number: dict[int, dict], written: se
                     errors.append(("", f"move {pos} needs a target scene number from 1 to {count}"))
             elif t == n:
                 errors.append(("", f"scene {n} cannot be moved {pos} itself (target equals scene)"))
-            else:
-                needed.append(t)
+            elif t not in refs["target"]:
+                unwritten.append(t)
         elif "target" in raw:
             errors.append(("", f"move {pos} takes no target"))
     if errors:
         return errors
-    if op in ("move", "delete") and any(x not in written for x in needed):
+    if op in ("move", "delete") and unwritten:
         what = "deleting a scene" if op == "delete" else "moving a scene"
         errors.append((NUMBER, f"{what} needs a scene number, e.g. '{example}'"))
     return errors
 
 
-def _op_errors(raw, scenes_by_number: dict[int, dict], written: set[int]) -> list[tuple[str, str]]:
+def _op_errors(raw, scenes_by_number: dict[int, dict], refs: dict[str, set[int]]) -> list[tuple[str, str]]:
     """(kind, message) per problem; kind is SCENE, NOOP, NUMBER or "" for an ordinary schema error."""
     errors: list[tuple[str, str]] = []
     if not isinstance(raw, dict):
@@ -311,7 +350,7 @@ def _op_errors(raw, scenes_by_number: dict[int, dict], written: set[int]) -> lis
         errors.append(("", f"shape must be one of {sorted(SHAPE_TOKENS)}"))
 
     if op in _SCENE_OPS:
-        return errors + _scene_op_errors(op, raw, scenes_by_number, written)
+        return errors + _scene_op_errors(op, raw, scenes_by_number, refs)
 
     if op == "patch":
         n = raw.get("scene")
@@ -382,10 +421,11 @@ def plan(user_prompt: str, scenes: list[dict], repair_note: str | None = None) -
         )
 
     by_number = {s["number"]: s for s in scenes}
-    written = prompt_numbers(user_prompt)
+    refs = prompt_refs(user_prompt)
+    raw_ops = _normalise_moves(raw_ops, user_prompt, len(scenes), refs)
     errors: list[tuple[str, str]] = []
     for i, raw in enumerate(raw_ops, start=1):
-        errors += [(kind, f"op {i}: {msg}") for kind, msg in _op_errors(raw, by_number, written)]
+        errors += [(kind, f"op {i}: {msg}") for kind, msg in _op_errors(raw, by_number, refs)]
     names = [r.get("op") for r in raw_ops if isinstance(r, dict)]
     if "move" in names and len(raw_ops) > 1:
         errors.append(("", "a move must be the only op in a draft; return the move alone"))
