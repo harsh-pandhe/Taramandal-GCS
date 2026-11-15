@@ -160,12 +160,12 @@ docstring in `ai_author.py` for the schema/repair design.
   isn't pulled, `propose()` reports `"unavailable"` and the rest of Studio's
   manual authoring workflow is unaffected.
 
-### Scene-edit planner (issue #94, slice 1)
+### Scene-edit planner (issue #94)
 
 `POST /api/ai/plan` (`tara_studio.ai_plan`) turns one sentence plus a compact
-summary of the current scenes into at most 3 ops, each a `patch` of an
-existing scene or an `add`. Scenes are referred to by their 1-based number,
-never an id. It uses the same local `qwen2.5:7b` (Ollama, schema-constrained
+summary of the current scenes into at most 3 ops: a `patch` of an existing
+scene, an `add`, or one of `move`, `delete`, `duplicate`. Scenes are referred
+to by their 1-based number, never an id. It uses the same local `qwen2.5:7b` (Ollama, schema-constrained
 output) and the same env vars as `/api/ai/propose`; it is local-only, with no
 cloud call.
 
@@ -196,6 +196,39 @@ cloud call.
     plain name, that name is used (not "the one called Opening", which names an
     existing scene) (first nameless add only; never over a name
     the model gave; a name over 60 characters is left unset, not truncated).
+- **Moving, deleting and duplicating scenes.** The ops are
+  `{"op":"move","scene":N,"position":"before"|"after","target":M}` or
+  `{"op":"move","scene":N,"position":"first"|"last"}` (no target),
+  `{"op":"delete","scene":N}` and `{"op":"duplicate","scene":N}`; they carry no
+  other fields. Rules, enforced in code and not left to the model:
+  - A `move` must be the only op in a draft, and a draft has at most one
+    `delete` (both are a `schema_error`, so the one repair may fix them).
+  - `delete` and `move` need their scene number (and a move's target) written
+    as a scene reference in the operator's sentence ("scene 2", "Scene2", "scenes 2", "#2", "scene #2";
+    a bare number such as "hold 3 seconds" or "after 3" does not count, and the 12
+    in "scene 12" is not a 2). The number must also belong to its verb: the scene
+    deleted follows delete/remove/drop/get rid of, the scene moved follows
+    move/put/send/shift/relocate/reorder, and a move's target follows
+    before/after. (A real draft for "move scene 1 after scene 3 and make scene 2 a
+    heart" moved scene 2: the 2 was written, but for the heart.) Otherwise the
+    answer is final, with no ops and no repair: "deleting a scene needs a scene
+    number, e.g. 'delete scene 2'". So "remove the boring scenes" and "delete the
+    last scene" are refused, never guessed. `duplicate` does not need this.
+  - One rewrite, and only this one: the model turns "move scene 2 to the end" into
+    "after scene 3", a target nobody wrote. When the sentence says end/last/back/
+    bottom (or start/first/beginning/top/front) and the target is just that edge
+    scene, it is changed to `last`/`first`. A target the operator did write is
+    never rewritten.
+  - A scene number or target above the show's scene count is the same final
+    "does not exist" answer as for a patch. Scene 0 or below (the model
+    mislabelling the op) and a move target equal to its own scene are a
+    `schema_error`, so the one repair may fix them.
+  - In the browser every op is compiled by scene id into one `scene/batch`
+    (`engine/planCompile.js`, with one shared move helper in
+    `engine/sceneOrder.js` that the typed grammar also uses). The last scene is
+    never deleted, a scene deleted earlier in the draft cannot be touched again,
+    and a move to the place a scene already has is refused, each with a clear
+    message and no repair call.
 - **Checking against the real model.** `python tools/plan_smoke.py [sentences.txt]`
   (optional `--scenes scenes.json`) runs sentences through `plan()` against a
   local Ollama with `qwen2.5:7b` and prints status, ops, unsupported, error and

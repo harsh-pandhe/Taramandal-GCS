@@ -305,3 +305,78 @@ describe('latest request wins', () => {
     expect(intent.proposal.summary).toContain('Set hold of scene 1');
   });
 });
+
+describe('move, delete and duplicate drafts (issue #94, slice 2)', () => {
+  // Each goes proposal -> PASSED check -> Apply, and Apply is ONE command (one undo step).
+  const applyOne = async (draft, summary, rowLabel) => {
+    proposePlan.mockResolvedValue(draft);
+    const { tree, intent } = await ask();
+    expect(proposePlan).toHaveBeenCalledTimes(1);
+    expect(intent.proposal.command.type).toBe('scene/batch');
+    expect(textOf(tree)).toContain(summary);
+    if (rowLabel) expect(textOf(tree)).toContain(rowLabel);
+    expect(textOf(tree)).toContain('PASSED: all good');
+    button(tree, 'Apply edit').props.onClick();
+    expect(state.execute).toHaveBeenCalledTimes(1);
+    expect(state.execute.mock.calls[0][0].type).toBe('scene/batch');
+    expect(render().intent.proposal).toBeNull();
+    return state.execute.mock.calls[0][0];
+  };
+
+  it('a delete draft', async () => {
+    const cmd = await applyOne(ok([{ op: 'delete', scene: 2 }]), 'Planner: Delete scene 2 ("Two")', 'deleted');
+    expect(cmd.commands.map((c) => c.type)).toEqual(['scene/delete']);
+  });
+
+  it('a duplicate draft shows the new scene "X copy"', async () => {
+    const cmd = await applyOne(ok([{ op: 'duplicate', scene: 1 }]), 'Planner: Duplicate scene 1 ("One")', 'New scene 2 "One copy"');
+    expect(cmd.commands.map((c) => c.type)).toEqual(['scene/duplicate']);
+  });
+
+  it('a move draft shows position rows', async () => {
+    const cmd = await applyOne(
+      ok([{ op: 'move', scene: 2, position: 'first' }]),
+      'Planner: Move scene 2 ("Two") to the start',
+      'Scene "Two" position',
+    );
+    expect(cmd.commands.map((c) => c.type)).toEqual(['scene/reorder']);
+  });
+
+  it('delete scene 2 and duplicate scene 1 are two commands in ONE batch', async () => {
+    const cmd = await applyOne(
+      ok([{ op: 'delete', scene: 2 }, { op: 'duplicate', scene: 1 }]),
+      'Planner: Delete scene 2 ("Two"); Duplicate scene 1 ("One")',
+      'New scene 2 "One copy"',
+    );
+    expect(cmd.commands.map((c) => c.type)).toEqual(['scene/delete', 'scene/duplicate']);
+  });
+
+  it('deleting the last scene is refused with a clear message and no repair call', async () => {
+    state.doc = { scenes: [makeScene({ id: 'a', name: 'Only' })], dronesList: [] };
+    proposePlan.mockResolvedValue(ok([{ op: 'delete', scene: 1 }]));
+    const { tree, intent } = await ask();
+    expect(proposePlan).toHaveBeenCalledTimes(1);
+    expect(intent.proposal).toBeNull();
+    expect(textOf(tree)).toContain(
+      "The planner's draft was refused: op 1: cannot delete scene 1 (\"Only\"): a show needs at least one scene",
+    );
+    expect(checkProposal).not.toHaveBeenCalled();
+  });
+
+  it('a delete or move without a written number is one clear message, no proposal and no repair', async () => {
+    proposePlan.mockResolvedValue(ok([], ["deleting a scene needs a scene number, e.g. 'delete scene 2'"]));
+    const { tree, intent } = await ask();
+    expect(proposePlan).toHaveBeenCalledTimes(1);
+    expect(intent.proposal).toBeNull();
+    expect(intent.planStatus).toBe("Deleting a scene needs a scene number, e.g. 'delete scene 2'.");
+    expect(textOf(tree)).not.toMatch(/not supported/i);
+  });
+
+  it('a move next to another op is a schema error: repaired once with the backend reason, then reported', async () => {
+    proposePlan.mockResolvedValue({ status: 'schema_error', ops: [], unsupported: [], error: 'a move must be the only op in a draft' });
+    const { tree } = await ask();
+    expect(proposePlan).toHaveBeenCalledTimes(2);
+    expect(proposePlan.mock.calls[1][0].repairNote).toBe('a move must be the only op in a draft');
+    expect(textOf(tree)).toContain("The planner's draft was refused: a move must be the only op in a draft");
+  });
+});

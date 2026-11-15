@@ -50,6 +50,13 @@ DEFAULT_SENTENCES = [
     "make the show 2 minutes long",
     "turn the drones red",
     "add a heart scene",
+    "delete scene 2",
+    "duplicate scene 1",
+    "move scene 3 before scene 1",
+    "move scene 2 to the end",
+    "delete the last scene",
+    "remove the boring scenes",
+    "move scene 1 after scene 3 and make scene 2 a heart",
 ]
 
 UNREACHABLE = ("unavailable", "timeout")

@@ -1,5 +1,5 @@
-// Compiles a local-planner draft (issue #94, slice 1) into ONE pinned scene/batch,
-// or refuses with a reason. The planner's ops are scene NUMBERS and plain field
+// Compiles a local-planner draft (issue #94) into ONE pinned scene/batch,
+// or refuses with a reason. The planner's ops (patch, add, move, delete, duplicate) are scene NUMBERS and plain field
 // values; ids, the batch pins and every limit come from here and from
 // commands.js, never from the model. The result has the same shape as
 // parseIntent's - { ok: true, command, summary } | { ok: false, reason } - so the
@@ -13,10 +13,12 @@
 import { SHAPE_LIBRARY } from './formations.js';
 import { sceneCommands, previewBatch } from './commands.js';
 import { sceneSignature } from './sceneValidation.js';
+import { moveTargetIndex } from './sceneOrder.js';
 
 /** The backend accepts at most this many scenes and ops (tara_studio/ai_plan.py). */
 export const MAX_PLAN_SCENES = 50;
 export const MAX_PLAN_OPS = 3;
+const MOVE_POSITIONS = ['before', 'after', 'first', 'last'];
 
 const fail = (reason, kind = 'refused') => ({ ok: false, reason, kind });
 
@@ -75,15 +77,15 @@ export const compilePlan = (doc, plan) => {
   if (!ops) return fail('the planner draft has no ops list', 'schema');
   const unsupported = Array.isArray(plan.unsupported) ? plan.unsupported.filter((x) => typeof x === 'string') : [];
   if (ops.length === 0) {
-    // An answer that already says "not supported" (the backend's show-length guard) is shown as
+    // An answer that already says what is wrong ("not supported", "needs a scene number": the backend's own guards) is shown as
     // it is, so the operator reads one sentence rather than "not supported" twice plus a hint.
-    const selfExplaining = unsupported.length > 0 && unsupported.every((x) => /not supported/i.test(x));
+    const selfExplaining = unsupported.length > 0 && unsupported.every((x) => /not supported|needs a scene number/i.test(x));
     let reason = 'the planner proposed no edit';
     if (selfExplaining) {
       const text = unsupported.join('; ');
       reason = `${text.charAt(0).toUpperCase()}${text.slice(1)}${/[.!?]$/.test(text) ? '' : '.'}`;
     } else if (unsupported.length) {
-      reason = `not supported: ${unsupported.join('; ')}. The planner only edits scene shapes, sizes, timing and names.`;
+      reason = `not supported: ${unsupported.join('; ')}. The planner edits scene shapes, sizes, timing and names, and adds, moves, deletes or duplicates scenes.`;
     }
     return fail(reason, 'unsupported');
   }
@@ -92,6 +94,20 @@ export const compilePlan = (doc, plan) => {
   const ids = doc.scenes.map((s) => s.id);
   const commands = [];
   const parts = [];
+  // Scene numbers in a draft always mean the numbering of the document it was requested for, so each
+  // op is resolved to an id at once. `order` is where every scene sits at this point in the draft
+  // (a move needs indices), and `gone` are the scenes an earlier op of the draft deleted.
+  const order = [...ids];
+  const gone = new Set();
+
+  const refer = (n, at) => {
+    if (!Number.isInteger(n) || n < 1 || n > doc.scenes.length) {
+      return { error: fail(`op ${at}: scene ${n} does not exist (the show has ${doc.scenes.length})`, 'schema') };
+    }
+    const scene = doc.scenes[n - 1];
+    if (gone.has(scene.id)) return { error: fail(`op ${at}: scene ${n} ("${scene.name}") was deleted earlier in this draft`) };
+    return { scene };
+  };
 
   for (const [k, op] of ops.entries()) {
     const at = k + 1;
@@ -112,20 +128,65 @@ export const compilePlan = (doc, plan) => {
     }
 
     if (op.op === 'patch') {
-      if (!Number.isInteger(op.scene) || op.scene < 1 || op.scene > doc.scenes.length) {
-        return fail(`op ${at}: scene ${op.scene} does not exist (the show has ${doc.scenes.length})`, 'schema');
-      }
+      const ref = refer(op.scene, at);
+      if (ref.error) return ref.error;
       if (Object.keys(fields).length === 0) return fail(`op ${at}: patch of scene ${op.scene} changes no field`, 'schema');
-      const scene = doc.scenes[op.scene - 1];
-      commands.push(sceneCommands.patch(scene.id, fields));
-      parts.push(`Edit scene ${op.scene} ("${scene.name}"): ${describeFields(fields)}`);
+      commands.push(sceneCommands.patch(ref.scene.id, fields));
+      parts.push(`Edit scene ${op.scene} ("${ref.scene.name}"): ${describeFields(fields)}`);
     } else if (op.op === 'add') {
       if (!hasShape) return fail(`op ${at}: add needs a shape`, 'schema');
       // Only the fields that were set: an undefined key would override makeScene's default.
-      commands.push(sceneCommands.add(fields));
+      const add = sceneCommands.add(fields);
+      commands.push(add);
+      order.push(add.scene.id);
       parts.push(`Add a ${shapeLabel(fields.shapeType, fields.shapePayload)} scene${fields.name ? ` "${fields.name}"` : ''}`);
+    } else if (op.op === 'delete') {
+      const ref = refer(op.scene, at);
+      if (ref.error) return ref.error;
+      if (order.length <= 1) {
+        return fail(`op ${at}: cannot delete scene ${op.scene} ("${ref.scene.name}"): a show needs at least one scene`);
+      }
+      commands.push(sceneCommands.delete(ref.scene.id, ref.scene.name));
+      gone.add(ref.scene.id);
+      order.splice(order.indexOf(ref.scene.id), 1);
+      parts.push(`Delete scene ${op.scene} ("${ref.scene.name}")`);
+    } else if (op.op === 'duplicate') {
+      const ref = refer(op.scene, at);
+      if (ref.error) return ref.error;
+      const dup = sceneCommands.duplicate(ref.scene.id, ref.scene.name);
+      commands.push(dup);
+      order.splice(order.indexOf(ref.scene.id) + 1, 0, dup.copyId);
+      parts.push(`Duplicate scene ${op.scene} ("${ref.scene.name}")`);
+    } else if (op.op === 'move') {
+      const ref = refer(op.scene, at);
+      if (ref.error) return ref.error;
+      if (!MOVE_POSITIONS.includes(op.position)) {
+        return fail(`op ${at}: move position must be one of ${MOVE_POSITIONS.join(', ')}`, 'schema');
+      }
+      const relative = op.position === 'before' || op.position === 'after';
+      let anchor = -1;
+      let where = op.position === 'first' ? 'to the start' : 'to the end';
+      if (relative) {
+        if (!Number.isInteger(op.target)) return fail(`op ${at}: move ${op.position} needs a target scene number`, 'schema');
+        const target = refer(op.target, at);
+        if (target.error) return target.error;
+        if (target.scene.id === ref.scene.id) {
+          return fail(`op ${at}: scene ${op.scene} cannot be moved ${op.position} itself`, 'schema');
+        }
+        anchor = order.indexOf(target.scene.id);
+        where = `${op.position} scene ${op.target}`;
+      } else if (op.target !== undefined) {
+        return fail(`op ${at}: move ${op.position} takes no target`, 'schema');
+      }
+      const from = order.indexOf(ref.scene.id);
+      const to = moveTargetIndex(from, anchor, op.position, order.length);
+      if (to === from) return fail(`op ${at}: scene ${op.scene} ("${ref.scene.name}") is already in that position`);
+      commands.push(sceneCommands.reorder(from, to));
+      order.splice(from, 1);
+      order.splice(to, 0, ref.scene.id);
+      parts.push(`Move scene ${op.scene} ("${ref.scene.name}") ${where}`);
     } else {
-      return fail(`op ${at}: "${op.op}" is not a supported op (patch or add)`, 'schema');
+      return fail(`op ${at}: "${op.op}" is not a supported op (patch, add, move, delete or duplicate)`, 'schema');
     }
   }
 
