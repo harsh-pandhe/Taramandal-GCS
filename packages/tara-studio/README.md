@@ -184,3 +184,17 @@ cloud call.
 - Always HTTP 200 with a `status` (`ok`, `schema_error`, `unavailable`,
   `timeout`); only a malformed request body is a 422. Tests fake the model
   (`tests/test_ai_plan*.py`); none need a live Ollama.
+- **Two deterministic guards** (the 7B model ignored the prompt rules for both):
+  - *Show length.* A request to change the total show length or duration
+    ("make the show 2 minutes long") that names no scene is answered with no
+    ops and "not supported", before any model call. A sentence naming a scene
+    ("set hold of scene 1 to 90 seconds") is an ordinary edit.
+  - *Scene name on add.* If the model leaves out the name of an added scene
+    but the operator wrote `called`/`named`/`titled` followed by a quoted or
+    plain name, that name is used (first nameless add only; never over a name
+    the model gave; a name over 60 characters is left unset, not truncated).
+- **Checking against the real model.** `python tools/plan_smoke.py [sentences.txt]`
+  (optional `--scenes scenes.json`) runs sentences through `plan()` against a
+  local Ollama with `qwen2.5:7b` and prints status, ops, unsupported, error and
+  time for each. It needs Ollama running; pytest never runs it against a model.
+  Use it before merging any change to the planner's prompt, schema or ops.

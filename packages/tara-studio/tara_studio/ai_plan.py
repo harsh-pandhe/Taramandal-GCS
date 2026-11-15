@@ -1,4 +1,4 @@
-"""Local scene-edit planner, slice 1 (issue #94): one sentence -> up to 3 ops.
+"""Local scene-edit planner (issue #94): one sentence -> up to 3 ops.
 
 The model (local Ollama, schema-constrained JSON) is shown a compact summary
 of the current scenes and answers with at most three *ops*, each either a
@@ -24,11 +24,19 @@ Contract points, all deliberate:
   a scene nobody asked for; asked to "turn the drones red" it returned no-op patches
   of every scene. A repair can only make the model guess, so the answer is "no ops"
   with the reason in ``unsupported``, which the browser shows as "not supported".
+* Two deterministic guards cover rules the 7B model ignored in its prompt:
+  - Show-length guard: a request to change the total show length/duration that names
+    no scene is answered before the model is called (ZERO model calls): no ops and a
+    "not supported" reason. Asked for a target length, the model rewrote the timings.
+  - Name fallback: if the model omits the optional ``name`` of an ``add`` but the
+    prompt has an explicit "called/named/titled X", X is used (first nameless add
+    only, never over a model-supplied name, never truncated past 60 characters).
 """
 
 from __future__ import annotations
 
 import json
+import re
 import socket
 import urllib.error
 from dataclasses import dataclass, field
@@ -47,6 +55,69 @@ MAX_OPS = 3
 _MAX_UNSUPPORTED_ITEMS = 10
 _NUMERIC = ("scale", "hold_seconds", "transition_seconds")
 _PATCH_FIELDS = ("name", "shape", *_NUMERIC)
+_MAX_NAME_LEN = 60  # mirrors MAX_SCENE_NAME_LENGTH in the web app's sceneLimits.js
+
+SHOW_LENGTH_UNSUPPORTED = (
+    "changing the total show length is not supported by the planner; "
+    "edit scene holds and transitions instead"
+)
+
+# --- Show-length guard (no model call) ---------------------------------------
+# The planner cannot hit a target total length: asked to, the 7B model rewrites
+# hold/transition values of every scene. So a request about the show's overall
+# length is answered here, finally, before any model call. A request that names a
+# scene ("set hold of scene 1 to 90 seconds") is an ordinary edit and is not caught.
+# Every quantifier is bounded and the alternatives do not overlap, so there is no
+# catastrophic backtracking on the 500-character prompt limit.
+_DUR = r"(?:\d{1,4}:\d{2}|\d{1,4}(?:\.\d{1,2})?\s*(?:minutes?|mins?|seconds?|secs?|s))"
+_SHOW_LENGTH = re.compile(
+    r"\b(?:show|total|overall|whole|entire)\s+(?:length|duration|runtime)\b"
+    r"|\b(?:shorten|lengthen|extend|stretch|shrink)\s+(?:the\s+|this\s+|my\s+)?(?:(?:whole|entire)\s+)?show\b"
+    r"|\b(?:shorter|longer)\s+show\b|\bshow\s+(?:shorter|longer)\b"
+    r"|\b(?:whole|entire)\s+show\b"
+    rf"|\bshow\s+(?:(?:should\s+be|to\s+be|be|is|to|for)\s+)?(?:(?:about|around)\s+)?{_DUR}\b"
+    rf"|\bit\s+(?:(?:about|around)\s+)?{_DUR}\s+long\b",
+    re.IGNORECASE,
+)
+_NAMES_A_SCENE = re.compile(r"\bscenes?\s*#?\s*\d", re.IGNORECASE)
+
+
+def asks_for_show_length(prompt: str) -> bool:
+    return bool(_SHOW_LENGTH.search(prompt)) and not _NAMES_A_SCENE.search(prompt)
+
+def asks_for_show_length(prompt: str) -> bool:
+    return bool(_SHOW_LENGTH.search(prompt)) and not _NAMES_A_SCENE.search(prompt)
+
+
+# --- Name fallback for `add` ---------------------------------------------------
+# The model often leaves out the optional "name" of an added scene even when the
+# operator gave one. Only an explicit naming phrase is used: called/named/titled
+# followed by a quoted string, or by words up to punctuation or a stop word.
+_NAME_CUE = re.compile(
+    r"\b(?:called|named|titled)\s+"
+    r"(?:\"([^\"]*)\"|'([^']*)'|“([^”]*)”|‘([^’]*)’|(.*))",
+    re.IGNORECASE | re.DOTALL,
+)
+_NAME_END = re.compile(r"[,.;:!?\n]|\b(?:with|that|which|and|then)\b", re.IGNORECASE)
+_QUOTES = "\"'“”‘’"
+
+
+def name_from_prompt(prompt: str) -> str | None:
+    """The scene name the operator spelled out, or None. Never truncates."""
+    m = _NAME_CUE.search(prompt)
+    if not m:
+        return None
+    quoted = next((g for g in m.groups()[:4] if g is not None), None)
+    if quoted is not None:
+        name = quoted
+    else:
+        tail = m.group(5)
+        end = _NAME_END.search(tail)
+        name = tail[: end.start()] if end else tail
+    name = name.strip().strip(_QUOTES).strip()
+    if not name or len(name) > _MAX_NAME_LEN:
+        return None
+    return name
 
 
 @dataclass
@@ -180,6 +251,8 @@ def _op_errors(raw, scenes_by_number: dict[int, dict]) -> list[tuple[str, str]]:
 
 def plan(user_prompt: str, scenes: list[dict], repair_note: str | None = None) -> PlanResult:
     """One planning call. Never raises and never retries; see the module docstring."""
+    if asks_for_show_length(user_prompt):
+        return PlanResult(status="ok", ops=[], unsupported=[SHOW_LENGTH_UNSUPPORTED])
     prompt = _build_prompt(user_prompt, scenes, repair_note)
     try:
         parsed = _call_ollama(prompt, _schema())
@@ -231,10 +304,16 @@ def plan(user_prompt: str, scenes: list[dict], repair_note: str | None = None) -
         return PlanResult(status="schema_error", error="; ".join(msg for _, msg in errors))
 
     ops = []
+    fallback_used = False  # the operator's one stated name goes to at most one scene
     for raw in raw_ops:
         out: dict = {"op": raw["op"], "scene": 0 if raw["op"] == "add" else raw["scene"]}
         if "name" in raw:
             out["name"] = raw["name"].strip()
+        elif raw["op"] == "add" and not fallback_used:
+            fallback_used = True
+            named = name_from_prompt(user_prompt)
+            if named:
+                out["name"] = named
         if "shape" in raw:
             out["shape_type"], out["shape_payload"] = SHAPE_TOKENS[raw["shape"]]
         for key in _NUMERIC:

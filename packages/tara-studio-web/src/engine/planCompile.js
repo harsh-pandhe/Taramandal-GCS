@@ -75,12 +75,17 @@ export const compilePlan = (doc, plan) => {
   if (!ops) return fail('the planner draft has no ops list', 'schema');
   const unsupported = Array.isArray(plan.unsupported) ? plan.unsupported.filter((x) => typeof x === 'string') : [];
   if (ops.length === 0) {
-    return fail(
-      unsupported.length
-        ? `not supported: ${unsupported.join('; ')}. The planner only edits scene shapes, sizes, timing and names.`
-        : 'the planner proposed no edit',
-      'unsupported',
-    );
+    // An answer that already says "not supported" (the backend's show-length guard) is shown as
+    // it is, so the operator reads one sentence rather than "not supported" twice plus a hint.
+    const selfExplaining = unsupported.length > 0 && unsupported.every((x) => /not supported/i.test(x));
+    let reason = 'the planner proposed no edit';
+    if (selfExplaining) {
+      const text = unsupported.join('; ');
+      reason = `${text.charAt(0).toUpperCase()}${text.slice(1)}${/[.!?]$/.test(text) ? '' : '.'}`;
+    } else if (unsupported.length) {
+      reason = `not supported: ${unsupported.join('; ')}. The planner only edits scene shapes, sizes, timing and names.`;
+    }
+    return fail(reason, 'unsupported');
   }
   if (ops.length > MAX_PLAN_OPS) return fail(`at most ${MAX_PLAN_OPS} ops are allowed, got ${ops.length}`, 'schema');
 
