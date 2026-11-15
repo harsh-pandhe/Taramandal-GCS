@@ -1207,3 +1207,9 @@ body {
 .replay-detail dl { display: grid; grid-template-columns: max-content 1fr; gap: 0.2rem 1rem; margin: 0.5rem 0 0; }
 .replay-detail dt { color: var(--text-dim); }
 .replay-detail dd { margin: 0; }
+/* Commands and lifecycle markers (issue #284): a quieter second row under the scrubber. */
+.replay-timeline.with-activity { padding-bottom: 14px; }
+.replay-activity-markers { top: auto; bottom: 0; height: 10px; }
+.replay-marker.activity { width: 6px; height: 10px; margin-left: -3px; background: var(--accent); opacity: 0.8; }
+.replay-marker.activity.refused { background: var(--warning); opacity: 1; }
+.replay-marker.activity.selected { outline: 2px solid var(--text); opacity: 1; }

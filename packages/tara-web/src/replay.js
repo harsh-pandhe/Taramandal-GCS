@@ -29,6 +29,35 @@ export async function listSessions() {
   return (await getJson('/api/blackbox/sessions')).sessions;
 }
 
+// What the GCS did and was asked to do, as opposed to what went wrong: API commands, lifecycle transitions
+// and refused lifecycle commands. Shown on the timeline on request (issue #284), separately from the
+// safety events, because a long flight records many of them.
+export const ACTIVITY_KINDS = ['command', 'fsm_transition', 'fsm_rejected'];
+export const ACTIVITY_LIMIT = 2000;
+
+/** The commands and lifecycle events of a session, in time order (identities hidden by the GCS). */
+export async function loadActivity(id) {
+  const q = `kinds=${ACTIVITY_KINDS.join(',')}&limit=${ACTIVITY_LIMIT}`;
+  return getJson(`/api/blackbox/sessions/${encodeURIComponent(id)}/events?${q}`);
+}
+
+/** True for an activity event the GCS refused (a refused command, a rejected lifecycle command). */
+export const isRefusal = (event) => event.kind === 'fsm_rejected' || (event.kind === 'command' && event.accepted === false);
+
+/** One short line for an activity event: what happened. */
+export function activityText(event) {
+  switch (event.kind) {
+    case 'fsm_transition':
+      return `${event.from ?? '?'} -> ${event.to ?? '?'}`;
+    case 'fsm_rejected':
+      return `refused ${event.command ?? 'command'}${event.reason ? `: ${event.reason}` : ''}`;
+    case 'command':
+      return `${event.command ?? 'command'}${event.accepted === false ? ' (refused)' : ''}`;
+    default:
+      return String(event.kind || 'event').replace(/_/g, ' ');
+  }
+}
+
 /** Summary, the safety events (the timeline markers) and an overview of the whole session. */
 export async function loadSession(id) {
   const enc = encodeURIComponent(id);
