@@ -237,6 +237,19 @@ describe('when the model cannot help', () => {
     expect(textOf(tree)).toMatch(/not supported: show length/);
   });
 
+  it('the show-length answer is one clear message, with no repair and no extra hint', async () => {
+    proposePlan.mockResolvedValue(ok([], [
+      'changing the total show length is not supported by the planner; edit scene holds and transitions instead',
+    ]));
+    const { tree, intent } = await ask();
+    expect(proposePlan).toHaveBeenCalledTimes(1);
+    expect(intent.proposal).toBeNull();
+    expect(intent.planStatus).toBe(
+      'Changing the total show length is not supported by the planner; edit scene holds and transitions instead.',
+    );
+    expect(textOf(tree)).not.toMatch(/only edits scene shapes/);
+  });
+
   it('the typed Preview edit still works with the planner offline', async () => {
     proposePlan.mockResolvedValue({ status: 'unavailable' });
     render().intent.setText('set hold of scene 1 to 8 s');

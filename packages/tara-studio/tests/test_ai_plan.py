@@ -92,7 +92,16 @@ def test_a_scene_that_is_not_a_whole_number_is_a_schema_error(monkeypatch, scene
     assert "1 to 2" in res.error
 
 
-@pytest.mark.parametrize("scene", [0, 3, 9, -1])
+@pytest.mark.parametrize("scene", [0, -1])
+def test_scene_zero_or_below_is_a_schema_error_to_repair_not_a_missing_scene(monkeypatch, scene):
+    """Real qwen2.5:7b, "add a ring scene called Dhiraj's show": it answered with a patch of scene 0 (an add
+    mislabelled). That is not an operator naming a scene the show lacks, so it is repaired."""
+    res, _ = run(monkeypatch, {"ops": [{"op": "patch", "scene": scene, "scale": 2}], "unsupported": []})
+    assert res.status == "schema_error"
+    assert "1 to 2" in res.error
+
+
+@pytest.mark.parametrize("scene", [3, 9])
 def test_a_patch_of_a_scene_the_show_does_not_have_is_a_final_answer_not_a_repair(monkeypatch, scene):
     """Real qwen2.5:7b, "make scene 9 a circle" on a 3-scene show: a repair note only made it add a scene
     nobody asked for. The answer is "no ops" and the reason, with no schema_error to send back."""
@@ -263,3 +272,197 @@ def test_a_hostile_scene_name_cannot_widen_the_contract(monkeypatch):
     res, fake = run(monkeypatch, {"ops": [{"op": "delete", "scene": 99}], "unsupported": []}, scenes=scenes)
     assert res.status == "schema_error"
     assert fake.calls[0][1]["properties"]["ops"]["items"]["properties"]["op"]["enum"] == ["patch", "add"]
+
+
+# --- Slice 2 / PR A: name fallback and show-length guard -------------------------------------
+
+def _add(**extra):
+    return {"op": "add", "scene": 0, "shape": "sphere", **extra}
+
+
+def _plan_add(monkeypatch, prompt, ops=None):
+    res, fake = run(monkeypatch, {"ops": ops or [_add()], "unsupported": []}, prompt=prompt)
+    assert res.status == "ok" and len(fake.calls) == 1
+    return res
+
+
+@pytest.mark.parametrize(
+    "prompt,expected",
+    [
+        ("add a sphere scene called Finale", "Finale"),
+        ('add a circle scene named "Big Ring"', "Big Ring"),
+        ("add a circle scene named 'Big Ring'", "Big Ring"),
+        ("add a circle scene named “Big Ring”", "Big Ring"),
+        ("add a heart scene titled Opening Night", "Opening Night"),
+        ("add a sphere scene CALLED Finale", "Finale"),
+        ("add a sphere scene called Grand Finale with a 8 second hold", "Grand Finale"),
+        ("add a sphere scene called Finale, then make scene 1 bigger", "Finale"),
+        ("add a sphere scene called Finale.", "Finale"),
+    ],
+)
+def test_name_fallback_uses_an_explicit_naming_phrase(monkeypatch, prompt, expected):
+    assert _plan_add(monkeypatch, prompt).ops[0]["name"] == expected
+
+
+@pytest.mark.parametrize(
+    "prompt",
+    [
+        "add a sphere scene",
+        "I recalled a sphere scene",       # "called" inside another word
+        "add a sphere scene, a bit unnamed",
+        "add a sphere scene called",       # phrase with nothing after it
+        'add a sphere scene called ""',
+        "add a sphere scene called   ",
+        "add a sphere scene called " + "x" * 61,  # over the 60-character limit: unset, not truncated
+    ],
+)
+def test_name_fallback_never_invents_a_name(monkeypatch, prompt):
+    assert "name" not in _plan_add(monkeypatch, prompt).ops[0]
+
+
+def test_name_fallback_accepts_exactly_sixty_characters(monkeypatch):
+    name = "y" * 60
+    assert _plan_add(monkeypatch, f"add a sphere scene called {name}").ops[0]["name"] == name
+
+
+def test_a_name_from_the_model_wins_over_the_prompt(monkeypatch):
+    res = _plan_add(monkeypatch, "add a sphere scene called Finale", [_add(name="Model Pick")])
+    assert res.ops[0]["name"] == "Model Pick"
+
+
+def test_only_the_first_nameless_add_gets_the_fallback_name(monkeypatch):
+    res = _plan_add(monkeypatch, "add two scenes called Finale", [_add(), _add(shape="heart")])
+    assert res.ops[0]["name"] == "Finale"
+    assert "name" not in res.ops[1]
+
+
+def test_a_later_nameless_add_still_gets_the_name_when_an_earlier_add_had_one(monkeypatch):
+    # The fallback is for the first add WITHOUT a model name; the named one is untouched.
+    res = _plan_add(monkeypatch, "add scenes called Finale", [_add(name="Given"), _add(shape="heart")])
+    assert res.ops[0]["name"] == "Given"
+    assert res.ops[1]["name"] == "Finale"
+
+
+def test_patch_ops_never_get_a_name_from_the_fallback(monkeypatch):
+    res = _plan_add(
+        monkeypatch, "make scene 1 a heart, it is called Finale",
+        [{"op": "patch", "scene": 1, "shape": "heart"}],
+    )
+    assert "name" not in res.ops[0]
+
+
+def test_the_name_fallback_is_linear_on_a_long_adversarial_prompt():
+    import time
+    prompts = [
+        "called " + "'" * 480,
+        "named " + ("a " * 240),
+        "show " + "9" * 480,
+        ("show " * 100) + "9",
+        "make the " + "whole " * 80,
+    ]
+    start = time.perf_counter()
+    for p in prompts:
+        ai_plan.name_from_prompt(p)
+        ai_plan.asks_for_show_length(p)
+    assert time.perf_counter() - start < 0.5
+
+
+SHOULD_TRIGGER = [
+    "make the show 2 minutes long",
+    "make the show 90 seconds long",
+    "Make the show 2 minutes long.",
+    "change the show length to 3 minutes",
+    "set the total duration to 2:30",
+    "the show should be 2:30",
+    "make it 2 minutes long",
+    "make it about 90 seconds long",
+    "whole show 90 seconds",
+    "make the whole show 3 minutes",
+    "I want a shorter show",
+    "make the show shorter",
+    "make the show longer please",
+    "shorten the show",
+    "lengthen the whole show",
+]
+SHOULD_NOT_TRIGGER = [
+    "set hold of scene 1 to 90 seconds",
+    "make scene 2 longer",
+    "make the show 2 minutes long but only change scene 1",
+    "add a scene called Show Finale",
+    "add a sphere scene called Finale",
+    "make scene 2 a heart",
+    "set scale of scene 1 to 5",
+    "turn the drones red",
+    "make it a heart",
+    "make it bigger",
+    "add a heart scene for the show",
+    "set the hold of scene 1 to 8 seconds",
+    "add a scene called Show 5",
+]
+
+
+@pytest.mark.parametrize("prompt", SHOULD_TRIGGER)
+def test_show_length_requests_are_answered_with_no_model_call(monkeypatch, prompt):
+    res, fake = run(monkeypatch, {"ops": [{"op": "patch", "scene": 1, "hold_seconds": 2}], "unsupported": []}, prompt=prompt)
+    assert fake.calls == []
+    assert res.status == "ok" and res.ops == [] and res.error is None
+    assert res.unsupported == [ai_plan.SHOW_LENGTH_UNSUPPORTED]
+
+
+@pytest.mark.parametrize("prompt", SHOULD_NOT_TRIGGER)
+def test_other_sentences_still_reach_the_model_once(monkeypatch, prompt):
+    _, fake = run(monkeypatch, {"ops": [{"op": "patch", "scene": 1, "hold_seconds": 9}], "unsupported": []}, prompt=prompt)
+    assert len(fake.calls) == 1
+
+
+def test_the_guard_also_applies_to_a_repair_call(monkeypatch):
+    res, fake = run(monkeypatch, {"ops": [], "unsupported": ["x"]}, prompt="make the show 2 minutes long", repair_note="n")
+    assert fake.calls == [] and res.ops == []
+
+
+# --- review of #283, against the real qwen2.5:7b --------------------------------------------------
+
+@pytest.mark.parametrize("prompt", [
+    "make the show two minutes long",  # a spelled-out number slipped past the digits-only guard
+    "make the show a minute long",
+    "make the whole show 2 minutes long",
+    "make the whole show longer",
+    "shorten the entire show",
+    "make the show 90 seconds",
+    "make the show about five minutes",
+])
+def test_the_show_length_guard_catches_spelled_out_numbers_and_whole_show_lengths(prompt):
+    assert ai_plan.asks_for_show_length(prompt), prompt
+
+
+@pytest.mark.parametrize("prompt", [
+    "make the whole show bigger",  # about scale, not length: the "total show length" message would be wrong
+    "make the entire show a heart",
+    "make the show as a heart",  # "as" must not read as "a" + "s"
+    "make the show a heart",
+    "set hold of scene 1 to 2 minutes",
+    "make the opening scene longer",
+])
+def test_the_show_length_guard_leaves_other_requests_to_the_model(prompt):
+    assert not ai_plan.asks_for_show_length(prompt), prompt
+
+
+@pytest.mark.parametrize("prompt, name", [
+    ("add a sphere scene called Finale", "Finale"),
+    ("add a heart scene named 'Grand Opening'", "Grand Opening"),
+    ('add a scene titled "Night Sky" with a ring', "Night Sky"),
+    ("add a ring scene called Dhiraj's show", "Dhiraj's show"),
+    ("add a sphere scene called Finale and make it bigger", "Finale"),
+    # a name that belongs to an existing scene, not to the new one (the real model's draft was named "Opening")
+    ("add a heart scene after the one called Opening", None),
+    ("add a heart after the scene that is called Opening", None),
+    ("add a heart scene, call it Finale", None),
+])
+def test_the_name_fallback_only_takes_a_name_attached_to_a_scene(prompt, name):
+    assert ai_plan.name_from_prompt(prompt) == name
+
+
+def test_an_add_next_to_an_existing_scenes_name_is_not_given_that_name(monkeypatch):
+    res, _ = run(monkeypatch, {"ops": [{"op": "add", "scene": 0, "shape": "heart"}], "unsupported": []},
+                 prompt="add a heart scene after the one called Opening")
+    assert res.status == "ok" and "name" not in res.ops[0]
