@@ -1,0 +1,48 @@
+{
+ "seconds": 19.544,
+ "status": 200,
+ "body": {
+  "status": "COMPLETED",
+  "mode": "SIMULATION",
+  "configured_mode": "SIMULATION",
+  "active_backend": "px4",
+  "vehicle": "SIMULATED",
+  "steps": [
+   {
+    "step": "PREFLIGHT",
+    "status": "PASSED",
+    "time": 1794774084.3478765,
+    "drone_id": 0
+   },
+   {
+    "step": "ARM",
+    "status": "ARMED",
+    "time": 1794774084.6769733
+   },
+   {
+    "step": "HOVER_REACHED",
+    "status": "HOLDING",
+    "altitude_m": 0.86,
+    "time": 1794774093.0487802
+   },
+   {
+    "step": "HOVER_HOLD_COMPLETE",
+    "status": "STABLE",
+    "dwell_s": 5.03,
+    "time": 1794774098.0788257
+   },
+   {
+    "step": "LANDING_COMMANDED",
+    "status": "LANDING",
+    "landing_control": "AUTOPILOT_DELEGATED",
+    "note": "Descent rate is governed by autopilot landing parameters",
+    "time": 1794774098.1222754
+   },
+   {
+    "step": "TOUCHDOWN_DISARM",
+    "status": "DISARMED",
+    "time": 1794774103.8600605
+   }
+  ]
+ }
+}

@@ -1,0 +1,165 @@
+{
+  "run_id": "stream-drop-hover",
+  "case": "stream_drop_hover",
+  "verdict": "PASS",
+  "context": {
+    "run_id": "stream-drop-hover",
+    "case": "stream_drop_hover",
+    "stack": "tara up --backend px4 -n 1 (headless)",
+    "allow_unsigned": false,
+    "commit": "06fb92ce8ac9c8d806187b3731623b5728888ec6",
+    "started_utc": "2026-11-15T20:50:35Z",
+    "host_load_before": "3.31 3.81 4.38",
+    "host_load_at_start": "3.10 3.70 4.33",
+    "host_load_at_end": "3.01 3.65 4.30",
+    "other_running_containers": [],
+    "fresh_container": true,
+    "microsd_dirs_before_stack": 0,
+    "px4_version": "v1.16.2",
+    "image_id": "sha256:424c464813742ee541ad2a554ee4bfa5e709beeeaebfb1dbfe9384459d92d3cb",
+    "docker_server": "29.8.0 on linux/amd64",
+    "host_cpus": "16",
+    "host_kernel": "7.0.0-42-generic",
+    "headless": true,
+    "gazebo_window": false,
+    "rviz": false,
+    "recording": false,
+    "px4_ulogs_saved": 1,
+    "scenario_exit_code": 0
+  },
+  "checks": [
+    {
+      "name": "preflight ready before the run",
+      "ok": true,
+      "detail": "{'connected': 1, 'armed': 0, 'armed_stale': 0, 'armed_stale_ids': [], 'fleet_state': 'STAGED'}"
+    },
+    {
+      "name": "hover-sequence fails closed (not 200 COMPLETED)",
+      "ok": true,
+      "detail": "500 {\"detail\": \"Hover dwell failed: Drone 0 disconnected during hover dwell\"}"
+    },
+    {
+      "name": "connected falls to 0 while the stream is down",
+      "ok": true,
+      "detail": "0.015610218048095703"
+    },
+    {
+      "name": "PX4 is not left hovering in OFFBOARD: leaves OFFBOARD within 15 s",
+      "ok": true,
+      "detail": "1.8091299533843994"
+    },
+    {
+      "name": "PX4 ends disarmed on the ground within 90 s",
+      "ok": true,
+      "detail": "disarmed_at=6.666605234146118 mode=OFFBOARD alt=-0.02"
+    }
+  ],
+  "notes": {
+    "seconds_to_connected_0": 0.015610218048095703,
+    "seconds_to_PX4_left_OFFBOARD": 1.8091299533843994,
+    "seconds_to_connected_1_again": 4.103997468948364,
+    "seconds_to_disarm": 6.666605234146118,
+    "mode_events_after_drop": [
+      [
+        "mode",
+        "POSCTL"
+      ],
+      [
+        "landed_state",
+        "ON_GROUND"
+      ],
+      [
+        "armed",
+        false
+      ],
+      [
+        "mode",
+        "OFFBOARD"
+      ]
+    ],
+    "end_state": {
+      "mode": "OFFBOARD",
+      "armed": false,
+      "alt": -0.02,
+      "landed": "ON_GROUND"
+    },
+    "hover_result": {
+      "http": 500,
+      "detail": "{\"detail\": \"Hover dwell failed: Drone 0 disconnected during hover dwell\"}"
+    }
+  },
+  "exception": null,
+  "cadence": {
+    "landed_state": {
+      "items": 30,
+      "span_s": 29.8,
+      "mean_hz": 0.97,
+      "median_interval_s": 1.0,
+      "p99_interval_s": 1.0208,
+      "max_gap_s": 4.999,
+      "gaps_over_2_5s": 1,
+      "longest_run_of_identical_values": 19
+    },
+    "position_velocity_ned": {
+      "items": 794,
+      "span_s": 30.0,
+      "mean_hz": 26.47,
+      "median_interval_s": 0.0323,
+      "p99_interval_s": 0.0369,
+      "max_gap_s": 3.532,
+      "gaps_over_2_5s": 1
+    }
+  },
+  "observer_events": [
+    [
+      0.99,
+      "connected",
+      true
+    ],
+    [
+      1.4,
+      "armed",
+      true
+    ],
+    [
+      1.4,
+      "mode",
+      "HOLD"
+    ],
+    [
+      1.4,
+      "landed_state",
+      "ON_GROUND"
+    ],
+    [
+      2.42,
+      "mode",
+      "OFFBOARD"
+    ],
+    [
+      3.42,
+      "landed_state",
+      "IN_AIR"
+    ],
+    [
+      12.42,
+      "mode",
+      "POSCTL"
+    ],
+    [
+      15.42,
+      "landed_state",
+      "ON_GROUND"
+    ],
+    [
+      17.42,
+      "armed",
+      false
+    ],
+    [
+      17.42,
+      "mode",
+      "OFFBOARD"
+    ]
+  ]
+}

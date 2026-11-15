@@ -1,0 +1,27 @@
+[   0.90s] OBS connected: True
+[   1.07s] CHECK PASS preflight ready before the run | {'connected': 1, 'armed': 0, 'armed_stale': 0, 'armed_stale_ids': [], 'fleet_state': 'STAGED'}
+Received ack for not-existing command: 400! Ignoring... (mavlink_command_sender.cpp:304)
+[   1.43s] OBS armed: True
+[   1.43s] OBS mode: HOLD
+[   1.43s] OBS landed_state: ON_GROUND
+Received ack for not-existing command: 176! Ignoring... (mavlink_command_sender.cpp:304)
+Received ack for not-existing command: 176! Ignoring... (mavlink_command_sender.cpp:304)
+[   2.43s] OBS mode: OFFBOARD
+[   3.43s] OBS landed_state: IN_AIR
+[  11.44s] TAKEOVER start_position_control() alt=0.92 mode=OFFBOARD
+Received ack for not-existing command: 176! Ignoring... (mavlink_command_sender.cpp:304)
+[  11.45s] OBS mode: POSCTL
+[  11.83s] HOVER HTTP RESULT: 500 {"detail": "Hover dwell failed: Drone 0: operator took over (flight mode left OFFBOARD for POSCTL); the sequence is yielding without commanding the vehicle"}
+[  26.46s] NOTE method = "MAVSDK manual_control MANUAL_CONTROL stream, then start_position_control() (OFFBOARD to POSCTL)"
+[  26.46s] NOTE mode_events_after_takeover = ["POSCTL"]
+[  26.46s] CHECK PASS PX4 stays in POSCTL and armed 15 s after the switch | mode=POSCTL armed=True alt=0.94
+[  26.46s] CHECK PASS GCS sent no LAND or other mode change after the takeover | ['POSCTL']
+[  26.46s] CHECK PASS hover-sequence stops with 500 'operator took over' | 500 {"detail": "Hover dwell failed: Drone 0: operator took over (flight mode left OFFBOARD for POSCTL); the sequence is yielding without commanding the vehicle"}
+[  26.46s] CHECK PASS sequence stopped within 2 s of the switch | 0.38 s
+[  26.44s] OBS mode: LAND
+[  26.44s] OBS landed_state: LANDING
+[  29.44s] OBS landed_state: ON_GROUND
+[  31.44s] OBS armed: False
+[  31.44s] OBS mode: POSCTL
+Received ack for not-existing command: 176! Ignoring... (mavlink_command_sender.cpp:304)
+[  31.55s] VERDICT PASS

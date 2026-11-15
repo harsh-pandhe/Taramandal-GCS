@@ -1,0 +1,40 @@
+[   0.95s] OBS connected: True
+[   1.13s] CHECK PASS preflight ready before the run | {'connected': 1, 'armed': 0, 'armed_stale': 0, 'armed_stale_ids': [], 'fleet_state': 'STAGED'}
+[   1.14s] PX4 SIGSTOP on the ground
+[   9.21s] PX4 SIGCONT
+Received ack for not-existing command: 512! Ignoring... (mavlink_command_sender.cpp:304)
+Received ack for not-existing command: 512! Ignoring... (mavlink_command_sender.cpp:304)
+Received ack for not-existing command: 512! Ignoring... (mavlink_command_sender.cpp:304)
+Received ack for not-existing command: 512! Ignoring... (mavlink_command_sender.cpp:304)
+[   9.20s] OBS armed: False
+[   9.20s] OBS mode: HOLD
+[   9.20s] OBS landed_state: ON_GROUND
+Received ack for not-existing command: 511! Ignoring... (mavlink_command_sender.cpp:304)
+Received ack for not-existing command: 512! Ignoring... (mavlink_command_sender.cpp:304)
+[   9.47s] NOTE seconds_frozen_until_connected_0 = 2.558881998062134
+[   9.47s] NOTE seconds_after_SIGCONT_until_connected_1 = 0.2629356384277344
+[   9.47s] CHECK PASS baseline connected 1 before the freeze | {'connected': 1, 'armed': 0, 'armed_stale': 0, 'armed_stale_ids': [], 'fleet_state': 'STAGED'}
+[   9.47s] CHECK PASS connected drops during an 8 s freeze (within 5 s) | 2.558881998062134
+[   9.47s] CHECK PASS connected is back within 15 s of SIGCONT | 0.2629356384277344
+[   9.49s] CHECK PASS preflight green again after the reconnect | {'connected': 1, 'armed': 0, 'armed_stale': 0, 'armed_stale_ids': [], 'fleet_state': 'STAGED'}
+[   9.49s] NOTE px4_estimate_when_preflight_went_green = {"alt_m": 4.94, "vel_down_m_s": -0.96, "armed": false}
+Received ack for not-existing command: 520! Ignoring... (mavlink_command_sender.cpp:304)
+[  52.30s] NOTE seconds_for_px4_estimate_to_settle_after_SIGCONT = 43.1
+[  52.30s] CHECK PASS PX4's altitude estimate settles to the ground (|alt|<0.15 m, |vd|<0.1 m/s for 3 s) | alt=-0.13 vd=0.05
+Received ack for not-existing command: 400! Ignoring... (mavlink_command_sender.cpp:304)
+[  53.15s] OBS armed: True
+Received ack for not-existing command: 176! Ignoring... (mavlink_command_sender.cpp:304)
+Received ack for not-existing command: 176! Ignoring... (mavlink_command_sender.cpp:304)
+[  54.15s] OBS mode: OFFBOARD
+[  54.15s] OBS landed_state: IN_AIR
+Received ack for not-existing command: 176! Ignoring... (mavlink_command_sender.cpp:304)
+Received ack for not-existing command: 176! Ignoring... (mavlink_command_sender.cpp:304)
+Received ack for not-existing command: 21! Ignoring... (mavlink_command_sender.cpp:304)
+[  63.15s] OBS mode: LAND
+[  63.15s] OBS landed_state: LANDING
+[  67.15s] OBS landed_state: ON_GROUND
+[  69.15s] OBS armed: False
+[  69.15s] OBS mode: HOLD
+[  69.28s] HOVER HTTP RESULT: 200 {"status": "COMPLETED", "mode": "SIMULATION", "configured_mode": "SIMULATION", "active_backend": "px4", "vehicle": "SIMULATED", "steps": [{"step": "PREFLIGHT", "status": "PASSED", "time": 1794775525.833815, "drone_id": 0}, {"step": "ARM", "status": "ARMED", "time": 1794775526.7874196}, {"step": "HOVER_REACHED", "status": "HOLDING", "altitude_m": 0.86, "time": 1794775533.6573243}, {"step": "HOVER_HOLD_COMPLETE", "status": "STABLE", "dwell_s": 3.02, "time": 1794775536.6810665}, {"step": "LANDING_C
+[  69.28s] CHECK PASS a hover after the reconnect completes | 200
+[  69.29s] VERDICT PASS

@@ -1,0 +1,56 @@
+{
+ "take": "camp_n1_k2",
+ "blackbox": "blackbox_20261115T202229_188551.jsonl.gz",
+ "blackbox_sha256": "6debdbb226c9ee98",
+ "truncated": false,
+ "geofence_radius_m": 30.0,
+ "event_kinds": {
+  "audit": 3,
+  "command": 1
+ },
+ "safety_events": [],
+ "peak_altitude_m": 0.98,
+ "seconds_within_0.1m_of_peak": 5.0,
+ "descent_m_s": 0.6,
+ "final_altitude_m": 0.05,
+ "armed_at_end": false,
+ "modes_flown": [
+  "HOLD",
+  "LAND",
+  "OFFBOARD"
+ ],
+ "endpoint": {
+  "http": 200,
+  "status": "COMPLETED",
+  "seconds": 19.4,
+  "steps": [
+   [
+    "PREFLIGHT",
+    "PASSED"
+   ],
+   [
+    "ARM",
+    "ARMED"
+   ],
+   [
+    "HOVER_REACHED",
+    "HOLDING"
+   ],
+   [
+    "HOVER_HOLD_COMPLETE",
+    "STABLE"
+   ],
+   [
+    "LANDING_COMMANDED",
+    "LANDING"
+   ],
+   [
+    "TOUCHDOWN_DISARM",
+    "DISARMED"
+   ]
+  ],
+  "hover_reached_m": 0.86,
+  "dwell_s": 5.04
+ },
+ "pass": true
+}

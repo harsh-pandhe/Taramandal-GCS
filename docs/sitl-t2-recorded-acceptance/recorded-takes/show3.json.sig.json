@@ -1,0 +1,9 @@
+{
+  "schema": "tara-show-signature/1",
+  "format": "json",
+  "sha256": "cc29e5a807213e4c352138472d2039d19f8cb27e623e925cb664d90f862b1160",
+  "size": 319174,
+  "key_id": "7fa30d7106e1dfbf",
+  "signed_at": "2026-11-15T19:57:15+00:00",
+  "signature": "PLzHOaQ/7ypuvzTgyHNlxdanDYc25DoXov/pGBFbnqlcuaE/Ts2MB66Hvm0+Me3DUH5/ssAugHxWRH1dhbYYAQ=="
+}

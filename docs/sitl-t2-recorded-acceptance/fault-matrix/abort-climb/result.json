@@ -1,0 +1,98 @@
+{
+  "checks": [
+    {
+      "name": "preflight ready before the run",
+      "ok": true,
+      "detail": "{'connected': 1, 'armed': 0, 'armed_stale': 0, 'armed_stale_ids': [], 'fleet_state': 'STAGED'}"
+    },
+    {
+      "name": "the vehicle lands and disarms after the abort",
+      "ok": true,
+      "detail": "armed=False landed=ON_GROUND"
+    },
+    {
+      "name": "it never reached the target altitude (peak well under 3 m)",
+      "ok": true,
+      "detail": "peak 1.64 m"
+    },
+    {
+      "name": "hover-sequence does not report COMPLETED after an abort",
+      "ok": true,
+      "detail": "500 {\"detail\": \"Hover climb failed: Drone 0: yielding to fleet emergency state LANDING instead of continuing the climb\"}"
+    }
+  ],
+  "notes": {
+    "land_response": {
+      "http": 200,
+      "body": "{\"status\": \"success\", \"message\": \"Emergency landing commanded to active backend (px4).\", \"backend\": \"px4\", \"mode\": \"SIMULATION\", \"command\": \"land\", \"accepted_ids\": [0]}"
+    },
+    "alt_at_abort": 0.64,
+    "fleet_after": {
+      "connected": 1,
+      "armed": 1,
+      "armed_stale": 0,
+      "armed_stale_ids": [],
+      "fleet_state": "LANDING"
+    }
+  },
+  "case": "abort_climb",
+  "exception": null,
+  "verdict": "PASS",
+  "observer_events": [
+    [
+      0.82,
+      "connected",
+      true
+    ],
+    [
+      1.51,
+      "armed",
+      true
+    ],
+    [
+      1.51,
+      "mode",
+      "HOLD"
+    ],
+    [
+      1.51,
+      "landed_state",
+      "ON_GROUND"
+    ],
+    [
+      2.51,
+      "mode",
+      "OFFBOARD"
+    ],
+    [
+      3.53,
+      "landed_state",
+      "IN_AIR"
+    ],
+    [
+      5.53,
+      "mode",
+      "LAND"
+    ],
+    [
+      5.53,
+      "landed_state",
+      "LANDING"
+    ],
+    [
+      10.53,
+      "landed_state",
+      "ON_GROUND"
+    ],
+    [
+      12.53,
+      "armed",
+      false
+    ],
+    [
+      12.53,
+      "mode",
+      "HOLD"
+    ]
+  ]
+}

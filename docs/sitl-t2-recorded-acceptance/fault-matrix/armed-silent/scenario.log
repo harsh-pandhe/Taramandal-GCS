@@ -1,0 +1,17 @@
+[   0.99s] OBS connected: True
+[   1.16s] CHECK PASS preflight ready before the run | {'connected': 1, 'armed': 0, 'armed_stale': 0, 'armed_stale_ids': [], 'fleet_state': 'STAGED'}
+[   1.57s] OBS armed: True
+[   1.57s] OBS mode: HOLD
+[   1.57s] OBS landed_state: ON_GROUND
+[   3.69s] CHECK PASS armed on the ground and fresh: armed 1, armed_stale 0 | {'connected': 1, 'armed': 1, 'armed_stale': 0, 'armed_stale_ids': [], 'fleet_state': 'STAGED'}
+[   3.70s] PX4 SIGSTOP while armed on the ground
+[  13.83s] NOTE seconds_to_armed_stale_1 = 3.0355589389801025
+[  13.83s] NOTE status_while_silent = {"connected": 0, "armed": 0, "armed_stale": 1, "armed_stale_ids": [0], "fleet_state": "STAGED"}
+[  13.83s] CHECK PASS silent and armed: armed 0 but armed_stale 1 (never reads as disarmed) | {'connected': 0, 'armed': 0, 'armed_stale': 1, 'armed_stale_ids': [0], 'fleet_state': 'STAGED'}
+[  13.83s] CHECK PASS it shows within 6 s | 3.0355589389801025
+[  14.09s] NOTE seconds_after_SIGCONT_until_armed_1_stale_0 = 0.26280951499938965
+[  14.09s] CHECK PASS after SIGCONT the drone reads armed 1, armed_stale 0 again within 20 s | 0.26280951499938965
+[  14.76s] OBS armed: False
+[  18.44s] NOTE px4_landed_state_settled_after_resume = true
+[  21.46s] CHECK PASS disarmed again: armed 0, armed_stale 0 | {'connected': 1, 'armed': 0, 'armed_stale': 0, 'armed_stale_ids': [], 'fleet_state': 'STAGED'}
+[  21.47s] VERDICT PASS
