@@ -83,6 +83,15 @@ export async function loadWindow(id, fromMs, toMs) {
   return getJson(`/api/blackbox/sessions/${encodeURIComponent(id)}/frames?${q}`);
 }
 
+/**
+ * The geofence radius (m) to draw for a recording, from its summary, or undefined when the recording does
+ * not carry a usable one (older recordings), so the Earth view keeps its own default.
+ */
+export function geofenceRadiusFor(summary) {
+  const r = summary?.geofence_radius_m;
+  return typeof r === 'number' && Number.isFinite(r) && r > 0 ? r : undefined;
+}
+
 /** Index of the last frame at or before `tMs` (0 if `tMs` is before the first one). */
 export function frameIndexAt(frames, tMs) {
   let lo = 0;

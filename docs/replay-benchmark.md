@@ -7,9 +7,9 @@ Measured 14 Nov 2026 on one laptop: first on `main` at `d06cdae` (the replay tab
 ## How to reproduce
 
 ```
-python tools/replay_perf_record.py --out /some/dir        # records the flight, prints the API numbers, writes overview.json
+python tools/replay_perf_record.py --out /some/dir [--drones 100] [--minutes 15]   # records the flight, prints the API numbers, writes overview.json and window.json
 cd packages/tara-web
-REPLAY_PERF_DATA=/some/dir/overview.json REPLAY_PERF_WINDOW=/some/dir/window30.json \
+REPLAY_PERF_DATA=/some/dir/overview.json REPLAY_PERF_WINDOW=/some/dir/window.json \
   npx playwright test e2e/replay-perf.spec.js
 ```
 
@@ -51,6 +51,25 @@ moving the parse to a worker is the fix if one shows up. In this measurement the
 to the time asked for, so the 100 drones moved as recorded but each window's content was reused. Requests that fail are not
 retried for 5 s.
 
+## 1,000 drones (measured 15 Nov, same machine)
+
+A 15-minute, 1,000-drone recording from the same tool (`--drones 1000`).
+
+| | Measured (1,000 drones) |
+|---|---|
+| Recording size | 27.69 MB for 9,000 ticks (the 25 MB budget in #65 was for 100 drones; 100 drones is 3.11 MB) |
+| Decode of the whole recording on the GCS (first load) | 7.6 s |
+| Default overview | 50 frames, one per **18 s** (stride 180), 4.35 MB of JSON, 17 ms to build |
+| A full-rate window (3 s, 31 frames) | 2.71 MB of JSON, 39 ms on the GCS |
+| Buffer fill for one displayed frame (`fillFleetBuffer`) | 0.08 ms per call |
+| Frame cadence, overview only (window requests failing): idle / playing 10x / scrubbing | 60 fps, worst frame 16.8 ms in all three |
+| Frame cadence with full-rate windows (30 window swaps during 6 s of playing at 10x) | idle and scrubbing 60 fps, worst 16.8 ms; **playing at 10x: 59.2 fps, p99 33.3 ms, worst 50.1 ms** (about two dropped frames) |
+
+What it shows: at 1,000 drones the overview alone is too coarse to look like motion (one frame per 18 s), so the full-rate
+windows matter there, and each window swap costs a main-thread parse of about 2.7 MB of JSON. That is the hitch: it is
+absent when idle or scrubbing and appears while playing fast, because a 3 s window is used up every 0.3 s at 10x. Parsing in
+a worker removes it; at 100 drones (a 30 s window, a swap every 3 s at 10x) it did not show.
+
 ## What this does and does not show
 
 - **It shows** that on this GPU, with a 100-drone 15-minute recording loaded, the page kept every animation frame at the
@@ -64,7 +83,6 @@ retried for 5 s.
   timeline every 3 s. A person dragging a slider is similar but not identical.
 - **The API was mocked from a file**, so the 0.67 s load time leaves out real network and the GCS's own 0.89 s decode of a
   recording it has not read yet (it caches a decoded session afterwards).
-- **100 drones only.** Nothing here covers 1,000 drones. The overview budget (50,000 samples) would thin a 1,000-drone
-  15-minute flight to 50 frames, about one per 18 s, which would look coarse.
+- **The numbers above are for 100 drones.** The 1,000-drone case was measured separately, see the next section.
 - **The overview alone is coarse** (one frame per 1.8 s, blended linearly between samples, so a fast manoeuvre is smoothed). The
-  full-rate window fixes that around the current time; the 1,000-drone case (3 s windows, 30 frames) was not measured here.
+  full-rate window fixes that around the current time.

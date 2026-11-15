@@ -23,10 +23,10 @@ def clock():
     return FakeClock()
 
 
-def _record(directory, clock, *, ticks=100, drones=4, close=True, events=()):
+def _record(directory, clock, *, ticks=100, drones=4, close=True, events=(), context=None):
     os.makedirs(directory, exist_ok=True)
     rec = BlackboxRecorder.new_session(str(directory), clock=clock, wall_clock=lambda: 1_700_000_000.0,
-                                       fsync_interval_s=None, keyframe_interval_s=2.0)
+                                       fsync_interval_s=None, keyframe_interval_s=2.0, context=context)
     for k in range(ticks):
         fleet = _fleet(drones, k)
         if k == 30:  # one drone drops its RF reading / goes unarmed for a while
@@ -315,3 +315,53 @@ def test_viewer_and_choreographer_cannot_reveal_identities_and_see_pseudonyms_by
         assert client.get(url).json()["events"][0]["operator"] != "alice"  # hidden by default even for a commander
         full = client.get(url, params={"identities": True}).json()
         assert not full["identities_hidden"] and full["events"][0]["operator"] == "alice" and full["events"][0]["origin_ip"] == "10.9.8.7"
+
+
+# --- the geofence radius in the summary (issue #284) -----------------------------------------------
+
+def _summary(tmp_path, clock, **kw):
+    rec = _record(tmp_path / "bb", clock, ticks=20, **kw)
+    return br.ReplaySession.load(rec.path, "x").summary()
+
+
+def test_summary_geofence_radius_is_none_when_the_recording_does_not_say(tmp_path, clock):
+    assert _summary(tmp_path, clock)["geofence_radius_m"] is None
+
+
+def test_summary_geofence_radius_comes_from_the_header_when_there_are_no_events(tmp_path, clock):
+    assert _summary(tmp_path, clock, context=lambda: {"geofence_radius_m": 30.0})["geofence_radius_m"] == 30.0
+
+
+def test_summary_geofence_radius_is_the_one_on_the_latest_event(tmp_path, clock):
+    """The show's envelope is applied after the header is written, so a later event wins over the header."""
+    radius = {"v": 30.0}
+    d = tmp_path / "two"
+    os.makedirs(d, exist_ok=True)
+    rec = BlackboxRecorder.new_session(str(d), clock=clock, wall_clock=lambda: 1_700_000_000.0, fsync_interval_s=None,
+                                       keyframe_interval_s=2.0, context=lambda: {"geofence_radius_m": radius["v"]})
+    for k in range(20):
+        rec.record_tick(_fleet(2, k))
+        if k == 5:
+            rec.record_event("command", command="/api/start-trajectory", operator="o", trigger="api")
+        if k == 6:
+            radius["v"] = 63.95  # a larger show uploaded
+        if k == 10:
+            rec.record_event("command", command="/api/land", operator="o", trigger="api")
+        clock.advance()
+    rec.close()
+    assert br.ReplaySession.load(rec.path, "x").summary()["geofence_radius_m"] == 63.95
+
+
+@pytest.mark.parametrize("bad", [0, -5, "60", None, True, float("nan"), float("inf")])
+def test_summary_ignores_a_radius_that_is_not_a_positive_number(tmp_path, clock, bad):
+    assert _summary(tmp_path, clock, context=lambda: {"geofence_radius_m": bad})["geofence_radius_m"] is None
+
+
+def test_the_route_serves_the_radius(tmp_path, monkeypatch, clock):
+    d = tmp_path / "blackbox"
+    rec = _record(d, clock, ticks=20, context=lambda: {"geofence_radius_m": 60.0})
+    monkeypatch.setattr(gcs_main, "blackbox_service", None)
+    monkeypatch.setattr(gcs_main, "_replay_store", None)
+    with TestClient(gcs_main.app) as client:
+        sid = os.path.basename(rec.path)[: -len(br.SESSION_SUFFIX)]
+        assert client.get(f"/api/blackbox/sessions/{sid}").json()["geofence_radius_m"] == 60.0

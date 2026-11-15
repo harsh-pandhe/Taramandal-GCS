@@ -16,6 +16,7 @@ import {
   loadWindow,
   pickFrames,
   telemetryAt,
+  geofenceRadiusFor,
   tickIntervalMs,
   timelineFraction,
   windowCovers,
@@ -246,7 +247,11 @@ export default function ReplayView() {
     <div className="replay-view">
       <div className="replay-stage earth-view-panel" data-testid="replay-stage">
         {view === 'earth' ? (
-          <EarthView key={loaded?.summary.id ?? 'none'} telemetry={earthTel} />
+          <EarthView
+            key={loaded?.summary.id ?? 'none'}
+            telemetry={earthTel}
+            geofenceRadiusM={geofenceRadiusFor(loaded?.summary)}
+          />
         ) : (
           <NightSkyView telemetry={{}} fleetBuffer={fleetBuffer} showDeviationHud={false} />
         )}
