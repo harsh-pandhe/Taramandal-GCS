@@ -164,7 +164,10 @@ export const drawWaveform = (canvas, peaks, opts) => {
   // Issue #91: Draw beat and downbeat marker ticks if analysis is provided
   if (Array.isArray(opts?.beats) && opts.beats.length) {
     const downbeats = new Set((opts.downbeats || []).map((t) => Math.round(t * 100) / 100));
-    for (const beat of opts.beats) {
+    for (const raw of opts.beats) {
+      // The analyser returns beats as { t, confidence } objects; plain numbers are accepted too.
+      const beat = typeof raw === 'number' ? raw : raw?.t;
+      if (!Number.isFinite(beat)) continue;
       if (beat >= startTime && beat <= endTime) {
         const px = Math.round(((beat - startTime) / span) * cssW);
         const isDownbeat = downbeats.has(Math.round(beat * 100) / 100);

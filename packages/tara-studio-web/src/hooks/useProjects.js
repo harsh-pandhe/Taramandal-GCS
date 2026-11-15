@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { defaultFleet } from './useFleet.js';
 import { makeScene, MIN_CERTIFIABLE_RATE_HZ } from '../engine/sequencer.js';
+import { stripStraySceneKeys } from '../engine/sceneValidation.js';
 import {
   DEFAULT_PROJECT_NAME, createProjectVault, createVaultClient,
 } from '../engine/projectVault.js';
@@ -81,7 +82,7 @@ export default function useProjects(bindings) {
     if (project) {
       const normalized = {
         name: project.name,
-        scenes: project.scenes?.length ? project.scenes : [makeScene({ name: 'Scene 1' })],
+        scenes: project.scenes?.length ? stripStraySceneKeys(project.scenes) : [makeScene({ name: 'Scene 1' })],
         // issue #160: only the *default* for a project saved without its own
         // rate - an existing saved project keeps whatever rate it was built
         // at, same as every other field here.

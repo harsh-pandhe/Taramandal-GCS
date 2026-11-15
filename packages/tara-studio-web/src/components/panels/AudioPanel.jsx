@@ -1,5 +1,5 @@
 import { useRef } from 'react';
-import { Music, X, RefreshCw, Zap, Sliders } from 'lucide-react';
+import { Music, X, RefreshCw, Zap } from 'lucide-react';
 import { AUDIO_ACCEPT } from '../../engine/audioEngine.js';
 import LedTrackEditor from '../sequencer/LedTrackEditor.jsx';
 
@@ -78,18 +78,17 @@ export default function AudioPanel({
               }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                   <span style={{ fontSize: '0.7rem', color: 'var(--accent)', fontWeight: 600 }}>
-                    🎵 {audio.analysis.bpm?.toFixed(1)} BPM
+                    {Number.isFinite(audio.analysis.bpm) ? `🎵 ${audio.analysis.bpm.toFixed(1)} BPM` : '🎵 No tempo found'}
                   </span>
-                  <span style={{ fontSize: '0.65rem', color: 'var(--text-dim)' }}>
-                    {Math.round((audio.analysis.confidence || 0) * 100)}% conf
-                  </span>
+                  {Number.isFinite(audio.analysis.bpm) && (
+                    <span style={{ fontSize: '0.65rem', color: 'var(--text-dim)' }}>
+                      {Math.round((audio.analysis.bpm_confidence || 0) * 100)}% conf
+                    </span>
+                  )}
                 </div>
                 <div style={{ display: 'flex', gap: '0.8rem', fontSize: '0.65rem', color: 'var(--text-dim)' }}>
                   <span>Beats: {audio.analysis.beats?.length || 0}</span>
                   <span>Bars: {audio.analysis.bars?.times?.length || 0}</span>
-                  {audio.analysis.sections?.length > 0 && (
-                    <span>Sections: {audio.analysis.sections.length}</span>
-                  )}
                 </div>
                 {onSnapScenes && (
                   <button
