@@ -7,6 +7,8 @@
 // else, the show flies drone i from the wrong pad. A single row agreed with
 // the grid only for the first PAD_COLS drones.
 
+import { STANDARD_SITE, siteProfile } from './site.js';
+
 export const SHOW_ALT = 8.0; // metres above ground: lowest hover layer
 
 // launch_grid spacing defaults to pad_spacing_m (issue #167 - deliberately
@@ -14,7 +16,7 @@ export const SHOW_ALT = 8.0; // metres above ground: lowest hover layer
 // margin to absorb), and its row width is floor(geofence_radius_m / spacing)
 // = floor(30 / 2.2).
 export const PAD_SPACING = 2.2;
-export const PAD_COLS = 13;
+export const PAD_COLS = 13; // the standard site's; other profiles' widths are in site.js
 
 // Hovering drones sit on four staggered heights, checkerboarded over the pads,
 // so any two are at least sqrt(2^2 + HOVER_STEP^2) = 3.2 m apart in 3D rather
@@ -23,24 +25,24 @@ export const PAD_COLS = 13;
 export const HOVER_STEP = 2.5;
 export const HOVER_LEVELS = 4;
 
-export const padAt = (i) => ({
-  x: Math.floor(i / PAD_COLS) * PAD_SPACING,
-  y: (i % PAD_COLS) * PAD_SPACING,
-  z: 0,
-});
+export const padAt = (i, site = STANDARD_SITE) => {
+  const cols = siteProfile(site).padCols;
+  return { x: Math.floor(i / cols) * PAD_SPACING, y: (i % cols) * PAD_SPACING, z: 0 };
+};
 
 // Row parity and column parity each pick a level, so row-, column- and
 // diagonal-adjacent pads always hover at different heights.
-const hoverLevel = (i) => (Math.floor(i / PAD_COLS) % 2) * 2 + ((i % PAD_COLS) % 2);
+const hoverLevel = (i, cols) => (Math.floor(i / cols) % 2) * 2 + ((i % cols) % 2);
 
-export const hoverAt = (i) => ({
-  ...padAt(i),
-  z: -(SHOW_ALT + HOVER_STEP * hoverLevel(i)),
+export const hoverAt = (i, site = STANDARD_SITE) => ({
+  ...padAt(i, site),
+  z: -(SHOW_ALT + HOVER_STEP * hoverLevel(i, siteProfile(site).padCols)),
 });
 
 /** Horizontal centre of the pad grid an n-drone fleet occupies. */
-export const fleetCenter = (n) => {
-  const rows = Math.max(1, Math.ceil(n / PAD_COLS));
-  const cols = Math.max(1, Math.min(n, PAD_COLS));
+export const fleetCenter = (n, site = STANDARD_SITE) => {
+  const padCols = siteProfile(site).padCols;
+  const rows = Math.max(1, Math.ceil(n / padCols));
+  const cols = Math.max(1, Math.min(n, padCols));
   return { x: ((rows - 1) * PAD_SPACING) / 2, y: ((cols - 1) * PAD_SPACING) / 2 };
 };

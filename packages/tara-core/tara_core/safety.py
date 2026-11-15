@@ -18,7 +18,7 @@ it inverted.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 
 @dataclass(frozen=True)
@@ -145,3 +145,44 @@ class SafetyLimits:
 
 #: The limits every package uses unless explicitly overridden.
 DEFAULT_LIMITS = SafetyLimits()
+
+
+# --- Site profiles (per-show horizontal site) -----------------------------------------------------------------
+#
+# The horizontal site radius (``geofence_radius_m``) is a property of the *show*, not of the project: a 3 or
+# 35 drone demo flies inside the standard 30 m site, while a 400 drone show needs a wider one to keep its
+# figures apart without stacking them on many depth planes. The radius also decides the launch-pad grid's row
+# width (``floor(radius / pad_spacing)``), so every consumer of a show must use the *same* profile: Studio
+# when it builds, the validator and exporter, and the GCS when it converts a trajectory against the pads.
+#
+# A show names its profile in a top-level ``"site"`` key. Absent, or ``"standard"``, it is exactly the
+# behaviour that existed before profiles: DEFAULT_LIMITS, 30 m, 13 pad columns. The height ceiling is the same
+# in every profile (120 m).
+
+#: Name of the profile every show without a ``site`` key uses.
+STANDARD_SITE = "standard"
+
+#: Profiles by name: the horizontal site radius, metres. Only the radius differs from DEFAULT_LIMITS.
+SITE_RADII_M: dict[str, float] = {
+    STANDARD_SITE: DEFAULT_LIMITS.geofence_radius_m,
+    "scale400": 60.0,
+}
+
+
+def site_names() -> tuple[str, ...]:
+    """The known profile names, standard first."""
+    return tuple(SITE_RADII_M)
+
+
+def limits_for_site(site: str | None = None) -> SafetyLimits:
+    """The SafetyLimits for a named site profile (``None`` or ``"standard"`` is DEFAULT_LIMITS itself).
+
+    Raises:
+        ValueError: If ``site`` is not a known profile. A show naming a profile this build does not know must
+            be refused, never flown on a guessed radius.
+    """
+    if site is None or site == STANDARD_SITE:
+        return DEFAULT_LIMITS
+    if not isinstance(site, str) or site not in SITE_RADII_M:
+        raise ValueError(f"unknown site profile {site!r}: expected one of {', '.join(SITE_RADII_M)}")
+    return replace(DEFAULT_LIMITS, geofence_radius_m=SITE_RADII_M[site])
