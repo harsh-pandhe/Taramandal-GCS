@@ -590,6 +590,34 @@ test.describe('local planner (issue #94, slice 1)', () => {
     await expect(page.getByRole('button', { name: 'Undo', exact: true })).toBeDisabled();
   });
 
+  test('a move draft shows the position rows; Apply reorders the scenes and one undo restores them (slice 2)', async ({ page }) => {
+    await openStudio(page, PASSED_REPORT);
+    await page.route('**/api/ai/plan', (route) => route.fulfill({
+      json: ops({ op: 'move', scene: 2, position: 'first' }),
+    }));
+    await ask(page, 'move scene 2 to the start');
+
+    const card = page.getByTestId('edit-proposal');
+    await expect(card).toContainText('Planner: Move scene 2 ("4") to the start');
+    await expect(card).toContainText('Scene "4" position');
+    await expect(card).toContainText('2 → 1');
+    await expect(page.getByTestId('edit-check')).toContainText('PASSED');
+
+    await consoleTab(page, 'SEQUENCE');
+    await expect(page.getByLabel('Scene 1 name')).toHaveValue('5'); // a dry run: nothing moved yet
+
+    await consoleTab(page, 'AI');
+    await page.getByRole('button', { name: 'Apply edit' }).click();
+    await consoleTab(page, 'SEQUENCE');
+    await expect(page.getByLabel('Scene 1 name')).toHaveValue('4');
+    await expect(page.getByLabel('Scene 2 name')).toHaveValue('5');
+
+    await page.getByRole('button', { name: 'Undo', exact: true }).click();
+    await expect(page.getByLabel('Scene 1 name')).toHaveValue('5');
+    await expect(page.getByLabel('Scene 2 name')).toHaveValue('4');
+    await expect(page.getByRole('button', { name: 'Undo', exact: true })).toBeDisabled();
+  });
+
   test('an out-of-range answer is shown as a refusal with the range, in one call and with no repair', async ({ page }) => {
     // Real qwen2.5:7b, asked to set a scale of 5, picked another value when told the limit; the operator decides instead.
     await openStudio(page, PASSED_REPORT);

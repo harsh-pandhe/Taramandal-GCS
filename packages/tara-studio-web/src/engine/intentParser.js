@@ -14,6 +14,7 @@
 import { SHAPE_LIBRARY } from './formations.js';
 import { sceneCommands, batchRefusal } from './commands.js';
 import { sceneSignature } from './sceneValidation.js';
+import { moveTargetIndex } from './sceneOrder.js';
 
 const fail = (reason) => ({ ok: false, reason });
 
@@ -93,12 +94,8 @@ export const parseIntent = (text, doc) => {
     const b = sceneIndex(m[3], doc);
     if (b.error) return fail(b.error);
     if (a.index === b.index) return fail('a scene cannot be moved relative to itself');
-    // reorder(from, to) removes the scene then inserts it at `to`.
     const from = a.index;
-    const anchor = b.index;
-    const to = m[2] === 'after'
-      ? (from < anchor ? anchor : anchor + 1)
-      : (from < anchor ? anchor - 1 : anchor);
+    const to = moveTargetIndex(from, b.index, m[2], doc.scenes.length);
     return build(
       [sceneCommands.reorder(from, to)],
       `Move scene ${m[1]} (${sceneName(doc, from)}) ${m[2]} scene ${m[3]}`,

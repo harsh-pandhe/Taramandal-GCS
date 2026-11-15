@@ -103,7 +103,7 @@ describe('compilePlan', () => {
   });
 
   it('refuses malformed ops instead of guessing', () => {
-    expect(compilePlan(doc(), ok([{ op: 'delete', scene: 1 }])).ok).toBe(false);
+    expect(compilePlan(doc(), ok([{ op: 'explode', scene: 1 }])).ok).toBe(false);
     expect(compilePlan(doc(), ok([{ op: 'add', scene: 0 }])).ok).toBe(false);
     expect(compilePlan(doc(), ok([{ op: 'patch', scene: 1, scale: '2' }])).ok).toBe(false);
     expect(compilePlan(doc(), ok([{ op: 'patch', scene: 1, scale: NaN }])).ok).toBe(false);
