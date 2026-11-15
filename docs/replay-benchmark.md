@@ -63,12 +63,16 @@ A 15-minute, 1,000-drone recording from the same tool (`--drones 1000`).
 | A full-rate window (3 s, 31 frames) | 2.71 MB of JSON, 39 ms on the GCS |
 | Buffer fill for one displayed frame (`fillFleetBuffer`) | 0.08 ms per call |
 | Frame cadence, overview only (window requests failing): idle / playing 10x / scrubbing | 60 fps, worst frame 16.8 ms in all three |
-| Frame cadence with full-rate windows (30 window swaps during 6 s of playing at 10x) | idle and scrubbing 60 fps, worst 16.8 ms; **playing at 10x: 59.2 fps, p99 33.3 ms, worst 50.1 ms** (about two dropped frames) |
+| Frame cadence with full-rate windows, parsed on the main thread (30 window swaps during 6 s of playing at 10x) | idle and scrubbing 60 fps, worst 16.8 ms; **playing at 10x: 59.2 fps, p99 33.3 ms, worst 50.1 ms** (about two dropped frames) |
+| The same, with the windows fetched and parsed in a worker (3 runs; 30 to 100 window swaps each) | **playing at 10x: 60 fps, p99 16.8 ms, worst 16.8 ms in all three**; idle and scrubbing unchanged |
 
 What it shows: at 1,000 drones the overview alone is too coarse to look like motion (one frame per 18 s), so the full-rate
-windows matter there, and each window swap costs a main-thread parse of about 2.7 MB of JSON. That is the hitch: it is
-absent when idle or scrubbing and appears while playing fast, because a 3 s window is used up every 0.3 s at 10x. Parsing in
-a worker removes it; at 100 drones (a 30 s window, a swap every 3 s at 10x) it did not show.
+windows matter there, and on the main thread each window swap cost a parse of about 2.7 MB of JSON. That was the hitch: it
+was absent when idle or scrubbing and appeared while playing fast, because a 3 s window is used up every 0.3 s at 10x. The
+replay now fetches and parses each window in a worker (`replayWorker.js`), packs the numbers into typed arrays and transfers
+them (`replayPack.js`), so the main thread only builds views over them; the hitch is gone in these runs. Without Worker
+support (or if the worker fails to start) the same request is made on the main thread, as before. At 100 drones (a 30 s
+window, a swap every 3 s at 10x) the hitch did not show in the first place.
 
 ## What this does and does not show
 

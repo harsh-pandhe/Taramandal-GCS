@@ -6,7 +6,8 @@
 // where an event sits on the timeline.
 
 import { API_BASE } from './config';
-import { gcsFetch } from './session';
+import { clearSession, gcsFetch, getSession } from './session';
+import { unpackFrames } from './replayPack';
 import { FAST_FIELDS, FLOATS_PER_DRONE } from './telemetry';
 
 const OFF = Object.fromEntries(FAST_FIELDS.map((name, i) => [name, i]));
@@ -107,9 +108,58 @@ export function pickFrames(overviewFrames, win, tMs) {
   return windowCovers(win, tMs) ? win.frames : overviewFrames;
 }
 
+// A full-rate window is fetched and parsed in a worker, so a window swap does not cost the main thread a
+// frame (about 9 ms of JSON.parse at 100 drones, more at 1,000: see docs/replay-benchmark.md). Without a
+// worker (an old browser, or one that fails to start) the same request is made on the main thread.
+let worker = null;
+let nextRequest = 1;
+const pending = new Map();
+
+function startWorker() {
+  const w = new Worker(new URL('./replayWorker.js', import.meta.url), { type: 'module' });
+  w.onmessage = ({ data }) => {
+    const request = pending.get(data.id);
+    if (!request) return;
+    pending.delete(data.id);
+    request.resolve(data);
+  };
+  w.onerror = () => {
+    // The worker could not run: every request waiting on it falls back to the main thread, and the next
+    // call starts a fresh one.
+    const waiting = [...pending.values()];
+    pending.clear();
+    worker = null;
+    waiting.forEach((request) => request.resolve({ ok: false, status: -1 }));
+  };
+  return w;
+}
+
+function askWorker(url) {
+  worker = worker || startWorker();
+  return new Promise((resolve) => {
+    const id = nextRequest;
+    nextRequest += 1;
+    pending.set(id, { resolve });
+    worker.postMessage({ id, url, token: getSession()?.token });
+  });
+}
+
 export async function loadWindow(id, fromMs, toMs) {
   const q = `from_ms=${Math.round(fromMs)}&to_ms=${Math.round(toMs)}&max_frames=5000&max_samples=200000`;
-  return getJson(`/api/blackbox/sessions/${encodeURIComponent(id)}/frames?${q}`);
+  const path = `/api/blackbox/sessions/${encodeURIComponent(id)}/frames?${q}`;
+  if (typeof Worker === 'undefined') return getJson(path);
+  let answer;
+  try {
+    answer = await askWorker(`${API_BASE}${path}`);
+  } catch {
+    return getJson(path);
+  }
+  if (answer.status === -1) return getJson(path); // the worker itself failed: do it here
+  if (!answer.ok) {
+    if (answer.status === 401) clearSession(); // the same rule gcsFetch applies
+    throw new Error(answer.detail || `GCS answered ${answer.status}`);
+  }
+  return { ...answer.meta, frames: unpackFrames(answer.packed) };
 }
 
 /**
