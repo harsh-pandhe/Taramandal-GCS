@@ -113,6 +113,34 @@ One writer at a time: a save based on an out-of-date revision is refused, and th
 
 The vault API has no authentication, like the rest of the Studio backend. Keep `STUDIO_HOST` on a trusted network if you point several machines at one backend.
 
+### AI audit log (issues #94, #89)
+
+An append-only record of what the AI proposed and what the operator decided, one file per project:
+
+```
+<vault>/<project id>/audit.jsonl     one JSON object per line, newest last
+```
+
+| Endpoint | Purpose |
+|---|---|
+| `POST /api/projects/{id}/audit` | Append one entry (`201`, or `409 audit_full`) |
+| `GET /api/projects/{id}/audit?limit=N` | The latest N entries, newest first (default 100, max 500), with `total`, `full`, `chainOk`, `torn`, `corruptLines` |
+
+A request body over 64 KB is refused with `413` while it is read; a valid entry is under 4 KB. Anything but `application/json` is a `415`. A storage failure is a `503` that does not name the file.
+
+There is no `PUT`, `PATCH` or `DELETE` (they answer `405`), and no function in the backend that rewrites or removes an entry.
+
+- **Local only.** It is a file in the vault; nothing is sent anywhere.
+- **Kept apart from the show.** It is not a field of `project.json` or `show.json`, so it is never in the saved document, a save-history version, the exported show, the signed manifest or what `/api/validate` reads. `project_store.py` does not know the file exists: a save, a version restore or a rename leaves it byte-for-byte alone. Deleting a project moves the log to `.trash` with it.
+- **The server owns identity.** `seq` (1-based, no gaps), `at`, `projectId`, `prev` and `hash` are assigned by the server; a request that supplies any of them is a `422`. An entry is `v`, `requestId`, `source` (`typed` or `planner`), `request`, `summary`, `ops`, `check` (`status`, `kind`, `summary`), `decision` and `reason`. Over-length strings and control characters (other than newline and tab) are a `422`, never truncated; one entry stays under 4 KB.
+- **`check.kind` is `exportGate`'s own value** (`none`, `open`, `failed`, `unverified`; see `tara-studio-web/src/engine/exportGate.js`), not the raw validator status.
+- **Request text is stored as typed.** Up to 200 characters of what the operator wrote, so a secret pasted into the edit box would land in this file. Do not paste secrets there, and treat the vault directory accordingly.
+- **Tamper-evident, not tamper-proof, and not signed.** Each entry carries `prev` (the previous entry's hash) and `hash` (sha256 of its canonical JSON without the hash). Every `GET` recomputes the chain and reports `chainOk`; an edited, reordered or removed line in the middle makes it `false`. Whoever can write the file can also rewrite every hash, and removing whole lines from the END leaves a shorter, valid chain, which this cannot detect. Treat it as a record that shows accidents and casual edits, not as evidence against someone with access to the vault.
+- **A torn tail** (a crash left a last line without its newline) is kept, reported as `torn: true`, ignored when reading, and makes `chainOk` `false`. The next append ends the fragment with a newline and chains from the last complete entry; the fragment stays as one unreadable line (`corruptLines: 1`), so `chainOk` stays `false` for that project. Damage is never healed silently.
+- **Capped, never lossy.** At 5000 entries or 1 MB per project, whichever comes first (with typical entries, about 2,000, the 1 MB limit comes first), the log writes one `log_full` marker and then refuses further appends with `409 audit_full`; `full` is `true`. Nothing is dropped or rotated.
+- **Failing to log must never block an operator action.** The backend only offers the log; the web app (next PR) records after the operator's action and treats a failure as a notice, never as a reason to stop an edit.
+- Like the rest of the vault, it assumes one Studio backend per vault directory and has no authentication.
+
 ---
 
 ## 🎬 Blender Trajectory Exporter

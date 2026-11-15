@@ -43,6 +43,7 @@ from tara_studio.exporter import export_json, export_csv, export_kml, export_tar
 from tara_studio.signing import SIGNABLE_FORMATS, SigningUnavailable, sign_export, signing_status
 from tara_studio.ai_author import propose as ai_propose
 from tara_studio.ai_plan import plan as ai_plan
+from tara_studio.audit_api import router as audit_router
 from tara_studio.project_api import router as project_router
 from tara_studio.led_engine import (
     apply_track_to_choreo,
@@ -220,6 +221,7 @@ app.add_middleware(
 
 # The Project Vault (issue #101): /api/projects.
 app.include_router(project_router)
+app.include_router(audit_router)
 
 
 @app.exception_handler(RequestValidationError)
