@@ -1,0 +1,32 @@
+[   0.28s] CHECK PASS Gazebo pose stream is readable | 7 samples, errors []
+[   1.19s] OBS connected: True
+[   1.36s] CHECK PASS preflight ready before the run | {'connected': 1, 'armed': 0, 'armed_stale': 0, 'armed_stale_ids': [], 'fleet_state': 'STAGED'}
+[   1.36s] NOTE gazebo_rest_z = -0.013
+Received ack for not-existing command: 400! Ignoring... (mavlink_command_sender.cpp:304)
+[   1.35s] OBS armed: True
+[   1.35s] OBS mode: HOLD
+[   1.35s] OBS landed_state: ON_GROUND
+Received ack for not-existing command: 176! Ignoring... (mavlink_command_sender.cpp:304)
+Received ack for not-existing command: 176! Ignoring... (mavlink_command_sender.cpp:304)
+[   2.35s] OBS mode: OFFBOARD
+[   3.35s] OBS landed_state: IN_AIR
+[  11.44s] CHECK PASS in the hover dwell before the fault | px4 alt 0.93 m, mode OFFBOARD, gazebo 0.931 m, hover task done=False
+[  11.49s] NOTE ekf2_stop = {"cmd": "ekf2 stop", "rc": 0, "out": "INFO  [ekf2] stopping ekf2 instance 0"}
+[  12.35s] OBS mode: UNKNOWN
+Received ack for not-existing command: 176! Ignoring... (mavlink_command_sender.cpp:304)
+Received ack for not-existing command: 176! Ignoring... (mavlink_command_sender.cpp:304)
+Received ack for not-existing command: 21! Ignoring... (mavlink_command_sender.cpp:304)
+[  14.03s] HOVER HTTP RESULT: 500 {"detail": "Hover dwell failed: Drone 0 telemetry became stale during hover dwell"}
+[  31.73s] NOTE timeline_every_0.5s_first_40 = [{"t": 0.1, "gz_alt_m": 0.933, "px4_alt_m": 0.93, "px4_mode": "OFFBOARD", "px4_armed": true, "px4_landed": "IN_AIR", "connected": 1, "armed": 1, "armed_stale": 0, "fleet_state": "STAGED", "hover_done": false}, {"t": 0.6, "gz_alt_m": 0.12, "px4_alt_m": 0.93, "px4_mode": "OFFBOARD", "px4_armed": true,
+[  31.73s] NOTE timeline_last_row = {"t": 20.3, "gz_alt_m": 0.0, "px4_alt_m": 0.93, "px4_mode": "UNKNOWN", "px4_armed": true, "px4_landed": "IN_AIR", "connected": 0, "armed": 0, "armed_stale": 1, "fleet_state": "STAGED", "hover_done": true}
+[  31.73s] NOTE hover_response = {"http": 500, "body": "{\"detail\": \"Hover dwell failed: Drone 0 telemetry became stale during hover dwell\"}"}
+[  31.73s] CHECK PASS hover-sequence does not report COMPLETED | 500 {"detail": "Hover dwell failed: Drone 0 telemetry became stale during hover dwell"}
+[  31.73s] CHECK PASS the sequence stopped within 15 s of the fault | 2.6 s
+[  31.73s] NOTE gcs_first_shows_the_freeze_s = 2.6
+[  31.73s] CHECK PASS the GCS shows the freeze (connected 0 or armed_stale 1) within 6 s | 2.6
+[  31.73s] CHECK PASS the failure text does not blame a pilot (nobody took over) | {"detail": "Hover dwell failed: Drone 0 telemetry became stale during hover dwell"}
+[  31.73s] CHECK PASS the failure is reported as a lost or stale vehicle, not as a hand-over | {"detail": "Hover dwell failed: Drone 0 telemetry became stale during hover dwell"}
+[  31.73s] CHECK PASS Gazebo shows the vehicle on the ground (< 0.15 m) within 90 s | first below 0.15 m at 0.6 s, last {'t': 20.3, 'gz_alt_m': 0.0, 'px4_alt_m': 0.93, 'px4_mode': 'UNKNOWN', 'px4_armed': True, 'px4_landed': 'IN_AIR', 'connected': 0, 'armed': 0, 'armed_stale': 1, 'fleet_state': 'STAGED', 'hover_done': True}
+[  31.73s] NOTE px4_own_state_at_end = {"px4_mode": "UNKNOWN", "px4_armed": true, "px4_landed": "IN_AIR", "px4_alt_m": 0.93}
+[  31.74s] NOTE gazebo_alt_min_max_after_fault = [-0.012, 0.933]
+[  31.75s] VERDICT PASS

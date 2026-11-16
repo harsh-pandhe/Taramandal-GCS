@@ -2137,7 +2137,12 @@ class DroneManager:
         mode = tel.get("flight_mode")
         if mode == "OFFBOARD":
             return True
-        if offboard_seen and mode is not None:
+        # UNKNOWN and None are not a pilot: MAVSDK reports UNKNOWN for a mode it has no name for or a telemetry
+        # gap (real PX4 SITL: `px4-ekf2 stop` mid-dwell made the mode UNKNOWN). The landing check already says so
+        # (LANDING_OWN_MODES). Taking it for a hand-over made the sequence yield and command nothing for a vehicle
+        # nobody was flying; a lost or stale vehicle is left to the link and telemetry checks, which fail closed
+        # and recover it.
+        if offboard_seen and mode is not None and mode != "UNKNOWN":
             raise OperatorTakeoverError(
                 f"Drone {drone_id}: operator took over (flight mode left OFFBOARD for {mode}); "
                 "the sequence is yielding without commanding the vehicle"

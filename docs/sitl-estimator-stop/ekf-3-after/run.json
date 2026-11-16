@@ -1,0 +1,694 @@
+{
+  "run_id": "ekf-3-after",
+  "case": "ekf_stop_mid_hover",
+  "verdict": "PASS",
+  "context": {
+    "run_id": "ekf-3-after",
+    "case": "ekf_stop_mid_hover",
+    "stack": "tara up --backend px4 -n 1 (headless)",
+    "allow_unsigned": false,
+    "commit": "cc8a49be68d8801856ef5218dcac4c0a2cfdda27",
+    "started_utc": "2026-11-16T21:13:52Z",
+    "host_load_before": "2.91 2.47 1.67",
+    "host_load_at_start": "3.20 2.58 1.73",
+    "host_load_at_end": "5.19 3.10 1.93",
+    "other_running_containers": [],
+    "fresh_container": true,
+    "microsd_dirs_before_stack": 0,
+    "px4_version": "v1.16.2",
+    "image_id": "sha256:424c464813742ee541ad2a554ee4bfa5e709beeeaebfb1dbfe9384459d92d3cb",
+    "docker_server": "29.8.0 on linux/amd64",
+    "host_cpus": "16",
+    "host_kernel": "7.0.0-42-generic",
+    "headless": true,
+    "gazebo_window": false,
+    "rviz": false,
+    "recording": false,
+    "px4_ulogs_saved": 1,
+    "scenario_exit_code": 0
+  },
+  "checks": [
+    {
+      "name": "Gazebo pose stream is readable",
+      "ok": true,
+      "detail": "7 samples, errors []"
+    },
+    {
+      "name": "preflight ready before the run",
+      "ok": true,
+      "detail": "{'connected': 1, 'armed': 0, 'armed_stale': 0, 'armed_stale_ids': [], 'fleet_state': 'STAGED'}"
+    },
+    {
+      "name": "in the hover dwell before the fault",
+      "ok": true,
+      "detail": "px4 alt 0.95 m, mode OFFBOARD, gazebo 0.978 m, hover task done=False"
+    },
+    {
+      "name": "hover-sequence does not report COMPLETED",
+      "ok": true,
+      "detail": "500 {\"detail\": \"Hover dwell failed: Drone 0 telemetry became stale during hover dwell\"}"
+    },
+    {
+      "name": "the sequence stopped within 15 s of the fault",
+      "ok": true,
+      "detail": "2.6 s"
+    },
+    {
+      "name": "the GCS shows the freeze (connected 0 or armed_stale 1) within 6 s",
+      "ok": true,
+      "detail": "2.6"
+    },
+    {
+      "name": "the failure text does not blame a pilot (nobody took over)",
+      "ok": true,
+      "detail": "{\"detail\": \"Hover dwell failed: Drone 0 telemetry became stale during hover dwell\"}"
+    },
+    {
+      "name": "the failure is reported as a lost or stale vehicle, not as a hand-over",
+      "ok": true,
+      "detail": "{\"detail\": \"Hover dwell failed: Drone 0 telemetry became stale during hover dwell\"}"
+    },
+    {
+      "name": "Gazebo shows the vehicle on the ground (< 0.15 m) within 90 s",
+      "ok": true,
+      "detail": "first below 0.15 m at 1.1 s, last {'t': 20.3, 'gz_alt_m': 0.0, 'px4_alt_m': 0.95, 'px4_mode': 'UNKNOWN', 'px4_armed': True, 'px4_landed': 'IN_AIR', 'connected': 0, 'armed': 0, 'armed_stale': 1, 'fleet_state': 'STAGED', 'hover_done': True}"
+    }
+  ],
+  "notes": {
+    "gazebo_rest_z": -0.013,
+    "ekf2_stop": {
+      "cmd": "ekf2 stop",
+      "rc": 0,
+      "out": "INFO  [ekf2] stopping ekf2 instance 0"
+    },
+    "timeline_every_0.5s_first_40": [
+      {
+        "t": 0.0,
+        "gz_alt_m": 0.979,
+        "px4_alt_m": 0.95,
+        "px4_mode": "OFFBOARD",
+        "px4_armed": true,
+        "px4_landed": "IN_AIR",
+        "connected": 1,
+        "armed": 1,
+        "armed_stale": 0,
+        "fleet_state": "STAGED",
+        "hover_done": false
+      },
+      {
+        "t": 0.6,
+        "gz_alt_m": 0.191,
+        "px4_alt_m": 0.95,
+        "px4_mode": "OFFBOARD",
+        "px4_armed": true,
+        "px4_landed": "IN_AIR",
+        "connected": 1,
+        "armed": 1,
+        "armed_stale": 0,
+        "fleet_state": "STAGED",
+        "hover_done": false
+      },
+      {
+        "t": 1.1,
+        "gz_alt_m": -0.009,
+        "px4_alt_m": 0.95,
+        "px4_mode": "UNKNOWN",
+        "px4_armed": true,
+        "px4_landed": "IN_AIR",
+        "connected": 1,
+        "armed": 1,
+        "armed_stale": 0,
+        "fleet_state": "STAGED",
+        "hover_done": false
+      },
+      {
+        "t": 1.6,
+        "gz_alt_m": -0.009,
+        "px4_alt_m": 0.95,
+        "px4_mode": "UNKNOWN",
+        "px4_armed": true,
+        "px4_landed": "IN_AIR",
+        "connected": 1,
+        "armed": 1,
+        "armed_stale": 0,
+        "fleet_state": "STAGED",
+        "hover_done": false
+      },
+      {
+        "t": 2.1,
+        "gz_alt_m": -0.008,
+        "px4_alt_m": 0.95,
+        "px4_mode": "UNKNOWN",
+        "px4_armed": true,
+        "px4_landed": "IN_AIR",
+        "connected": 1,
+        "armed": 1,
+        "armed_stale": 0,
+        "fleet_state": "STAGED",
+        "hover_done": false
+      },
+      {
+        "t": 2.6,
+        "gz_alt_m": -0.008,
+        "px4_alt_m": 0.95,
+        "px4_mode": "UNKNOWN",
+        "px4_armed": true,
+        "px4_landed": "IN_AIR",
+        "connected": 0,
+        "armed": 0,
+        "armed_stale": 1,
+        "fleet_state": "STAGED",
+        "hover_done": false
+      },
+      {
+        "t": 3.1,
+        "gz_alt_m": -0.007,
+        "px4_alt_m": 0.95,
+        "px4_mode": "UNKNOWN",
+        "px4_armed": true,
+        "px4_landed": "IN_AIR",
+        "connected": 0,
+        "armed": 0,
+        "armed_stale": 1,
+        "fleet_state": "STAGED",
+        "hover_done": true
+      },
+      {
+        "t": 3.6,
+        "gz_alt_m": -0.007,
+        "px4_alt_m": 0.95,
+        "px4_mode": "UNKNOWN",
+        "px4_armed": true,
+        "px4_landed": "IN_AIR",
+        "connected": 0,
+        "armed": 0,
+        "armed_stale": 1,
+        "fleet_state": "STAGED",
+        "hover_done": true
+      },
+      {
+        "t": 4.1,
+        "gz_alt_m": -0.006,
+        "px4_alt_m": 0.95,
+        "px4_mode": "UNKNOWN",
+        "px4_armed": true,
+        "px4_landed": "IN_AIR",
+        "connected": 0,
+        "armed": 0,
+        "armed_stale": 1,
+        "fleet_state": "STAGED",
+        "hover_done": true
+      },
+      {
+        "t": 4.6,
+        "gz_alt_m": -0.006,
+        "px4_alt_m": 0.95,
+        "px4_mode": "UNKNOWN",
+        "px4_armed": true,
+        "px4_landed": "IN_AIR",
+        "connected": 0,
+        "armed": 0,
+        "armed_stale": 1,
+        "fleet_state": "STAGED",
+        "hover_done": true
+      },
+      {
+        "t": 5.1,
+        "gz_alt_m": -0.005,
+        "px4_alt_m": 0.95,
+        "px4_mode": "UNKNOWN",
+        "px4_armed": true,
+        "px4_landed": "IN_AIR",
+        "connected": 0,
+        "armed": 0,
+        "armed_stale": 1,
+        "fleet_state": "STAGED",
+        "hover_done": true
+      },
+      {
+        "t": 5.6,
+        "gz_alt_m": -0.005,
+        "px4_alt_m": 0.95,
+        "px4_mode": "UNKNOWN",
+        "px4_armed": true,
+        "px4_landed": "IN_AIR",
+        "connected": 0,
+        "armed": 0,
+        "armed_stale": 1,
+        "fleet_state": "STAGED",
+        "hover_done": true
+      },
+      {
+        "t": 6.1,
+        "gz_alt_m": -0.004,
+        "px4_alt_m": 0.95,
+        "px4_mode": "UNKNOWN",
+        "px4_armed": true,
+        "px4_landed": "IN_AIR",
+        "connected": 0,
+        "armed": 0,
+        "armed_stale": 1,
+        "fleet_state": "STAGED",
+        "hover_done": true
+      },
+      {
+        "t": 6.6,
+        "gz_alt_m": -0.004,
+        "px4_alt_m": 0.95,
+        "px4_mode": "UNKNOWN",
+        "px4_armed": true,
+        "px4_landed": "IN_AIR",
+        "connected": 0,
+        "armed": 0,
+        "armed_stale": 1,
+        "fleet_state": "STAGED",
+        "hover_done": true
+      },
+      {
+        "t": 7.1,
+        "gz_alt_m": -0.003,
+        "px4_alt_m": 0.95,
+        "px4_mode": "UNKNOWN",
+        "px4_armed": true,
+        "px4_landed": "IN_AIR",
+        "connected": 0,
+        "armed": 0,
+        "armed_stale": 1,
+        "fleet_state": "STAGED",
+        "hover_done": true
+      },
+      {
+        "t": 7.6,
+        "gz_alt_m": -0.003,
+        "px4_alt_m": 0.95,
+        "px4_mode": "UNKNOWN",
+        "px4_armed": true,
+        "px4_landed": "IN_AIR",
+        "connected": 0,
+        "armed": 0,
+        "armed_stale": 1,
+        "fleet_state": "STAGED",
+        "hover_done": true
+      },
+      {
+        "t": 8.1,
+        "gz_alt_m": -0.002,
+        "px4_alt_m": 0.95,
+        "px4_mode": "UNKNOWN",
+        "px4_armed": true,
+        "px4_landed": "IN_AIR",
+        "connected": 0,
+        "armed": 0,
+        "armed_stale": 1,
+        "fleet_state": "STAGED",
+        "hover_done": true
+      },
+      {
+        "t": 8.6,
+        "gz_alt_m": -0.001,
+        "px4_alt_m": 0.95,
+        "px4_mode": "UNKNOWN",
+        "px4_armed": true,
+        "px4_landed": "IN_AIR",
+        "connected": 0,
+        "armed": 0,
+        "armed_stale": 1,
+        "fleet_state": "STAGED",
+        "hover_done": true
+      },
+      {
+        "t": 9.1,
+        "gz_alt_m": -0.001,
+        "px4_alt_m": 0.95,
+        "px4_mode": "UNKNOWN",
+        "px4_armed": true,
+        "px4_landed": "IN_AIR",
+        "connected": 0,
+        "armed": 0,
+        "armed_stale": 1,
+        "fleet_state": "STAGED",
+        "hover_done": true
+      },
+      {
+        "t": 9.6,
+        "gz_alt_m": -0.001,
+        "px4_alt_m": 0.95,
+        "px4_mode": "UNKNOWN",
+        "px4_armed": true,
+        "px4_landed": "IN_AIR",
+        "connected": 0,
+        "armed": 0,
+        "armed_stale": 1,
+        "fleet_state": "STAGED",
+        "hover_done": true
+      },
+      {
+        "t": 10.2,
+        "gz_alt_m": -0.0,
+        "px4_alt_m": 0.95,
+        "px4_mode": "UNKNOWN",
+        "px4_armed": true,
+        "px4_landed": "IN_AIR",
+        "connected": 0,
+        "armed": 0,
+        "armed_stale": 1,
+        "fleet_state": "STAGED",
+        "hover_done": true
+      },
+      {
+        "t": 10.7,
+        "gz_alt_m": -0.0,
+        "px4_alt_m": 0.95,
+        "px4_mode": "UNKNOWN",
+        "px4_armed": true,
+        "px4_landed": "IN_AIR",
+        "connected": 0,
+        "armed": 0,
+        "armed_stale": 1,
+        "fleet_state": "STAGED",
+        "hover_done": true
+      },
+      {
+        "t": 11.2,
+        "gz_alt_m": -0.0,
+        "px4_alt_m": 0.95,
+        "px4_mode": "UNKNOWN",
+        "px4_armed": true,
+        "px4_landed": "IN_AIR",
+        "connected": 0,
+        "armed": 0,
+        "armed_stale": 1,
+        "fleet_state": "STAGED",
+        "hover_done": true
+      },
+      {
+        "t": 11.7,
+        "gz_alt_m": -0.0,
+        "px4_alt_m": 0.95,
+        "px4_mode": "UNKNOWN",
+        "px4_armed": true,
+        "px4_landed": "IN_AIR",
+        "connected": 0,
+        "armed": 0,
+        "armed_stale": 1,
+        "fleet_state": "STAGED",
+        "hover_done": true
+      },
+      {
+        "t": 12.2,
+        "gz_alt_m": -0.0,
+        "px4_alt_m": 0.95,
+        "px4_mode": "UNKNOWN",
+        "px4_armed": true,
+        "px4_landed": "IN_AIR",
+        "connected": 0,
+        "armed": 0,
+        "armed_stale": 1,
+        "fleet_state": "STAGED",
+        "hover_done": true
+      },
+      {
+        "t": 12.7,
+        "gz_alt_m": 0.0,
+        "px4_alt_m": 0.95,
+        "px4_mode": "UNKNOWN",
+        "px4_armed": true,
+        "px4_landed": "IN_AIR",
+        "connected": 0,
+        "armed": 0,
+        "armed_stale": 1,
+        "fleet_state": "STAGED",
+        "hover_done": true
+      },
+      {
+        "t": 13.2,
+        "gz_alt_m": 0.0,
+        "px4_alt_m": 0.95,
+        "px4_mode": "UNKNOWN",
+        "px4_armed": true,
+        "px4_landed": "IN_AIR",
+        "connected": 0,
+        "armed": 0,
+        "armed_stale": 1,
+        "fleet_state": "STAGED",
+        "hover_done": true
+      },
+      {
+        "t": 13.7,
+        "gz_alt_m": 0.0,
+        "px4_alt_m": 0.95,
+        "px4_mode": "UNKNOWN",
+        "px4_armed": true,
+        "px4_landed": "IN_AIR",
+        "connected": 0,
+        "armed": 0,
+        "armed_stale": 1,
+        "fleet_state": "STAGED",
+        "hover_done": true
+      },
+      {
+        "t": 14.2,
+        "gz_alt_m": 0.0,
+        "px4_alt_m": 0.95,
+        "px4_mode": "UNKNOWN",
+        "px4_armed": true,
+        "px4_landed": "IN_AIR",
+        "connected": 0,
+        "armed": 0,
+        "armed_stale": 1,
+        "fleet_state": "STAGED",
+        "hover_done": true
+      },
+      {
+        "t": 14.7,
+        "gz_alt_m": 0.0,
+        "px4_alt_m": 0.95,
+        "px4_mode": "UNKNOWN",
+        "px4_armed": true,
+        "px4_landed": "IN_AIR",
+        "connected": 0,
+        "armed": 0,
+        "armed_stale": 1,
+        "fleet_state": "STAGED",
+        "hover_done": true
+      },
+      {
+        "t": 15.2,
+        "gz_alt_m": 0.0,
+        "px4_alt_m": 0.95,
+        "px4_mode": "UNKNOWN",
+        "px4_armed": true,
+        "px4_landed": "IN_AIR",
+        "connected": 0,
+        "armed": 0,
+        "armed_stale": 1,
+        "fleet_state": "STAGED",
+        "hover_done": true
+      },
+      {
+        "t": 15.7,
+        "gz_alt_m": 0.0,
+        "px4_alt_m": 0.95,
+        "px4_mode": "UNKNOWN",
+        "px4_armed": true,
+        "px4_landed": "IN_AIR",
+        "connected": 0,
+        "armed": 0,
+        "armed_stale": 1,
+        "fleet_state": "STAGED",
+        "hover_done": true
+      },
+      {
+        "t": 16.2,
+        "gz_alt_m": 0.0,
+        "px4_alt_m": 0.95,
+        "px4_mode": "UNKNOWN",
+        "px4_armed": true,
+        "px4_landed": "IN_AIR",
+        "connected": 0,
+        "armed": 0,
+        "armed_stale": 1,
+        "fleet_state": "STAGED",
+        "hover_done": true
+      },
+      {
+        "t": 16.7,
+        "gz_alt_m": 0.0,
+        "px4_alt_m": 0.95,
+        "px4_mode": "UNKNOWN",
+        "px4_armed": true,
+        "px4_landed": "IN_AIR",
+        "connected": 0,
+        "armed": 0,
+        "armed_stale": 1,
+        "fleet_state": "STAGED",
+        "hover_done": true
+      },
+      {
+        "t": 17.2,
+        "gz_alt_m": 0.0,
+        "px4_alt_m": 0.95,
+        "px4_mode": "UNKNOWN",
+        "px4_armed": true,
+        "px4_landed": "IN_AIR",
+        "connected": 0,
+        "armed": 0,
+        "armed_stale": 1,
+        "fleet_state": "STAGED",
+        "hover_done": true
+      },
+      {
+        "t": 17.7,
+        "gz_alt_m": 0.0,
+        "px4_alt_m": 0.95,
+        "px4_mode": "UNKNOWN",
+        "px4_armed": true,
+        "px4_landed": "IN_AIR",
+        "connected": 0,
+        "armed": 0,
+        "armed_stale": 1,
+        "fleet_state": "STAGED",
+        "hover_done": true
+      },
+      {
+        "t": 18.3,
+        "gz_alt_m": 0.0,
+        "px4_alt_m": 0.95,
+        "px4_mode": "UNKNOWN",
+        "px4_armed": true,
+        "px4_landed": "IN_AIR",
+        "connected": 0,
+        "armed": 0,
+        "armed_stale": 1,
+        "fleet_state": "STAGED",
+        "hover_done": true
+      },
+      {
+        "t": 18.8,
+        "gz_alt_m": 0.0,
+        "px4_alt_m": 0.95,
+        "px4_mode": "UNKNOWN",
+        "px4_armed": true,
+        "px4_landed": "IN_AIR",
+        "connected": 0,
+        "armed": 0,
+        "armed_stale": 1,
+        "fleet_state": "STAGED",
+        "hover_done": true
+      },
+      {
+        "t": 19.3,
+        "gz_alt_m": 0.0,
+        "px4_alt_m": 0.95,
+        "px4_mode": "UNKNOWN",
+        "px4_armed": true,
+        "px4_landed": "IN_AIR",
+        "connected": 0,
+        "armed": 0,
+        "armed_stale": 1,
+        "fleet_state": "STAGED",
+        "hover_done": true
+      },
+      {
+        "t": 19.8,
+        "gz_alt_m": 0.0,
+        "px4_alt_m": 0.95,
+        "px4_mode": "UNKNOWN",
+        "px4_armed": true,
+        "px4_landed": "IN_AIR",
+        "connected": 0,
+        "armed": 0,
+        "armed_stale": 1,
+        "fleet_state": "STAGED",
+        "hover_done": true
+      }
+    ],
+    "timeline_last_row": {
+      "t": 20.3,
+      "gz_alt_m": 0.0,
+      "px4_alt_m": 0.95,
+      "px4_mode": "UNKNOWN",
+      "px4_armed": true,
+      "px4_landed": "IN_AIR",
+      "connected": 0,
+      "armed": 0,
+      "armed_stale": 1,
+      "fleet_state": "STAGED",
+      "hover_done": true
+    },
+    "hover_response": {
+      "http": 500,
+      "body": "{\"detail\": \"Hover dwell failed: Drone 0 telemetry became stale during hover dwell\"}"
+    },
+    "gcs_first_shows_the_freeze_s": 2.6,
+    "px4_own_state_at_end": {
+      "px4_mode": "UNKNOWN",
+      "px4_armed": true,
+      "px4_landed": "IN_AIR",
+      "px4_alt_m": 0.95
+    },
+    "gazebo_alt_min_max_after_fault": [
+      -0.009,
+      0.979
+    ]
+  },
+  "exception": null,
+  "cadence": {
+    "landed_state": {
+      "items": 48,
+      "span_s": 43.8,
+      "mean_hz": 1.07,
+      "median_interval_s": 0.9999,
+      "p99_interval_s": 1.0025,
+      "max_gap_s": 1.005,
+      "gaps_over_2_5s": 0,
+      "longest_run_of_identical_values": 29
+    },
+    "position_velocity_ned": {
+      "items": 717,
+      "span_s": 23.9,
+      "mean_hz": 29.99,
+      "median_interval_s": 0.0324,
+      "p99_interval_s": 0.037,
+      "max_gap_s": 0.046,
+      "gaps_over_2_5s": 0
+    }
+  },
+  "observer_events": [
+    [
+      1.29,
+      "connected",
+      true
+    ],
+    [
+      2.22,
+      "armed",
+      true
+    ],
+    [
+      2.22,
+      "mode",
+      "HOLD"
+    ],
+    [
+      2.22,
+      "landed_state",
+      "ON_GROUND"
+    ],
+    [
+      3.22,
+      "mode",
+      "OFFBOARD"
+    ],
+    [
+      4.22,
+      "landed_state",
+      "IN_AIR"
+    ],
+    [
+      12.22,
+      "mode",
+      "UNKNOWN"
+    ]
+  ]
+}
