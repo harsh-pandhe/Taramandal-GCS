@@ -54,9 +54,15 @@ export default function HeaderBar({
           GCS LINK: {wsConnected ? 'CONNECTED' : 'OFFLINE'}
         </div>
         {fleetState && (
-          <div className="status-badge" title={fleetState.description} data-testid="fleet-state">
-            <span className={`dot ${FLEET_STATE_DOT[fleetState.state] || 'grey'}`}></span>
-            FLEET: {fleetState.state}
+          <div
+            className="status-badge"
+            title={fleetState.playback_stopped
+              ? 'The fleet state reads RUNNING but the GCS is not playing the show (issue #299).'
+              : fleetState.description}
+            data-testid="fleet-state"
+          >
+            <span className={`dot ${fleetState.playback_stopped ? 'orange' : (FLEET_STATE_DOT[fleetState.state] || 'grey')}`}></span>
+            FLEET: {fleetState.state}{fleetState.playback_stopped ? ' · SHOW STOPPED' : ''}
           </div>
         )}
         {session && (

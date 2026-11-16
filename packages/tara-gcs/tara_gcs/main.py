@@ -25,7 +25,7 @@ from tara_gcs.blackbox_service import BlackboxService
 from tara_gcs.drone_manager import DroneManager
 from tara_gcs import fleet_discovery
 from tara_gcs.state_store import DEFAULT_STATE_PATH, prime_trajectory_cache
-from tara_gcs.fleet_fsm import Command, IllegalTransitionError
+from tara_gcs.fleet_fsm import Command, IllegalTransitionError, LifecycleState
 from tara_gcs.trajectory_parser import parse_trajectory_bytes, show_site
 from tara_gcs.telemetry_codec import FAST_HZ, SLOW_HZ, encode_fast_frame, encode_slow_frame
 from tara_gcs.sim_manager import SimLaunchError, SimManager
@@ -460,6 +460,18 @@ def _launch_failures() -> dict[str, str]:
     return {str(d_id): why for d_id, why in sorted(drone_manager.launch_failures.items())}
 
 
+def _playback_stopped() -> bool:
+    """The fleet state reads RUNNING but the GCS is not playing the show (issue #299).
+
+    Playback is switched on before the state becomes RUNNING at a start, and at a natural end the loop clears it and
+    moves the state in one synchronous block, so this is only ever true when playback was stopped some other way. In
+    practice: a fleet-wide LAND / RTL / E-STOP stops the playback before the vehicles answer; if every vehicle refuses,
+    the state is (rightly) not advanced to LANDING / RTL / ESTOP, and nothing moves it out of RUNNING either. The
+    vehicle is then neither flying the show nor landing; this is how every consumer of the state can tell.
+    """
+    return drone_manager.fleet_fsm.state is LifecycleState.RUNNING and not drone_manager.is_running_trajectory
+
+
 def _check_command(command: Command, operator: str, trigger: str) -> None:
     try:
         drone_manager.fleet_fsm.check(command, operator=operator, trigger=trigger)
@@ -603,6 +615,8 @@ async def get_status():
         "armed_stale_ids": armed_stale_ids,
         "trajectory_running": drone_manager.is_running_trajectory,
         "fleet_state": drone_manager.fleet_fsm.state.value,
+        # RUNNING while the show is not being played (issue #299): true after a land/RTL/E-STOP that every vehicle refused.
+        "playback_stopped": _playback_stopped(),
         # The site profile of the loaded show: it fixes the launch-pad grid (standard unless the show names one).
         "site": drone_manager.site,
         # Drones aborted out of the show on their own (issue #59); per-drone
@@ -912,7 +926,7 @@ async def get_fleet_state(operator: Viewer):
     """The fleet's lifecycle state, which commands are legal in it, and the
     most recent transitions (the audit log on disk has the full record)."""
     fsm = drone_manager.fleet_fsm
-    return {**fsm.snapshot(), "history": list(fsm.history), "launch_failures": _launch_failures()}
+    return {**fsm.snapshot(), "history": list(fsm.history), "launch_failures": _launch_failures(), "playback_stopped": _playback_stopped()}
 
 @app.post("/api/launch")
 async def launch_fleet(operator: Commander):
@@ -989,6 +1003,9 @@ def _fleet_command_reply(result, *, label: str, success_message: str) -> dict:
             "drones": result.breakdown(),
             "fleet_state": drone_manager.fleet_fsm.state.value,
             "fleet_state_advanced": result.fleet_state_advanced,
+            # The command stopped the show before the vehicles answered; when every one refused, the state still
+            # reads RUNNING but nothing is flying the show (issue #299).
+            "playback_stopped": _playback_stopped(),
         },
     )
 
@@ -1494,15 +1511,19 @@ async def websocket_telemetry_endpoint(websocket: WebSocket, operator: Annotated
     elapsed = 0.0
     sent_fsm_seq = None
     sent_launch_failures = None
+    sent_playback_stopped = None
     try:
         while True:
             await websocket.send_bytes(encode_fast_frame(drone_manager.telemetry))
             fsm = drone_manager.fleet_fsm
             failures = _launch_failures()
-            if elapsed >= next_slow_send or fsm.seq != sent_fsm_seq or failures != sent_launch_failures:
+            stopped = _playback_stopped()
+            if (elapsed >= next_slow_send or fsm.seq != sent_fsm_seq or failures != sent_launch_failures
+                    or stopped != sent_playback_stopped):
                 sent_fsm_seq = fsm.seq
                 sent_launch_failures = failures
-                fleet_state_snapshot = {**fsm.snapshot(), "launch_failures": failures}
+                sent_playback_stopped = stopped
+                fleet_state_snapshot = {**fsm.snapshot(), "launch_failures": failures, "playback_stopped": stopped}
                 await websocket.send_json(encode_slow_frame(drone_manager.telemetry, fleet_state_snapshot))
                 next_slow_send = elapsed + slow_interval
             await asyncio.sleep(fast_interval)
