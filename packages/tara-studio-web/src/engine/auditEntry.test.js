@@ -272,7 +272,7 @@ describe('buildEntry', () => {
       expect(canonicalSize(buildEntry(w))).toBeLessThanOrEqual(BUDGET);
     });
 
-    it('shrinks reason first, then summary, then check.summary, then request', () => {
+    it('shrinks reason first, then summary, then check.summary (then the ops, and the request last)', () => {
       const e = buildEntry(worst());
       // 3600 bytes of request, summary and check summary leave room for only a little of the reason
       expect([...e.reason].length).toBeLessThan(100);
@@ -291,7 +291,7 @@ describe('buildEntry', () => {
       expect([...f.check.summary]).toHaveLength(200);
       expect([...f.request]).toHaveLength(200);
 
-      // More still: the check summary gives way, and only then the request.
+      // More still: the check summary gives way too; the request is still whole.
       const heavier = batch(Array.from({ length: 8 }, () => sceneCommands.patch('a', { [dev(10)]: 1, [dev(11)]: 1, [dev(12)]: 1 })));
       const g = buildEntry({ ...worst(), command: heavier });
       expect(canonicalSize(g)).toBeLessThanOrEqual(BUDGET);
@@ -300,14 +300,18 @@ describe('buildEntry', () => {
       expect([...g.request]).toHaveLength(200);
     });
 
-    it('the request is cut only after everything else is gone', () => {
+    it('the request is cut last: after reason, summary, check summary and the ops have all given way', () => {
       const cmd = batch(Array.from({ length: 5 }, () => sceneCommands.patch('a', { [dev(40)]: 1, [dev(39)]: 1 })));
       const e = buildEntry({ ...worst(), command: cmd });
       expect(canonicalSize(e)).toBeLessThanOrEqual(BUDGET);
       expect(e.summary).toBe('');
       expect(e.check.summary).toBe('');
-      expect([...e.request].length).toBeLessThan(200);
-      expect([...e.request].length).toBeGreaterThan(0);
+      // the ops gave way (fewer field names), and the operator's own words did not
+      expect([...e.request]).toHaveLength(200);
+      expect(e.request).toBe(dev(200));
+      expect(e.ops).toHaveLength(5);
+      expect(e.ops.every((op) => (op.fields ?? []).length < 2)).toBe(true);
+      expect(e.reason).toBe('ops shortened');
     });
 
     it('emoji at the cut boundary are never split', () => {
@@ -353,6 +357,14 @@ describe('buildEntry', () => {
           Array.from({ length: 10 }, (_, i) => [`${dev(39)}${i}`, 1])))));
         const e = buildEntry({ ...worstInput(), command: dv });
         expect(canonicalSize(e)).toBeLessThanOrEqual(BUDGET);
+        expect(e.request).toBe(dev(200));   // the operator's own text survives, whatever the ops needed
+      });
+
+      it('a huge-ops entry keeps the operator\'s request text intact', () => {
+        const request = 'set hold of scene 1 to 8 s and then make the second scene a bigger sphere';
+        const e = buildEntry(base({ request, command: huge() }));
+        expect(e.request).toBe(request);
+        expect(e.reason).toBe('ops shortened');
       });
 
       it('keeps the order, and every kept op and field name is one of the originals', () => {

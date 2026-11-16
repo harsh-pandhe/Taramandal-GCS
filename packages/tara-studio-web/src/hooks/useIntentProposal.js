@@ -346,5 +346,7 @@ export default function useIntentProposal({
     // The audit log: what could not be recorded, and a counter that moves after each append
     // attempt. Information only: nothing in the editing flow reads either.
     auditNote, auditVersion,
+    // The project new decisions are recorded in (the open one), for the list that reads them back.
+    auditProjectId: projectId ?? null,
   };
 }

@@ -247,10 +247,10 @@ export function auditOps(command) {
  * Over-long or odd TEXT is never an error: it is cleaned and cut, and when the
  * entry is still too big for the backend's byte limit it shrinks, in this order,
  * until it is under (4096 - 128) bytes: reason, then summary, then check.summary,
- * then request. Each is cut by code points (a "…" ends a cut one) and, only when
- * the optional `reason` is emptied, omitted. When that is not enough (only the ops are
- * left to give), their field names are cut from the end, then whole ops from the end, and
- * "; ops shortened" is added to the reason if there is room for it. Size never throws.
+ * then the ops (field names cut from the end, then whole ops from the end, and
+ * "; ops shortened" added to the reason if there is room for it), and the operator's
+ * request text last. Text is cut by code points (a "…" ends a cut one) and, only when
+ * the optional `reason` is emptied, omitted. Size never throws.
  */
 export function buildEntry({ requestId, source, request, summary, command, check, decision, reason }) {
   if (!SOURCES.includes(source)) throw new Error(`audit entry: unknown source ${JSON.stringify(source)}`);
@@ -280,24 +280,26 @@ export function buildEntry({ requestId, source, request, summary, command, check
 
   const budget = LIMITS.entryBytes - LIMITS.margin;
   // The text fields in the order they give way. `get`/`set` keep the optional ones optional.
-  const shrinkable = [
-    { get: () => entry.reason ?? '', set: (t) => { if (t) entry.reason = t; else delete entry.reason; } },
-    { get: () => entry.summary, set: (t) => { entry.summary = t; } },
-    { get: () => entry.check?.summary ?? '', set: (t) => { if (entry.check) entry.check.summary = t; } },
-    { get: () => entry.request, set: (t) => { entry.request = t; } },
-  ];
-  for (const field of shrinkable) {
-    if (canonicalSize(entry) <= budget) break;
+  const reasonField = { get: () => entry.reason ?? '', set: (t) => { if (t) entry.reason = t; else delete entry.reason; } };
+  const summaryField = { get: () => entry.summary, set: (t) => { entry.summary = t; } };
+  const checkField = { get: () => entry.check?.summary ?? '', set: (t) => { if (entry.check) entry.check.summary = t; } };
+  const requestField = { get: () => entry.request, set: (t) => { entry.request = t; } };
+  const shrink = (field) => {
+    if (canonicalSize(entry) <= budget) return;
     const full = field.get();
     const total = [...full].length;
     for (let keep = total - 1; keep >= 0 && canonicalSize(entry) > budget; keep -= 1) {
       field.set(keep === 0 ? '' : cutText(full, keep));
     }
-  }
+  };
 
-  // Last resort, only once every text field has given way: the ops. First fewer
-  // field names per op (cut from the end), then whole ops from the end. What is
-  // kept is kept as it was: nothing is invented and the order stays.
+  shrink(reasonField);
+  shrink(summaryField);
+  shrink(checkField);
+
+  // Then the ops: first fewer field names per op (cut from the end), then whole ops from
+  // the end. What is kept is kept as it was: nothing is invented and the order stays. The
+  // operator's own request text is the last thing to give way, after the ops.
   if (canonicalSize(entry) > budget) {
     const whole = entry.ops;
     const fieldsOf = (op) => op.fields ?? [];
@@ -312,6 +314,7 @@ export function buildEntry({ requestId, source, request, summary, command, check
     const noted = { ...entry, reason: note };
     if ([...note].length <= LIMITS.reason && canonicalSize(noted) <= budget) entry.reason = note;
   }
+  shrink(requestField);
   // Only reachable if even an entry with no ops and empty text is too big: it cannot be.
   if (canonicalSize(entry) > budget) throw new Error('audit entry: cannot be made small enough for the audit log');
   return entry;
