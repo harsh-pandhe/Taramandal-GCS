@@ -263,3 +263,69 @@ async def test_a_mode_other_than_offboard_before_offboard_engages_is_not_a_takeo
         assert result["status"] == "COMPLETED"
     finally:
         await manager.shutdown()
+
+
+# --- UNKNOWN is not a pilot ---------------------------------------------------------------------------------
+#
+# Real PX4 SITL: stopping the estimator (`px4-ekf2 stop`) mid-dwell made the reported flight mode UNKNOWN. The
+# sequence took that for a pilot, stopped with "operator took over (flight mode left OFFBOARD for UNKNOWN)" and, by
+# design, commanded nothing: no recovery for a vehicle nobody was flying. The landing check already says UNKNOWN and
+# None are not evidence of anything (LANDING_OWN_MODES); the climb and dwell check now says the same, and a lost or
+# stale vehicle is left to the link and telemetry checks, which fail closed and recover.
+
+
+@pytest.mark.parametrize("mode", ["UNKNOWN", None])
+def test_an_unknown_or_missing_mode_after_offboard_is_not_a_takeover(manager, mode):
+    assert manager._check_operator_takeover(0, {"flight_mode": mode}, offboard_seen=True) is True
+
+
+@pytest.mark.parametrize("mode", ["POSCTL", "MANUAL", "ALTCTL", "STABILIZED", "ACRO"])
+def test_every_pilot_mode_after_offboard_is_still_a_takeover(manager, mode):
+    from tara_gcs.drone_manager import OperatorTakeoverError
+
+    with pytest.raises(OperatorTakeoverError) as exc:
+        manager._check_operator_takeover(0, {"flight_mode": mode}, offboard_seen=True)
+    assert "operator took over" in str(exc.value) and mode in str(exc.value)
+
+
+def test_unknown_before_offboard_has_been_seen_is_not_a_takeover_either(manager):
+    assert manager._check_operator_takeover(0, {"flight_mode": "UNKNOWN"}, offboard_seen=False) is False
+    assert manager._check_operator_takeover(0, {"flight_mode": "OFFBOARD"}, offboard_seen=False) is True
+
+
+@pytest.mark.asyncio
+async def test_unknown_mode_with_lost_telemetry_mid_dwell_fails_closed_and_recovers(commander, manager, monkeypatch):
+    """The fault above in the sim: after hover is reached the mode goes UNKNOWN and the vehicle stops answering.
+    The sequence must report the lost vehicle (not a pilot) and try to recover it (not yield)."""
+    try:
+        await manager.connect_all()
+        await asyncio.sleep(0.5)
+        calls = _track_commands(manager, monkeypatch)
+        original_ingest = manager._ingest_bulk_telemetry
+        state = {"reached": None}
+
+        def ingest(snap, include_slow):
+            original_ingest(snap, include_slow)
+            tel = manager.telemetry[0]
+            if not tel.get("armed"):
+                return
+            if abs(tel.get("local_z", 0.0) - TARGET_ALT) <= 0.1:
+                state["reached"] = state["reached"] or time.monotonic()
+            if state["reached"] is not None and time.monotonic() - state["reached"] > 0.5:
+                tel["flight_mode"] = "UNKNOWN"
+                tel["connected"] = False
+            else:
+                tel["flight_mode"] = "OFFBOARD"
+
+        monkeypatch.setattr(manager, "_ingest_bulk_telemetry", ingest)
+
+        with pytest.raises(HTTPException) as exc:
+            await _run(commander, hover_s=5.0)
+
+        assert exc.value.status_code == 500
+        assert "operator took over" not in exc.value.detail
+        assert "disconnected" in exc.value.detail
+        assert calls["recover"], "the sequence abandoned a vehicle that stopped answering"
+        assert 0 not in manager.single_drone_sequence_active
+    finally:
+        await manager.shutdown()
