@@ -6,6 +6,7 @@ import TransmitPanel from './panels/TransmitPanel.jsx';
 import AudioPanel from './panels/AudioPanel.jsx';
 import AIPanel from './panels/AIPanel.jsx';
 import ProposalPanel from './panels/ProposalPanel.jsx';
+import AuditLogPanel from './panels/AuditLogPanel.jsx';
 
 const TABS = ['sequence', 'light', 'audio', 'ai', 'safety', 'transmit'];
 
@@ -68,6 +69,7 @@ export default function ConsoleDrawer({
           <>
             <AIPanel ai={ai} />
             {intent && <ProposalPanel intent={intent} />}
+            {intent && <AuditLogPanel intent={intent} />}
           </>
         )}
         {tab === 'safety' && <SafetyPanel validation={validation} validating={validating} choreoData={choreoData} />}

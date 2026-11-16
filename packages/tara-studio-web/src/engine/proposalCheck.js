@@ -14,7 +14,9 @@ import {
 } from './sequencer.js';
 import { API_BASE, validateShow } from './api.js';
 
-const unverified = (summary) => ({ status: 'UNVERIFIED', summary, violations: {} });
+// `kind` is exportGate's own value (none/open/failed/unverified), added for the
+// audit log (issue #94). null means "no gate was consulted" (the build was refused).
+const unverified = (summary) => ({ status: 'UNVERIFIED', summary, violations: {}, kind: 'unverified' });
 
 export const checkProposal = async ({ afterDoc, build, validate }) => {
   let show;
@@ -22,7 +24,7 @@ export const checkProposal = async ({ afterDoc, build, validate }) => {
     show = await build(afterDoc);
   } catch (e) {
     if (e instanceof ShowRefusalError) {
-      return { status: 'REFUSED', summary: e.message, violations: {} };
+      return { status: 'REFUSED', summary: e.message, violations: {}, kind: null };
     }
     return unverified(`Could not build the edited show: ${e?.message || 'unknown error'}`);
   }
@@ -46,7 +48,7 @@ export const checkProposal = async ({ afterDoc, build, validate }) => {
   if (gate.notFlightCertified) {
     summary = 'Passes the hard limits but is not flight-certified (jerk), so the edited show could not be exported.';
   }
-  return { status, summary, violations: report.violations ?? {} };
+  return { status, summary, violations: report.violations ?? {}, kind: gate.kind };
 };
 
 /**

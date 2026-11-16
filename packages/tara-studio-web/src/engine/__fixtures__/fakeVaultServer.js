@@ -53,6 +53,13 @@ const fingerprint = (body) => {
   return h.toString(16).padStart(8, '0');
 };
 
+// What the audit log's POST takes and refuses (tara_studio/audit_log.py), as far as a stand-in needs:
+// every client field present, nothing unknown, and none of the server's own.
+const AUDIT_CLIENT_FIELDS = ['v', 'requestId', 'source', 'request', 'summary', 'ops', 'check', 'decision', 'reason'];
+const AUDIT_REQUIRED = ['v', 'requestId', 'source', 'request', 'summary', 'decision'];
+const AUDIT_DEFAULT_LIMIT = 100;
+const AUDIT_MAX_LIMIT = 500;
+
 const fail = (status, code, extra = {}) => ({ status, body: { detail: { code, ...extra } } });
 const INVALID = { status: 422, body: { detail: '<validation>' } };
 
@@ -63,6 +70,7 @@ const INVALID = { status: 422, body: { detail: '<validation>' } };
  */
 export function createFakeVaultServer({ now = () => new Date().toISOString() } = {}) {
   const projects = new Map();   // id -> { meta, show, fingerprint }
+  const audits = new Map();     // id -> [entry, ...] oldest first
   let generated = 0;
   const server = { down: false, requests: [] };
 
@@ -96,7 +104,47 @@ export function createFakeVaultServer({ now = () => new Date().toISOString() } =
 
   const newId = () => { generated += 1; return `proj-fake${String(generated).padStart(8, '0')}`; };
 
+  // /api/projects/{id}/audit: append (POST) and read (GET, newest first). The stand-in
+  // for audit_api.py; a project that is not in the vault has no log (404).
+  const handleAudit = (method, rawId, query, body) => {
+    const projectId = decodeURIComponent(rawId);
+    if (!ID_RE.test(projectId)) return fail(422, 'invalid_project');
+    if (!projects.has(projectId)) return fail(404, 'project_not_found', { message: `No project ${projectId} in the vault.` });
+    const log = audits.get(projectId) ?? [];
+
+    if (method === 'POST') {
+      const keys = isObject(body) ? Object.keys(body) : [];
+      const valid = isObject(body)
+        && keys.every((k) => AUDIT_CLIENT_FIELDS.includes(k))
+        && AUDIT_REQUIRED.every((k) => k in body);
+      if (!valid) return fail(422, 'invalid_entry', { message: 'The audit entry is not valid.' });
+      const last = log[log.length - 1];
+      const entry = {
+        ...copy(body), seq: log.length + 1, at: now(), projectId, prev: last ? last.hash : '', hash: `fake-${log.length + 1}`,
+      };
+      audits.set(projectId, [...log, entry]);
+      return { status: 201, body: { entry: copy(entry) } };
+    }
+    if (method === 'GET') {
+      const asked = new URLSearchParams(query).get('limit');
+      const limit = asked === null ? AUDIT_DEFAULT_LIMIT : Number(asked);
+      if (!Number.isInteger(limit) || limit < 1 || limit > AUDIT_MAX_LIMIT) {
+        // FastAPI's own query validation: `detail` is a list and has no code.
+        return { status: 422, body: { detail: [{ type: 'validation_error', loc: ['query', 'limit'], msg: 'limit must be 1 to 500' }] } };
+      }
+      return {
+        status: 200,
+        body: copy({
+          entries: [...log].reverse().slice(0, limit), total: log.length, full: false, chainOk: true, torn: false, corruptLines: 0,
+        }),
+      };
+    }
+    return { status: 405, body: { detail: 'Method Not Allowed' } };
+  };
+
   server.handle = (method, path, body) => {
+    const [, auditId, auditQuery] = path.match(/^\/api\/projects\/([^/?]+)\/audit\/?(?:\?(.*))?$/) ?? [];
+    if (auditId !== undefined) return handleAudit(method, auditId, auditQuery ?? '', body);
     const [, id] = path.match(/^\/api\/projects(?:\/([^/?]*))?\/?(?:\?.*)?$/) ?? [];
     if (!path.startsWith('/api/projects')) return { status: 404, body: { detail: 'Not Found' } };
 
@@ -148,6 +196,7 @@ export function createFakeVaultServer({ now = () => new Date().toISOString() } =
     if (method === 'DELETE') {
       if (!entry) return fail(404, 'project_not_found');
       projects.delete(projectId);
+      audits.delete(projectId);   // the log goes with the project (to .trash, in the real vault)
       return { status: 204, body: null };
     }
     return { status: 405, body: { detail: 'Method Not Allowed' } };
@@ -155,10 +204,11 @@ export function createFakeVaultServer({ now = () => new Date().toISOString() } =
 
   server.fetch = async (url, init = {}) => {
     const method = init.method ?? 'GET';
-    const { pathname } = new URL(url, 'http://vault.test');
+    const { pathname, search } = new URL(url, 'http://vault.test');
     server.requests.push({ method, path: pathname, body: init.body ? JSON.parse(init.body) : undefined });
     if (server.down) throw new TypeError('Failed to fetch');
-    const { status, body } = server.handle(method, pathname, init.body ? JSON.parse(init.body) : undefined);
+    // The query string travels with the path (the audit log's GET takes ?limit=).
+    const { status, body } = server.handle(method, pathname + search, init.body ? JSON.parse(init.body) : undefined);
     return {
       status,
       ok: status >= 200 && status < 300,
@@ -172,5 +222,7 @@ export function createFakeVaultServer({ now = () => new Date().toISOString() } =
     return entry ? view(entry, true) : null;
   };
   server.ids = () => [...projects.keys()];
+  /** A project's audit entries, oldest first. */
+  server.audit = (id) => copy(audits.get(id) ?? []);
   return server;
 }

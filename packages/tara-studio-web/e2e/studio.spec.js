@@ -83,6 +83,27 @@ async function stubBackend(page, report = PASSED_REPORT, vault = createFakeVault
     );
     return route.fulfill(body === null ? { status } : { status, json: body });
   });
+  // The AI audit log (issue #94). The route above hands /api/projects/<id>/audit to the fake vault
+  // without its query string and does not match a GET with ?limit=, so the audit log has its own,
+  // registered after it (the newest route wins). `vault.auditStub.posts` is every entry the page sent;
+  // `vault.auditStub.mode` makes the endpoint fail: '503', 'refused' (connection refused) or 'full' (409).
+  const audit = { mode: null, posts: [] };
+  vault.auditStub = audit;
+  await page.route(/\/api\/projects\/[^/?]+\/audit(\?.*)?$/, async (route) => {
+    const request = route.request();
+    const body = request.postDataJSON() ?? undefined;
+    if (request.method() === 'POST') audit.posts.push(body);
+    if (vault.down || audit.mode === 'refused') return route.abort('connectionrefused');
+    if (audit.mode === '503') {
+      return route.fulfill({ status: 503, json: { detail: { code: 'vault_unavailable', message: 'Project Vault storage failed.' } } });
+    }
+    if (audit.mode === 'full' && request.method() === 'POST') {
+      return route.fulfill({ status: 409, json: { detail: { code: 'audit_full', message: 'The audit log for this project is full.' } } });
+    }
+    const url = new URL(request.url());
+    const answer = vault.handle(request.method(), url.pathname + url.search, body);
+    return route.fulfill(answer.body === null ? { status: answer.status } : { status: answer.status, json: answer.body });
+  });
   return vault;
 }
 
@@ -688,6 +709,133 @@ test.describe('local planner (issue #94, slice 1)', () => {
     await page.getByPlaceholder('make scene 2 a heart').fill('set hold of scene 1 to 8 s');
     await page.getByRole('button', { name: 'Preview edit' }).click();
     await expect(page.getByTestId('edit-proposal')).toContainText('Set hold of scene 1');
+  });
+});
+
+// Issue #94: every decision on an AI proposal is recorded in the project's audit log and the
+// latest ones are listed, read-only, under the scene edit panel. The audit endpoint is the fake
+// vault's (see stubBackend); a failing log must never stop or undo an edit. Behaviour only: no
+// screenshot assertions, and the AI tab has no baseline.
+test.describe('audit log (issue #94)', () => {
+  const SENTENCE = 'set hold of scene 1 to 8 s';
+  const holdOfFirstScene = (page) => page.locator('.scene-card').first().getByLabel('Hold (s)');
+  const typeEdit = async (page, sentence) => {
+    await consoleTab(page, 'AI');
+    await page.getByPlaceholder('make scene 2 a heart').fill(sentence);
+    await page.getByRole('button', { name: 'Preview edit' }).click();
+  };
+  const rows = (page) => page.getByTestId('audit-row');
+  const apply = (page) => page.getByRole('button', { name: 'Apply edit' }).click();
+  const FORBIDDEN = ['seq', 'at', 'projectId', 'prev', 'hash'];
+
+  test('applying a typed edit sends one "applied" entry, with no server fields and no ids, and lists it', async ({ page }) => {
+    const vault = await openStudio(page, PASSED_REPORT);
+    await typeEdit(page, SENTENCE);
+    await apply(page);
+
+    await expect(rows(page).first()).toContainText('Applied');
+    await expect(rows(page).first()).toContainText(SENTENCE);
+    await expect(rows(page).first()).toContainText('Safety check passed');
+    await expect.poll(() => vault.auditStub.posts.length).toBe(1);
+    const [body] = vault.auditStub.posts;
+    expect(body).toMatchObject({ v: 1, decision: 'applied', source: 'typed', request: SENTENCE });
+    for (const key of FORBIDDEN) expect(body).not.toHaveProperty(key);
+    expect(body.check).toMatchObject({ status: 'PASSED', kind: 'open' });
+    expect(body.ops).toHaveLength(1);
+    for (const op of body.ops) {
+      expect(Object.keys(op).every((k) => ['type', 'sceneIndex', 'fields'].includes(k))).toBe(true);
+      expect(Number.isInteger(op.sceneIndex)).toBe(true);
+    }
+    // The stored entry belongs to the open project and is the server's, not the client's, for its identity.
+    expect(vault.audit('default-proj')).toMatchObject([{ decision: 'applied', seq: 1, projectId: 'default-proj' }]);
+  });
+
+  test('dismissing a proposal is recorded as "Dismissed"', async ({ page }) => {
+    const vault = await openStudio(page, PASSED_REPORT);
+    await typeEdit(page, SENTENCE);
+    await page.getByRole('button', { name: 'Dismiss edit' }).click();
+    await expect(rows(page).first()).toContainText('Dismissed');
+    await expect.poll(() => vault.auditStub.posts.length).toBe(1);
+    await consoleTab(page, 'SEQUENCE');
+    await expect(holdOfFirstScene(page)).toHaveValue('6');
+  });
+
+  test('a refused sentence is recorded as "Refused", with the reason the operator saw', async ({ page }) => {
+    const vault = await openStudio(page, PASSED_REPORT);
+    await typeEdit(page, 'please transmit the show now');
+    await expect(rows(page).first()).toContainText('Refused');
+    await expect(rows(page).first()).toContainText('not supported');
+    await expect.poll(() => vault.auditStub.posts.length).toBe(1);
+    expect(vault.auditStub.posts[0]).toMatchObject({ decision: 'refused', source: 'typed', ops: [] });
+    expect(vault.auditStub.posts[0]).not.toHaveProperty('check');
+  });
+
+  test('an unavailable planner is recorded as "Planner unavailable"', async ({ page }) => {
+    const vault = await openStudio(page, PASSED_REPORT);
+    await page.route('**/api/ai/plan', (route) => route.fulfill({ json: { status: 'unavailable', ops: [], unsupported: [], error: 'refused' } }));
+    await consoleTab(page, 'AI');
+    await page.getByPlaceholder('make scene 2 a heart').fill('make scene 1 a sphere');
+    await page.getByRole('button', { name: 'Ask planner' }).click();
+    await expect(rows(page).first()).toContainText('Planner unavailable');
+    await expect(rows(page).first()).toContainText('Planner');
+    expect(vault.auditStub.posts[0]).toMatchObject({ decision: 'planner_unavailable', source: 'planner' });
+  });
+
+  test('the newest decision is first', async ({ page }) => {
+    await openStudio(page, PASSED_REPORT);
+    await typeEdit(page, SENTENCE);
+    await apply(page);
+    await expect(rows(page)).toHaveCount(1);
+    await typeEdit(page, 'set hold of scene 2 to 5 s');
+    await page.getByRole('button', { name: 'Dismiss edit' }).click();
+    await expect(rows(page)).toHaveCount(2);
+    await expect(rows(page).nth(0)).toContainText('Dismissed');
+    await expect(rows(page).nth(1)).toContainText('Applied');
+  });
+
+  for (const [name, mode] of [['answering 503', '503'], ['refusing the connection', 'refused']]) {
+    test(`the audit endpoint ${name}: the edit is still applied, one undo reverts it, and a quiet note says so`, async ({ page }) => {
+      const vault = await openStudio(page, PASSED_REPORT);
+      vault.auditStub.mode = mode;
+      await typeEdit(page, SENTENCE);
+      await apply(page);
+
+      const note = page.getByTestId('audit-note');
+      await expect(note).toContainText('Could not confirm the audit entry was saved.');
+      await expect(note).toHaveAttribute('role', 'status');
+      await expect(page.getByRole('alert')).toHaveCount(0);
+      expect(vault.auditStub.posts).toHaveLength(1);   // never retried
+
+      await consoleTab(page, 'SEQUENCE');
+      await expect(holdOfFirstScene(page)).toHaveValue('8');
+      await page.getByRole('button', { name: 'Undo', exact: true }).click();
+      await expect(holdOfFirstScene(page)).toHaveValue('6');
+      expect(vault.auditStub.posts).toHaveLength(1);
+    });
+  }
+
+  test('a full audit log (409 audit_full): the edit is still applied and the note says the log is full', async ({ page }) => {
+    const vault = await openStudio(page, PASSED_REPORT);
+    vault.auditStub.mode = 'full';
+    await typeEdit(page, SENTENCE);
+    await apply(page);
+    await expect(page.getByTestId('audit-note')).toContainText('The audit log for this project is full; this decision was not recorded.');
+    await consoleTab(page, 'SEQUENCE');
+    await expect(holdOfFirstScene(page)).toHaveValue('8');
+  });
+
+  test('a Devanagari request is recorded whole and shown without overflowing the drawer', async ({ page }) => {
+    const vault = await openStudio(page, PASSED_REPORT);
+    const text = 'क'.repeat(200);
+    await typeEdit(page, text);
+    await expect(rows(page).first()).toContainText('Refused');
+    await expect(rows(page).first()).toContainText('क'.repeat(20));
+    await expect.poll(() => vault.auditStub.posts.length).toBe(1);
+    expect(vault.auditStub.posts[0].request).toBe(text);
+    const fits = await page.getByTestId('audit-list').evaluate((el) => el.scrollWidth <= el.clientWidth);
+    expect(fits).toBe(true);
+    const rowFits = await rows(page).first().evaluate((el) => el.scrollWidth <= el.clientWidth);
+    expect(rowFits).toBe(true);
   });
 });
 

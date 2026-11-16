@@ -1544,3 +1544,36 @@ input[type="number"] { font-family: var(--mono); font-variant-numeric: tabular-n
     transition-duration: 0.001ms !important;
   }
 }
+
+/* ------------------------------------------ AI decision log (issue #94) ----- */
+/* New rules only. The list sits in the AI tab of the narrow console drawer, so every
+   piece of text wraps inside it (long words, Devanagari, CJK, emoji) and nothing
+   overflows sideways. The look follows the edit history list. */
+.audit-log { min-width: 0; }
+.audit-note {
+  margin: 0; padding: 0.4rem 0.6rem; font-size: 0.74rem; line-height: 1.4;
+  color: var(--text-dim); background: var(--bg-sunken);
+  border: 1px solid var(--border); border-radius: var(--r-sm);
+  overflow-wrap: anywhere; word-break: break-word;
+}
+.audit-note.warn { color: var(--warning); background: var(--warning-tint); border-color: var(--warning); }
+.audit-list {
+  list-style: none; margin: 0; padding: 0; min-width: 0;
+  max-height: 280px; overflow-y: auto; overflow-x: hidden;
+  border: 1px solid var(--border); border-radius: var(--r-sm);
+}
+.audit-row {
+  display: flex; flex-direction: column; gap: 0.15rem; min-width: 0;
+  padding: 0.4rem 0.5rem; font-size: 0.72rem; color: var(--text);
+}
+.audit-row + .audit-row { border-top: 1px solid var(--border); }
+.audit-head {
+  display: flex; flex-wrap: wrap; gap: 0.1rem 0.6rem; align-items: baseline;
+  font-family: var(--mono); color: var(--text-faint); min-width: 0;
+}
+.audit-decision { color: var(--text); font-weight: 600; }
+.audit-text {
+  margin: 0; min-width: 0; overflow-wrap: anywhere; word-break: break-word;
+  display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; line-clamp: 3; overflow: hidden;
+}
+.audit-dim { color: var(--text-dim); }
