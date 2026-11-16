@@ -6,6 +6,7 @@ import HeaderBar from './components/layout/HeaderBar';
 import ViewTabs from './components/layout/ViewTabs';
 import ErrorBanner from './components/alerts/ErrorBanner';
 import LaunchFailureBanner from './components/alerts/LaunchFailureBanner';
+import PlaybackStoppedBanner from './components/alerts/PlaybackStoppedBanner';
 import SimControlBar from './components/sim/SimControlBar';
 import FlightOperationsPanel from './components/actions/FlightOperationsPanel';
 import FleetTelemetryPanel from './components/fleet/FleetTelemetryPanel';
@@ -68,6 +69,7 @@ function Dashboard({ session }) {
 
       <ErrorBanner message={errorMsg} />
       <LaunchFailureBanner launchFailures={fleetState?.launch_failures} />
+      <PlaybackStoppedBanner stopped={fleetState?.playback_stopped} />
 
       <SimControlBar {...sim} />
 
