@@ -1,0 +1,349 @@
+{
+  "label": "s10-3",
+  "started_utc": "2026-11-16T20:21:04Z",
+  "commit": "d011ae14fb7d13e737248c2486cd10326b239ad9",
+  "gcs": "http://127.0.0.1:8090",
+  "studio": "http://127.0.0.1:8001",
+  "steps": {
+    "validate": "certified",
+    "export": "signed",
+    "upload_trajectory": {
+      "signature": {
+        "verified": true,
+        "signer": "Diwali demo",
+        "key_id": "9ecd786f6276f7c0",
+        "signed_at": "2026-11-16T20:21:05+00:00"
+      },
+      "geofence": {
+        "soft_warning_radius_m": 29.8,
+        "hard_geofence_radius_m": 34.8
+      }
+    },
+    "upload_mission": {
+      "all_verified": true,
+      "verified_count": 10,
+      "launch_gate": "ok"
+    },
+    "preflight": {
+      "launch_permitted": true,
+      "blocking_reasons": []
+    },
+    "launch": {
+      "drone_ids": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9
+      ],
+      "excluded": []
+    },
+    "formation_hold_after_s": 35.9,
+    "start": {
+      "execution": "streamed",
+      "mode": "LOCAL",
+      "ack_latency_s": 0.023,
+      "bridge_s": 26.5
+    },
+    "land": {
+      "status": 200,
+      "detail": "ok"
+    }
+  },
+  "verdict": "PASS",
+  "show_source": "stand-in: Studio sequencer circle, 10 drones, 10.0 Hz (as in #209)",
+  "num_drones": 10,
+  "planned": {
+    "duration_s": 120.2,
+    "studio_status": "PASSED",
+    "feasibility_certified": true,
+    "min_separation_m": 2.05,
+    "max_velocity_m_s": 1.49,
+    "max_jerk_m_s3": 14.14,
+    "max_altitude_m": 20.75,
+    "limits": {
+      "min_separation_m": 1.5,
+      "design_separation_m": 2.0,
+      "pad_spacing_m": 2.2,
+      "max_velocity_ms": 6.0,
+      "max_accel_ms2": 50.0,
+      "max_yaw_rate_dps": 300.0,
+      "geofence_radius_m": 30.0,
+      "max_altitude_m": 120.0,
+      "geofence_soft_warning_buffer_m": 10.0,
+      "geofence_hard_buffer_m": 15.0,
+      "max_jerk_ms3": 20.0
+    }
+  },
+  "gcs_status_before": {
+    "mode": "SIMULATION",
+    "configured_mode": "SIMULATION",
+    "backend": "px4",
+    "fidelity": "px4-sitl",
+    "active_backend": "px4",
+    "hardware_flight_certified": false,
+    "hardware_flight_available": false,
+    "num_drones": 10,
+    "connected": 10,
+    "armed": 0,
+    "armed_stale": 0,
+    "armed_stale_ids": [],
+    "trajectory_running": false,
+    "fleet_state": "STAGED",
+    "site": "standard",
+    "aborted": [],
+    "launch_failures": {},
+    "packet_drop_rate": null
+  },
+  "actual": {
+    "end_state": "SHOW_COMPLETE",
+    "show_complete_after_s": 147.79,
+    "playback_duration_s": 120.29,
+    "bridge_s": 26.5,
+    "final_state": "DISARMED",
+    "aborted_drones": [],
+    "emergency_transitions": [],
+    "gazebo": {
+      "samples_in_show": 7405,
+      "sample_rate_hz": 50.5,
+      "real_time_factor": 0.984,
+      "longest_stall_s": 0.05,
+      "sim_stalled": false,
+      "min_separation_m": 1.995,
+      "min_separation_pair": [
+        3,
+        7
+      ],
+      "min_separation_at_s": 59.6,
+      "planned_min_separation_same_instants_m": 2.05,
+      "tracking_error": {
+        "0": {
+          "max_m": 0.628,
+          "rms_m": 0.252,
+          "p95_m": 0.545,
+          "start_transient_s": 0.01,
+          "max_after_transient_m": 0.628
+        },
+        "1": {
+          "max_m": 0.606,
+          "rms_m": 0.276,
+          "p95_m": 0.536,
+          "start_transient_s": 0.01,
+          "max_after_transient_m": 0.606
+        },
+        "2": {
+          "max_m": 0.517,
+          "rms_m": 0.253,
+          "p95_m": 0.485,
+          "start_transient_s": 0.01,
+          "max_after_transient_m": 0.517
+        },
+        "3": {
+          "max_m": 0.694,
+          "rms_m": 0.267,
+          "p95_m": 0.604,
+          "start_transient_s": 0.01,
+          "max_after_transient_m": 0.694
+        },
+        "4": {
+          "max_m": 0.606,
+          "rms_m": 0.251,
+          "p95_m": 0.523,
+          "start_transient_s": 0.01,
+          "max_after_transient_m": 0.606
+        },
+        "5": {
+          "max_m": 0.833,
+          "rms_m": 0.289,
+          "p95_m": 0.708,
+          "start_transient_s": 0.01,
+          "max_after_transient_m": 0.833
+        },
+        "6": {
+          "max_m": 0.732,
+          "rms_m": 0.241,
+          "p95_m": 0.601,
+          "start_transient_s": 0.01,
+          "max_after_transient_m": 0.732
+        },
+        "7": {
+          "max_m": 0.654,
+          "rms_m": 0.258,
+          "p95_m": 0.529,
+          "start_transient_s": 0.01,
+          "max_after_transient_m": 0.654
+        },
+        "8": {
+          "max_m": 0.898,
+          "rms_m": 0.343,
+          "p95_m": 0.771,
+          "start_transient_s": 0.01,
+          "max_after_transient_m": 0.898
+        },
+        "9": {
+          "max_m": 0.914,
+          "rms_m": 0.294,
+          "p95_m": 0.749,
+          "start_transient_s": 0.01,
+          "max_after_transient_m": 0.914
+        }
+      },
+      "bridge_s": 26.5,
+      "start_max_descent_rate_ms": {
+        "0": 0.13,
+        "1": 0.29,
+        "2": 0.41,
+        "3": 0.58,
+        "4": 0.7,
+        "5": 0.84,
+        "6": 0.99,
+        "7": 1.14,
+        "8": 1.26,
+        "9": 1.4
+      },
+      "max_tracking_error_m": 0.914,
+      "max_tracking_error_drone": 9,
+      "max_tracking_error_at_s": 10.6,
+      "final_position_error_m": {
+        "0": 0.033,
+        "1": 0.043,
+        "2": 0.035,
+        "3": 0.057,
+        "4": 0.041,
+        "5": 0.02,
+        "6": 0.013,
+        "7": 0.083,
+        "8": 0.069,
+        "9": 0.024
+      },
+      "gcs_reported_max_tracking_error_m": {
+        "0": 0.579,
+        "1": 0.399,
+        "2": 0.441,
+        "3": 0.483,
+        "4": 0.442,
+        "5": 0.676,
+        "6": 0.612,
+        "7": 0.416,
+        "8": 0.776,
+        "9": 0.708
+      },
+      "gcs_minus_gazebo_mean_offset_m": {
+        "0": [
+          -0.02,
+          -0.01,
+          -0.08
+        ],
+        "1": [
+          0.03,
+          -0.02,
+          -0.12
+        ],
+        "2": [
+          -0.02,
+          -0.0,
+          -0.07
+        ],
+        "3": [
+          -0.0,
+          -0.02,
+          -0.11
+        ],
+        "4": [
+          0.01,
+          -0.0,
+          -0.1
+        ],
+        "5": [
+          0.0,
+          -0.01,
+          -0.07
+        ],
+        "6": [
+          -0.03,
+          0.02,
+          -0.02
+        ],
+        "7": [
+          -0.01,
+          0.02,
+          -0.1
+        ],
+        "8": [
+          0.06,
+          0.02,
+          -0.11
+        ],
+        "9": [
+          0.01,
+          0.01,
+          -0.05
+        ]
+      }
+    }
+  },
+  "fleet_history": [
+    {
+      "time": "2026-11-16T20:21:07.452+00:00",
+      "from": "STAGED",
+      "to": "PREARM",
+      "trigger": "POST /api/launch",
+      "operator": "demo"
+    },
+    {
+      "time": "2026-11-16T20:21:08.745+00:00",
+      "from": "PREARM",
+      "to": "ARMED",
+      "trigger": "telemetry:first_drone_armed",
+      "operator": "system"
+    },
+    {
+      "time": "2026-11-16T20:21:11.758+00:00",
+      "from": "ARMED",
+      "to": "TAKEOFF",
+      "trigger": "telemetry:climbing",
+      "operator": "system"
+    },
+    {
+      "time": "2026-11-16T20:21:43.012+00:00",
+      "from": "TAKEOFF",
+      "to": "FORMATION_HOLD",
+      "trigger": "telemetry:formation_altitude_reached",
+      "operator": "system"
+    },
+    {
+      "time": "2026-11-16T20:21:46.304+00:00",
+      "from": "FORMATION_HOLD",
+      "to": "RUNNING",
+      "trigger": "POST /api/start-trajectory",
+      "operator": "demo"
+    },
+    {
+      "time": "2026-11-16T20:24:14.087+00:00",
+      "from": "RUNNING",
+      "to": "SHOW_COMPLETE",
+      "trigger": "trajectory_complete",
+      "operator": "system"
+    },
+    {
+      "time": "2026-11-16T20:24:34.635+00:00",
+      "from": "SHOW_COMPLETE",
+      "to": "LANDING",
+      "trigger": "POST /api/land",
+      "operator": "demo"
+    },
+    {
+      "time": "2026-11-16T20:24:39.301+00:00",
+      "from": "LANDING",
+      "to": "DISARMED",
+      "trigger": "telemetry:all_disarmed",
+      "operator": "system"
+    }
+  ],
+  "gazebo_reader_errors": []
+}
