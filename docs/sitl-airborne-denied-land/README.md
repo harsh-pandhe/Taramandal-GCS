@@ -25,7 +25,7 @@ After the refused land, the **fleet state stays RUNNING for as long as it was wa
 `Failed to command Landing on Drone 0: COMMAND_DENIED` (`gcs_log_excerpt.txt` in each run). `trigger_land` (and `trigger_rtl`, `trigger_estop`) call `stop_trajectory()` and `offboard.stop()`
 before the vehicle's answer is known. When every drone refuses, the fleet state is deliberately not advanced (#258: LANDING would be a lie), but RUNNING is then a lie too:
 the show was stopped by the operator's own command, and the lifecycle monitor only leaves RUNNING when every drone disarms. The 36 s show never reached SHOW_COMPLETE.
-The operator is told by the 502 (and `/api/status` carries `trajectory_running`), so nothing is hidden, but the state label is stale. See the issue linked from #294 for the options.
+The operator is told by the 502 (and `/api/status` carries `trajectory_running`), so nothing is hidden, but the state label is stale. Options and a recommendation: issue #299.
 
 ## Limits
 
