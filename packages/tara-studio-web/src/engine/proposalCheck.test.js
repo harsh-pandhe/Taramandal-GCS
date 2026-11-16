@@ -62,7 +62,7 @@ describe('checkProposal', () => {
   it('REFUSED when the build throws ShowRefusalError, and never validates', async () => {
     const validate = vi.fn();
     const r = await run({ build: async () => { throw new ShowRefusalError('too dense'); }, validate });
-    expect(r).toEqual({ status: 'REFUSED', summary: 'too dense', violations: {} });
+    expect(r).toEqual({ status: 'REFUSED', summary: 'too dense', violations: {}, kind: null });
     expect(validate).not.toHaveBeenCalled();
   });
 
@@ -70,5 +70,48 @@ describe('checkProposal', () => {
     const r = await run({ build: () => { throw new TypeError('boom'); } });
     expect(r.status).toBe('UNVERIFIED');
     expect(r.summary).toMatch(/boom/);
+  });
+});
+
+// `kind` is exportGate's own word for the result (issue #94, the audit log records it).
+describe('checkProposal kind', () => {
+  it('PASSED -> open', async () => {
+    expect(await run()).toMatchObject({ status: 'PASSED', kind: 'open' });
+  });
+
+  it('FAILED -> failed, for a FAILED report and for a PASSED one that is not flight-certified', async () => {
+    expect(await run({ validate: async () => REPORT('FAILED') })).toMatchObject({ status: 'FAILED', kind: 'failed' });
+    const r = await run({ validate: async () => REPORT('PASSED', { feasibility_certified: false }) });
+    expect(r).toMatchObject({ status: 'FAILED', kind: 'failed' });
+  });
+
+  it('REFUSED -> null (no gate was consulted)', async () => {
+    const r = await run({ build: async () => { throw new ShowRefusalError('too dense'); } });
+    expect(r.kind).toBeNull();
+  });
+
+  it('UNVERIFIED -> unverified on every path that returns it', async () => {
+    const results = [
+      await run({ validate: async () => { throw new Error('offline'); } }),
+      await run({ validate: async () => null }),
+      await run({ validate: async () => ({ status: 'PASSED' }) }),
+      await run({ build: () => { throw new TypeError('boom'); } }),
+      await run({ validate: async () => REPORT('MAYBE') }),
+    ];
+    for (const r of results) expect(r).toMatchObject({ status: 'UNVERIFIED', kind: 'unverified' });
+  });
+
+  it('only ever returns none, open, failed, unverified or null, and keeps its other fields', async () => {
+    const all = [
+      await run(),
+      await run({ validate: async () => REPORT('FAILED') }),
+      await run({ validate: async () => REPORT('MAYBE') }),
+      await run({ validate: async () => { throw new Error('x'); } }),
+      await run({ build: async () => { throw new ShowRefusalError('r'); } }),
+    ];
+    for (const r of all) {
+      expect(['none', 'open', 'failed', 'unverified', null]).toContain(r.kind);
+      expect(Object.keys(r).sort()).toEqual(['kind', 'status', 'summary', 'violations']);
+    }
   });
 });
