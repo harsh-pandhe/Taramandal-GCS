@@ -1,0 +1,39 @@
+[   0.94s] OBS connected: True
+[   1.10s] CHECK PASS preflight ready before the run | {'connected': 1, 'armed': 0, 'armed_stale': 0, 'armed_stale_ids': [], 'fleet_state': 'STAGED'}
+[   1.13s] NOTE planned_duration_s = 36
+[   1.15s] CHECK PASS Studio certifies the 1-drone show | PASSED
+[   1.18s] CHECK PASS the GCS verifies the show's signature | {'verified': True, 'signer': 'Studio SITL #172', 'key_id': '7fa30d7106e1dfbf', 'signed_at': '2026-11-16T22:11:31+00:00'}
+[   1.38s] OBS armed: False
+[   1.38s] OBS mode: HOLD
+[   1.38s] OBS landed_state: ON_GROUND
+Received ack for not-existing command: 400! Ignoring... (mavlink_command_sender.cpp:304)
+Received ack for not-existing command: 176! Ignoring... (mavlink_command_sender.cpp:304)
+Received ack for not-existing command: 176! Ignoring... (mavlink_command_sender.cpp:304)
+[   2.38s] OBS armed: True
+[   2.38s] OBS mode: OFFBOARD
+[   3.39s] OBS landed_state: IN_AIR
+[   7.79s] CHECK PASS the fleet reaches FORMATION_HOLD | FORMATION_HOLD
+[  10.80s] CHECK PASS the show is RUNNING | RUNNING
+[  25.80s] CHECK PASS airborne in the show before the fault | px4 alt 8.0 m, {'connected': 1, 'armed': 1, 'armed_stale': 0, 'armed_stale_ids': [], 'fleet_state': 'RUNNING'}
+[  25.83s] NOTE ekf2_stop = {"cmd": "ekf2 stop", "rc": 0, "out": "INFO  [ekf2] stopping ekf2 instance 0"}
+Received ack for not-existing command: 176! Ignoring... (mavlink_command_sender.cpp:304)
+Received ack for not-existing command: 176! Ignoring... (mavlink_command_sender.cpp:304)
+Received ack for not-existing command: 21! Ignoring... (mavlink_command_sender.cpp:304)
+[  26.16s] NOTE fleet_wide_land = {"t_after_fault_s": 0.36, "http": 502, "body": "{\"detail\": {\"message\": \"Fleet-wide landing refused by every connected drone (drone 0: COMMAND_DENIED: 'Command Denied'; origin: land(); params: ()). Nothing was commanded.\", \"backend\": \"px4\", \"mode\": \"SIMULATION\", \"command\": \"land\", \
+[  26.42s] OBS mode: UNKNOWN
+Received ack for not-existing command: 176! Ignoring... (mavlink_command_sender.cpp:304)
+Received ack for not-existing command: 176! Ignoring... (mavlink_command_sender.cpp:304)
+Received ack for not-existing command: 21! Ignoring... (mavlink_command_sender.cpp:304)
+[  27.21s] NOTE single_drone_land = {"http": 502, "body": "{\"detail\": {\"message\": \"Drone 0 rejected landing: COMMAND_DENIED: 'Command Denied'; origin: land(); params: ()\", \"backend\": \"px4\", \"drone_id\": 0, \"mode\": \"land\", \"commanded\": false, \"error\": \"COMMAND_DENIED: 'Command Denied'; origin: land(); params: ()\", 
+[  27.23s] NOTE px4_direct_land_answer = "ActionError: COMMAND_DENIED: 'Command Denied'; origin: land(); params: ()"
+[ 122.50s] NOTE fleet_timeline_first_10 = [{"t": 1.4, "fleet_state": "RUNNING", "connected": 1, "armed": 1, "armed_stale": 0}, {"t": 2.4, "fleet_state": "RUNNING", "connected": 1, "armed": 1, "armed_stale": 0}, {"t": 3.4, "fleet_state": "RUNNING", "connected": 0, "armed": 0, "armed_stale": 1}, {"t": 4.4, "fleet_state": "RUNNING", "connected
+[ 122.50s] NOTE fleet_state_changes_in_95s = [{"t": 1.4, "fleet_state": "RUNNING", "connected": 1, "armed": 1, "armed_stale": 0}]
+[ 122.50s] NOTE fleet_timeline_last = {"t": 95.7, "fleet_state": "RUNNING", "connected": 0, "armed": 0, "armed_stale": 1}
+[ 122.50s] NOTE fleet_history_tail = [{"seq": 1, "ts": 1794867091.5371206, "time": "2026-11-16T22:11:31.537+00:00", "accepted": true, "from": "STAGED", "to": "PREARM", "operator": "cmdr", "trigger": "POST /api/launch"}, {"seq": 2, "ts": 1794867092.9151092, "time": "2026-11-16T22:11:32.915+00:00", "accepted": true, "from": "PREARM", "to
+[ 122.50s] CHECK PASS PX4 itself refuses land with the estimator stopped (independent client) | ActionError: COMMAND_DENIED: 'Command Denied'; origin: land(); params: ()
+[ 122.50s] CHECK PASS GCS fleet-wide land does not answer 200 success | 502 {"detail": {"message": "Fleet-wide landing refused by every connected drone (drone 0: COMMAND_DENIED: 'Command Denied'; origin: land(); params: ()). Nothing was commanded.", "backend": "px4", "mode": "SIMULATION", "command": "land", "accept
+[ 122.50s] CHECK PASS the refusal names PX4's denial | {"detail": {"message": "Fleet-wide landing refused by every connected drone (drone 0: COMMAND_DENIED: 'Command Denied'; origin: land(); params: ()). Nothing was commanded.", "backend": "px4", "mode": "SIMULATION", "command": "land", "accept
+[ 122.50s] CHECK PASS the fleet is not claimed to be LANDING right after the refused fleet-wide land | RUNNING -> RUNNING
+[ 122.50s] CHECK PASS nor one second later | RUNNING
+[ 122.50s] CHECK PASS GCS single-drone land does not answer 200 success | 502 {"detail": {"message": "Drone 0 rejected landing: COMMAND_DENIED: 'Command Denied'; origin: land(); params: ()", "backend": "px4", "drone_id": 0, "mode": "land", "commanded": false, "error": "COMMAND_DENIED: 'Command Denied'; origin: land()
+[ 122.51s] VERDICT PASS

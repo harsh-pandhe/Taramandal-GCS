@@ -1,0 +1,10 @@
+{"backend": "px4", "event": "login", "fidelity": "px4-sitl", "operator": "cmdr", "origin_ip": "127.0.0.1", "role": "FLIGHT_COMMANDER", "ts": 1794866793.6221325}
+{"backend": "px4", "event": "login", "fidelity": "px4-sitl", "operator": "chor", "origin_ip": "127.0.0.1", "role": "CHOREOGRAPHER", "ts": 1794866793.6553986}
+{"backend": "px4", "event": "command", "fidelity": "px4-sitl", "method": "POST", "operator": "cmdr", "origin_ip": "127.0.0.1", "path": "/api/upload-trajectory", "role": "FLIGHT_COMMANDER", "status": 200, "ts": 1794866793.8148577}
+{"backend": "px4", "event": "command", "fidelity": "px4-sitl", "method": "POST", "operator": "cmdr", "origin_ip": "127.0.0.1", "path": "/api/upload-mission", "role": "FLIGHT_COMMANDER", "status": 200, "ts": 1794866793.8835661}
+{"backend": "px4", "event": "command", "fidelity": "px4-sitl", "method": "POST", "operator": "cmdr", "origin_ip": "127.0.0.1", "path": "/api/preflight/latch/request", "role": "FLIGHT_COMMANDER", "status": 200, "ts": 1794866793.8887467}
+{"backend": "px4", "event": "command", "fidelity": "px4-sitl", "method": "POST", "operator": "cmdr", "origin_ip": "127.0.0.1", "path": "/api/preflight/latch/confirm", "role": "FLIGHT_COMMANDER", "status": 200, "ts": 1794866793.893258}
+{"backend": "px4", "event": "command", "fidelity": "px4-sitl", "method": "POST", "operator": "cmdr", "origin_ip": "127.0.0.1", "path": "/api/launch", "role": "FLIGHT_COMMANDER", "status": 200, "ts": 1794866793.8986843}
+{"backend": "px4", "event": "command", "fidelity": "px4-sitl", "method": "POST", "operator": "cmdr", "origin_ip": "127.0.0.1", "path": "/api/start-trajectory", "role": "FLIGHT_COMMANDER", "status": 200, "ts": 1794866803.505258}
+{"backend": "px4", "event": "command", "fidelity": "px4-sitl", "method": "POST", "operator": "cmdr", "origin_ip": "127.0.0.1", "path": "/api/land", "role": "FLIGHT_COMMANDER", "status": 502, "ts": 1794866818.9394999}
+{"backend": "px4", "event": "command", "fidelity": "px4-sitl", "method": "POST", "operator": "cmdr", "origin_ip": "127.0.0.1", "path": "/api/drone/0/land", "role": "FLIGHT_COMMANDER", "status": 502, "ts": 1794866820.01958}
