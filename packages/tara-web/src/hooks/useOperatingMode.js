@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { API_BASE } from '../config';
-import { getSession } from '../session';
+import { getSession, gcsFetch } from '../session';
+import { hoverErrorText } from '../hoverSequence';
 
 /**
  * Hook managing GCS Operating Mode (SIMULATION vs HARDWARE) and telemetry freshness (issue #131).
@@ -15,6 +16,9 @@ export default function useOperatingMode(setErrorMsg) {
     telemetryFreshnessS: null,
     telemetryStatus: 'FRESH',
     rcTakeoverAvailable: true,
+    // false until the GCS has reported its mode once: the defaults above are a guess, and a control that
+    // starts a flight must not act on a guess.
+    loaded: false,
   });
 
   const fetchMode = useCallback(async () => {
@@ -34,6 +38,7 @@ export default function useOperatingMode(setErrorMsg) {
           telemetryFreshnessS: data.telemetry_freshness_s,
           telemetryStatus: data.telemetry_status,
           rcTakeoverAvailable: data.rc_takeover_available,
+          loaded: true,
         });
       }
     } catch {
@@ -70,25 +75,20 @@ export default function useOperatingMode(setErrorMsg) {
     return body;
   };
 
+  // The supervised single-drone hover (#171). Resolves with the GCS's answer (status COMPLETED and the steps it
+  // took); rejects with the GCS's own refusal text. It does not touch the dashboard's error banner: the control
+  // that calls it shows the outcome next to itself. A 401 ends the session through gcsFetch like every GCS call.
   const triggerSingleDroneDemo = async (targetAltM = 1.0, hoverDurationS = 5.0) => {
-    const session = getSession();
-    const res = await fetch(`${API_BASE}/api/single-drone/hover-sequence`, {
+    const res = await gcsFetch(`${API_BASE}/api/single-drone/hover-sequence`, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        ...(session ? { Authorization: `Bearer ${session.token}` } : {}),
-      },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         target_altitude_m: targetAltM,
         hover_duration_s: hoverDurationS,
       }),
     });
     const body = await res.json().catch(() => ({}));
-    if (!res.ok) {
-      const err = body.detail || 'Single-drone sequence rejected.';
-      if (setErrorMsg) setErrorMsg(err);
-      throw new Error(err);
-    }
+    if (!res.ok) throw new Error(hoverErrorText(body.detail, `The hover sequence was refused (HTTP ${res.status}).`));
     return body;
   };
 
