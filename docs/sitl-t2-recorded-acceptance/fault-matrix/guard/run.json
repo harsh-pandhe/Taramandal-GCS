@@ -1,0 +1,137 @@
+{
+  "run_id": "guard",
+  "case": "guard",
+  "verdict": "PASS",
+  "context": {
+    "run_id": "guard",
+    "case": "guard",
+    "stack": "tara up --backend px4 -n 1 (headless)",
+    "allow_unsigned": true,
+    "commit": "06fb92ce8ac9c8d806187b3731623b5728888ec6",
+    "started_utc": "2026-11-15T20:52:11Z",
+    "host_load_before": "2.54 3.44 4.19",
+    "host_load_at_start": "2.72 3.40 4.15",
+    "host_load_at_end": "3.19 3.46 4.16",
+    "other_running_containers": [],
+    "fresh_container": true,
+    "microsd_dirs_before_stack": 0,
+    "px4_version": "v1.16.2",
+    "image_id": "sha256:424c464813742ee541ad2a554ee4bfa5e709beeeaebfb1dbfe9384459d92d3cb",
+    "docker_server": "29.8.0 on linux/amd64",
+    "host_cpus": "16",
+    "host_kernel": "7.0.0-42-generic",
+    "headless": true,
+    "gazebo_window": false,
+    "rviz": false,
+    "recording": false,
+    "px4_ulogs_saved": 1,
+    "scenario_exit_code": 0
+  },
+  "checks": [
+    {
+      "name": "preflight ready before the run",
+      "ok": true,
+      "detail": "{'connected': 1, 'armed': 0, 'armed_stale': 0, 'armed_stale_ids': [], 'fleet_state': 'STAGED'}"
+    },
+    {
+      "name": "second hover request during a hover is refused with 409",
+      "ok": true,
+      "detail": "409 {\"detail\": \"A single-drone sequence is already running on drone 0.\"}"
+    },
+    {
+      "name": "upload during a hover (choreographer) is refused with 409",
+      "ok": true,
+      "detail": "409 {\"detail\": \"Cannot upload a trajectory while a single-drone sequence is active on drone(s) [0].\"}"
+    },
+    {
+      "name": "upload during a hover (commander) is refused with 409",
+      "ok": true,
+      "detail": "409 {\"detail\": \"Cannot upload a trajectory while a single-drone sequence is active on drone(s) [0].\"}"
+    },
+    {
+      "name": "the original hover still completes",
+      "ok": true,
+      "detail": "200"
+    },
+    {
+      "name": "control: the same upload after the hover is not refused for the hover (any non-409)",
+      "ok": true,
+      "detail": "200 {\"status\": \"success\", \"message\": \"Trajectory uploaded and saved to active slot.\", \"drones_summary\": {\"0\": {\"waypoints_count\": 2, \"duration_seconds\": 8.0}}, \"tra"
+    }
+  ],
+  "notes": {},
+  "exception": null,
+  "cadence": {
+    "landed_state": {
+      "items": 43,
+      "span_s": 38.8,
+      "mean_hz": 1.08,
+      "median_interval_s": 1.0,
+      "p99_interval_s": 1.0025,
+      "max_gap_s": 1.01,
+      "gaps_over_2_5s": 0,
+      "longest_run_of_identical_values": 19
+    },
+    "position_velocity_ned": {
+      "items": 1181,
+      "span_s": 39.3,
+      "mean_hz": 29.99,
+      "median_interval_s": 0.0324,
+      "p99_interval_s": 0.0367,
+      "max_gap_s": 0.043,
+      "gaps_over_2_5s": 0
+    }
+  },
+  "observer_events": [
+    [
+      0.86,
+      "connected",
+      true
+    ],
+    [
+      1.68,
+      "armed",
+      true
+    ],
+    [
+      1.68,
+      "mode",
+      "OFFBOARD"
+    ],
+    [
+      1.68,
+      "landed_state",
+      "ON_GROUND"
+    ],
+    [
+      3.69,
+      "landed_state",
+      "IN_AIR"
+    ],
+    [
+      21.69,
+      "mode",
+      "LAND"
+    ],
+    [
+      21.69,
+      "landed_state",
+      "LANDING"
+    ],
+    [
+      24.69,
+      "landed_state",
+      "ON_GROUND"
+    ],
+    [
+      26.69,
+      "armed",
+      false
+    ],
+    [
+      26.69,
+      "mode",
+      "HOLD"
+    ]
+  ]
+}

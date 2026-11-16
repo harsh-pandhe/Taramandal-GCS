@@ -1,0 +1,42 @@
+[   0.99s] OBS connected: True
+[   1.16s] CHECK PASS preflight ready before the run | {'connected': 1, 'armed': 0, 'armed_stale': 0, 'armed_stale_ids': [], 'fleet_state': 'STAGED'}
+Received ack for not-existing command: 400! Ignoring... (mavlink_command_sender.cpp:304)
+[   1.41s] OBS armed: True
+[   1.41s] OBS mode: HOLD
+[   1.41s] OBS landed_state: ON_GROUND
+Received ack for not-existing command: 176! Ignoring... (mavlink_command_sender.cpp:304)
+Received ack for not-existing command: 176! Ignoring... (mavlink_command_sender.cpp:304)
+[   2.41s] OBS mode: OFFBOARD
+[   3.41s] OBS landed_state: IN_AIR
+[  10.13s] CLIENT DISCONNECT mid-hover alt 0.88
+[  11.15s] CHECK PASS a second hover right after the disconnect is refused (409, guard held) | 409 {"detail": "A single-drone sequence is already running on drone 0."}
+Received ack for not-existing command: 176! Ignoring... (mavlink_command_sender.cpp:304)
+Received ack for not-existing command: 176! Ignoring... (mavlink_command_sender.cpp:304)
+Received ack for not-existing command: 21! Ignoring... (mavlink_command_sender.cpp:304)
+[  20.41s] OBS mode: LAND
+[  20.41s] OBS landed_state: LANDING
+[  23.41s] OBS landed_state: ON_GROUND
+[  25.41s] OBS armed: False
+[  25.41s] OBS mode: HOLD
+[  25.59s] NOTE seconds_from_disconnect_to_disarm = 15.5
+[  25.59s] CHECK PASS the abandoned sequence still lands and disarms safely | armed=False landed=ON_GROUND
+[  25.79s] NOTE seconds_for_GCS_armed_to_follow_PX4_disarm = 0.21
+[  25.79s] CHECK PASS GCS armed count follows PX4's disarm within 8 s | {'connected': 1, 'armed': 0, 'armed_stale': 0, 'armed_stale_ids': [], 'fleet_state': 'STAGED'}
+Received ack for not-existing command: 400! Ignoring... (mavlink_command_sender.cpp:304)
+[  26.41s] OBS armed: True
+Received ack for not-existing command: 176! Ignoring... (mavlink_command_sender.cpp:304)
+Received ack for not-existing command: 176! Ignoring... (mavlink_command_sender.cpp:304)
+[  27.41s] OBS mode: OFFBOARD
+[  28.41s] OBS landed_state: IN_AIR
+Received ack for not-existing command: 176! Ignoring... (mavlink_command_sender.cpp:304)
+Received ack for not-existing command: 176! Ignoring... (mavlink_command_sender.cpp:304)
+Received ack for not-existing command: 21! Ignoring... (mavlink_command_sender.cpp:304)
+[  37.42s] OBS mode: LAND
+[  37.42s] OBS landed_state: LANDING
+[  40.42s] OBS landed_state: ON_GROUND
+[  42.42s] OBS armed: False
+[  42.42s] OBS mode: HOLD
+[  42.73s] HOVER HTTP RESULT: 200 {"status": "COMPLETED", "mode": "SIMULATION", "configured_mode": "SIMULATION", "active_backend": "px4", "vehicle": "SIMULATED", "steps": [{"step": "PREFLIGHT", "status": "PASSED", "time": 1794775660.5043077, "drone_id": 0}, {"step": "ARM", "status": "ARMED", "time": 1794775661.4302652}, {"step": "HOVER_REACHED", "status": "HOLDING", "altitude_m": 0.86, "time": 1794775668.9182875}, {"step": "HOVER_HOLD_COMPLETE", "status": "STABLE", "dwell_s": 3.02, "time": 1794775671.9428172}, {"step": "LANDING_
+[  42.73s] CHECK PASS guard released afterwards: a new hover request is accepted and completes | 200 {"status": "COMPLETED", "mode": "SIMULATION", "configured_mode": "SIMULATION", "active_backend": "px4", "vehicle": "SIMU
+[  42.73s] NOTE limit = "client disconnect only: the in-process CancelledError path cannot be triggered from outside and is covered by the unit test"
+[  42.74s] VERDICT PASS

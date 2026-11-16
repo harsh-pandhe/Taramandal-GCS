@@ -1,0 +1,27 @@
+[   0.82s] OBS connected: True
+[   0.99s] CHECK PASS preflight ready before the run | {'connected': 1, 'armed': 0, 'armed_stale': 0, 'armed_stale_ids': [], 'fleet_state': 'STAGED'}
+Received ack for not-existing command: 400! Ignoring... (mavlink_command_sender.cpp:304)
+[   1.51s] OBS armed: True
+[   1.51s] OBS mode: HOLD
+[   1.51s] OBS landed_state: ON_GROUND
+Received ack for not-existing command: 176! Ignoring... (mavlink_command_sender.cpp:304)
+Received ack for not-existing command: 176! Ignoring... (mavlink_command_sender.cpp:304)
+[   2.51s] OBS mode: OFFBOARD
+[   3.53s] OBS landed_state: IN_AIR
+[   5.03s] ABORT: POST /api/land mid-climb alt=0.57
+Received ack for not-existing command: 176! Ignoring... (mavlink_command_sender.cpp:304)
+Received ack for not-existing command: 176! Ignoring... (mavlink_command_sender.cpp:304)
+Received ack for not-existing command: 21! Ignoring... (mavlink_command_sender.cpp:304)
+[   5.06s] NOTE land_response = {"http": 200, "body": "{\"status\": \"success\", \"message\": \"Emergency landing commanded to active backend (px4).\", \"backend\": \"px4\", \"mode\": \"SIMULATION\", \"command\": \"land\", \"accepted_ids\": [0]}"}
+[   5.06s] NOTE alt_at_abort = 0.64
+[   5.08s] HOVER HTTP RESULT: 500 {"detail": "Hover climb failed: Drone 0: yielding to fleet emergency state LANDING instead of continuing the climb"}
+[   5.53s] OBS mode: LAND
+[   5.53s] OBS landed_state: LANDING
+[  10.53s] OBS landed_state: ON_GROUND
+[  12.53s] OBS armed: False
+[  12.53s] OBS mode: HOLD
+[  12.64s] CHECK PASS the vehicle lands and disarms after the abort | armed=False landed=ON_GROUND
+[  12.64s] CHECK PASS it never reached the target altitude (peak well under 3 m) | peak 1.64 m
+[  12.64s] CHECK PASS hover-sequence does not report COMPLETED after an abort | 500 {"detail": "Hover climb failed: Drone 0: yielding to fleet emergency state LANDING instead of continuing the climb"}
+[  12.65s] NOTE fleet_after = {"connected": 1, "armed": 1, "armed_stale": 0, "armed_stale_ids": [], "fleet_state": "LANDING"}
+[  12.65s] VERDICT PASS

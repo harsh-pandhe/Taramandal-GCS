@@ -1,0 +1,61 @@
+{
+ "take": "camp_n3_s1",
+ "blackbox": "blackbox_20261115T202527_192029.jsonl.gz",
+ "blackbox_sha256": "06fea09ba01e4893",
+ "truncated": false,
+ "geofence_radius_m": 21.405903527216125,
+ "event_kinds": {
+  "audit": 2,
+  "command": 7,
+  "fsm_transition": 6
+ },
+ "safety_events": [],
+ "drones": 3,
+ "lifecycle": [
+  [
+   "STAGED",
+   "PREARM",
+   60.9
+  ],
+  [
+   "PREARM",
+   "ARMED",
+   62.1
+  ],
+  [
+   "ARMED",
+   "TAKEOFF",
+   65.3
+  ],
+  [
+   "TAKEOFF",
+   "FORMATION_HOLD",
+   70.9
+  ],
+  [
+   "FORMATION_HOLD",
+   "RUNNING",
+   76.0
+  ],
+  [
+   "RUNNING",
+   "SHOW_COMPLETE",
+   172.8
+  ]
+ ],
+ "running_s": 96.9,
+ "plan_duration_s": 84.8,
+ "start_offset_s": 11.1,
+ "tracking_err_mean_m": 0.05,
+ "tracking_err_max_m": 0.19,
+ "planned_min_sep_m": 2.2,
+ "flown_min_sep_m": 2.16,
+ "max_alt_flown_m": 14.68,
+ "max_alt_planned_m": 14.67,
+ "final_altitude_m": {
+  "0": 0.07,
+  "1": -0.02,
+  "2": 0.04
+ },
+ "pass": true
+}

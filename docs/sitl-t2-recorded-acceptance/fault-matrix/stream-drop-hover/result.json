@@ -1,0 +1,118 @@
+{
+  "checks": [
+    {
+      "name": "preflight ready before the run",
+      "ok": true,
+      "detail": "{'connected': 1, 'armed': 0, 'armed_stale': 0, 'armed_stale_ids': [], 'fleet_state': 'STAGED'}"
+    },
+    {
+      "name": "hover-sequence fails closed (not 200 COMPLETED)",
+      "ok": true,
+      "detail": "500 {\"detail\": \"Hover dwell failed: Drone 0 disconnected during hover dwell\"}"
+    },
+    {
+      "name": "connected falls to 0 while the stream is down",
+      "ok": true,
+      "detail": "0.015610218048095703"
+    },
+    {
+      "name": "PX4 is not left hovering in OFFBOARD: leaves OFFBOARD within 15 s",
+      "ok": true,
+      "detail": "1.8091299533843994"
+    },
+    {
+      "name": "PX4 ends disarmed on the ground within 90 s",
+      "ok": true,
+      "detail": "disarmed_at=6.666605234146118 mode=OFFBOARD alt=-0.02"
+    }
+  ],
+  "notes": {
+    "seconds_to_connected_0": 0.015610218048095703,
+    "seconds_to_PX4_left_OFFBOARD": 1.8091299533843994,
+    "seconds_to_connected_1_again": 4.103997468948364,
+    "seconds_to_disarm": 6.666605234146118,
+    "mode_events_after_drop": [
+      [
+        "mode",
+        "POSCTL"
+      ],
+      [
+        "landed_state",
+        "ON_GROUND"
+      ],
+      [
+        "armed",
+        false
+      ],
+      [
+        "mode",
+        "OFFBOARD"
+      ]
+    ],
+    "end_state": {
+      "mode": "OFFBOARD",
+      "armed": false,
+      "alt": -0.02,
+      "landed": "ON_GROUND"
+    },
+    "hover_result": {
+      "http": 500,
+      "detail": "{\"detail\": \"Hover dwell failed: Drone 0 disconnected during hover dwell\"}"
+    }
+  },
+  "case": "stream_drop_hover",
+  "exception": null,
+  "verdict": "PASS",
+  "observer_events": [
+    [
+      0.99,
+      "connected",
+      true
+    ],
+    [
+      1.4,
+      "armed",
+      true
+    ],
+    [
+      1.4,
+      "mode",
+      "HOLD"
+    ],
+    [
+      1.4,
+      "landed_state",
+      "ON_GROUND"
+    ],
+    [
+      2.42,
+      "mode",
+      "OFFBOARD"
+    ],
+    [
+      3.42,
+      "landed_state",
+      "IN_AIR"
+    ],
+    [
+      12.42,
+      "mode",
+      "POSCTL"
+    ],
+    [
+      15.42,
+      "landed_state",
+      "ON_GROUND"
+    ],
+    [
+      17.42,
+      "armed",
+      false
+    ],
+    [
+      17.42,
+      "mode",
+      "OFFBOARD"
+    ]
+  ]
+}

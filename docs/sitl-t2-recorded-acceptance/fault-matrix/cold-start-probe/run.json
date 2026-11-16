@@ -1,0 +1,207 @@
+{
+  "run_id": "cold-start-probe",
+  "case": "cold_start_px4_probe",
+  "verdict": "PASS",
+  "context": {
+    "run_id": "cold-start-probe",
+    "case": "cold_start_px4_probe",
+    "stack": "tara up --backend px4 -n 1 (headless)",
+    "allow_unsigned": false,
+    "commit": "06fb92ce8ac9c8d806187b3731623b5728888ec6",
+    "started_utc": "2026-11-15T20:59:44Z",
+    "host_load_before": "3.10 3.94 4.16",
+    "host_load_at_start": "3.10 3.94 4.16",
+    "host_load_at_end": "4.21 4.13 4.21",
+    "other_running_containers": [],
+    "fresh_container": true,
+    "microsd_dirs_before_stack": 0,
+    "px4_version": "v1.16.2",
+    "image_id": "sha256:424c464813742ee541ad2a554ee4bfa5e709beeeaebfb1dbfe9384459d92d3cb",
+    "docker_server": "29.8.0 on linux/amd64",
+    "host_cpus": "16",
+    "host_kernel": "7.0.0-42-generic",
+    "headless": true,
+    "gazebo_window": false,
+    "rviz": false,
+    "recording": false,
+    "px4_ulogs_saved": 2,
+    "scenario_exit_code": 0
+  },
+  "checks": [
+    {
+      "name": "GCS preflight was red when the GCS-level commands were sent",
+      "ok": true,
+      "detail": "fired=True t_connected=14.6"
+    },
+    {
+      "name": "hover-sequence before green is refused, with a reason",
+      "ok": true,
+      "detail": "{\"t\": 14.6, \"http\": 412, \"body\": \"{\\\"detail\\\": {\\\"message\\\": \\\"Single-drone sequence refused: pre-arm gates are red.\\\", \\\"profile\\\": \\\"SIMULATION\\\", \\\"blocking_reasons\\\": [\\\"GNSS / RTK fix \\\\u2014 NO_GPS (need FIX_3D or better)\\\", \\\"Battery state of charge \\\\u2014 0.0% (floor 50%)\\\", \\\"EKF health & "
+    },
+    {
+      "name": "launch before green is refused, with a reason",
+      "ok": true,
+      "detail": "{\"http\": 412, \"body\": \"{\\\"detail\\\": {\\\"message\\\": \\\"Launch refused: pre-arm gates are red.\\\", \\\"profile\\\": \\\"SIMULATION\\\", \\\"blocking_reasons\\\": [\\\"No drone passes every blocking pre-arm gate.\\\"]}}\"}"
+    },
+    {
+      "name": "fleet stayed out of PREARM/ARMED/TAKEOFF after those attempts",
+      "ok": true,
+      "detail": "fleet_state=STAGED"
+    },
+    {
+      "name": "PX4 itself was asked to arm repeatedly from boot, and its answers were kept",
+      "ok": true,
+      "detail": "48 probes"
+    },
+    {
+      "name": "PX4 later armed (the probe was finally accepted) and was disarmed again at once",
+      "ok": true,
+      "detail": "t=15.26"
+    },
+    {
+      "name": "GCS preflight turned green",
+      "ok": true,
+      "detail": "t=15.26"
+    },
+    {
+      "name": "a normal hover completes once preflight is green",
+      "ok": true,
+      "detail": "200"
+    }
+  ],
+  "notes": {
+    "t_gcs_api_login_s": 14.0,
+    "cold_start_v3": {
+      "gcs_hover_sequence": {
+        "t": 14.6,
+        "http": 412,
+        "body": "{\"detail\": {\"message\": \"Single-drone sequence refused: pre-arm gates are red.\", \"profile\": \"SIMULATION\", \"blocking_reasons\": [\"GNSS / RTK fix \\u2014 NO_GPS (need FIX_3D or better)\", \"Battery state of charge \\u2014 0.0% (floor 50%)\", \"EKF health & home lock \\u2014 Not armable, no home lock\"]}}"
+      },
+      "gcs_launch": {
+        "http": 412,
+        "body": "{\"detail\": {\"message\": \"Launch refused: pre-arm gates are red.\", \"profile\": \"SIMULATION\", \"blocking_reasons\": [\"No drone passes every blocking pre-arm gate.\"]}}"
+      },
+      "fleet_state_after_gcs_attempts": "STAGED",
+      "px4_disarm": {
+        "cmd": "commander disarm",
+        "rc": 0,
+        "out": ""
+      },
+      "probe_count": 48,
+      "probe_first_6": [
+        {
+          "t": 0.02,
+          "rc": 255,
+          "out": "ERROR [px4] PX4 server not running"
+        },
+        {
+          "t": 0.33,
+          "rc": 1,
+          "out": "   on|off      Turn lockdown on or off\n\n   set_ekf_origin\n     lat, lon, alt Origin Latitude, Longitude, Altitude\n\n   lat|lon|alt   Origin latitude longitude altitude\n\n   poweroff      Power off board (if supported)\n\n   stop\n\n   status        print status info"
+        },
+        {
+          "t": 0.63,
+          "rc": 1,
+          "out": "   on|off      Turn lockdown on or off\n\n   set_ekf_origin\n     lat, lon, alt Origin Latitude, Longitude, Altitude\n\n   lat|lon|alt   Origin latitude longitude altitude\n\n   poweroff      Power off board (if supported)\n\n   stop\n\n   status        print status info"
+        },
+        {
+          "t": 0.94,
+          "rc": 1,
+          "out": "   on|off      Turn lockdown on or off\n\n   set_ekf_origin\n     lat, lon, alt Origin Latitude, Longitude, Altitude\n\n   lat|lon|alt   Origin latitude longitude altitude\n\n   poweroff      Power off board (if supported)\n\n   stop\n\n   status        print status info"
+        },
+        {
+          "t": 1.25,
+          "rc": 1,
+          "out": "   on|off      Turn lockdown on or off\n\n   set_ekf_origin\n     lat, lon, alt Origin Latitude, Longitude, Altitude\n\n   lat|lon|alt   Origin latitude longitude altitude\n\n   poweroff      Power off board (if supported)\n\n   stop\n\n   status        print status info"
+        },
+        {
+          "t": 1.56,
+          "rc": 1,
+          "out": "   on|off      Turn lockdown on or off\n\n   set_ekf_origin\n     lat, lon, alt Origin Latitude, Longitude, Altitude\n\n   lat|lon|alt   Origin latitude longitude altitude\n\n   poweroff      Power off board (if supported)\n\n   stop\n\n   status        print status info"
+        }
+      ],
+      "probe_distinct_answers": [
+        "",
+        "   on|off      Turn lockdown on or off\n\n   set_ekf_origin\n     lat, lon, alt Origin Latitude, Longitude, Altitude\n\n   lat|lon|alt   Origin latitude longitude altitude\n\n   poweroff      Power off board (if supported)\n\n   stop\n\n   status        print status info",
+        "ERROR [px4] PX4 server not running"
+      ],
+      "probe_last_3": [
+        {
+          "t": 14.36,
+          "rc": 0,
+          "out": ""
+        },
+        {
+          "t": 14.67,
+          "rc": 0,
+          "out": ""
+        },
+        {
+          "t": 14.98,
+          "rc": 0,
+          "out": ""
+        }
+      ],
+      "t_gcs_connected_s": 14.6,
+      "t_gcs_preflight_first_green_s": 15.26,
+      "t_px4_armed_seen_by_gcs_s": 15.26
+    },
+    "gcs_timeline_changes": [
+      {
+        "t": 13.97,
+        "connected": 0,
+        "armed": 0,
+        "ready": false,
+        "blocking": [
+          "No drone passes every blocking pre-arm gate."
+        ]
+      },
+      {
+        "t": 14.6,
+        "connected": 1,
+        "armed": 0,
+        "ready": false,
+        "blocking": [
+          "No drone passes every blocking pre-arm gate."
+        ]
+      },
+      {
+        "t": 15.26,
+        "connected": 1,
+        "armed": 1,
+        "ready": true,
+        "blocking": []
+      },
+      {
+        "t": 16.2,
+        "connected": 1,
+        "armed": 0,
+        "ready": true,
+        "blocking": []
+      }
+    ]
+  },
+  "exception": null,
+  "cadence": {
+    "landed_state": {
+      "items": 26,
+      "span_s": 21.8,
+      "mean_hz": 1.15,
+      "median_interval_s": 0.9999,
+      "p99_interval_s": 1.0025,
+      "max_gap_s": 1.004,
+      "gaps_over_2_5s": 0,
+      "longest_run_of_identical_values": 10
+    },
+    "position_velocity_ned": {
+      "items": 657,
+      "span_s": 21.9,
+      "mean_hz": 29.99,
+      "median_interval_s": 0.0323,
+      "p99_interval_s": 0.037,
+      "max_gap_s": 0.039,
+      "gaps_over_2_5s": 0
+    }
+  },
+  "observer_events": null
+}
