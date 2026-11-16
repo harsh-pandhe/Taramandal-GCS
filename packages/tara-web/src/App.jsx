@@ -98,6 +98,10 @@ function Dashboard({ session }) {
             triggerAction={mission.triggerAction}
             bypassChecklist={bypassChecklist}
             setBypassChecklist={setBypassChecklist}
+            mode={operatingMode.mode}
+            modeLoaded={operatingMode.loaded}
+            role={session?.role}
+            runHoverTest={operatingMode.triggerSingleDroneDemo}
           />
 
           {showPreflight && (
