@@ -1,0 +1,29 @@
+[   0.28s] CHECK PASS Gazebo pose stream is readable | 7 samples, errors []
+[   1.28s] OBS connected: True
+[   1.45s] CHECK PASS preflight ready before the run | {'connected': 1, 'armed': 0, 'armed_stale': 0, 'armed_stale_ids': [], 'fleet_state': 'STAGED'}
+[   1.45s] NOTE gazebo_rest_z = -0.013
+Received ack for not-existing command: 400! Ignoring... (mavlink_command_sender.cpp:304)
+[   1.43s] OBS armed: True
+[   1.43s] OBS mode: HOLD
+[   1.43s] OBS landed_state: ON_GROUND
+Received ack for not-existing command: 176! Ignoring... (mavlink_command_sender.cpp:304)
+Received ack for not-existing command: 176! Ignoring... (mavlink_command_sender.cpp:304)
+[   2.43s] OBS mode: OFFBOARD
+[   3.43s] OBS landed_state: IN_AIR
+[  11.53s] CHECK PASS in the hover dwell before the fault | px4 alt 0.91 m, mode OFFBOARD, gazebo 0.881 m, hover task done=False
+[  11.57s] NOTE ekf2_stop = {"cmd": "ekf2 stop", "rc": 0, "out": "INFO  [ekf2] stopping ekf2 instance 0"}
+[  12.43s] OBS mode: UNKNOWN
+[  12.73s] HOVER HTTP RESULT: 500 {"detail": "Hover dwell failed: Drone 0: operator took over (flight mode left OFFBOARD for UNKNOWN); the sequence is yielding without commanding the vehicle"}
+[  31.79s] NOTE timeline_every_0.5s_first_40 = [{"t": 0.1, "gz_alt_m": 0.884, "px4_alt_m": 0.91, "px4_mode": "OFFBOARD", "px4_armed": true, "px4_landed": "IN_AIR", "connected": 1, "armed": 1, "armed_stale": 0, "fleet_state": "STAGED", "hover_done": false}, {"t": 0.6, "gz_alt_m": 0.33, "px4_alt_m": 0.92, "px4_mode": "OFFBOARD", "px4_armed": true,
+[  31.79s] NOTE timeline_last_row = {"t": 20.3, "gz_alt_m": 0.126, "px4_alt_m": 0.92, "px4_mode": "UNKNOWN", "px4_armed": true, "px4_landed": "IN_AIR", "connected": 0, "armed": 0, "armed_stale": 1, "fleet_state": "STAGED", "hover_done": true}
+[  31.79s] NOTE hover_response = {"http": 500, "body": "{\"detail\": \"Hover dwell failed: Drone 0: operator took over (flight mode left OFFBOARD for UNKNOWN); the sequence is yielding without commanding the vehicle\"}"}
+[  31.79s] CHECK PASS hover-sequence does not report COMPLETED | 500 {"detail": "Hover dwell failed: Drone 0: operator took over (flight mode left OFFBOARD for UNKNOWN); the sequence is yielding without commanding the vehicle"}
+[  31.79s] CHECK PASS the sequence stopped within 15 s of the fault | 1.2 s
+[  31.79s] NOTE gcs_first_shows_the_freeze_s = 2.6
+[  31.79s] CHECK PASS the GCS shows the freeze (connected 0 or armed_stale 1) within 6 s | 2.6
+[  31.79s] CHECK FAIL the failure text does not blame a pilot (nobody took over) | {"detail": "Hover dwell failed: Drone 0: operator took over (flight mode left OFFBOARD for UNKNOWN); the sequence is yielding without commanding the vehicle"}
+[  31.79s] CHECK FAIL the failure is reported as a lost or stale vehicle, not as a hand-over | {"detail": "Hover dwell failed: Drone 0: operator took over (flight mode left OFFBOARD for UNKNOWN); the sequence is yielding without commanding the vehicle"}
+[  31.79s] CHECK PASS Gazebo shows the vehicle on the ground (< 0.15 m) within 90 s | first below 0.15 m at 1.1 s, last {'t': 20.3, 'gz_alt_m': 0.126, 'px4_alt_m': 0.92, 'px4_mode': 'UNKNOWN', 'px4_armed': True, 'px4_landed': 'IN_AIR', 'connected': 0, 'armed': 0, 'armed_stale': 1, 'fleet_state': 'STAGED', 'hover_done': True}
+[  31.79s] NOTE px4_own_state_at_end = {"px4_mode": "UNKNOWN", "px4_armed": true, "px4_landed": "IN_AIR", "px4_alt_m": 0.92}
+[  31.79s] NOTE gazebo_alt_min_max_after_fault = [0.115, 0.884]
+[  31.81s] VERDICT FAIL
