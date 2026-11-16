@@ -1,0 +1,319 @@
+{
+  "run_id": "dla-3",
+  "case": "denied_land_airborne_show",
+  "verdict": "PASS",
+  "context": {
+    "run_id": "dla-3",
+    "case": "denied_land_airborne_show",
+    "stack": "tara up --backend px4 -n 1 (headless)",
+    "allow_unsigned": false,
+    "commit": "66abb2b7abf7a32a2bc94d5f981eb74fcd165282",
+    "started_utc": "2026-11-16T22:11:02Z",
+    "host_load_before": "2.98 2.56 1.79",
+    "host_load_at_start": "4.38 2.90 1.92",
+    "host_load_at_end": "4.03 3.23 2.16",
+    "other_running_containers": [
+      "yr15"
+    ],
+    "fresh_container": true,
+    "microsd_dirs_before_stack": 0,
+    "px4_version": "v1.16.2",
+    "image_id": "sha256:424c464813742ee541ad2a554ee4bfa5e709beeeaebfb1dbfe9384459d92d3cb",
+    "docker_server": "29.8.0 on linux/amd64",
+    "host_cpus": "16",
+    "host_kernel": "7.0.0-42-generic",
+    "headless": true,
+    "gazebo_window": false,
+    "rviz": false,
+    "recording": false,
+    "px4_ulogs_saved": 1,
+    "scenario_exit_code": 0
+  },
+  "checks": [
+    {
+      "name": "preflight ready before the run",
+      "ok": true,
+      "detail": "{'connected': 1, 'armed': 0, 'armed_stale': 0, 'armed_stale_ids': [], 'fleet_state': 'STAGED'}"
+    },
+    {
+      "name": "Studio certifies the 1-drone show",
+      "ok": true,
+      "detail": "PASSED"
+    },
+    {
+      "name": "the GCS verifies the show's signature",
+      "ok": true,
+      "detail": "{'verified': True, 'signer': 'Studio SITL #172', 'key_id': '7fa30d7106e1dfbf', 'signed_at': '2026-11-16T22:11:31+00:00'}"
+    },
+    {
+      "name": "the fleet reaches FORMATION_HOLD",
+      "ok": true,
+      "detail": "FORMATION_HOLD"
+    },
+    {
+      "name": "the show is RUNNING",
+      "ok": true,
+      "detail": "RUNNING"
+    },
+    {
+      "name": "airborne in the show before the fault",
+      "ok": true,
+      "detail": "px4 alt 8.0 m, {'connected': 1, 'armed': 1, 'armed_stale': 0, 'armed_stale_ids': [], 'fleet_state': 'RUNNING'}"
+    },
+    {
+      "name": "PX4 itself refuses land with the estimator stopped (independent client)",
+      "ok": true,
+      "detail": "ActionError: COMMAND_DENIED: 'Command Denied'; origin: land(); params: ()"
+    },
+    {
+      "name": "GCS fleet-wide land does not answer 200 success",
+      "ok": true,
+      "detail": "502 {\"detail\": {\"message\": \"Fleet-wide landing refused by every connected drone (drone 0: COMMAND_DENIED: 'Command Denied'; origin: land(); params: ()). Nothing was commanded.\", \"backend\": \"px4\", \"mode\": \"SIMULATION\", \"command\": \"land\", \"accept"
+    },
+    {
+      "name": "the refusal names PX4's denial",
+      "ok": true,
+      "detail": "{\"detail\": {\"message\": \"Fleet-wide landing refused by every connected drone (drone 0: COMMAND_DENIED: 'Command Denied'; origin: land(); params: ()). Nothing was commanded.\", \"backend\": \"px4\", \"mode\": \"SIMULATION\", \"command\": \"land\", \"accept"
+    },
+    {
+      "name": "the fleet is not claimed to be LANDING right after the refused fleet-wide land",
+      "ok": true,
+      "detail": "RUNNING -> RUNNING"
+    },
+    {
+      "name": "nor one second later",
+      "ok": true,
+      "detail": "RUNNING"
+    },
+    {
+      "name": "GCS single-drone land does not answer 200 success",
+      "ok": true,
+      "detail": "502 {\"detail\": {\"message\": \"Drone 0 rejected landing: COMMAND_DENIED: 'Command Denied'; origin: land(); params: ()\", \"backend\": \"px4\", \"drone_id\": 0, \"mode\": \"land\", \"commanded\": false, \"error\": \"COMMAND_DENIED: 'Command Denied'; origin: land()"
+    }
+  ],
+  "notes": {
+    "planned_duration_s": 36,
+    "ekf2_stop": {
+      "cmd": "ekf2 stop",
+      "rc": 0,
+      "out": "INFO  [ekf2] stopping ekf2 instance 0"
+    },
+    "fleet_wide_land": {
+      "t_after_fault_s": 0.36,
+      "http": 502,
+      "body": "{\"detail\": {\"message\": \"Fleet-wide landing refused by every connected drone (drone 0: COMMAND_DENIED: 'Command Denied'; origin: land(); params: ()). Nothing was commanded.\", \"backend\": \"px4\", \"mode\": \"SIMULATION\", \"command\": \"land\", \"accepted_ids\": [], \"refused_ids\": [0], \"drones\": {\"0\": {\"accepted\": false, \"error\": \"COMMAND_DENIED: 'Command Denied'; origin: land(); params: ()\"}}, \"fleet_state\": \"RUNNING\", \"fleet_state_advanced\": false}}",
+      "state_before": "RUNNING",
+      "state_right_after": "RUNNING"
+    },
+    "single_drone_land": {
+      "http": 502,
+      "body": "{\"detail\": {\"message\": \"Drone 0 rejected landing: COMMAND_DENIED: 'Command Denied'; origin: land(); params: ()\", \"backend\": \"px4\", \"drone_id\": 0, \"mode\": \"land\", \"commanded\": false, \"error\": \"COMMAND_DENIED: 'Command Denied'; origin: land(); params: ()\", \"clearance\": {\"clear\": true, \"threshold_m\": 2.0, \"mode\": \"land\", \"model\": \"vertical descent from current position (0.5-1.5 m/s)\", \"horizon_s\": 16.0, \"conflicts\": []}, \"warning\": null}}",
+      "state_after": "RUNNING"
+    },
+    "px4_direct_land_answer": "ActionError: COMMAND_DENIED: 'Command Denied'; origin: land(); params: ()",
+    "fleet_timeline_first_10": [
+      {
+        "t": 1.4,
+        "fleet_state": "RUNNING",
+        "connected": 1,
+        "armed": 1,
+        "armed_stale": 0
+      },
+      {
+        "t": 2.4,
+        "fleet_state": "RUNNING",
+        "connected": 1,
+        "armed": 1,
+        "armed_stale": 0
+      },
+      {
+        "t": 3.4,
+        "fleet_state": "RUNNING",
+        "connected": 0,
+        "armed": 0,
+        "armed_stale": 1
+      },
+      {
+        "t": 4.4,
+        "fleet_state": "RUNNING",
+        "connected": 0,
+        "armed": 0,
+        "armed_stale": 1
+      },
+      {
+        "t": 5.4,
+        "fleet_state": "RUNNING",
+        "connected": 0,
+        "armed": 0,
+        "armed_stale": 1
+      },
+      {
+        "t": 6.4,
+        "fleet_state": "RUNNING",
+        "connected": 0,
+        "armed": 0,
+        "armed_stale": 1
+      },
+      {
+        "t": 7.4,
+        "fleet_state": "RUNNING",
+        "connected": 0,
+        "armed": 0,
+        "armed_stale": 1
+      },
+      {
+        "t": 8.4,
+        "fleet_state": "RUNNING",
+        "connected": 0,
+        "armed": 0,
+        "armed_stale": 1
+      },
+      {
+        "t": 9.4,
+        "fleet_state": "RUNNING",
+        "connected": 0,
+        "armed": 0,
+        "armed_stale": 1
+      },
+      {
+        "t": 10.4,
+        "fleet_state": "RUNNING",
+        "connected": 0,
+        "armed": 0,
+        "armed_stale": 1
+      }
+    ],
+    "fleet_state_changes_in_95s": [
+      {
+        "t": 1.4,
+        "fleet_state": "RUNNING",
+        "connected": 1,
+        "armed": 1,
+        "armed_stale": 0
+      }
+    ],
+    "fleet_timeline_last": {
+      "t": 95.7,
+      "fleet_state": "RUNNING",
+      "connected": 0,
+      "armed": 0,
+      "armed_stale": 1
+    },
+    "fleet_history_tail": [
+      {
+        "seq": 1,
+        "ts": 1794867091.5371206,
+        "time": "2026-11-16T22:11:31.537+00:00",
+        "accepted": true,
+        "from": "STAGED",
+        "to": "PREARM",
+        "operator": "cmdr",
+        "trigger": "POST /api/launch"
+      },
+      {
+        "seq": 2,
+        "ts": 1794867092.9151092,
+        "time": "2026-11-16T22:11:32.915+00:00",
+        "accepted": true,
+        "from": "PREARM",
+        "to": "ARMED",
+        "operator": "system",
+        "trigger": "telemetry:first_drone_armed"
+      },
+      {
+        "seq": 3,
+        "ts": 1794867096.128753,
+        "time": "2026-11-16T22:11:36.128+00:00",
+        "accepted": true,
+        "from": "ARMED",
+        "to": "TAKEOFF",
+        "operator": "system",
+        "trigger": "telemetry:climbing"
+      },
+      {
+        "seq": 4,
+        "ts": 1794867097.9360003,
+        "time": "2026-11-16T22:11:37.936+00:00",
+        "accepted": true,
+        "from": "TAKEOFF",
+        "to": "FORMATION_HOLD",
+        "operator": "system",
+        "trigger": "telemetry:formation_altitude_reached"
+      },
+      {
+        "seq": 5,
+        "ts": 1794867101.0754423,
+        "time": "2026-11-16T22:11:41.075+00:00",
+        "accepted": true,
+        "from": "FORMATION_HOLD",
+        "to": "RUNNING",
+        "operator": "cmdr",
+        "trigger": "POST /api/start-trajectory"
+      }
+    ]
+  },
+  "exception": null,
+  "cadence": {
+    "landed_state": {
+      "items": 139,
+      "span_s": 134.3,
+      "mean_hz": 1.03,
+      "median_interval_s": 1.0,
+      "p99_interval_s": 1.0233,
+      "max_gap_s": 1.028,
+      "gaps_over_2_5s": 0,
+      "longest_run_of_identical_values": 120
+    },
+    "position_velocity_ned": {
+      "items": 1122,
+      "span_s": 37.4,
+      "mean_hz": 29.96,
+      "median_interval_s": 0.0321,
+      "p99_interval_s": 0.0385,
+      "max_gap_s": 0.06,
+      "gaps_over_2_5s": 0
+    }
+  },
+  "observer_events": [
+    [
+      0.94,
+      "connected",
+      true
+    ],
+    [
+      1.38,
+      "armed",
+      false
+    ],
+    [
+      1.38,
+      "mode",
+      "HOLD"
+    ],
+    [
+      1.38,
+      "landed_state",
+      "ON_GROUND"
+    ],
+    [
+      2.38,
+      "armed",
+      true
+    ],
+    [
+      2.38,
+      "mode",
+      "OFFBOARD"
+    ],
+    [
+      3.39,
+      "landed_state",
+      "IN_AIR"
+    ],
+    [
+      26.42,
+      "mode",
+      "UNKNOWN"
+    ]
+  ]
+}
