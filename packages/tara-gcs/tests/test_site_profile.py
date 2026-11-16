@@ -8,6 +8,7 @@ baselines. So the radius is a property of the show: ``standard`` (the default, a
 
 import asyncio
 import json
+import time
 
 import pytest
 from fastapi.testclient import TestClient
@@ -94,19 +95,33 @@ def test_set_site_is_refused_while_a_drone_is_armed():
     assert manager.site == "standard"
 
 
+async def _until(predicate, timeout: float = 5.0) -> bool:
+    """Poll instead of sleeping a fixed time: how soon the sim's telemetry reflects a change depends on the load of the
+    machine (this test failed once in a loaded full run at a fixed 0.6 s)."""
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if predicate():
+            return True
+        await asyncio.sleep(0.05)
+    return predicate()
+
+
 @pytest.mark.asyncio
 async def test_fleet_frame_telemetry_follows_the_sites_pads():
     """A drone sitting on its pad reports the pad's fleet-frame position, so the conversion must use the site's grid."""
     manager = DroneManager(ports=list(range(14)), backend="sim")
+
+    def on_pad(site=None) -> bool:
+        tel = manager.telemetry[13]
+        x, y = _pad_offset(13) if site is None else _pad_offset(13, site)
+        return abs(tel["fleet_x"] - x) <= 0.05 and abs(tel["fleet_y"] - y) <= 0.05
+
     try:
         await manager.connect_all()
-        await asyncio.sleep(0.6)
-        assert (manager.telemetry[13]["fleet_x"], manager.telemetry[13]["fleet_y"]) == pytest.approx(_pad_offset(13), abs=0.05)
+        assert await _until(on_pad), (manager.telemetry[13]["fleet_x"], manager.telemetry[13]["fleet_y"], _pad_offset(13))
         manager.set_site("scale400")
-        await asyncio.sleep(0.6)
-        assert (manager.telemetry[13]["fleet_x"], manager.telemetry[13]["fleet_y"]) == pytest.approx(
-            _pad_offset(13, "scale400"), abs=0.05
-        )
+        assert await _until(lambda: on_pad("scale400")), (
+            manager.telemetry[13]["fleet_x"], manager.telemetry[13]["fleet_y"], _pad_offset(13, "scale400"))
     finally:
         await manager.shutdown()
 
