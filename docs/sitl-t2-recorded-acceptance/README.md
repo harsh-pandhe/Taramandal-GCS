@@ -15,8 +15,7 @@ matters is the tree.) PX4 v1.16.2.
 Rig: PX4 SITL + Gazebo Sim 8.10 (user-space conda build, not the Docker image) + RViz, started by `tara up --backend px4 --gui`;
 the dashboard in a browser; one screen recording per take. Every frame carries a label bar with the commit and drone count.
 Host: 16 CPUs, load 2.6-5 during the takes; Gazebo real-time factor read 98.99-99.27 % in the frames I checked.
-**The videos are not in this repository**: the RViz title bar shows a home-directory path, so they stay on the machine that
-recorded them until redacted. The GCS black box of every take is committed, and the numbers below are computed from it
+**Two of the six takes are published as redacted clips** in `docs/recordings/` (a hover take, `camp_n1_k2`, and a show take, `camp_n3_s2`; each with a `.notes.json` that gives the redaction method, the all-frames check and the privacy review). The RViz title bar in the originals shows a home-directory path, so the originals stay on the machine that recorded them (hashes in the notes), and the other four takes are not published as video. The GCS black box of every take is committed, and the numbers below are computed from it
 (`analyse_take.py`, reproducible from the files here: `REPO=<checkout> python analyse_take.py show recorded-takes/camp_n3_s1 recorded-takes/show3.json`).
 
 ### A1. #172: three consecutive 3-drone passes
