@@ -78,12 +78,6 @@ export default function App() {
   const fleet = useFleet(history);
   const builder = useShowBuilder();
   const ai = useAIProposal(list.scenes, list.addScene);
-  // Typed scene edits (#89): a dry run that never writes to history, the
-  // builder or the projects until Apply. Before the unlock early return below.
-  const intent = useIntentProposal({
-    doc: history.doc, execute: history.execute, numDrones: fleet.dronesList.length, rate, pacing,
-  });
-
   const { scenes } = list;
   const { choreoData, validation, validationSignature, validating, loading, error } = builder;
   const numDrones = fleet.dronesList.length;
@@ -151,6 +145,15 @@ export default function App() {
     ledTrack, setLedTrack, pacing, setPacing,
     choreoData, setChoreoData: builder.setChoreoData,
     validation, setValidation: builder.setValidation,
+  });
+
+  // Typed scene edits (#89): a dry run that never writes to history, the
+  // builder or the projects until Apply. Each decision is recorded in the open
+  // project's audit log (#94), so this comes after useProjects, and still before
+  // the unlock early return below.
+  const intent = useIntentProposal({
+    doc: history.doc, execute: history.execute, numDrones: fleet.dronesList.length, rate, pacing,
+    projectId: projects.activeProjectId,
   });
 
   // Lights off while flying, an arrival sweep with blinks at each formation, then a running colour:

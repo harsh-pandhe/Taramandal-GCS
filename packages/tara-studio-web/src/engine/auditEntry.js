@@ -248,7 +248,9 @@ export function auditOps(command) {
  * entry is still too big for the backend's byte limit it shrinks, in this order,
  * until it is under (4096 - 128) bytes: reason, then summary, then check.summary,
  * then request. Each is cut by code points (a "…" ends a cut one) and, only when
- * the optional `reason` is emptied, omitted. It throws if it cannot fit at all.
+ * the optional `reason` is emptied, omitted. When that is not enough (only the ops are
+ * left to give), their field names are cut from the end, then whole ops from the end, and
+ * "; ops shortened" is added to the reason if there is room for it. Size never throws.
  */
 export function buildEntry({ requestId, source, request, summary, command, check, decision, reason }) {
   if (!SOURCES.includes(source)) throw new Error(`audit entry: unknown source ${JSON.stringify(source)}`);
@@ -292,6 +294,25 @@ export function buildEntry({ requestId, source, request, summary, command, check
       field.set(keep === 0 ? '' : cutText(full, keep));
     }
   }
+
+  // Last resort, only once every text field has given way: the ops. First fewer
+  // field names per op (cut from the end), then whole ops from the end. What is
+  // kept is kept as it was: nothing is invented and the order stays.
+  if (canonicalSize(entry) > budget) {
+    const whole = entry.ops;
+    const fieldsOf = (op) => op.fields ?? [];
+    const widest = Math.max(0, ...whole.map((op) => fieldsOf(op).length));
+    const withFields = (k) => whole.map((op) => {
+      const { fields: _all, ...rest } = op;
+      return fieldsOf(op).length && k > 0 ? { ...rest, fields: fieldsOf(op).slice(0, k) } : rest;
+    });
+    for (let k = widest - 1; k >= 0 && canonicalSize(entry) > budget; k -= 1) entry.ops = withFields(k);
+    while (canonicalSize(entry) > budget && entry.ops.length > 0) entry.ops = entry.ops.slice(0, -1);
+    const note = entry.reason ? `${entry.reason}; ops shortened` : 'ops shortened';
+    const noted = { ...entry, reason: note };
+    if ([...note].length <= LIMITS.reason && canonicalSize(noted) <= budget) entry.reason = note;
+  }
+  // Only reachable if even an entry with no ops and empty text is too big: it cannot be.
   if (canonicalSize(entry) > budget) throw new Error('audit entry: cannot be made small enough for the audit log');
   return entry;
 }

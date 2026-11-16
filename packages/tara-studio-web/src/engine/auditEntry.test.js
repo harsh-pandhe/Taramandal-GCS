@@ -251,6 +251,11 @@ describe('buildEntry', () => {
     expect(canonicalSize(e)).toBeLessThanOrEqual(BUDGET);
   });
 
+  const worstInput = () => base({
+    request: dev(200), summary: dev(200), reason: dev(300),
+    check: { status: 'FAILED', kind: 'failed', summary: dev(200) },
+  });
+
   describe('byte budget', () => {
     const worst = () => base({
       request: dev(200), summary: dev(200), reason: dev(300),
@@ -330,10 +335,61 @@ describe('buildEntry', () => {
       expect(e.reason).toBe('because');
     });
 
-    it('throws when the ops alone cannot fit', () => {
-      const wide = Object.fromEntries(Array.from({ length: 10 }, (_, i) => [`${'k'.repeat(39)}${i}`, 1]));
-      const cmd = batch(Array.from({ length: 20 }, () => sceneCommands.patch('a', wide)));
-      expect(() => buildEntry(base({ command: cmd }))).toThrow(/small enough/);
+    describe('when only the ops are left to give', () => {
+      const wide = () => Object.fromEntries(Array.from({ length: 10 }, (_, i) => [`${'k'.repeat(39)}${i}`, 1]));
+      const huge = () => batch(Array.from({ length: 20 }, (_, i) => sceneCommands.patch(ids[i % 4], wide())));
+
+      it('20 ops x 10 fields x 40 characters now fit, with the reason saying so', () => {
+        const e = buildEntry(base({ command: huge() }));
+        expect(canonicalSize(e)).toBeLessThanOrEqual(BUDGET);
+        expect(e.reason).toBe('ops shortened');
+        // field names give way before any op does: all 20 stay, each with fewer names
+        expect(e.ops).toHaveLength(20);
+        expect(e.ops.every((op) => (op.fields ?? []).length < 10)).toBe(true);
+      });
+
+      it('Devanagari at its maximum together with 20 big ops fits too', () => {
+        const dv = batch(Array.from({ length: 20 }, () => sceneCommands.patch('a', Object.fromEntries(
+          Array.from({ length: 10 }, (_, i) => [`${dev(39)}${i}`, 1])))));
+        const e = buildEntry({ ...worstInput(), command: dv });
+        expect(canonicalSize(e)).toBeLessThanOrEqual(BUDGET);
+      });
+
+      it('keeps the order, and every kept op and field name is one of the originals', () => {
+        const cmd = huge();
+        const original = auditOps(cmd);
+        const e = buildEntry(base({ command: cmd }));
+        e.ops.forEach((op, i) => {
+          expect(op.type).toBe(original[i].type);
+          expect(op.sceneIndex).toBe(original[i].sceneIndex);
+          // the names kept are a prefix of the op's own, never made up
+          expect(op.fields ?? []).toEqual((original[i].fields ?? []).slice(0, (op.fields ?? []).length));
+        });
+      });
+
+      it('cuts field names before it drops any op', () => {
+        // 9 ops x 10 names is too big, but fits when each op keeps fewer names: all 9 ops stay.
+        const cmd = batch(Array.from({ length: 9 }, () => sceneCommands.patch('a', wide())));
+        const e = buildEntry(base({ command: cmd }));
+        expect(canonicalSize(e)).toBeLessThanOrEqual(BUDGET);
+        expect(e.ops).toHaveLength(9);
+        expect(e.ops[0].fields.length).toBeLessThan(10);
+        expect(e.reason).toBe('ops shortened');
+      });
+
+      it('appends to a reason that is still there, and skips the note when it would not fit', () => {
+        // Text gets cut first, so the reason is already gone once the ops have to give: the note stands alone.
+        expect(buildEntry(base({ command: huge(), reason: 'kept' })).reason).toBe('ops shortened');
+        // Few small ops that fit as they are: nothing is shortened and no note is added.
+        const small = buildEntry(base({ command: batch([sceneCommands.patch('a', { scale: 1 })]), reason: 'kept' }));
+        expect(small.reason).toBe('kept');
+      });
+
+      it('still throws for a programmer error, and only for that', () => {
+        expect(() => buildEntry(base({ command: huge(), decision: 'nope' }))).toThrow(/decision/);
+        expect(() => buildEntry(base({ command: huge(), requestId: '' }))).toThrow(/requestId/);
+        expect(() => buildEntry(base({ command: huge() }))).not.toThrow();
+      });
     });
   });
 });
