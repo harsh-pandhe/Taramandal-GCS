@@ -175,18 +175,30 @@ export const sendShowToGCS = async ({ choreo, homeLat, homeLon, ledTrack, rateHz
   }
 
   const session = getGcsSession();
-  const gcsRes = await fetch(`${GCS_BASE}/api/upload-trajectory`, {
-    method: 'POST', body: formData,
-    headers: session ? { Authorization: `Bearer ${session.token}` } : {},
-  });
+  let gcsRes;
+  try {
+    gcsRes = await fetch(`${GCS_BASE}/api/upload-trajectory`, {
+      method: 'POST', body: formData,
+      headers: session ? { Authorization: `Bearer ${session.token}` } : {},
+    });
+  } catch (e) {
+    // Same message as before; the flags only let the Transmit tab say "could not be reached".
+    throw Object.assign(new Error(e?.message || 'Network error'), {
+      gcsUnreachable: true, timedOut: e?.name === 'TimeoutError' || e?.name === 'AbortError',
+    });
+  }
   if (!gcsRes.ok) {
     const details = await gcsRes.json().catch(() => ({}));
     const detail = typeof details.detail === 'string' ? details.detail : details.detail?.message;
     if (gcsRes.status === 401) {
       storeGcsSession(null);
-      throw new Error('The GCS needs an operator sign-in: use "Sign in to GCS" in this tab, then transmit again.');
+      throw Object.assign(
+        new Error('The GCS needs an operator sign-in: use "Sign in to GCS" in this tab, then transmit again.'),
+        { status: 401 },
+      );
     }
-    throw new Error(detail || 'GCS rejected show file.');
+    // status and detail ride along so the Transmit tab can show the GCS's own reason.
+    throw Object.assign(new Error(detail || 'GCS rejected show file.'), { status: gcsRes.status, detail: details.detail });
   }
   return gcsRes.json().catch(() => ({}));
 };

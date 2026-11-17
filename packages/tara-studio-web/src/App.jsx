@@ -26,7 +26,8 @@ import { ShowRefusalError } from './engine/showErrors.js';
 import { buildColoredChoreo } from './engine/lighting.js';
 import { serializeTrack } from './engine/ledPatterns.js';
 import { buildAutoLightTrack } from './engine/autoLight.js';
-import { exportShow, sendShowToGCS, downloadExport } from './engine/api.js';
+import { exportShow, sendShowToGCS, downloadExport, GCS_BASE } from './engine/api.js';
+import { describeSent, describeFailure, sameInputs } from './engine/transmitResult.js';
 import { violationsStale } from './engine/violationScenes.js';
 import { runBeatSnap } from './engine/beatSnap.js';
 import { sceneSignature } from './engine/sceneValidation.js';
@@ -63,6 +64,9 @@ export default function App() {
   const [homeLat, setHomeLat] = useState(12.9716);
   const [homeLon, setHomeLon] = useState(77.5946);
   const [sending, setSending] = useState(false);
+  // What the last transmit said (issue #92), with what it was made for, so it is
+  // shown only while that is still the show on screen (see transmitResult below).
+  const [transmitState, setTransmitState] = useState(null);
   const [ledTrack, setLedTrack] = useState([]);
   const [pacing, setPacing] = useState('standard');
   const [zoom, setZoom] = useState(1);
@@ -284,20 +288,30 @@ export default function App() {
       return;
     }
     setSending(true);
+    // A new send clears the last answer, and the answer is kept with what was sent.
+    setTransmitState(null);
+    const inputs = [choreoData, ledTrack, lightEffect, lightColor, homeLat, homeLon, rate];
     try {
-      await sendShowToGCS({
+      const body = await sendShowToGCS({
         choreo: buildColoredChoreo(choreoData, lightingOpts), homeLat, homeLon,
         ledTrack: ledTrack.length ? serializeTrack(ledTrack) : null,
         rateHz: rate,
       });
       builder.setError(null);
-      alert('Trajectory pushed to the GCS fleet. Run launch checks on the GCS dashboard.');
+      setTransmitState({ result: describeSent(body, { droneCount: numDrones, gcs: GCS_BASE }), inputs });
     } catch (e) {
       builder.setError(`GCS upload failed: ${e.message}`);
+      setTransmitState({ result: describeFailure(e), inputs });
     } finally {
       setSending(false);
     }
-  }, [choreoData, lightingOpts, homeLat, homeLon, builder, ledTrack, rate, validation]);
+  }, [choreoData, lightingOpts, homeLat, homeLon, builder, ledTrack, rate, validation, lightEffect, lightColor, numDrones]);
+  // Hidden as soon as the show it describes is no longer the one on screen (a rebuild, a
+  // project load, a changed LED track, colour, venue or rate), so an old "Sent" cannot be read
+  // as being about the current show.
+  const transmitResult = transmitState
+    && sameInputs(transmitState.inputs, [choreoData, ledTrack, lightEffect, lightColor, homeLat, homeLon, rate])
+    ? transmitState.result : null;
 
   if (!unlocked) return <SecurityGate onUnlock={() => setUnlocked(true)} />;
 
@@ -362,7 +376,7 @@ export default function App() {
                 onSelectScene={setActiveSceneId}
                 venue={{ homeLat, homeLon, onHomeLat: setHomeLat, onHomeLon: setHomeLon }}
                 transmit={{
-                  onExport: handleExport, onExportPreview: handleExportPreview, onSendToGCS: handleSendToGCS, sending, droneCount: numDrones,
+                  onExport: handleExport, onExportPreview: handleExportPreview, onSendToGCS: handleSendToGCS, sending, droneCount: numDrones, result: transmitResult,
                 }}
                 audio={{
                   track: audio, zoom, onZoom: setZoom,

@@ -261,3 +261,50 @@ describe('Unsigned preview export (issue #161)', () => {
     expect(previewExportSuccessMessage('tara')).toBe('Preview exported (tara) — unsigned, not flight-certified.');
   });
 });
+
+describe('TransmitPanel transmit result (issue #92)', () => {
+  const sent = { kind: 'sent', title: 'Sent the show for 3 vehicles to the GCS at localhost:8090.', detail: 'Run launch checks on the GCS dashboard.', at: new Date(2026, 10, 17, 9, 5).getTime() };
+  const refused = { kind: 'refused', title: 'Not sent: the GCS refused the show (HTTP 403).', detail: 'viewer1 is a VIEWER; this needs CHOREOGRAPHER or higher.', at: sent.at };
+  const failed = { kind: 'failed', title: 'The GCS could not be reached.', detail: 'Nothing is confirmed as received.', at: sent.at };
+  const resultOf = (html) => html.match(/<div class="transmit-result [^>]*>.*?<\/div>/)?.[0] ?? null;
+
+  it('shows nothing before a send', () => {
+    const html = render({});
+    expect(html).not.toContain('transmit-result');
+    expect(html).not.toContain('data-testid="scroll-anchor"');
+  });
+
+  it('a sent result is a status, in the success style, with its time, and is scrolled into view', () => {
+    const html = render({ transmitResult: sent });
+    const box = resultOf(html);
+    expect(box).toContain('role="status"');
+    expect(box).toContain('transmit-result-sent');
+    expect(box).toContain('Sent the show for 3 vehicles to the GCS at localhost:8090.');
+    expect(box).toContain('Run launch checks on the GCS dashboard.');
+    expect(box).toContain('09:05');
+    expect(html).toContain('data-testid="scroll-anchor"');
+  });
+
+  it.each([['refused', refused], ['failed', failed]])('a %s result is an alert in the failure style', (kind, vm) => {
+    const box = resultOf(render({ transmitResult: vm }));
+    expect(box).toContain('role="alert"');
+    expect(box).toContain(`transmit-result-${kind}`);
+    expect(box).not.toContain('transmit-result-sent');
+    expect(box).toContain(vm.title);
+    expect(box).toContain(vm.detail);
+  });
+
+  it('is plain text: no button, input or link in the result, and markup in a reason is escaped', () => {
+    const box = resultOf(render({ transmitResult: { ...refused, detail: '<img src=x onerror=alert(1)><b>hi</b>' } }));
+    expect(box).not.toMatch(/<(button|input|a|img|b)[\s>]/);
+    expect(box).toContain('&lt;img src=x onerror=alert(1)&gt;');
+  });
+
+  it('sits right under the Transmit button and leaves the button gating alone', () => {
+    const html = render({ transmitResult: failed });
+    expect(html.indexOf('Transmit to GCS Fleet')).toBeLessThan(html.indexOf('transmit-result'));
+    expect(html.indexOf('transmit-result')).toBeLessThan(html.indexOf('Exports carry baked LED colour'));
+    const exportSection = html.slice(html.indexOf('Export &amp; Transmit'));
+    expect(count(exportSection, /<button[^>]*disabled/g)).toBe(1);
+  });
+});

@@ -1145,10 +1145,33 @@ test.describe('signed export and transmit', () => {
     signature: { filename: 'choreography.json.sig.json', content: '{"schema": "tara-show-signature/1"}\n', key_id: 'ab12cd34ef567890' },
   };
 
+  // Issue #92: every answer is shown in the Transmit tab. A native alert, confirm or prompt
+  // anywhere in this block is a failure, however the test itself ends.
+  let dialogs;
+  const TOKEN = 'gcs-tok';
+  const upload = (page, handler) => page.route('**/api/upload-trajectory', handler);
+  const signIn = async (page) => {
+    await page.route('**/api/auth/login', (route) => route.fulfill({
+      json: { token: TOKEN, operator: 'chloe', role: 'CHOREOGRAPHER', expires_at: 0 },
+    }));
+    await page.getByLabel('GCS operator').fill('chloe');
+    await page.getByLabel('GCS passphrase').fill('choreographer passphrase');
+    await page.getByRole('button', { name: 'Sign in to GCS' }).click();
+    await expect(page.getByTestId('gcs-session')).toContainText('chloe · CHOREOGRAPHER');
+  };
+  const send = async (page) => {
+    await page.getByRole('button', { name: /Transmit to GCS Fleet/ }).click();
+    await page.getByRole('alertdialog').getByRole('button', { name: 'Transmit to GCS' }).click();
+  };
+  const result = (page) => page.getByTestId('transmit-result');
+
   test.beforeEach(async ({ page }) => {
+    dialogs = [];
+    page.on('dialog', (d) => { dialogs.push(`${d.type()}: ${d.message()}`); d.dismiss().catch(() => {}); });
     await openStudio(page);
     await page.route('**/api/export', (route) => route.fulfill({ json: EXPORT }));
   });
+  test.afterEach(() => { expect(dialogs, 'no native dialog may open').toEqual([]); });
 
   test('the Transmit tab says which key signs exports', async ({ page }) => {
     await consoleTab(page, 'TRANSMIT');
@@ -1186,15 +1209,15 @@ test.describe('signed export and transmit', () => {
     await page.route('**/api/auth/login', (route) => route.fulfill({
       json: { token: 'gcs-tok', operator: 'chloe', role: 'CHOREOGRAPHER', expires_at: 0 },
     }));
-    page.on('dialog', (d) => d.accept());
     await consoleTab(page, 'TRANSMIT');
     const transmit = page.getByRole('button', { name: /Transmit to GCS Fleet/ });
     const confirm = () => page.getByRole('alertdialog').getByRole('button', { name: 'Transmit to GCS' }).click();
 
-    // Not signed in yet: the GCS says 401 and the Studio explains what to do.
+    // Not signed in yet: the GCS says 401 and the Studio explains what to do, in the tab.
     await transmit.click();
     await confirm();
-    await expect(page.getByText(/needs an operator sign-in/)).toBeVisible();
+    await expect(result(page)).toContainText('needs an operator sign-in');
+    await expect(result(page)).toHaveAttribute('role', 'alert');
 
     await page.getByLabel('GCS operator').fill('chloe');
     await page.getByLabel('GCS passphrase').fill('choreographer passphrase');
@@ -1210,6 +1233,75 @@ test.describe('signed export and transmit', () => {
     expect(sent.body).toContain('name="signature"; filename="choreography.json.sig.json"');
     expect(sent.body).toContain(EXPORT.content.trim());
     expect(sent.body).toContain(EXPORT.signature.content.trim());
+
+    // The answer is a record in the Transmit tab: what was sent, to which GCS, and when.
+    await expect(result(page)).toHaveAttribute('role', 'status');
+    await expect(result(page)).toContainText(/Sent the show for \d+ vehicles? to the GCS at localhost:8090\./);
+    await expect(result(page)).toContainText('Signature verified (signer: Studio laptop)');
+    await expect(result(page)).toContainText('Run launch checks on the GCS dashboard.');
+    await expect(result(page)).toContainText(/\d\d:\d\d/);
+    expect(await result(page).innerText()).not.toContain(TOKEN);
+  });
+
+  test('a refusal from the GCS shows its reason in an alert, not in a dialog, and never the token', async ({ page }) => {
+    await upload(page, (route) => route.fulfill({
+      status: 403,
+      json: { detail: 'Show file rejected: trajectory is unsigned. Upload it together with its .sig.json signature manifest.', token: TOKEN },
+    }));
+    await consoleTab(page, 'TRANSMIT');
+    await signIn(page);
+    await send(page);
+    await expect(result(page)).toHaveAttribute('role', 'alert');
+    await expect(result(page)).toContainText('the GCS refused the show (HTTP 403)');
+    await expect(result(page)).toContainText('Show file rejected: trajectory is unsigned.');
+    await expect(result(page).locator('button, input, a')).toHaveCount(0);
+    expect(await page.locator('body').innerText()).not.toContain(TOKEN);
+  });
+
+  test('a list-shaped GCS refusal reads as text, not JSON', async ({ page }) => {
+    await upload(page, (route) => route.fulfill({
+      status: 422, json: { detail: [{ loc: ['body', 'file'], msg: 'Field required', type: 'missing' }] },
+    }));
+    await consoleTab(page, 'TRANSMIT');
+    await send(page);
+    await expect(result(page)).toContainText('file: Field required');
+    expect(await result(page).innerText()).not.toMatch(/[{}]|missing/);
+  });
+
+  test('an unreachable GCS says so and that nothing is confirmed as received', async ({ page }) => {
+    await upload(page, (route) => route.abort('connectionrefused'));
+    await consoleTab(page, 'TRANSMIT');
+    await send(page);
+    await expect(result(page)).toHaveAttribute('role', 'alert');
+    await expect(result(page)).toContainText('The GCS could not be reached.');
+    await expect(result(page)).toContainText('Nothing is confirmed as received.');
+  });
+
+  test('a new send clears the last answer, and a rebuilt show hides it', async ({ page }) => {
+    let answer = (route) => route.fulfill({ json: { status: 'success', drones_summary: { 0: {}, 1: {} }, signature: { verified: false } } });
+    let release;
+    const held = new Promise((r) => { release = r; });
+    await upload(page, (route) => answer(route));
+    await consoleTab(page, 'TRANSMIT');
+    await send(page);
+    await expect(result(page)).toContainText('Sent the show for 2 vehicles');
+    await expect(result(page)).toContainText('accepted it without a signature');
+
+    // Second send, held open: the old "Sent" must not stay on screen while it is in flight.
+    answer = async (route) => { await held; await route.fulfill({ status: 503, json: { detail: 'GCS is restarting' } }); };
+    await send(page);
+    await expect(page.getByRole('button', { name: 'Sending…' })).toBeDisabled();
+    await expect(result(page)).toHaveCount(0);
+    release();
+    await expect(result(page)).toContainText('the GCS reported an error (HTTP 503)');
+    await expect(result(page)).toContainText('GCS is restarting');
+
+    // A rebuilt show is a different show: the old answer is not about it.
+    await consoleTab(page, 'SEQUENCE');
+    await page.getByRole('button', { name: /Generate Sequence/ }).click();
+    await expect(page.getByText(/^Built · /)).toBeVisible();
+    await consoleTab(page, 'TRANSMIT');
+    await expect(result(page)).toHaveCount(0);
   });
 
   test('Cancel on the Transmit confirmation sends nothing (issue #92)', async ({ page }) => {
@@ -1218,7 +1310,6 @@ test.describe('signed export and transmit', () => {
       uploads.push(route.request().url());
       return route.fulfill({ json: { status: 'success', signature: { verified: true, signer: 'Studio laptop' } } });
     });
-    page.on('dialog', (d) => d.accept());
     await consoleTab(page, 'TRANSMIT');
     const transmit = page.getByRole('button', { name: /Transmit to GCS Fleet/ });
     const dialog = page.getByRole('alertdialog');
@@ -1238,11 +1329,13 @@ test.describe('signed export and transmit', () => {
     await page.mouse.click(5, 5);                       // the backdrop
     await expect(dialog).toHaveCount(0);
     expect(uploads).toHaveLength(0);
+    await expect(result(page)).toHaveCount(0);
 
     // The route works: confirming is what sends.
     await transmit.click();
     await dialog.getByRole('button', { name: 'Transmit to GCS' }).click();
     await expect.poll(() => uploads.length).toBe(1);
+    await expect(result(page)).toContainText('Sent the show');
   });
 });
 

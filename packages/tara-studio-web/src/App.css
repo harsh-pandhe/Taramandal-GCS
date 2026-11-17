@@ -1577,3 +1577,18 @@ input[type="number"] { font-family: var(--mono); font-variant-numeric: tabular-n
   display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; line-clamp: 3; overflow: hidden;
 }
 .audit-dim { color: var(--text-dim); }
+
+/* The GCS's answer to a transmit, in the Transmit tab (issue #92). */
+.transmit-result {
+  display: flex; flex-direction: column; gap: 0.25rem; margin-top: 0.5rem;
+  padding: 0.5rem 0.6rem; border: 1px solid var(--border); border-radius: var(--r-sm);
+  font-size: 0.72rem; line-height: 1.45; min-width: 0;
+  overflow-wrap: anywhere; word-break: break-word;
+}
+.transmit-result-title { font-weight: 600; }
+.transmit-result-detail { color: var(--text-dim); }
+.transmit-result-time { font-family: var(--mono); font-size: 0.66rem; color: var(--text-faint); }
+.transmit-result-sent { border-color: var(--success); background: var(--success-tint); }
+.transmit-result-sent .transmit-result-title { color: var(--success); }
+.transmit-result-refused, .transmit-result-failed { border-color: var(--danger); background: var(--danger-tint); }
+.transmit-result-refused .transmit-result-title, .transmit-result-failed .transmit-result-title { color: var(--danger); }

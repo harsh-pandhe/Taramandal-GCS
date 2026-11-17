@@ -2,8 +2,10 @@ import { useEffect, useState } from 'react';
 import { Download, Globe, Activity, ShieldCheck, ShieldAlert, LogIn, LogOut, CheckCircle, AlertTriangle } from 'lucide-react';
 import { NumberField } from '../common/index.jsx';
 import ConfirmDialog from '../modals/ConfirmDialog.jsx';
+import ScrollIntoView from '../ScrollIntoView.jsx';
 import { transmitMessage } from '../../engine/confirmations.js';
 import { exportGate } from '../../engine/exportGate.js';
+import { formatTime } from '../../engine/transmitResult.js';
 import {
   getSigningStatus, getGcsSession, gcsLogin, gcsLogout, onGcsSessionChange, previewExportSuccessMessage,
 } from '../../engine/api.js';
@@ -93,6 +95,7 @@ function GcsSignIn() {
 export default function TransmitPanel({
   homeLat, homeLon, onHomeLat, onHomeLon,
   onExport, onExportPreview, onSendToGCS, sending, hasShow, validation, validating, droneCount,
+  transmitResult = null,
 }) {
   const [confirmingSend, setConfirmingSend] = useState(false);
   // One predicate with the header's badge (issue #132): see engine/exportGate.js.
@@ -223,6 +226,22 @@ export default function TransmitPanel({
       <button type="button" className="btn-primary btn-inline btn-gcs" onClick={() => setConfirmingSend(true)} disabled={sending || !canExport}>
         <Activity size={15} /> {sending ? 'Sending…' : 'Transmit to GCS Fleet'}
       </button>
+
+      {/* Issue #92: the GCS's answer, where the operator sent the show from. Plain text only. */}
+      {transmitResult && (
+        <>
+          <div
+            className={`transmit-result transmit-result-${transmitResult.kind}`}
+            role={transmitResult.kind === 'sent' ? 'status' : 'alert'}
+            data-testid="transmit-result"
+          >
+            <span className="transmit-result-title">{transmitResult.title}</span>
+            {transmitResult.detail && <span className="transmit-result-detail">{transmitResult.detail}</span>}
+            <span className="transmit-result-time">{formatTime(transmitResult.at)}</span>
+          </div>
+          <ScrollIntoView watch={`${transmitResult.kind}|${transmitResult.at}`} />
+        </>
+      )}
 
       <p className="panel-hint">
         Exports carry baked LED colour per waypoint, so the light choreography
