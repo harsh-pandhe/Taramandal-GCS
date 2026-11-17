@@ -306,10 +306,21 @@ section. Anything not marked re-run is documented but was not re-run then.
 | A9 | 100-drone sim show, zero safety violations (CI's scale gate) | `./scripts/ci --job scale-regression`, or `pytest -p asyncio -v packages/tara-gcs/tests/test_sim_backend.py::test_100_drone_sim_show_completes_with_zero_safety_violations` | pass; takes ~1.5 min by design (launch stagger) | yes (pytest form) |
 | A10 | GCS recovers from kill + restart mid-show | `pytest -p asyncio -q packages/tara-gcs/tests/test_show_resume.py` | pass; marked `slow`, so CI skips it | yes |
 | A11 | Real-time factor and late ticks vs fleet size | `python tools/benchmark_fleet_scale.py -n 100,500,1000` | xRT about 1.00, 0.0% late ticks at each size; writes `tools/benchmark_results.json` (gitignored) | `-n 100` only: xRT 1.00, 0.0% late |
-| A12 | Full Python suite, including `slow` | `pytest -p asyncio` (CI's gate is `pytest -p asyncio -m "not slow"`, i.e. `./scripts/ci --job python-tests`) | no failures | no |
+| A12 | Full Python suite, including `slow` | `pytest -p asyncio` (CI's gate is `pytest -p asyncio -m "not slow"`, i.e. `./scripts/ci --job python-tests`) | no failures | yes, on a clean clone 2026-11-18 (below): 2773 passed, 1 skipped, 13 min 29 s |
 
 A2-A8 ran together as one command: 88 passed in about 35 s. A9 and
 A10 together: 10 passed in about 104 s.
+
+**Clean-checkout repeat, 2026-11-18** (`origin/main` at `4c8e614`; the only later change on `main` is docs). A fresh `git clone`, a fresh virtualenv made with `python3 -m venv` and `pip install -r requirements.txt` only (Python 3.12.3, Linux; nothing reused from the working copy's `.venv`), and the section 8 commands typed as written:
+
+| Rows | Result |
+|---|---|
+| A2-A8 in one command | 123 passed in 32 s (the 88 above was counted earlier; tests have been added since) |
+| A9 and A10 | 10 passed in 106 s |
+| A11 `-n 100` | xRT 1.00, late ticks 0.0 %, 100 drones, 15 s show |
+| A12 `pytest -p asyncio` (full suite, `slow` included) | 2773 passed, 1 skipped, 13 min 29 s |
+
+What this does and does not show. It shows the software rows A2-A12 run from a clean checkout and a clean Python environment with no extra setup beyond `requirements.txt`. It does **not** show that a second person can do it: the same person (Dhiraj, working with Claude) ran it, on the same laptop (16 logical cores, 15.3 GB RAM), so it is not a clean machine and not a second operator. A1 (`./tara doctor`) was not run, and the npm side (B-rows) was not repeated from a clean install. `pip` printed a FutureWarning that the `mavsdk` package was renamed to `mavsdk-grpc`; `requirements.txt` pins `mavsdk<4` as that message advises, and the tests pass.
 
 ### B. Studio web (the #132 evidence)
 
@@ -399,7 +410,7 @@ and P2 were revisited and say so in their text; section 9.3 was decided. Every o
 | U3 | Required recordings: Studio full-screen preview; GCS with Gazebo and RViz | PARTIAL | D4a: the real full-screen preview is recorded as an automated drive (2026-11-17), a person-operated take is not; D4b is done |
 | U4 | Diagram marks RViz visualization-only and shows `tara_sim` vs PX4 + Gazebo | DONE | [Section 2](#2-architecture): RViz hangs off PX4 + Gazebo by a dashed edge labelled "visualization only, no ROS in the command path"; both backends are boxes |
 | U5 | Every recording or log states its backend and tier on screen or in a header (#170) | PARTIAL | Logs: the SITL run records carry `gcs_status_before.fidelity` (`px4-sitl`) and `commit` (checked in `postf3-n3-p1.json`). Recordings: the two clips of 2026-11-16 carry an on-screen label bar with the tier, drone count and commit tree; the earlier T2 clips are named for their tier and their notes state it; the old Studio walkthrough video has no tier caption (its script adds none), but the 2026-11-17 full-screen preview clip carries a bottom caption bar ("PLAN PLAYBACK - NOTHING FLEW ... main f1bfb5a") on every frame. Missing: a tier caption on the old walkthrough video, in [the checklist](recording-checklist.md) |
-| A1 | Another team member can repeat the software/simulation demonstration from the instructions | PARTIAL | [Section 8](#8-repeatable-evidence-checklist) A-rows were run by one person; nobody else has reproduced them. A1, A12 and the C-rows were not re-run. Setup on a clean machine is **NOT VERIFIED** (runbook 2.2), as is any 8-drone result beyond one run (runbook 2.5). Missing: a second person running section 8 A and the runbook from a clean checkout |
+| A1 | Another team member can repeat the software/simulation demonstration from the instructions | PARTIAL | [Section 8](#8-repeatable-evidence-checklist) A-rows were run by one person; nobody else has reproduced them. **2026-11-18:** A2-A12 were repeated from a fresh clone and a fresh virtualenv (123, 10, xRT 1.00 and 2773 passed; table in section 8A), but by the same person on the same laptop, so a second operator is still missing. `./tara doctor` (the section 8 row labelled A1) and the C-rows were not re-run. Setup on a clean machine is **NOT VERIFIED** (runbook 2.2), as is any 8-drone result beyond one run (runbook 2.5). Missing: a second person running section 8 A and the runbook from a clean checkout |
 | A2 | Every performance and readiness claim points to evidence and labels simulated vs real | PARTIAL | Known gaps are listed in [section 8D](#d-known-gaps-in-reproducibility-not-hidden): the `/api/validate` latency table (throwaway script, not committed), the Dandiya 2.000000 m figure (a comment, no command), the original #160 reference-show parameters. T3 claims: none are made |
 | A3 | No fabricated or unverified flight claims | DONE | No hardware-flight claim is made. The two items that needed a decision were decided on 2026-11-17 ([9.3](#93-decided-on-2026-11-17-by-dhiraj-while-harsh-was-unavailable-harsh-may-overrule)): the Studio video is kept as a labelled UI tour, and the #236 row carries its qualifier. Two stale statements found in the same pass (#255 "still a draft", #172 "not accepted") were corrected |
 | A4 | Pack reviewed by Harsh before external sharing | MISSING | Status table: "Not done" |
