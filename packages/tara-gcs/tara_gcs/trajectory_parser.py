@@ -348,10 +348,13 @@ def _read_skyc(content: bytes) -> dict:
         try:
             traj = drone_data["trajectory"]
             points = traj.get("points", [])
-        except (KeyError, TypeError):
-            # Drone entry has no trajectory — assign empty waypoint list
-            result[drone_index] = []
-            continue
+        except (KeyError, TypeError, AttributeError):
+            # No guess at where else a real Skybrush file might keep it (issue #86): say what was found and refuse.
+            found = sorted(drone_data) if isinstance(drone_data, dict) else type(drone_data).__name__
+            raise ValueError(
+                f"drone {drone_index} has no readable trajectory: this importer reads drone.trajectory.points only "
+                f"(found {found}). Real Skybrush files may nest it differently and are not supported yet (issue #86)."
+            )
 
         waypoints = []
         for point in points:
@@ -369,6 +372,12 @@ def _read_skyc(content: bytes) -> dict:
                 "z": float(coords[2]),
                 "yaw": 0.0  # .skyc uses light color not yaw; default to 0
             })
+
+        if not waypoints:
+            raise ValueError(
+                f"drone {drone_index}: trajectory.points has no readable [time, [x, y, z]] entry "
+                f"({len(points)} point(s) found); refusing a show in which a drone would not fly (issue #86)."
+            )
 
         # Ensure waypoints are time-sorted
         waypoints.sort(key=lambda w: w["time"])
