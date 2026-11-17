@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo } from 'react';
 import { X, Check } from 'lucide-react';
 import { SHAPE_LIBRARY, buildFormation } from '../../engine/formations.js';
 import { ShowRefusalError } from '../../engine/showErrors.js';
+import { describeShape } from '../../engine/shapeDescriptions.js';
 import { Slider } from '../common/index.jsx';
 
 // Point count used for the library tiles, independent of the real fleet size —
@@ -140,6 +141,9 @@ export default function ShapeLibraryModal({ scene, numDrones, onApply, onClose }
               scale={scale}
               n={numDrones}
             />
+            <p className="shape-description" data-testid="shape-description">
+              {describeShape(shapeType, shapePayload)}
+            </p>
 
             <Slider
               label="Scale" min={0.25} max={3} step={0.05} value={scale}

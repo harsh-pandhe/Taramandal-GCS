@@ -1169,6 +1169,7 @@ input[type="number"] { font-family: var(--mono); font-variant-numeric: tabular-n
   color: var(--text-faint); font-family: var(--mono);
 }
 .shape-hint { font-size: 0.64rem; color: var(--text-faint); line-height: 1.5; margin: 0; }
+.shape-description { font-size: 0.72rem; color: var(--text-dim); line-height: 1.5; margin: 0; overflow-wrap: anywhere; }
 
 /* ---------------------------------------------------- Raster Import Modal ---- */
 .raster-modal { width: min(840px, 95vw); }
