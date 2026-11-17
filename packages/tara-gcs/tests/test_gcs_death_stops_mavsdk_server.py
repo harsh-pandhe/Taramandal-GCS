@@ -35,7 +35,14 @@ GRPC_PORT = 50051  # DroneManager uses 50051 + drone_id
 GCS_CHILD = textwrap.dedent(
     f"""
     import asyncio
+    import signal
     from tara_gcs.drone_manager import DroneManager
+
+    # The signals this test sends must reach the child as they would an ordinary process. `nohup`, and some IDE and
+    # CI launchers, start the test run with SIGHUP ignored and every child inherits that, so a GCS that was sent SIGHUP
+    # just kept running and the test failed for a reason that has nothing to do with the lifeline.
+    for _sig in (signal.SIGHUP, signal.SIGTERM):
+        signal.signal(_sig, signal.SIG_DFL)
 
     async def main():
         manager = DroneManager(ports=[{UDP_PORT}], backend="px4")
