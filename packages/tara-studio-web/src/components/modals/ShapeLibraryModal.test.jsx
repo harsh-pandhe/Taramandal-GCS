@@ -17,6 +17,23 @@ describe('ShapeLibraryModal', () => {
     expect(html).not.toContain('shape-preview empty');
   });
 
+  it('describes the selected shape in words, and the description follows a custom shape (issue #92)', () => {
+    const ring = render({ shapeType: 'parametric', shapePayload: 'circle', scale: 1.0 }, 24);
+    expect(ring).toContain('data-testid="shape-description"');
+    expect(ring).toContain('A flat ring at show altitude');
+    const heart = render({ shapeType: 'parametric', shapePayload: 'heart', scale: 1.0 }, 24);
+    expect(heart).toContain('A flat heart outline');
+    expect(heart).not.toContain('A flat ring');
+    const digit = render({ shapeType: 'text', shapePayload: '7', scale: 1.0 }, 12);
+    expect(digit).toContain('The character 7 drawn in seven-segment strokes');
+  });
+
+  it('keeps the description when the preview is refused', () => {
+    const html = render({ shapeType: 'parametric', shapePayload: 'line', scale: 20.0 }, 100);
+    expect(html).toContain('shape-preview empty');
+    expect(html).toContain('A single flat row');
+  });
+
   it('shows an inline refusal instead of crashing when the inspector preview is infeasible', () => {
     // buildFormation('parametric', 'line', 100, 20.0) throws "exceeds maximum
     // altitude ceiling" (see formations.test.js) — a real refusal the scale
