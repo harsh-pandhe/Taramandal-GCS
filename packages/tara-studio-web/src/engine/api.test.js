@@ -56,6 +56,70 @@ describe('sendShowToGCS (issue #55: transmit == download)', () => {
   });
 });
 
+describe('sendShowToGCS failures carry what the Transmit tab shows (issue #92)', () => {
+  const stubGcs = (gcs) => vi.stubGlobal('fetch', vi.fn(async (url) => {
+    if (url.startsWith(API_BASE)) {
+      return new Response(JSON.stringify({ filename: 'choreography.json', content: '{}', mime_type: 'application/json' }), { status: 200 });
+    }
+    return gcs(url);
+  }));
+  const send = () => sendShowToGCS({ choreo: CHOREO, homeLat: 1, homeLon: 2, ledTrack: null, rateHz: 0 });
+  const failure = async () => { try { await send(); } catch (e) { return e; } return null; };
+
+  it('an HTTP refusal keeps its message and adds status and the raw detail', async () => {
+    stubGcs(() => new Response(JSON.stringify({ detail: { message: 'Cannot upload while RUNNING.', error: 'illegal_transition' } }), { status: 409 }));
+    const e = await failure();
+    expect(e.message).toBe('Cannot upload while RUNNING.');
+    expect(e.status).toBe(409);
+    expect(e.detail).toEqual({ message: 'Cannot upload while RUNNING.', error: 'illegal_transition' });
+    expect(e.gcsUnreachable).toBeUndefined();
+  });
+
+  it('a list detail keeps the generic message, and the list is there for the tab to read', async () => {
+    stubGcs(() => new Response(JSON.stringify({ detail: [{ loc: ['body', 'file'], msg: 'Field required' }] }), { status: 422 }));
+    const e = await failure();
+    expect(e.message).toBe('GCS rejected show file.');
+    expect(e.status).toBe(422);
+    expect(e.detail).toEqual([{ loc: ['body', 'file'], msg: 'Field required' }]);
+  });
+
+  it('401 still asks for a sign-in and now says it was a 401', async () => {
+    // A 401 clears the stored session, which touches window (there is none here).
+    vi.stubGlobal('window', { dispatchEvent: () => true });
+    stubGcs(() => new Response(JSON.stringify({ detail: 'Not logged in.' }), { status: 401 }));
+    const e = await failure();
+    expect(e.message).toContain('needs an operator sign-in');
+    expect(e.status).toBe(401);
+  });
+
+  it('a network failure keeps the browser message and is flagged as unreachable', async () => {
+    stubGcs(() => { throw new TypeError('Failed to fetch'); });
+    const e = await failure();
+    expect(e.message).toBe('Failed to fetch');
+    expect(e.gcsUnreachable).toBe(true);
+    expect(e.timedOut).toBe(false);
+  });
+
+  it('a timeout is flagged as one', async () => {
+    stubGcs(() => { throw Object.assign(new Error('The operation timed out.'), { name: 'TimeoutError' }); });
+    const e = await failure();
+    expect(e).toMatchObject({ gcsUnreachable: true, timedOut: true });
+  });
+
+  it('a failure of the Studio export is not reported as an unreachable GCS', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => { throw new TypeError('Failed to fetch'); }));
+    const e = await failure();
+    expect(e.gcsUnreachable).toBeUndefined();
+  });
+
+  it('the upload itself is unchanged: same URL, POST, and no Authorization without a session', async () => {
+    let seen;
+    stubGcs((url) => { seen = url; return new Response('{}', { status: 200 }); });
+    await send();
+    expect(seen).toBe(`${GCS_BASE}/api/upload-trajectory`);
+  });
+});
+
 describe('exportShow preview_only (issue #161)', () => {
   it('sends preview_only: true when requested', async () => {
     const calls = stubBackends();
