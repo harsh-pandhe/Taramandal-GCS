@@ -23,6 +23,7 @@ from tara_gcs.blackbox_replay import (
 )
 from tara_gcs.blackbox_service import BlackboxService
 from tara_gcs.drone_manager import DroneManager
+from tara_gcs.vehicle_link import parse_vehicle_addresses
 from tara_gcs import fleet_discovery
 from tara_gcs.state_store import DEFAULT_STATE_PATH, prime_trajectory_cache
 from tara_gcs.fleet_fsm import Command, IllegalTransitionError, LifecycleState
@@ -109,6 +110,10 @@ if os.environ.get("SIM_PACKET_LOSS_PER_100M"):
     kwargs["sim_packet_loss_per_100m"] = float(os.environ["SIM_PACKET_LOSS_PER_100M"])
 if os.environ.get("SIM_TDMA_JITTER_MS"):
     kwargs["sim_tdma_jitter_ms"] = float(os.environ["SIM_TDMA_JITTER_MS"])
+# Optional per-drone MAVSDK addresses (issue #67), e.g. GCS_VEHICLE_ADDRESSES="0=serial:///dev/ttyACM0:921600". A bad value
+# stops the GCS from starting: a flight link must never fall back to a default or guessed address.
+if os.environ.get("GCS_VEHICLE_ADDRESSES"):
+    kwargs["vehicle_addresses"] = parse_vehicle_addresses(os.environ["GCS_VEHICLE_ADDRESSES"], NUM_DRONES)
 drone_manager = DroneManager(ports=ports, backend=VEHICLE_BACKEND, **kwargs)
 
 # Owns the Gazebo/PX4/RViz processes the dashboard's Simulation Control Bar

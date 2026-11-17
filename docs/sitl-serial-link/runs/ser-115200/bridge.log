@@ -1,0 +1,2 @@
+serial bridge: /tmp/tara-vserial0 <-> udp 127.0.0.1:14540, 115200 baud (a virtual serial device, not a real UART)
+serial bridge stats: {'to_serial_bytes': 3256715, 'to_udp_bytes': 17450, 'dropped_to_serial_bytes': 4245140, 'dropped_to_udp_bytes': 0, 'pulls': 1}

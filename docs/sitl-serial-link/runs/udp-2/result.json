@@ -1,0 +1,133 @@
+{
+ "run": "udp-2",
+ "mode": "udp",
+ "phases": {
+  "show": {
+   "t0": 1794916302.0913174,
+   "t1": 1794916378.9203112
+  },
+  "hover": {
+   "t0": 1794916381.9288926,
+   "t1": 1794916401.2295256
+  },
+  "rtl": {
+   "t0": 1794916404.2429972,
+   "t1": 1794916420.4884534
+  }
+ },
+ "connected_after_s": 0.2562901973724365,
+ "preflight_green_after_s": 0.25992679595947266,
+ "http_status_ms": {
+  "p50": 0.7,
+  "max": 1.2
+ },
+ "show": {
+  "verdict": "FAIL: Gazebo min separation None m < 1.5 m",
+  "error": null,
+  "playback_s": 36.01,
+  "planned_s": 36,
+  "gazebo": {
+   "real_time_factor": 0.988,
+   "max_tracking_error_m": 0.264
+  },
+  "end_state": "SHOW_COMPLETE",
+  "upload_mission": {
+   "all_verified": true,
+   "verified_count": 1,
+   "launch_gate": "ok"
+  }
+ },
+ "hover": {
+  "http": 200,
+  "status": "COMPLETED",
+  "seconds": 19.3
+ },
+ "rtl": {
+  "http": 200,
+  "http_ms": 34.6,
+  "hover_after": 500,
+  "disarmed_after_s": 6.100421905517578
+ },
+ "cadence": {
+  "show": {
+   "position_velocity_ned": {
+    "n": 2276,
+    "hz": 29.63,
+    "median_interval_s": 0.0328,
+    "p99_interval_s": 0.037,
+    "max_gap_s": 0.037
+   },
+   "landed_state": {
+    "n": 77,
+    "hz": 1.0,
+    "median_interval_s": 1.012,
+    "p99_interval_s": 1.019,
+    "max_gap_s": 1.02
+   }
+  },
+  "hover": {
+   "position_velocity_ned": {
+    "n": 572,
+    "hz": 29.61,
+    "median_interval_s": 0.0327,
+    "p99_interval_s": 0.037,
+    "max_gap_s": 0.037
+   },
+   "landed_state": {
+    "n": 19,
+    "hz": 0.99,
+    "median_interval_s": 1.0128,
+    "p99_interval_s": 1.016,
+    "max_gap_s": 1.018
+   }
+  },
+  "rtl": {
+   "position_velocity_ned": {
+    "n": 482,
+    "hz": 29.67,
+    "median_interval_s": 0.0327,
+    "p99_interval_s": 0.037,
+    "max_gap_s": 0.038
+   },
+   "landed_state": {
+    "n": 16,
+    "hz": 0.99,
+    "median_interval_s": 1.011,
+    "p99_interval_s": 1.014,
+    "max_gap_s": 1.017
+   }
+  }
+ },
+ "command_latency_ms": {
+  "action.arm": {
+   "n": 3,
+   "p50": 26.2,
+   "max": 28.0,
+   "failed": 0
+  },
+  "offboard.start": {
+   "n": 3,
+   "p50": 14.7,
+   "max": 14.8,
+   "failed": 0
+  },
+  "offboard.stop": {
+   "n": 3,
+   "p50": 13.7,
+   "max": 15.5,
+   "failed": 0
+  },
+  "action.land": {
+   "n": 2,
+   "p50": 22.1,
+   "max": 28.5,
+   "failed": 0
+  },
+  "action.return_to_launch": {
+   "n": 1,
+   "p50": 8.2,
+   "max": 8.2,
+   "failed": 0
+  }
+ }
+}

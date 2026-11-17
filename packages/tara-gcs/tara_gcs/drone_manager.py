@@ -32,6 +32,7 @@ from tara_gcs.broadcast_manager import BROADCAST_SYSID
 from tara_gcs.led import led_at
 from tara_gcs.preflight import GNSS_FIX_TYPES
 from tara_gcs.mavsdk_lifeline import GcsBoundSystem
+from tara_gcs.vehicle_link import serial_device, udp_address, validate_address
 from tara_gcs.fleet_fsm import (
     AIRBORNE_STATES,
     DEFAULT_AUDIT_PATH,
@@ -433,6 +434,7 @@ class DroneManager:
         sim_packet_loss_base: float = 0.0,
         sim_packet_loss_per_100m: float = 0.0,
         sim_tdma_jitter_ms: float = 0.0,
+        vehicle_addresses: dict[int, str] | None = None,
     ):
         """
         Args:
@@ -452,6 +454,11 @@ class DroneManager:
                 on "sim" one bulk-ingestion task reads the whole fleet's
                 arrays at once (issue #51) instead of 8 streaming tasks per
                 drone.
+            vehicle_addresses: backend="px4" only - drone index to MAVSDK system address, overriding the default
+                ``udpin://127.0.0.1:<port>`` for that drone (issue #67), for example
+                ``{0: "serial:///dev/ttyACM0:921600"}``. Every address is validated
+                (tara_gcs.vehicle_link) and a bad one raises ValueError: nothing connects on a guessed address. It
+                is a transport only; operating-mode and hardware gates are unchanged.
             state_path: where the active show (trajectory + playback position)
                 is persisted so a GCS restart can offer to resume it (issue #4).
                 Overridable so tests don't collide on/pollute the real file.
@@ -483,6 +490,14 @@ class DroneManager:
             raise ValueError(f"backend must be 'px4' or 'sim', got {backend!r}")
         self.ports = ports
         self.backend = backend
+        self.vehicle_addresses: dict[int, str] = {}
+        if vehicle_addresses:
+            if backend != "px4":
+                raise ValueError(f"vehicle_addresses applies to backend='px4' only, not {backend!r}")
+            for index, address in vehicle_addresses.items():
+                if not 0 <= index < len(ports):
+                    raise ValueError(f"vehicle address for drone {index} is outside the fleet (0..{len(ports) - 1})")
+                self.vehicle_addresses[index] = validate_address(address)
         self._sim_rng_seed = sim_rng_seed
         self._sim_packet_loss_base = sim_packet_loss_base
         self._sim_packet_loss_per_100m = sim_packet_loss_per_100m
@@ -666,7 +681,7 @@ class DroneManager:
                 # to this process: a GCS that dies takes its mavsdk_server, and
                 # with it the offboard setpoint stream, along (issue #171).
                 drone = GcsBoundSystem(port=50051 + drone_id)
-                await drone.connect(system_address=f"udpin://127.0.0.1:{port}")
+                await drone.connect(system_address=self._vehicle_address(drone_id, port))
 
             self.drones[drone_id] = drone
             self.telemetry[drone_id] = {
@@ -762,6 +777,8 @@ class DroneManager:
             self._tasks.append(asyncio.create_task(self._measure_latency_loop(drone_id)))
             self._tasks.append(asyncio.create_task(self._monitor_home(drone_id)))
             self._tasks.append(asyncio.create_task(self._monitor_health(drone_id)))
+            if serial_device(self.vehicle_addresses.get(drone_id)):
+                self._tasks.append(asyncio.create_task(self._serial_link_watchdog(drone_id)))
         except Exception as e:
             logging.error(f"Error during _connect_drone initialization for Drone {drone_id}: {e}")
             raise e
@@ -939,10 +956,9 @@ class DroneManager:
     STREAM_RETRY_INITIAL_S = 0.5
     STREAM_RETRY_MAX_S = 5.0
 
-    @staticmethod
-    def _vehicle_address(port: int) -> str:
-        """The address _connect_drone connects a px4-backend drone to."""
-        return f"udpin://127.0.0.1:{port}"
+    def _vehicle_address(self, drone_id: int, port: int) -> str:
+        """The address _connect_drone connects a px4-backend drone to: the configured one (issue #67), else UDP."""
+        return self.vehicle_addresses.get(drone_id) or udp_address(port)
 
     async def _supervise_stream(self, drone_id: int, name: str, subscribe, on_item) -> None:
         """Feed one MAVSDK telemetry stream into ``on_item`` for the life of the GCS.
@@ -1013,6 +1029,60 @@ class DroneManager:
         tel["link_stable_since"] = time.monotonic() if link_up else None
         logging.info(f"Drone {drone_id}: all telemetry streams reporting again.")
 
+    #: A serial link that dies under a live mavsdk_server (cable pulled, autopilot re-enumerated) is never reopened by the
+    #: server itself, and _respawn_dead_server only acts on an *exited* server. This watchdog (serial addresses only, issue
+    #: #67) reconnects it: once the heartbeat has been stale SERIAL_RELINK_AFTER_S, the device is present again and either it was
+    #: seen absent meanwhile (a replug) or it has stayed stale SERIAL_RELINK_STALE_S (a replug between two polls), it
+    #: runs the same locked connect() the respawn uses. A vehicle that stays silent is retried on a growing backoff.
+    SERIAL_WATCHDOG_POLL_S = 1.0
+    SERIAL_RELINK_AFTER_S = 3.0
+    SERIAL_RELINK_STALE_S = 10.0
+    SERIAL_RELINK_BACKOFF_S = (5.0, 10.0, 30.0)
+
+    async def _serial_link_watchdog(self, drone_id: int) -> None:
+        device = serial_device(self.vehicle_addresses.get(drone_id))
+        down_since: float | None = None
+        saw_absent = False
+        attempts = 0
+        next_try = 0.0
+        try:
+            while True:
+                await asyncio.sleep(self.SERIAL_WATCHDOG_POLL_S)
+                tel = self.telemetry.get(drone_id)
+                if tel is None:
+                    continue
+                # Freshness, not the raw connected flag: a serial link that dies under a live mavsdk_server keeps the flag
+                # set and its streams open, and only the heartbeats stop (see is_heartbeat_fresh).
+                if self.is_heartbeat_fresh(tel):
+                    down_since, saw_absent, attempts, next_try = None, False, 0, 0.0
+                    continue
+                now = time.monotonic()
+                down_since = down_since if down_since is not None else now
+                present = os.path.exists(device)
+                saw_absent = saw_absent or not present
+                if not present or now - down_since < self.SERIAL_RELINK_AFTER_S or now < next_try:
+                    continue
+                if not (saw_absent or now - down_since >= self.SERIAL_RELINK_STALE_S):
+                    continue
+                await self._relink_serial(drone_id, device)
+                next_try = time.monotonic() + self.SERIAL_RELINK_BACKOFF_S[min(attempts, len(self.SERIAL_RELINK_BACKOFF_S) - 1)]
+                attempts += 1
+        except asyncio.CancelledError:
+            raise
+
+    async def _relink_serial(self, drone_id: int, device: str) -> None:
+        drone = self.drones.get(drone_id)
+        if drone is None:
+            return
+        lock = self._respawn_locks.setdefault(drone_id, asyncio.Lock())
+        async with lock:
+            logging.warning(f"Drone {drone_id}: serial link down and {device} is there: reconnecting.")
+            try:
+                await drone.connect(system_address=self._vehicle_address(drone_id, self.telemetry[drone_id]["port"]))
+                logging.info(f"Drone {drone_id}: serial link reconnected on {device}.")
+            except Exception as e:  # noqa: BLE001 - the watchdog must survive a failed attempt and try again on its backoff
+                logging.error(f"Drone {drone_id}: reconnecting {device} failed: {e}")
+
     async def _respawn_dead_server(self, drone_id: int) -> None:
         """Start a new mavsdk_server if this drone's has exited.
 
@@ -1036,7 +1106,7 @@ class DroneManager:
             logging.warning(
                 f"Drone {drone_id}: mavsdk_server exited (code {process.poll()}); starting a new one."
             )
-            await drone.connect(system_address=self._vehicle_address(self.telemetry[drone_id]["port"]))
+            await drone.connect(system_address=self._vehicle_address(drone_id, self.telemetry[drone_id]["port"]))
             logging.info(f"Drone {drone_id}: mavsdk_server restarted.")
 
     async def _monitor_connection(self, drone_id):

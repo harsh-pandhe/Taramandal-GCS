@@ -1,0 +1,185 @@
+{
+ "run": "ser-57600-set2",
+ "mode": "serial",
+ "phases": {
+  "show": {
+   "t0": 1794919817.3764424,
+   "t1": 1794919895.7572093
+  },
+  "hover": {
+   "t0": 1794919898.766404,
+   "t1": 1794919918.2778513
+  },
+  "rtl": {
+   "t0": 1794919921.291752,
+   "t1": 1794919939.8883212
+  }
+ },
+ "connected_after_s": 0.2557203769683838,
+ "px4_link_streams": "HEARTBEAT:2,SYS_STATUS:2,EXTENDED_SYS_STATE:2,LOCAL_POSITION_NED:10,GLOBAL_POSITION_INT:5,ATTITUDE:5,GPS_RAW_INT:2,BATTERY_STATUS:1,HOME_POSITION:1,ESTIMATOR_STATUS:1",
+ "px4_link_rate_bytes_per_s": 5000,
+ "px4_link_restart": {
+  "stop": "",
+  "start": ""
+ },
+ "reconnected_after_rate_cap_s": 0.0037908554077148438,
+ "preflight_green_after_s": 0.007062673568725586,
+ "http_status_ms": {
+  "p50": 0.5,
+  "max": 3.5
+ },
+ "show": {
+  "verdict": "FAIL: Gazebo min separation None m < 1.5 m",
+  "error": null,
+  "playback_s": 36.02,
+  "planned_s": 36,
+  "gazebo": {
+   "real_time_factor": 0.988,
+   "max_tracking_error_m": 0.292
+  },
+  "end_state": "SHOW_COMPLETE",
+  "upload_mission": {
+   "all_verified": true,
+   "verified_count": 1,
+   "launch_gate": "ok"
+  }
+ },
+ "hover": {
+  "http": 200,
+  "status": "COMPLETED",
+  "seconds": 19.5
+ },
+ "rtl": {
+  "http": 200,
+  "http_ms": 34.5,
+  "hover_after": 500,
+  "disarmed_after_s": 9.015742063522339,
+  "status_trace_every_3s": [
+   {
+    "t": 9.6,
+    "armed": 1,
+    "armed_stale": 0,
+    "connected": 1,
+    "fleet_state": "RTL",
+    "trajectory_running": false
+   },
+   {
+    "t": 12.6,
+    "armed": 1,
+    "armed_stale": 0,
+    "connected": 1,
+    "fleet_state": "RTL",
+    "trajectory_running": false
+   },
+   {
+    "t": 15.6,
+    "armed": 1,
+    "armed_stale": 0,
+    "connected": 1,
+    "fleet_state": "RTL",
+    "trajectory_running": false
+   },
+   {
+    "t": 18.6,
+    "armed": 0,
+    "armed_stale": 0,
+    "connected": 1,
+    "fleet_state": "DISARMED",
+    "trajectory_running": false
+   }
+  ]
+ },
+ "pull": {
+  "connected_before": 1,
+  "seen_down_after_s": 2.512322425842285,
+  "reconnected_after_replug_s": 5.079544305801392,
+  "preflight_green_after_s": 0.008973836898803711,
+  "hover_after": {
+   "http": 200,
+   "status": "COMPLETED",
+   "detail": null
+  }
+ },
+ "cadence": {
+  "show": {
+   "position_velocity_ned": {
+    "n": 775,
+    "hz": 9.89,
+    "median_interval_s": 0.1013,
+    "p99_interval_s": 0.1027,
+    "max_gap_s": 0.106
+   },
+   "landed_state": {
+    "n": 78,
+    "hz": 0.99,
+    "median_interval_s": 1.0122,
+    "p99_interval_s": 1.0182,
+    "max_gap_s": 1.019
+   }
+  },
+  "hover": {
+   "position_velocity_ned": {
+    "n": 192,
+    "hz": 9.88,
+    "median_interval_s": 0.1014,
+    "p99_interval_s": 0.1027,
+    "max_gap_s": 0.103
+   },
+   "landed_state": {
+    "n": 19,
+    "hz": 0.99,
+    "median_interval_s": 1.0147,
+    "p99_interval_s": 1.016,
+    "max_gap_s": 1.017
+   }
+  },
+  "rtl": {
+   "position_velocity_ned": {
+    "n": 184,
+    "hz": 9.89,
+    "median_interval_s": 0.1013,
+    "p99_interval_s": 0.1025,
+    "max_gap_s": 0.103
+   },
+   "landed_state": {
+    "n": 18,
+    "hz": 0.99,
+    "median_interval_s": 1.0115,
+    "p99_interval_s": 1.0145,
+    "max_gap_s": 1.017
+   }
+  }
+ },
+ "command_latency_ms": {
+  "action.arm": {
+   "n": 4,
+   "p50": 21.7,
+   "max": 27.7,
+   "failed": 0
+  },
+  "offboard.start": {
+   "n": 4,
+   "p50": 10.1,
+   "max": 10.5,
+   "failed": 0
+  },
+  "offboard.stop": {
+   "n": 4,
+   "p50": 19.2,
+   "max": 19.9,
+   "failed": 0
+  },
+  "action.land": {
+   "n": 3,
+   "p50": 28.1,
+   "max": 31.6,
+   "failed": 0
+  },
+  "action.return_to_launch": {
+   "n": 1,
+   "p50": 8.3,
+   "max": 8.3,
+   "failed": 0
+  }
+ }
+}
