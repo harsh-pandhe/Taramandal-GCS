@@ -164,6 +164,14 @@ async def test_bulk_ingestion_matches_the_per_drone_monitors():
                     if bulk[d][ts_field] is not None and manager.telemetry[d][ts_field] is not None:
                         assert abs(bulk[d][ts_field] - manager.telemetry[d][ts_field]) < 0.5
                         manager.telemetry[d][ts_field] = bulk[d][ts_field]
+            # comm_latency_ms is a MEASUREMENT on the legacy path (the time one awaited call took, to 0.1 ms), so on a
+            # loaded CI runner it can read 0.1 where the bulk path, which has nothing to time, says 0.0. Like the
+            # timestamps above it is compared by what it must be (a real, non-negative reading: not the -1.0 that
+            # marks a failed probe), not for equality; every other field stays exactly equal.
+            legacy_latency = manager.telemetry[d]["comm_latency_ms"]
+            assert 0.0 <= legacy_latency < 50.0, f"drone {d} legacy comm_latency_ms {legacy_latency}"
+            assert bulk[d]["comm_latency_ms"] == 0.0, f"drone {d} bulk comm_latency_ms"
+            manager.telemetry[d]["comm_latency_ms"] = bulk[d]["comm_latency_ms"]
             assert bulk[d] == manager.telemetry[d], f"drone {d}"
             for key, value in bulk[d].items():
                 assert type(value) is type(manager.telemetry[d][key]), f"drone {d} {key}"
