@@ -47,6 +47,13 @@ it is refused at compile time rather than wrapped around. A 10-minute show at
 
 A drone acts on START only if it holds a mission for that ``show_id``, which is
 what stops a stale file from a previous rehearsal flying tonight's slot.
+
+The emergency commands LAND, RTL and ESTOP (issue #57) ignore ``show_id``: they
+must work even for a drone that holds no mission. **The frame carries only a
+CRC-32, which anyone can compute, so nothing here authenticates the sender.**
+A forged ESTOP would drop every drone in the air. Before any of these frames is
+put on a real radio they need a keyed authenticator (and replay protection);
+until then they exist for the simulator and for the protocol definition only.
 """
 
 from __future__ import annotations
@@ -88,6 +95,15 @@ class ShowCommand(IntEnum):
     START = 1
     #: Abandon the mission (pending or in flight) and hold position.
     CANCEL = 2
+    #: Emergency override (issue #57): every armed drone abandons its mission and
+    #: descends straight down, whatever ``show_id`` the frame carries.
+    LAND = 3
+    #: Emergency override: every armed drone abandons its mission, flies back over
+    #: its own pad at its current altitude and lands.
+    RTL = 4
+    #: Emergency override: every drone cuts its motors at once. There is no
+    #: recovery from this in flight.
+    ESTOP = 5
 
 
 _TRIGGER_BODY_FORMAT = "<B16sQ"

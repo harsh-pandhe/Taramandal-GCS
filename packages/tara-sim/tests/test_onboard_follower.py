@@ -1,0 +1,192 @@
+"""Issue #57: the simulated onboard trajectory follower.
+
+What is covered here: the named mission states, the broadcast emergency overrides
+(LAND, RTL, ESTOP) over a running onboard mission, and how closely the follower
+tracks a real certified show. The "GCS link lost mid-show, the fleet still finishes" case
+is `packages/tara-gcs/tests/test_onboard_mission.py::test_link_loss_mid_show_does_not_abort_the_show`.
+
+Plain numpy and a controllable clock: no mocks, no asyncio.
+"""
+
+import json
+from pathlib import Path
+
+import numpy as np
+
+from tara_core import ShowCommand, compile_mission, compute_show_id, decode_mission, encode_show_trigger
+from tara_sim.fleet_state import FleetState, SimConfig
+from tara_sim.system import SimFleet
+
+SHOW_ID = b"\x57" * 16
+OTHER_ID = b"\x99" * 16
+WPS = [
+    {"time": 0.0, "x": 0.0, "y": 0.0, "z": 0.0, "yaw": 0.0},
+    {"time": 4.0, "x": 0.0, "y": 0.0, "z": -6.0, "yaw": 0.0},    # climb to 6 m
+    {"time": 10.0, "x": 3.0, "y": 0.0, "z": -6.0, "yaw": 0.0},   # translate 3 m
+]
+
+
+class Clock:
+    def __init__(self, t=1000.0):
+        self.t = t
+
+    def __call__(self):
+        return self.t
+
+
+def _flying_fleet(n=3, start_in=0.0, **cfg):
+    """n armed drones, each holding the mission and told to start `start_in` seconds from now."""
+    fleet = SimFleet(n, config=SimConfig(rng_seed=3, wind_std_ms2=0.0, **cfg))
+    fs = fleet.state
+    clock = Clock()
+    fs.utc_clock = clock
+    fs.armed[:] = True
+    for i in range(n):
+        blob = compile_mission(WPS, drone_id=i, show_id=SHOW_ID)
+        _, decoded = decode_mission(blob)
+        fs.load_mission(i, SHOW_ID, decoded)
+    for i in range(n):
+        assert fs.start_mission(i, clock.t + start_in)
+    return fleet, fs, clock
+
+
+def _step(fs, clock, seconds):
+    for _ in range(int(round(seconds / fs.config.dt))):
+        clock.t += fs.config.dt
+        fs.tick(fs.config.dt)
+
+
+class TestMissionStates:
+    def test_a_drone_goes_through_every_named_state_in_order(self):
+        fs = FleetState(1, SimConfig(rng_seed=1, wind_std_ms2=0.0))
+        clock = Clock()
+        fs.utc_clock = clock
+        fs.armed[:] = True
+        seen = [fs.mission_state(0)]
+        assert seen == ["NONE"]
+
+        _, decoded = decode_mission(compile_mission(WPS, drone_id=0, show_id=SHOW_ID))
+        fs.load_mission(0, SHOW_ID, decoded)
+        seen.append(fs.mission_state(0))                 # loaded, not started
+        fs.start_mission(0, clock.t + 1.0)
+        seen.append(fs.mission_state(0))                 # trigger heard, t=0 is 1 s away
+        _step(fs, clock, 1.5)
+        seen.append(fs.mission_state(0))                 # flying
+        _step(fs, clock, 12.0)
+        seen.append(fs.mission_state(0))                 # whole trajectory flown, holding
+        fs.command_land(0)
+        _step(fs, clock, 20.0)
+        seen.append(fs.mission_state(0))                 # on the ground, disarmed
+
+        assert seen == ["NONE", "MISSION_LOADED", "SYNC_WAIT", "EXECUTING", "COMPLETE", "LANDED"]
+        assert tuple(dict.fromkeys(seen)) == FleetState.MISSION_STATES
+
+    def test_a_cancelled_mission_goes_back_to_loaded(self):
+        fleet, fs, clock = _flying_fleet(1)
+        _step(fs, clock, 2.0)
+        assert fs.mission_state(0) == "EXECUTING"
+        fs.cancel_mission(0)
+        assert fs.mission_state(0) == "MISSION_LOADED"
+
+
+class TestEmergencyOverrides:
+    def test_land_overrides_a_mission_in_flight_whatever_the_show_id(self):
+        fleet, fs, clock = _flying_fleet(3)
+        _step(fs, clock, 2.0)
+        assert all(fs.mission_state(i) == "EXECUTING" for i in range(3))
+
+        fleet.broadcast(encode_show_trigger(ShowCommand.LAND, OTHER_ID))  # not this show's id
+
+        assert not fs.mission_active.any()
+        assert fs.landing.all()
+        _step(fs, clock, 15.0)
+        assert not fs.armed.any() and (fs.position[:, 2] <= 0.05).all()
+        assert not fs.mission_complete.any()      # the show was abandoned, not completed
+
+    def test_rtl_overrides_a_mission_and_brings_each_drone_home(self):
+        fleet, fs, clock = _flying_fleet(3)
+        _step(fs, clock, 8.0)                      # past the climb, translating
+        fleet.broadcast(encode_show_trigger(ShowCommand.RTL, OTHER_ID))
+        assert not fs.mission_active.any() and fs.rtl_pending.all()
+        _step(fs, clock, 40.0)
+        assert not fs.armed.any()
+        assert np.abs(fs.position[:, :2]).max() < 0.5      # back over the pad (the origin)
+
+    def test_estop_stops_every_motor_within_one_tick_and_needs_no_mission(self):
+        fleet, fs, clock = _flying_fleet(3)
+        # Two more armed drones that hold no mission at all must be stopped too.
+        fleet2 = SimFleet(2, config=SimConfig(rng_seed=4, wind_std_ms2=0.0))
+        fleet2.state.armed[:] = True
+        fleet2.state.position[:, 2] = 5.0
+        fleet2.broadcast(encode_show_trigger(ShowCommand.ESTOP, b"\x00" * 16))
+        assert not fleet2.state.armed.any() and all(m == "TERMINATED" for m in fleet2.state.flight_mode)
+
+        _step(fs, clock, 5.0)
+        t0 = clock.t
+        fleet.broadcast(encode_show_trigger(ShowCommand.ESTOP, OTHER_ID))
+        _step(fs, clock, fs.config.dt)             # one physics tick
+        assert (clock.t - t0) <= 0.1               # the issue's 100 ms
+        assert not fs.armed.any()
+        assert (fs.position[:, 2] == 0.0).all() and not fs.mission_active.any()
+
+    def test_a_drone_whose_link_is_down_misses_an_emergency_frame(self):
+        """The honest limit of a broadcast: a drone that cannot hear it is not stopped by it."""
+        fleet, fs, clock = _flying_fleet(2)
+        _step(fs, clock, 2.0)
+        fs.connected[1] = False
+        fleet.broadcast(encode_show_trigger(ShowCommand.ESTOP, SHOW_ID))
+        assert not fs.armed[0]
+        assert fs.armed[1] and fs.mission_active[1]
+
+    def test_land_and_rtl_do_nothing_to_a_disarmed_drone(self):
+        fleet = SimFleet(2, config=SimConfig(rng_seed=5))
+        for cmd in (ShowCommand.LAND, ShowCommand.RTL):
+            fleet.broadcast(encode_show_trigger(cmd, SHOW_ID))
+        assert not fleet.state.landing.any() and not fleet.state.rtl_pending.any()
+
+    def test_a_damaged_emergency_frame_is_ignored(self):
+        fleet, fs, clock = _flying_fleet(2)
+        _step(fs, clock, 2.0)
+        frame = bytearray(encode_show_trigger(ShowCommand.ESTOP, SHOW_ID))
+        frame[3] ^= 0x01                              # one flipped bit in the show id
+        fleet.broadcast(bytes(frame))
+        assert fs.armed.all() and fs.mission_active.all()
+
+
+SHOW3 = Path(__file__).resolve().parents[3] / "docs" / "sitl-t2-recorded-acceptance" / "recorded-takes" / "show3.json"
+
+
+class TestTrackingOnARealShow:
+    """The follower flying a real certified Studio show (the 3-drone show flown in the T2 runs).
+
+    Issue #57 asks for "<= 5 cm tracking error at 50 Hz". MEASURED on this show the follower does not
+    meet that bar: max 7 to 9 cm, 95th percentile 5.5 to 7.3 cm, mean 2 to 3 cm, ends within 0.2 cm.
+    The simulated plant is a PD loop with no acceleration feed-forward, so the error peaks where the
+    compiled path changes velocity. This test pins the measured envelope so it cannot silently get
+    worse; it does NOT assert the 5 cm figure, because that figure is not met.
+    """
+
+    def test_measured_tracking_error_on_the_certified_show(self):
+        show = json.loads(SHOW3.read_text())
+        sid = compute_show_id(show)
+        for drone in show["drones"]:
+            wps = drone["waypoints"]
+            blob = compile_mission(wps, drone_id=drone["id"], show_id=sid, origin=(wps[0]["x"], wps[0]["y"]))
+            _, decoded = decode_mission(blob)
+            fs = FleetState(1, SimConfig(rng_seed=1, wind_std_ms2=0.0))
+            clock = Clock(100.0)
+            fs.utc_clock = clock
+            fs.armed[:] = True
+            fs.load_mission(0, sid, decoded)
+            fs.start_mission(0, 100.0)
+            errs = []
+            while fs.mission_active[0]:
+                clock.t += fs.config.dt
+                fs.tick(fs.config.dt)
+                errs.append(float(np.linalg.norm(fs.position[0] - fs.target_position[0])))
+                assert len(errs) < 20000
+            e = np.array(errs)
+            assert e.max() < 0.12, f"drone {drone['id']} max {e.max():.3f} m"
+            assert np.percentile(e, 95) < 0.09
+            assert e.mean() < 0.05
+            assert e[-1] < 0.01                       # and it ends on the last waypoint

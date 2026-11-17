@@ -413,6 +413,27 @@ class FleetState:
         self.velocity[drone_id] = 0.0
         self.flight_mode[drone_id] = "TERMINATED"
 
+    #: The onboard mission states of issue #57, in order.
+    MISSION_STATES = ("NONE", "MISSION_LOADED", "SYNC_WAIT", "EXECUTING", "COMPLETE", "LANDED")
+
+    def mission_state(self, drone_id: int) -> str:
+        """Where a drone is in the onboard mission life cycle (issue #57).
+
+        NONE            no mission is stored
+        MISSION_LOADED  a mission is held and not started (or was cancelled)
+        SYNC_WAIT       the start trigger was heard, t=0 of the show is still ahead
+        EXECUTING       the drone is flying its stored trajectory
+        COMPLETE        the whole trajectory was flown and the drone is holding the last waypoint
+        LANDED          the mission was completed and the drone is now disarmed on the ground
+        """
+        if self._mission[drone_id] is None:
+            return "NONE"
+        if self.mission_complete[drone_id]:
+            return "COMPLETE" if self.armed[drone_id] else "LANDED"
+        if not self.mission_active[drone_id]:
+            return "MISSION_LOADED"
+        return "SYNC_WAIT" if self.utc_clock() < self.mission_start_utc[drone_id] else "EXECUTING"
+
     def is_armable(self, drone_id: int) -> bool:
         return (self.time_s - self._connected_since[drone_id]) >= self.config.armable_delay_s
 

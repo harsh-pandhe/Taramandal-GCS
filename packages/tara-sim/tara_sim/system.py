@@ -428,7 +428,9 @@ class SimFleet:
         is down simply misses it. Each drone then does what its firmware would:
         on START, look through its own storage for a mission matching the
         trigger's show id and addressed to itself, and schedule it; on CANCEL,
-        stop and hold. No reply comes back — a broadcast has no acks, and
+        stop and hold; on LAND, RTL or ESTOP (the emergency overrides of issue #57,
+        which apply whatever the show id and whether or not a mission is stored)
+        land, return and land, or cut the motors. No reply comes back — a broadcast has no acks, and
         whether a drone took the trigger shows up in its telemetry
         (flight mode ``SHOW``), not here.
         """
@@ -442,8 +444,16 @@ class SimFleet:
             return
 
         fs = self.state
+        command = trigger["command"]
         for i in range(fs.n):
             if not fs.connected[i]:
+                continue
+            if command == ShowCommand.ESTOP:
+                fs.command_kill(i)
+                continue
+            if command in (ShowCommand.LAND, ShowCommand.RTL):
+                if fs.armed[i]:
+                    (fs.command_land if command == ShowCommand.LAND else fs.command_rtl)(i)
                 continue
             if trigger["command"] == ShowCommand.CANCEL:
                 if fs.mission_show_id[i] == trigger["show_id"]:

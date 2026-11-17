@@ -197,6 +197,20 @@ class TestTrigger:
         frame = body + struct.pack("<I", zlib.crc32(body))
         assert decode_show_trigger(frame)["valid"] is False
 
+    @pytest.mark.parametrize("command", [ShowCommand.LAND, ShowCommand.RTL, ShowCommand.ESTOP])
+    def test_emergency_commands_round_trip_whatever_the_show_id(self, command):
+        """Issue #57: LAND, RTL and ESTOP are valid frames and carry a show id that need not match."""
+        for show_id in (SHOW_ID, b"\x00" * 16):
+            decoded = decode_show_trigger(encode_show_trigger(command, show_id))
+            assert decoded["valid"] is True and decoded["command"] == command
+
+    def test_the_command_set_is_exactly_what_is_documented(self):
+        assert {c.name: int(c) for c in ShowCommand} == {
+            "START": 1, "CANCEL": 2, "LAND": 3, "RTL": 4, "ESTOP": 5,
+        }
+        body = struct.pack("<B16sQ", 6, SHOW_ID, 0)     # the next unassigned value stays invalid
+        assert decode_show_trigger(body + struct.pack("<I", zlib.crc32(body)))["valid"] is False
+
     def test_wrong_size_raises(self):
         with pytest.raises(ValueError):
             decode_show_trigger(b"\x00" * (TRIGGER_SIZE - 1))
