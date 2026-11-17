@@ -1,0 +1,36 @@
+{
+ "clip": "diwali2026_plan_35drones_studio-fullscreen_20261117_f1bfb5a.mp4",
+ "tier": "plan (playback in Studio). Nothing flew: no simulator and no vehicle was running. Not T1, T2 or hardware.",
+ "repo_commit": "f1bfb5a (origin/main when recorded; the clip's on-screen caption says main f1bfb5a)",
+ "recorded": "2026-11-17, 1:57, 1440x926, 30 fps, H.264 crf 22, no audio, no pointer, no metadata tags",
+ "how": "tools/record/record_studio_fullscreen.mjs drives the REAL Studio (Chromium app window) against its REAL backend with ffmpeg x11grab. It is an automated drive, not a person at the keyboard. No API response is canned: Project Vault load, Generate Sequence, validator badges and playback are the product's own.",
+ "shown": [
+  "Project Vault, project 'Diwali 2026 (35 drones)', Load",
+  "Sequencer with red Refused + Unverified · exports locked badges before the build",
+  "Generate Sequence -> Built · 3m 40.3s and Safety passed · exports enabled (the script fails if any 'exports locked' badge remains)",
+  "FULL-SCREEN PREVIEW, Play at 1x for 45 s, 4x to 218.00 s of 220.30 s, pause near the landing, Esc leaves full-screen"
+ ],
+ "numbers_and_differences": {
+  "built_length": "3m 40.3s = 220.3 s as the Studio badge and timeline show it. The recording checklist's 'about 209.8 s' is older; the build differs because the backend assigns the drones to chains. An earlier CLI export of the same storyboard (examples/diwali/storyboard_35.json) reports duration_s 221.3, validator PASSED, feasibility_certified true, min separation 2.05 m, max altitude 34.35 m. The 1 s gap between 221.3 s and 220.3 s was not reconciled here.",
+  "unsaved_badge": "An UNSAVED badge shows on the project after Generate Sequence. Nothing was saved or exported during the take."
+ },
+ "not_in_clip": [
+  "hardware",
+  "a simulator",
+  "an export or a signing step",
+  "audio or music",
+  "the mouse pointer",
+  "a person operating Studio",
+  "the end of the show (paused at 218.00 s of 220.30 s so it does not loop)",
+  "a measured frame rate: playback smoothness on a real GPU is NOT VERIFIED (30 fps is the capture rate, not a measured render rate)"
+ ],
+ "stack": "Studio backend :8001 and Vite :5174 from this repo at f1bfb5a, a scratch project vault under ~/Desktop (project loaded with tools/diwali_to_vault.mjs from the 35-drone show built by tools/diwali_run_all.sh). Login with the demo key.",
+ "privacy_review": {
+  "frames": "All 117 s reviewed: 59 contact-sheet frames at 2 s spacing, the top 130 px band (window title bar, header, badges, toasts) at 1 s spacing for the whole clip (117 strips), and full-size frames at the start, 14 s and the end. No password-manager bubble, notification, path, name, e-mail or token in any of them. The window title bar reads only 'Taramandal Studio - Swarm Choreography'.",
+  "earlier_takes_discarded": "Four earlier takes were not kept: the first showed Chromium's 'Save password?' bubble over the top right after sign-in and stopped at 165 of 220 s; later ones lost the caption bar or looped or were black (the desktop session had locked).",
+  "metadata": "re-encoded with -map_metadata -1; container has only the encoder tag. A strings scan for the username, /home, e-mail, token and password terms found nothing.",
+  "limit": "The 2 s and 1 s sampling cannot rule out an overlay shown for under a second."
+ },
+ "sha256": "dff57dab8ce500c4ce7377bb907c1a056a25ef3fe89383f872664148f6c30079",
+ "caption_on_screen": "PLAN PLAYBACK - NOTHING FLEW - no simulator, no vehicle | Studio, 35 drones | main f1bfb5a (bottom bar, every frame)"
+}
