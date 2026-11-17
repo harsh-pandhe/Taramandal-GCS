@@ -1,0 +1,75 @@
+{
+  "label": "ser-57600",
+  "started_utc": "2026-11-17T12:27:35Z",
+  "commit": "serial-verification",
+  "gcs": "http://127.0.0.1:8090",
+  "studio": "http://127.0.0.1:8001",
+  "steps": {
+    "validate": "certified",
+    "export": "signed",
+    "upload_trajectory": {
+      "signature": {
+        "verified": true,
+        "signer": "Studio SITL #172",
+        "key_id": "7fa30d7106e1dfbf",
+        "signed_at": "2026-11-17T12:27:35+00:00"
+      },
+      "geofence": {
+        "soft_warning_radius_m": 10.0,
+        "hard_geofence_radius_m": 15.0
+      }
+    },
+    "upload_mission": {
+      "all_verified": false,
+      "verified_count": 0,
+      "launch_gate": "Arming refused: drone 0 mission FAILED."
+    }
+  },
+  "verdict": "ERROR",
+  "show_source": "stand-in: Studio sequencer circle, 1 drones, 10.0 Hz (as in #209)",
+  "num_drones": 1,
+  "planned": {
+    "duration_s": 36,
+    "studio_status": "PASSED",
+    "feasibility_certified": true,
+    "min_separation_m": 0.0,
+    "max_velocity_m_s": 1.1,
+    "max_jerk_m_s3": 10.0,
+    "max_altitude_m": 8,
+    "limits": {
+      "min_separation_m": 1.5,
+      "design_separation_m": 2.0,
+      "pad_spacing_m": 2.2,
+      "max_velocity_ms": 6.0,
+      "max_accel_ms2": 50.0,
+      "max_yaw_rate_dps": 300.0,
+      "geofence_radius_m": 30.0,
+      "max_altitude_m": 120.0,
+      "geofence_soft_warning_buffer_m": 10.0,
+      "geofence_hard_buffer_m": 15.0,
+      "max_jerk_ms3": 20.0
+    }
+  },
+  "gcs_status_before": {
+    "mode": "SIMULATION",
+    "configured_mode": "SIMULATION",
+    "backend": "px4",
+    "fidelity": "px4-sitl",
+    "active_backend": "px4",
+    "hardware_flight_certified": false,
+    "hardware_flight_available": false,
+    "num_drones": 1,
+    "connected": 1,
+    "armed": 0,
+    "armed_stale": 0,
+    "armed_stale_ids": [],
+    "trajectory_running": false,
+    "fleet_state": "STAGED",
+    "playback_stopped": false,
+    "site": "standard",
+    "aborted": [],
+    "launch_failures": {},
+    "packet_drop_rate": null
+  },
+  "error": "launch gate closed after mission upload: {'ok': False, 'reason': 'Arming refused: drone 0 mission FAILED.', 'armable': [], 'problems': ['drone 0 mission FAILED']}"
+}

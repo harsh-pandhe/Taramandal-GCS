@@ -1,0 +1,150 @@
+{
+ "run": "ser-57600-r4000",
+ "mode": "serial",
+ "phases": {
+  "show": {
+   "t0": 1794919159.188335,
+   "t1": 1794919238.0435817
+  },
+  "hover": {
+   "t0": 1794919241.0523498,
+   "t1": 1794919261.0901372
+  },
+  "rtl": {
+   "t0": 1794919264.1058598,
+   "t1": 1794919333.438543
+  }
+ },
+ "connected_after_s": 0.0010647773742675781,
+ "px4_link_rate_bytes_per_s": 4000,
+ "px4_link_restart": {
+  "stop": "",
+  "start": ""
+ },
+ "reconnected_after_rate_cap_s": 0.004073143005371094,
+ "preflight_green_after_s": 0.2648146152496338,
+ "http_status_ms": {
+  "p50": 0.6,
+  "max": 3.0
+ },
+ "show": {
+  "verdict": "FAIL: Gazebo min separation None m < 1.5 m",
+  "error": null,
+  "playback_s": 36.08,
+  "planned_s": 36,
+  "gazebo": {
+   "real_time_factor": 0.989,
+   "max_tracking_error_m": 0.223
+  },
+  "end_state": "SHOW_COMPLETE",
+  "upload_mission": {
+   "all_verified": true,
+   "verified_count": 1,
+   "launch_gate": "ok"
+  }
+ },
+ "hover": {
+  "http": 200,
+  "status": "COMPLETED",
+  "seconds": 20.0
+ },
+ "rtl": {
+  "http": 200,
+  "http_ms": 35.8,
+  "hover_after": 409,
+  "disarmed_after_s": 0.2637758255004883
+ },
+ "pull": {
+  "connected_before": 1,
+  "seen_down_after_s": 2.513546943664551,
+  "reconnected_after_replug_s": 7.612882852554321,
+  "preflight_green_after_s": 0.007636070251464844,
+  "hover_after": {
+   "http": 500,
+   "status": null,
+   "detail": "{'detail': 'Landing failed: Drone 0 landed-state telemetry became stale while awaiting landing/disarm confirmation'}"
+  }
+ },
+ "cadence": {
+  "show": {
+   "position_velocity_ned": {
+    "n": 347,
+    "hz": 4.41,
+    "median_interval_s": 0.227,
+    "p99_interval_s": 0.2325,
+    "max_gap_s": 0.233
+   },
+   "landed_state": {
+    "n": 11,
+    "hz": 0.15,
+    "median_interval_s": 6.8075,
+    "p99_interval_s": 6.8176,
+    "max_gap_s": 6.827
+   }
+  },
+  "hover": {
+   "position_velocity_ned": {
+    "n": 88,
+    "hz": 4.4,
+    "median_interval_s": 0.2273,
+    "p99_interval_s": 0.2323,
+    "max_gap_s": 0.237
+   },
+   "landed_state": {
+    "n": 3,
+    "hz": 0.15,
+    "median_interval_s": 6.8146,
+    "p99_interval_s": 6.8133,
+    "max_gap_s": 6.816
+   }
+  },
+  "rtl": {
+   "position_velocity_ned": {
+    "n": 305,
+    "hz": 4.4,
+    "median_interval_s": 0.2274,
+    "p99_interval_s": 0.2322,
+    "max_gap_s": 0.234
+   },
+   "landed_state": {
+    "n": 10,
+    "hz": 0.15,
+    "median_interval_s": 6.8229,
+    "p99_interval_s": 6.8284,
+    "max_gap_s": 6.835
+   }
+  }
+ },
+ "command_latency_ms": {
+  "action.arm": {
+   "n": 3,
+   "p50": 24.7,
+   "max": 29.7,
+   "failed": 0
+  },
+  "offboard.start": {
+   "n": 3,
+   "p50": 14.3,
+   "max": 18.3,
+   "failed": 0
+  },
+  "offboard.stop": {
+   "n": 5,
+   "p50": 16.9,
+   "max": 17.7,
+   "failed": 0
+  },
+  "action.land": {
+   "n": 4,
+   "p50": 24.0,
+   "max": 31.6,
+   "failed": 0
+  },
+  "action.return_to_launch": {
+   "n": 1,
+   "p50": 4.0,
+   "max": 4.0,
+   "failed": 0
+  }
+ }
+}

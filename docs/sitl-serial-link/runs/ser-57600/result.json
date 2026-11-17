@@ -1,0 +1,99 @@
+{
+ "run": "ser-57600",
+ "mode": "serial",
+ "phases": {
+  "show": {
+   "t0": 1794918455.3844962,
+   "t1": 1794918478.1683216
+  },
+  "hover": {
+   "t0": 1794918481.6947684,
+   "t1": 1794918481.7061274
+  },
+  "rtl": {
+   "t0": 1794918484.716406,
+   "t1": 1794918554.2546635
+  }
+ },
+ "connected_after_s": 0.001321554183959961,
+ "preflight_green_after_s": 9.509725570678711,
+ "http_status_ms": {
+  "p50": 0.5,
+  "max": 3.1
+ },
+ "show": {
+  "verdict": "ERROR",
+  "error": "launch gate closed after mission upload: {'ok': False, 'reason': 'Arming refused: drone 0 mission FAILED.', 'armable': [], 'problems': ['drone 0 mission FAILED']}",
+  "playback_s": null,
+  "planned_s": 36,
+  "gazebo": {},
+  "end_state": null,
+  "upload_mission": {
+   "all_verified": false,
+   "verified_count": 0,
+   "launch_gate": "Arming refused: drone 0 mission FAILED."
+  }
+ },
+ "hover": {
+  "http": 409,
+  "status": null,
+  "seconds": 0.0
+ },
+ "rtl": {
+  "http": 200,
+  "http_ms": 33.3,
+  "hover_after": 409,
+  "disarmed_after_s": 0.26027345657348633
+ },
+ "pull": {
+  "connected_before": 1,
+  "seen_down_after_s": 1.260819911956787,
+  "reconnected_after_replug_s": 18.798125982284546,
+  "preflight_green_after_s": null,
+  "hover_after": {
+   "http": 409,
+   "status": null,
+   "detail": "{'detail': 'Cannot run the single-drone sequence while a fleet show is active: Drone 0 landed-state telemetry became stale with a show loaded.'}"
+  }
+ },
+ "cadence": {
+  "show": {
+   "position_velocity_ned": {
+    "n": 165,
+    "hz": 7.26,
+    "median_interval_s": 0.1015,
+    "p99_interval_s": 0.508,
+    "max_gap_s": 0.577
+   },
+   "landed_state": null
+  },
+  "hover": {
+   "position_velocity_ned": null,
+   "landed_state": null
+  },
+  "rtl": {
+   "position_velocity_ned": {
+    "n": 570,
+    "hz": 8.19,
+    "median_interval_s": 0.1011,
+    "p99_interval_s": 0.5738,
+    "max_gap_s": 1.011
+   },
+   "landed_state": null
+  }
+ },
+ "command_latency_ms": {
+  "offboard.stop": {
+   "n": 1,
+   "p50": 13.2,
+   "max": 13.2,
+   "failed": 0
+  },
+  "action.return_to_launch": {
+   "n": 1,
+   "p50": 8.1,
+   "max": 8.1,
+   "failed": 0
+  }
+ }
+}
