@@ -12,6 +12,7 @@ import json
 from pathlib import Path
 
 import numpy as np
+import pytest
 
 from tara_core import ShowCommand, compile_mission, compute_show_id, decode_mission, encode_show_trigger
 from tara_sim.fleet_state import FleetState, SimConfig
@@ -159,34 +160,83 @@ SHOW3 = Path(__file__).resolve().parents[3] / "docs" / "sitl-t2-recorded-accepta
 class TestTrackingOnARealShow:
     """The follower flying a real certified Studio show (the 3-drone show flown in the T2 runs).
 
-    Issue #57 asks for "<= 5 cm tracking error at 50 Hz". MEASURED on this show the follower does not
-    meet that bar: max 7 to 9 cm, 95th percentile 5.5 to 7.3 cm, mean 2 to 3 cm, ends within 0.2 cm.
-    The simulated plant is a PD loop with no acceleration feed-forward, so the error peaks where the
-    compiled path changes velocity. This test pins the measured envelope so it cannot silently get
-    worse; it does NOT assert the 5 cm figure, because that figure is not met.
+    Issue #57: "onboard interpolation maintains <= 5 cm tracking error at 50 Hz". MEASURED on this show with the
+    acceleration feed-forward: max 2.1 to 2.7 cm, 95th percentile 1.8 to 2.4 cm, mean 0.7 to 1.1 cm, in every
+    wind and rotor-lag setting tried; without it (a feed-forward that only repeated the segment velocity) the
+    same show gave max 7 to 9 cm. This is the SIMULATED plant: a PD loop, no radio, no sensor noise beyond the
+    configured wind. It says nothing about a real vehicle.
     """
 
-    def test_measured_tracking_error_on_the_certified_show(self):
+    @staticmethod
+    def _fly(decoded, sid, cfg):
+        fs = FleetState(1, cfg)
+        clock = Clock(100.0)
+        fs.utc_clock = clock
+        fs.armed[:] = True
+        fs.load_mission(0, sid, decoded)
+        fs.start_mission(0, 100.0)
+        errs = []
+        while fs.mission_active[0]:
+            clock.t += cfg.dt
+            fs.tick(cfg.dt)
+            errs.append(float(np.linalg.norm(fs.position[0] - fs.target_position[0])))
+            assert len(errs) < 20000
+        return np.array(errs)
+
+    @pytest.mark.parametrize("cfg", [
+        SimConfig(rng_seed=1, wind_std_ms2=0.0),
+        SimConfig(rng_seed=1),                                  # the default wind
+        SimConfig(rng_seed=1, wind_std_ms2=0.0, rotor_tau_s=0.1),  # a rotor lag
+    ])
+    def test_the_certified_show_is_tracked_within_5_cm(self, cfg):
         show = json.loads(SHOW3.read_text())
         sid = compute_show_id(show)
         for drone in show["drones"]:
             wps = drone["waypoints"]
             blob = compile_mission(wps, drone_id=drone["id"], show_id=sid, origin=(wps[0]["x"], wps[0]["y"]))
             _, decoded = decode_mission(blob)
-            fs = FleetState(1, SimConfig(rng_seed=1, wind_std_ms2=0.0))
-            clock = Clock(100.0)
-            fs.utc_clock = clock
-            fs.armed[:] = True
-            fs.load_mission(0, sid, decoded)
-            fs.start_mission(0, 100.0)
-            errs = []
-            while fs.mission_active[0]:
-                clock.t += fs.config.dt
-                fs.tick(fs.config.dt)
-                errs.append(float(np.linalg.norm(fs.position[0] - fs.target_position[0])))
-                assert len(errs) < 20000
-            e = np.array(errs)
-            assert e.max() < 0.12, f"drone {drone['id']} max {e.max():.3f} m"
-            assert np.percentile(e, 95) < 0.09
-            assert e.mean() < 0.05
+            e = self._fly(decoded, sid, cfg)
+            assert e.max() < 0.05, f"drone {drone['id']} max {e.max() * 100:.2f} cm"
+            assert e.mean() < 0.02
             assert e[-1] < 0.01                       # and it ends on the last waypoint
+
+    def test_a_path_with_sharp_corners_is_tracked_far_better_than_without_feed_forward(self):
+        """Corners no certified show has (a 1.5 m/s velocity change in one waypoint): 33 cm before, 9 cm now."""
+        wps, t, x, z = [{"time": 0.0, "x": 0.0, "y": 0.0, "z": 0.0, "yaw": 0.0}], 0.0, 0.0, 0.0
+
+        def seg(dur, dx, dz):
+            nonlocal t, x, z
+            n = int(round(dur * 10))
+            for k in range(1, n + 1):
+                wps.append({"time": round(t + k * 0.1, 3), "x": x + dx * k / n, "y": 0.0, "z": -(z + dz * k / n), "yaw": 0.0})
+            t, x, z = t + dur, x + dx, z + dz
+
+        seg(10, 0, 10)
+        seg(4, 0, 0)
+        seg(13.3, 20, 0)
+        seg(4, 0, 0)
+        _, decoded = decode_mission(compile_mission(wps, drone_id=0, show_id=SHOW_ID))
+        e = self._fly(decoded, SHOW_ID, SimConfig(rng_seed=1, wind_std_ms2=0.0))
+        assert e.max() < 0.12                         # measured 9.3 cm; the old follower gave 33 cm
+        assert e[-1] < 0.01
+
+
+class TestFeedForward:
+    def test_the_velocity_feed_forward_is_continuous_across_a_waypoint(self):
+        """The old feed-forward jumped by the whole velocity change at a waypoint (0 -> 3 m/s); this one has no jump."""
+        times = np.array([0.0, 1.0, 2.0, 3.0])
+        positions = np.array([[0, 0, 0], [0, 0, 0], [3.0, 0, 0], [3.0, 0, 0]], dtype=float)   # rest, a 3 m/s leg, rest
+        left = FleetState._mission_feedforward(times, positions, 1, 1.0 - 1e-9)[0]    # end of the rest leg
+        right = FleetState._mission_feedforward(times, positions, 2, 1.0 + 1e-9)[0]   # start of the 3 m/s leg
+        assert left[0] == pytest.approx(right[0], abs=1e-6)
+        assert left[0] == pytest.approx(1.5, abs=1e-6)                                # halfway between 0 and 3 m/s
+        middle = FleetState._mission_feedforward(times, positions, 2, 1.5)[0]         # the middle of the leg
+        assert middle[0] == pytest.approx(3.0)
+
+    def test_acceleration_is_the_slope_of_the_velocity_and_zero_when_nothing_changes(self):
+        times = np.array([0.0, 1.0, 2.0, 3.0, 4.0])
+        positions = np.array([[0.0, 0, 0], [1.0, 0, 0], [2.0, 0, 0], [3.0, 0, 0], [4.0, 0, 0]])
+        v, a = FleetState._mission_feedforward(times, positions, 3, 2.5)   # constant 1 m/s
+        assert v[0] == pytest.approx(1.0) and a[0] == pytest.approx(0.0)
+        _, a_start = FleetState._mission_feedforward(times, positions, 1, 0.25)   # speeding up from rest
+        assert a_start[0] > 0.0
