@@ -566,13 +566,42 @@ class FleetState:
             ratio = (elapsed - t0) / span if span > 0 else 0.0
             p0, p1 = positions[k - 1], positions[k]
             self.target_position[i] = p0 + ratio * (p1 - p0)
-            self.target_velocity_ff[i] = (p1 - p0) / span if span > 0 else 0.0
+            self.target_velocity_ff[i], self.target_accel_ff[i] = self._mission_feedforward(
+                times, positions, k, elapsed)
             # Shorter-arc yaw, matching tara_core.interpolate_waypoint.
             diff = (yaws[k] - yaws[k - 1]) % 360.0
             if diff > 180.0:
                 diff -= 360.0
             self.target_yaw_deg[i] = (yaws[k - 1] + ratio * diff) % 360.0
-            self.target_accel_ff[i] = 0.0
+
+    @staticmethod
+    def _mission_feedforward(times: np.ndarray, positions: np.ndarray, k: int, elapsed: float):
+        """Velocity and acceleration feed-forward for the segment ``times[k-1]..times[k]`` (issue #57).
+
+        The compiled path is piecewise linear, so its velocity jumps at every waypoint, and a feed-forward that
+        simply repeats the segment velocity leaves the tracker to absorb each jump. A real onboard follower
+        instead feeds forward a smooth velocity and its derivative: here the velocity is taken as piecewise
+        linear THROUGH the segment velocities, each placed at its segment's midpoint in time, and the
+        acceleration is that line's slope. The target POSITION is untouched (still exactly on the compiled
+        linear path), so the path that was certified is the path that is flown. The first and last segments
+        start from and end at rest.
+        """
+        def seg_v(j: int):
+            """(velocity, midpoint time) of segment j between waypoints j and j+1, or rest outside the path."""
+            if j < 0:
+                return np.zeros(3), times[0]
+            if j >= len(times) - 1:
+                return np.zeros(3), times[-1]
+            span = times[j + 1] - times[j]
+            v = (positions[j + 1] - positions[j]) / span if span > 0 else np.zeros(3)
+            return v, 0.5 * (times[j] + times[j + 1])
+
+        v_cur, t_cur = seg_v(k - 1)
+        v_other, t_other = seg_v(k - 2 if elapsed < t_cur else k)
+        if t_other == t_cur:
+            return v_cur.copy(), np.zeros(3)
+        slope = (v_cur - v_other) / (t_cur - t_other)
+        return v_other + slope * (elapsed - t_other), slope
 
     def _apply_landing_and_rtl(self) -> None:
         cfg = self.config
