@@ -19,6 +19,7 @@ from tara_sim.fleet_state import FleetState, SimConfig
 from tara_sim.system import SimFleet
 
 SHOW_ID = b"\x57" * 16
+KEY = bytes(range(32))
 OTHER_ID = b"\x99" * 16
 WPS = [
     {"time": 0.0, "x": 0.0, "y": 0.0, "z": 0.0, "yaw": 0.0},
@@ -35,9 +36,14 @@ class Clock:
         return self.t
 
 
-def _flying_fleet(n=3, start_in=0.0, **cfg):
+def auth(command, show_id=SHOW_ID, counter=1, start_utc_usec=0, key=KEY):
+    """An authenticated trigger frame, as the GCS would send it."""
+    return encode_show_trigger(command, show_id, start_utc_usec, key=key, counter=counter)
+
+
+def _flying_fleet(n=3, start_in=0.0, trigger_key=KEY, **cfg):
     """n armed drones, each holding the mission and told to start `start_in` seconds from now."""
-    fleet = SimFleet(n, config=SimConfig(rng_seed=3, wind_std_ms2=0.0, **cfg))
+    fleet = SimFleet(n, config=SimConfig(rng_seed=3, wind_std_ms2=0.0, **cfg), trigger_key=trigger_key)
     fs = fleet.state
     clock = Clock()
     fs.utc_clock = clock
@@ -96,7 +102,7 @@ class TestEmergencyOverrides:
         _step(fs, clock, 2.0)
         assert all(fs.mission_state(i) == "EXECUTING" for i in range(3))
 
-        fleet.broadcast(encode_show_trigger(ShowCommand.LAND, OTHER_ID))  # not this show's id
+        fleet.broadcast(auth(ShowCommand.LAND, OTHER_ID))  # not this show's id
 
         assert not fs.mission_active.any()
         assert fs.landing.all()
@@ -107,7 +113,7 @@ class TestEmergencyOverrides:
     def test_rtl_overrides_a_mission_and_brings_each_drone_home(self):
         fleet, fs, clock = _flying_fleet(3)
         _step(fs, clock, 8.0)                      # past the climb, translating
-        fleet.broadcast(encode_show_trigger(ShowCommand.RTL, OTHER_ID))
+        fleet.broadcast(auth(ShowCommand.RTL, OTHER_ID))
         assert not fs.mission_active.any() and fs.rtl_pending.all()
         _step(fs, clock, 40.0)
         assert not fs.armed.any()
@@ -116,15 +122,15 @@ class TestEmergencyOverrides:
     def test_estop_stops_every_motor_within_one_tick_and_needs_no_mission(self):
         fleet, fs, clock = _flying_fleet(3)
         # Two more armed drones that hold no mission at all must be stopped too.
-        fleet2 = SimFleet(2, config=SimConfig(rng_seed=4, wind_std_ms2=0.0))
+        fleet2 = SimFleet(2, config=SimConfig(rng_seed=4, wind_std_ms2=0.0), trigger_key=KEY)
         fleet2.state.armed[:] = True
         fleet2.state.position[:, 2] = 5.0
-        fleet2.broadcast(encode_show_trigger(ShowCommand.ESTOP, b"\x00" * 16))
+        fleet2.broadcast(auth(ShowCommand.ESTOP, b"\x00" * 16))
         assert not fleet2.state.armed.any() and all(m == "TERMINATED" for m in fleet2.state.flight_mode)
 
         _step(fs, clock, 5.0)
         t0 = clock.t
-        fleet.broadcast(encode_show_trigger(ShowCommand.ESTOP, OTHER_ID))
+        fleet.broadcast(auth(ShowCommand.ESTOP, OTHER_ID, counter=2))
         _step(fs, clock, fs.config.dt)             # one physics tick
         assert (clock.t - t0) <= 0.1               # the issue's 100 ms
         assert not fs.armed.any()
@@ -135,24 +141,118 @@ class TestEmergencyOverrides:
         fleet, fs, clock = _flying_fleet(2)
         _step(fs, clock, 2.0)
         fs.connected[1] = False
-        fleet.broadcast(encode_show_trigger(ShowCommand.ESTOP, SHOW_ID))
+        fleet.broadcast(auth(ShowCommand.ESTOP))
         assert not fs.armed[0]
         assert fs.armed[1] and fs.mission_active[1]
 
     def test_land_and_rtl_do_nothing_to_a_disarmed_drone(self):
-        fleet = SimFleet(2, config=SimConfig(rng_seed=5))
-        for cmd in (ShowCommand.LAND, ShowCommand.RTL):
-            fleet.broadcast(encode_show_trigger(cmd, SHOW_ID))
+        fleet = SimFleet(2, config=SimConfig(rng_seed=5), trigger_key=KEY)
+        for counter, cmd in enumerate((ShowCommand.LAND, ShowCommand.RTL), start=1):
+            fleet.broadcast(auth(cmd, counter=counter))
         assert not fleet.state.landing.any() and not fleet.state.rtl_pending.any()
 
     def test_a_damaged_emergency_frame_is_ignored(self):
         fleet, fs, clock = _flying_fleet(2)
         _step(fs, clock, 2.0)
-        frame = bytearray(encode_show_trigger(ShowCommand.ESTOP, SHOW_ID))
+        frame = bytearray(auth(ShowCommand.ESTOP))
         frame[3] ^= 0x01                              # one flipped bit in the show id
         fleet.broadcast(bytes(frame))
         assert fs.armed.all() and fs.mission_active.all()
 
+
+
+class TestAuthenticatedTriggers:
+    """Issue #57: nothing but a holder of the key can land, return or kill the fleet, or replay an old order."""
+
+    def test_a_plain_crc_emergency_frame_is_refused_by_a_keyed_and_a_keyless_fleet(self):
+        for key in (KEY, None):
+            fleet, fs, clock = _flying_fleet(2, trigger_key=key)
+            _step(fs, clock, 2.0)
+            for command in (ShowCommand.ESTOP, ShowCommand.LAND, ShowCommand.RTL):
+                fleet.broadcast(encode_show_trigger(command, SHOW_ID))       # a CRC anyone can compute
+            assert fs.armed.all() and fs.mission_active.all(), f"key={key!r}"
+
+    def test_a_frame_made_with_the_wrong_key_does_nothing(self):
+        fleet, fs, clock = _flying_fleet(2)
+        _step(fs, clock, 2.0)
+        fleet.broadcast(auth(ShowCommand.ESTOP, key=bytes(32), counter=5))
+        assert fs.armed.all()
+
+    def test_a_keyless_drone_refuses_an_authenticated_emergency_frame_too(self):
+        """No key means nothing can be verified: the drone fails closed rather than trusting the frame."""
+        fleet, fs, clock = _flying_fleet(2, trigger_key=None)
+        _step(fs, clock, 2.0)
+        fleet.broadcast(auth(ShowCommand.ESTOP, counter=3))
+        assert fs.armed.all()
+
+    def test_a_recorded_frame_cannot_be_replayed(self):
+        fleet, fs, clock = _flying_fleet(2)
+        _step(fs, clock, 2.0)
+        old_land = auth(ShowCommand.LAND, counter=10)
+        fleet.broadcast(old_land)
+        assert fs.landing.all()
+        _step(fs, clock, 20.0)
+        assert not fs.armed.any()
+        # The operator arms again later (a new flight); the recorded LAND comes back.
+        fs.armed[:] = True
+        fs.landing[:] = False
+        fleet.broadcast(old_land)
+        assert not fs.landing.any() and fs.armed.all()
+        # A genuinely newer one still works.
+        fleet.broadcast(auth(ShowCommand.LAND, counter=11))
+        assert fs.landing.all()
+
+    def test_a_lower_counter_than_one_already_accepted_is_ignored(self):
+        fleet, fs, clock = _flying_fleet(2)
+        _step(fs, clock, 2.0)
+        fleet.broadcast(auth(ShowCommand.RTL, counter=50))
+        fs.rtl_pending[:] = False
+        fs.armed[:] = True
+        fleet.broadcast(auth(ShowCommand.LAND, counter=49))      # authentic, but older than what was accepted
+        assert not fs.landing.any()
+
+    def test_an_old_emergency_frame_never_lands_a_drone_that_was_disarmed_when_it_first_came_by(self):
+        fleet, fs, clock = _flying_fleet(1)
+        fs.armed[:] = False
+        land = auth(ShowCommand.LAND, counter=7)
+        fleet.broadcast(land)                                    # ignored: nothing armed, but the counter is spent
+        fs.armed[:] = True
+        fleet.broadcast(land)
+        assert not fs.landing.any()
+
+    def test_a_keyed_fleet_ignores_plain_start_and_cancel_frames(self):
+        fleet, fs, clock = _flying_fleet(2)
+        fs.mission_active[:] = False
+        fleet.broadcast(encode_show_trigger(ShowCommand.START, SHOW_ID, 0))
+        assert not fs.mission_active.any()
+
+    def test_start_repeats_are_idempotent_and_a_drone_that_missed_the_first_copy_takes_a_later_one(self):
+        """The GCS repeats one START frame until t=0 on a lossy radio; replay protection must not break that."""
+        fleet, fs, clock = _flying_fleet(2)
+        fs.mission_active[:] = False
+        for i in range(2):                                        # the mission as staged into each drone's storage
+            fs.storage[i]["/fs/microsd/tara/show.tmsn"] = compile_mission(WPS, drone_id=i, show_id=SHOW_ID)
+        start = auth(ShowCommand.START, SHOW_ID, counter=20, start_utc_usec=int((clock.t + 5.0) * 1e6))
+        fs.connected[1] = False                                   # drone 1 misses the first copy
+        fleet.broadcast(start)
+        assert list(fs.mission_active) == [True, False]
+        fs.connected[1] = True
+        fleet.broadcast(start)                                    # the repeat: drone 0 ignores it, drone 1 takes it
+        assert list(fs.mission_active) == [True, True]
+        started_at = fs.mission_start_utc.copy()
+        fleet.broadcast(start)                                    # and further repeats change nothing
+        assert (fs.mission_start_utc == started_at).all()
+
+    def test_a_drone_that_missed_an_emergency_frame_does_not_spend_its_counter(self):
+        fleet, fs, clock = _flying_fleet(2)
+        _step(fs, clock, 2.0)
+        fs.connected[1] = False
+        estop = auth(ShowCommand.ESTOP, counter=30)
+        fleet.broadcast(estop)
+        assert not fs.armed[0] and fs.armed[1]
+        fs.connected[1] = True
+        fleet.broadcast(estop)                                    # the repeat reaches the drone that missed it
+        assert not fs.armed[1]
 
 SHOW3 = Path(__file__).resolve().parents[3] / "docs" / "sitl-t2-recorded-acceptance" / "recorded-takes" / "show3.json"
 
