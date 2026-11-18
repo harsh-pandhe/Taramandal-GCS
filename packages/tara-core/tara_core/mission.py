@@ -49,16 +49,30 @@ A drone acts on START only if it holds a mission for that ``show_id``, which is
 what stops a stale file from a previous rehearsal flying tonight's slot.
 
 The emergency commands LAND, RTL and ESTOP (issue #57) ignore ``show_id``: they
-must work even for a drone that holds no mission. **The frame carries only a
-CRC-32, which anyone can compute, so nothing here authenticates the sender.**
-A forged ESTOP would drop every drone in the air. Before any of these frames is
-put on a real radio they need a keyed authenticator (and replay protection);
-until then they exist for the simulator and for the protocol definition only.
+must work even for a drone that holds no mission.
+
+**Authenticated trigger** (issue #57). A CRC-32 only catches noise; anyone can
+compute one, so a plain frame proves nothing about who sent it, and a forged
+ESTOP would drop every drone in the air. An authenticated frame is the same
+body followed by a replay counter and a keyed tag::
+
+    <the 25-byte body above>
+    Q    counter          strictly increasing per sender
+    16s  tag              HMAC-SHA256(key, "tara-trigger-v1" + body + counter), first 16 bytes
+
+A receiver holding a key accepts only authenticated frames whose tag verifies
+and whose counter is greater than the last it accepted (so a recorded frame
+cannot be replayed); a receiver without a key refuses every authenticated
+frame and refuses LAND, RTL and ESTOP outright (fail closed). Plain CRC frames
+remain valid for START and CANCEL on a keyless receiver, so the simulator
+works with no setup. Key management (how the key reaches a drone) and radio-level
+protection beyond this tag are not part of this module.
 """
 
 from __future__ import annotations
 
 import hashlib
+import hmac
 import struct
 import zlib
 from dataclasses import dataclass
@@ -109,6 +123,12 @@ class ShowCommand(IntEnum):
 _TRIGGER_BODY_FORMAT = "<B16sQ"
 _TRIGGER_BODY_SIZE = struct.calcsize(_TRIGGER_BODY_FORMAT)
 TRIGGER_SIZE = _TRIGGER_BODY_SIZE + 4
+#: An authenticated trigger: the body, an 8-byte replay counter and a 16-byte tag (see the module docstring).
+TRIGGER_TAG_SIZE = 16
+TRIGGER_AUTH_SIZE = _TRIGGER_BODY_SIZE + 8 + TRIGGER_TAG_SIZE
+#: Shortest key accepted. HMAC-SHA256 takes any length, but a short key is a guessable one.
+TRIGGER_KEY_MIN_BYTES = 16
+_TRIGGER_TAG_CONTEXT = b"tara-trigger-v1"
 
 
 @dataclass(frozen=True)
@@ -297,35 +317,82 @@ def mission_crc32(blob: bytes) -> int:
     return zlib.crc32(blob)
 
 
-def encode_show_trigger(command: ShowCommand | int, show_id: bytes, start_utc_usec: int = 0) -> bytes:
-    """Pack a broadcast show trigger. See the module docstring for the layout."""
+def _check_trigger_key(key) -> bytes:
+    if not isinstance(key, (bytes, bytearray)) or len(key) < TRIGGER_KEY_MIN_BYTES:
+        raise ValueError(f"a trigger key must be at least {TRIGGER_KEY_MIN_BYTES} bytes")
+    return bytes(key)
+
+
+def _trigger_tag(key: bytes, body: bytes, counter: int) -> bytes:
+    mac = hmac.new(key, _TRIGGER_TAG_CONTEXT + body + struct.pack("<Q", counter), hashlib.sha256)
+    return mac.digest()[:TRIGGER_TAG_SIZE]
+
+
+def encode_show_trigger(
+    command: ShowCommand | int,
+    show_id: bytes,
+    start_utc_usec: int = 0,
+    *,
+    key: bytes | None = None,
+    counter: int | None = None,
+) -> bytes:
+    """Pack a broadcast show trigger. See the module docstring for the layout.
+
+    With no ``key`` this is the plain CRC-32 frame. With a ``key`` it is the authenticated frame, and
+    ``counter`` (a positive integer, greater than every counter this sender used before) is required.
+    """
     if len(show_id) != SHOW_ID_SIZE:
         raise ValueError(f"show_id must be {SHOW_ID_SIZE} bytes, got {len(show_id)}")
     body = struct.pack(_TRIGGER_BODY_FORMAT, int(ShowCommand(command)), show_id, start_utc_usec)
-    return body + struct.pack("<I", zlib.crc32(body))
+    if key is None:
+        if counter is not None:
+            raise ValueError("a counter only goes with a key")
+        return body + struct.pack("<I", zlib.crc32(body))
+    key = _check_trigger_key(key)
+    if not isinstance(counter, int) or isinstance(counter, bool) or not 0 < counter < 1 << 64:
+        raise ValueError("an authenticated trigger needs a counter in 1..2**64-1")
+    return body + struct.pack("<Q", counter) + _trigger_tag(key, body, counter)
 
 
-def decode_show_trigger(payload: bytes) -> dict:
+def decode_show_trigger(payload: bytes, key: bytes | None = None) -> dict:
     """Unpack a broadcast show trigger.
 
+    Args:
+        payload: A plain frame (``TRIGGER_SIZE`` bytes) or an authenticated one (``TRIGGER_AUTH_SIZE`` bytes).
+        key: The receiver's trigger key, if it has one. Needed to verify an authenticated frame.
+
     Returns:
-        ``{"command", "show_id", "start_utc_usec", "valid"}``. ``valid`` is
-        False on a checksum mismatch or an unknown command; as with
-        ``tara_gcs.broadcast_manager.decode_broadcast_frame``, the receiver
-        decides what to do about it (on a drone: ignore the frame).
+        ``{"command", "show_id", "start_utc_usec", "valid", "authenticated", "counter"}``. ``valid`` is False on a
+        checksum or tag mismatch, an unknown command, or an authenticated frame that this receiver has no key to
+        check; as with ``tara_gcs.broadcast_manager.decode_broadcast_frame``, the receiver decides what to do about
+        it (on a drone: ignore the frame). ``authenticated`` is True only for an authenticated frame whose tag
+        verified under ``key``. ``counter`` is the frame's replay counter (None on a plain frame); the receiver
+        must check it against the last one it accepted, which this function cannot know.
 
     Raises:
         ValueError: If the payload is the wrong size to be a trigger at all.
     """
-    if len(payload) != TRIGGER_SIZE:
-        raise ValueError(f"expected {TRIGGER_SIZE}-byte trigger, got {len(payload)}")
+    if len(payload) not in (TRIGGER_SIZE, TRIGGER_AUTH_SIZE):
+        raise ValueError(f"expected a {TRIGGER_SIZE}- or {TRIGGER_AUTH_SIZE}-byte trigger, got {len(payload)}")
     body = payload[:_TRIGGER_BODY_SIZE]
     command, show_id, start_utc_usec = struct.unpack(_TRIGGER_BODY_FORMAT, body)
-    (crc,) = struct.unpack_from("<I", payload, _TRIGGER_BODY_SIZE)
-    valid = crc == zlib.crc32(body) and command in ShowCommand._value2member_map_
+    known = command in ShowCommand._value2member_map_
+    if len(payload) == TRIGGER_SIZE:
+        (crc,) = struct.unpack_from("<I", payload, _TRIGGER_BODY_SIZE)
+        valid, authenticated, counter = crc == zlib.crc32(body) and known, False, None
+    else:
+        (counter,) = struct.unpack_from("<Q", payload, _TRIGGER_BODY_SIZE)
+        tag = payload[_TRIGGER_BODY_SIZE + 8 :]
+        authenticated = False
+        if key is not None:
+            expected = _trigger_tag(_check_trigger_key(key), body, counter)
+            authenticated = hmac.compare_digest(tag, expected)
+        valid = authenticated and known
     return {
         "command": command,
         "show_id": show_id,
         "start_utc_usec": start_utc_usec,
         "valid": valid,
+        "authenticated": authenticated and valid,
+        "counter": counter,
     }

@@ -435,6 +435,7 @@ class DroneManager:
         sim_packet_loss_per_100m: float = 0.0,
         sim_tdma_jitter_ms: float = 0.0,
         vehicle_addresses: dict[int, str] | None = None,
+        trigger_key: bytes | None = None,
     ):
         """
         Args:
@@ -459,6 +460,10 @@ class DroneManager:
                 ``{0: "serial:///dev/ttyACM0:921600"}``. Every address is validated
                 (tara_gcs.vehicle_link) and a bad one raises ValueError: nothing connects on a guessed address. It
                 is a transport only; operating-mode and hardware gates are unchanged.
+            trigger_key: the key broadcast show triggers are authenticated with (issue #57), at least 16 bytes. With
+                one, every START and CANCEL this manager broadcasts is an authenticated frame with a strictly
+                increasing counter, and the sim fleet it creates accepts nothing else. Without one the frames
+                are the plain CRC ones, and a receiver refuses LAND, RTL and ESTOP entirely.
             state_path: where the active show (trajectory + playback position)
                 is persisted so a GCS restart can offer to resume it (issue #4).
                 Overridable so tests don't collide on/pollute the real file.
@@ -568,6 +573,10 @@ class DroneManager:
         # verified, and the show is started by one broadcast trigger instead
         # of a 10Hz unicast setpoint stream.
         self._broadcast_transmit = broadcast_transmit
+        if trigger_key is not None and (not isinstance(trigger_key, (bytes, bytearray)) or len(trigger_key) < 16):
+            raise ValueError("trigger_key must be at least 16 bytes")
+        self._trigger_key = bytes(trigger_key) if trigger_key is not None else None
+        self._trigger_counter = 0
         self.staged_show = None  # see upload_show()
         self._mission_dir = None  # local copies of compiled missions (FTP uploads from a file path)
         self._onboard_show_id = None  # show_id of an onboard show currently triggered, for CANCEL
@@ -624,7 +633,9 @@ class DroneManager:
                 or self._sim_tdma_jitter_ms > 0
                 else None
             )
-            self._sim_fleet = SimFleet(len(self.ports), config=sim_config, rf_channel_config=rf_channel_config)
+            self._sim_fleet = SimFleet(
+                len(self.ports), config=sim_config, rf_channel_config=rf_channel_config, trigger_key=self._trigger_key
+            )
             self._tasks.append(self._sim_fleet.start())
             if self._broadcast_transmit is None:
                 self._broadcast_transmit = self._sim_fleet.broadcast
@@ -2796,6 +2807,15 @@ class DroneManager:
             raise ValueError("No drone holds a verified mission for this show. Upload it again.")
         return {drone_id: staged["trajectory"][drone_id] for drone_id in verified}
 
+    def _trigger_frame(self, command: ShowCommand, show_id: bytes, start_utc_usec: int = 0) -> bytes:
+        """One show-trigger frame: authenticated, with the next counter, when this manager has a trigger key."""
+        if self._trigger_key is None:
+            return encode_show_trigger(command, show_id, start_utc_usec)
+        # Microseconds since the epoch keeps the counter ahead of any previous run after a restart; max() keeps it
+        # strictly increasing within a run even if the clock steps back.
+        self._trigger_counter = max(self._trigger_counter + 1, int(time.time() * 1_000_000))
+        return encode_show_trigger(command, show_id, start_utc_usec, key=self._trigger_key, counter=self._trigger_counter)
+
     def _broadcast(self, payload: bytes) -> None:
         """One frame to every drone at once (target_system 0), never per-drone."""
         self._broadcast_transmit(payload, BROADCAST_SYSID)
@@ -2822,7 +2842,7 @@ class DroneManager:
         await asyncio.gather(*(_release(d) for d in trajectory_data if d in self.drones))
 
         start_s = max(trigger_epoch_ms / 1000.0, time.time() + TRIGGER_LEAD_S)
-        frame = encode_show_trigger(ShowCommand.START, show_id, int(start_s * 1_000_000))
+        frame = self._trigger_frame(ShowCommand.START, show_id, int(start_s * 1_000_000))
         self._onboard_show_id = show_id
         print(f"Onboard show {show_id.hex()[:8]}: broadcasting start trigger for UTC {start_s:.3f}...")
 
@@ -2844,7 +2864,7 @@ class DroneManager:
             # GCS-side watch loop alone would leave them flying. One broadcast
             # stops them all; each holds where it is.
             try:
-                self._broadcast(encode_show_trigger(ShowCommand.CANCEL, self._onboard_show_id))
+                self._broadcast(self._trigger_frame(ShowCommand.CANCEL, self._onboard_show_id))
             except Exception as e:
                 logging.error(f"Failed to broadcast show CANCEL: {e}")
             self._onboard_show_id = None

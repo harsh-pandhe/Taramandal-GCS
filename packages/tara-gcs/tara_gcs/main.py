@@ -114,6 +114,15 @@ if os.environ.get("SIM_TDMA_JITTER_MS"):
 # stops the GCS from starting: a flight link must never fall back to a default or guessed address.
 if os.environ.get("GCS_VEHICLE_ADDRESSES"):
     kwargs["vehicle_addresses"] = parse_vehicle_addresses(os.environ["GCS_VEHICLE_ADDRESSES"], NUM_DRONES)
+# Optional key for authenticating broadcast show triggers (issue #57), as hex of at least 16 bytes. A bad value stops
+# the GCS from starting: a trigger key that silently fell back to "none" would leave the fleet on plain CRC frames.
+if os.environ.get("GCS_TRIGGER_KEY"):
+    try:
+        kwargs["trigger_key"] = bytes.fromhex(os.environ["GCS_TRIGGER_KEY"].strip())
+    except ValueError as e:
+        raise SystemExit(f"GCS_TRIGGER_KEY must be hex: {e}")
+    if len(kwargs["trigger_key"]) < 16:
+        raise SystemExit("GCS_TRIGGER_KEY must be at least 16 bytes (32 hex characters)")
 drone_manager = DroneManager(ports=ports, backend=VEHICLE_BACKEND, **kwargs)
 
 # Owns the Gazebo/PX4/RViz processes the dashboard's Simulation Control Bar

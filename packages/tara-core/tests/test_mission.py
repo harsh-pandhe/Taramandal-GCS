@@ -21,7 +21,9 @@ from tara_core import (
     encode_show_trigger,
     mission_crc32,
 )
-from tara_core.mission import HEADER_SIZE, RECORD_SIZE, SHOW_ID_SIZE, TRIGGER_SIZE, decode_mission_header
+from tara_core.mission import (
+    HEADER_SIZE, RECORD_SIZE, SHOW_ID_SIZE, TRIGGER_AUTH_SIZE, TRIGGER_SIZE, decode_mission_header,
+)
 
 SHOW_ID = bytes(range(SHOW_ID_SIZE))
 
@@ -185,6 +187,8 @@ class TestTrigger:
             "show_id": SHOW_ID,
             "start_utc_usec": 1_700_000_000_123_456,
             "valid": True,
+            "authenticated": False,
+            "counter": None,
         }
 
     def test_corrupted_frame_is_invalid_not_acted_on(self):
@@ -210,6 +214,53 @@ class TestTrigger:
         }
         body = struct.pack("<B16sQ", 6, SHOW_ID, 0)     # the next unassigned value stays invalid
         assert decode_show_trigger(body + struct.pack("<I", zlib.crc32(body)))["valid"] is False
+
+    KEY = bytes(range(16, 48))
+
+    def test_an_authenticated_frame_round_trips_under_its_key(self):
+        frame = encode_show_trigger(ShowCommand.ESTOP, SHOW_ID, key=self.KEY, counter=77)
+        assert len(frame) == TRIGGER_AUTH_SIZE
+        decoded = decode_show_trigger(frame, key=self.KEY)
+        assert decoded == {
+            "command": ShowCommand.ESTOP, "show_id": SHOW_ID, "start_utc_usec": 0,
+            "valid": True, "authenticated": True, "counter": 77,
+        }
+
+    def test_the_wrong_key_or_no_key_cannot_verify_a_frame(self):
+        frame = encode_show_trigger(ShowCommand.ESTOP, SHOW_ID, key=self.KEY, counter=1)
+        assert decode_show_trigger(frame, key=bytes(32))["valid"] is False
+        keyless = decode_show_trigger(frame)
+        assert keyless["valid"] is False and keyless["authenticated"] is False
+
+    @pytest.mark.parametrize("offset", [0, 5, 20, 25, 30, 40, 48])
+    def test_any_single_flipped_byte_breaks_the_tag(self, offset):
+        """The command, show id, start time, counter and tag are all covered."""
+        frame = bytearray(encode_show_trigger(ShowCommand.START, SHOW_ID, 123, key=self.KEY, counter=9))
+        frame[offset] ^= 0x01
+        assert decode_show_trigger(bytes(frame), key=self.KEY)["valid"] is False
+
+    def test_a_plain_crc_frame_is_not_authenticated_even_under_a_key(self):
+        frame = encode_show_trigger(ShowCommand.ESTOP, SHOW_ID)
+        decoded = decode_show_trigger(frame, key=self.KEY)
+        assert decoded["valid"] is True and decoded["authenticated"] is False   # the receiver must then refuse it
+
+    def test_key_and_counter_rules(self):
+        with pytest.raises(ValueError):
+            encode_show_trigger(ShowCommand.START, SHOW_ID, key=b"short", counter=1)
+        for bad in (None, 0, -1, 1 << 64, True, 1.5):
+            with pytest.raises(ValueError):
+                encode_show_trigger(ShowCommand.START, SHOW_ID, key=self.KEY, counter=bad)
+        with pytest.raises(ValueError):
+            encode_show_trigger(ShowCommand.START, SHOW_ID, counter=3)            # a counter without a key
+        with pytest.raises(ValueError):
+            decode_show_trigger(encode_show_trigger(ShowCommand.START, SHOW_ID, key=self.KEY, counter=1), key=b"x")
+
+    def test_the_tag_depends_on_the_counter(self):
+        a = encode_show_trigger(ShowCommand.LAND, SHOW_ID, key=self.KEY, counter=1)
+        b = encode_show_trigger(ShowCommand.LAND, SHOW_ID, key=self.KEY, counter=2)
+        assert a[-16:] != b[-16:]
+        spliced = a[:25] + b[25:33] + a[33:]                  # counter 2 with counter 1's tag
+        assert decode_show_trigger(spliced, key=self.KEY)["valid"] is False
 
     def test_wrong_size_raises(self):
         with pytest.raises(ValueError):

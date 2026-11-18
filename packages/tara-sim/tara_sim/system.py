@@ -368,8 +368,13 @@ class SimFleet:
         config=None,
         pad_positions: list[tuple[float, float]] | None = None,
         rf_channel_config: RFChannelConfig | None = None,
+        trigger_key: bytes | None = None,
     ):
         self.state = FleetState(n, config=config, rf_channel_config=rf_channel_config)
+        # The key every drone holds for broadcast triggers (issue #57). With one, a drone acts only on authenticated
+        # frames and rejects a replayed counter; without one it refuses the emergency commands outright.
+        self._trigger_key = trigger_key
+        self._last_trigger_counter = [0] * n
         if pad_positions is None:
             from tara_core import launch_grid
 
@@ -437,31 +442,48 @@ class SimFleet:
         if target_system != 0:
             raise ValueError("SimFleet.broadcast only models the broadcast address (target_system=0)")
         try:
-            trigger = decode_show_trigger(payload)
+            trigger = decode_show_trigger(payload, key=self._trigger_key)
         except ValueError:
             return
         if not trigger["valid"]:
             return
+        command = trigger["command"]
+        emergency = command in (ShowCommand.LAND, ShowCommand.RTL, ShowCommand.ESTOP)
+        if emergency and not trigger["authenticated"]:
+            return  # fail closed: a plain frame, or a drone with no key, never lands or kills a fleet
+        if self._trigger_key is not None and not trigger["authenticated"]:
+            return  # a drone that holds a key listens to nothing else
 
         fs = self.state
-        command = trigger["command"]
         for i in range(fs.n):
             if not fs.connected[i]:
                 continue
+            counter = trigger["counter"]
+            if trigger["authenticated"]:
+                # Replay protection, per drone: a frame is acted on only if its counter is newer than the last this
+                # drone accepted. A drone that missed a frame still accepts a later copy of it (the same counter),
+                # while a recording of an old frame is dead.
+                if counter <= self._last_trigger_counter[i]:
+                    continue
+            acted = True
             if command == ShowCommand.ESTOP:
                 fs.command_kill(i)
-                continue
-            if command in (ShowCommand.LAND, ShowCommand.RTL):
+            elif command in (ShowCommand.LAND, ShowCommand.RTL):
                 if fs.armed[i]:
                     (fs.command_land if command == ShowCommand.LAND else fs.command_rtl)(i)
-                continue
-            if trigger["command"] == ShowCommand.CANCEL:
-                if fs.mission_show_id[i] == trigger["show_id"]:
+            elif command == ShowCommand.CANCEL:
+                acted = fs.mission_show_id[i] == trigger["show_id"]
+                if acted:
                     fs.cancel_mission(i)
-                continue
-            if not self._load_stored_mission(i, trigger["show_id"]):
-                continue
-            fs.start_mission(i, trigger["start_utc_usec"] / 1_000_000)
+            else:
+                acted = self._load_stored_mission(i, trigger["show_id"])
+                if acted:
+                    fs.start_mission(i, trigger["start_utc_usec"] / 1_000_000)
+            # An emergency counter is always spent (an old LAND must never land a drone that was disarmed when it
+            # first came by); START and CANCEL spend theirs only on a drone that acted, so a drone that did not yet
+            # hold the mission can still take a later copy of the same frame.
+            if trigger["authenticated"] and (acted or emergency):
+                self._last_trigger_counter[i] = counter
 
     def _load_stored_mission(self, drone_id: int, show_id: bytes) -> bool:
         """Find, validate and load this drone's stored mission for ``show_id``."""
