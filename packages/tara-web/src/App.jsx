@@ -7,6 +7,8 @@ import ViewTabs from './components/layout/ViewTabs';
 import ErrorBanner from './components/alerts/ErrorBanner';
 import LaunchFailureBanner from './components/alerts/LaunchFailureBanner';
 import PlaybackStoppedBanner from './components/alerts/PlaybackStoppedBanner';
+import RadioLinkStrip from './components/fleet/RadioLinkStrip';
+import useRadioLink from './hooks/useRadioLink';
 import SimControlBar from './components/sim/SimControlBar';
 import FlightOperationsPanel from './components/actions/FlightOperationsPanel';
 import FleetTelemetryPanel from './components/fleet/FleetTelemetryPanel';
@@ -52,6 +54,7 @@ function Dashboard({ session }) {
   const mission = useMission(setErrorMsg, fleetState);
   const sim = useSimControl(setErrorMsg);
   const operatingMode = useOperatingMode(setErrorMsg);
+  const radio = useRadioLink();
 
   const stats = computeFleetStats(telemetry);
 
@@ -70,6 +73,7 @@ function Dashboard({ session }) {
       <ErrorBanner message={errorMsg} />
       <LaunchFailureBanner launchFailures={fleetState?.launch_failures} />
       <PlaybackStoppedBanner stopped={fleetState?.playback_stopped} />
+      <RadioLinkStrip link={radio.link} stale={radio.stale} />
 
       <SimControlBar {...sim} />
 
