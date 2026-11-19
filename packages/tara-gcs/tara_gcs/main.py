@@ -25,6 +25,7 @@ from tara_gcs.blackbox_service import BlackboxService
 from tara_gcs.drone_manager import DroneManager
 from tara_gcs.vehicle_link import parse_vehicle_addresses
 from tara_gcs import fleet_discovery
+from tara_gcs import radio_transport
 from tara_gcs.state_store import DEFAULT_STATE_PATH, prime_trajectory_cache
 from tara_gcs.fleet_fsm import Command, IllegalTransitionError, LifecycleState
 from tara_gcs.trajectory_parser import parse_trajectory_bytes, show_site
@@ -515,6 +516,17 @@ def _check_no_active_single_drone_sequence(action_name: str) -> None:
             f"{sorted(drone_manager.single_drone_sequence_active)}.",
         )
 
+radio_link: "radio_transport.SerialRadioTransport | None" = None
+
+
+@app.get("/api/radio-link")
+async def get_radio_link(operator: Viewer):
+    """The serial radio's link health for the operations HUD (issue #68), or ``{"configured": false}``."""
+    if radio_link is None:
+        return {"configured": False}
+    return {"configured": True, **radio_link.link_health()}
+
+
 @app.on_event("startup")
 async def startup_event():
     logger.info("Initializing Ground Control Station...")
@@ -554,6 +566,18 @@ async def startup_event():
             logger.exception("Fleet discovery could not bind its port; starting the GCS without it")
             fleet_discovery_service = None
 
+    # Opt-in serial radio (issue #68): GCS_RADIO_DEVICE + GCS_SHOW_KEY. A malformed setting stops startup; an unreachable
+    # device does not (the transport retries, and /api/radio-link says it is down). It broadcasts the authenticated 10 Hz
+    # frame in state IDLE: the fleet lifecycle is NOT mapped onto the broadcast state yet.
+    global radio_link
+    try:
+        radio_link = radio_transport.build_from_env()
+    except ValueError as e:
+        logger.critical(f"Startup refused: {e}")
+        raise RuntimeError(f"GCS startup refused: {e}") from e
+    if radio_link:
+        await radio_link.start()
+
     # Run drone manager connections in background with error handling
     async def run_connections():
         try:
@@ -565,6 +589,8 @@ async def startup_event():
 @app.on_event("shutdown")
 async def shutdown_event():
     logger.info("Shutting down Ground Control Station...")
+    if radio_link:
+        await radio_link.stop()
     if fleet_discovery_service:
         await fleet_discovery_service.stop()
     await drone_manager.shutdown()
