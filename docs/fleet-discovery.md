@@ -11,6 +11,7 @@ quiet. It is off by default and changes nothing about how the GCS flies a show.
 - A drone that stops announcing is marked **STALE** after 1.5 s (three missed heartbeats at 2 Hz) and is never shown as online
   again until a verified announcement arrives. Nothing is inferred: after a GCS restart every remembered drone is STALE
   until it is heard.
+- **The dashboard shows it (#304).** The fleet panel has a Discovery strip (announcing, announcements stale, not in the flight path, rejected frames, and the quiet drones by name with how long), and a drone whose announcements went quiet is marked on its matrix tile (dashed amber outline, title "announcements STALE") and on its card ("ANNOUNCEMENTS STALE: quiet N s"). It is worded as its own thing, never as the flight telemetry's ONLINE/OFFLINE, because the two are independent: "not in the flight path" counts announced drones that have no flight telemetry. The strip shows nothing when discovery is off or the GCS has no such endpoint, and turns to NO UPDATE if the GCS stops answering.
 - `GET /api/fleet/registry` (any signed-in operator) lists each drone's id, pad, hardware id, state and age, the counts, how
   many frames were rejected and why, and the last 100 joined/stale/recovered events. `{"enabled": false}` when it is off.
 

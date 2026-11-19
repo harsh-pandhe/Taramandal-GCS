@@ -9,6 +9,7 @@ import LaunchFailureBanner from './components/alerts/LaunchFailureBanner';
 import PlaybackStoppedBanner from './components/alerts/PlaybackStoppedBanner';
 import RadioLinkStrip from './components/fleet/RadioLinkStrip';
 import useRadioLink from './hooks/useRadioLink';
+import useFleetRegistry from './hooks/useFleetRegistry';
 import SimControlBar from './components/sim/SimControlBar';
 import FlightOperationsPanel from './components/actions/FlightOperationsPanel';
 import FleetTelemetryPanel from './components/fleet/FleetTelemetryPanel';
@@ -55,6 +56,7 @@ function Dashboard({ session }) {
   const sim = useSimControl(setErrorMsg);
   const operatingMode = useOperatingMode(setErrorMsg);
   const radio = useRadioLink();
+  const discovery = useFleetRegistry();
 
   const stats = computeFleetStats(telemetry);
 
@@ -120,7 +122,7 @@ function Dashboard({ session }) {
             />
           )}
 
-          <FleetTelemetryPanel telemetry={telemetry} stats={stats} launchFailures={fleetState?.launch_failures} />
+          <FleetTelemetryPanel telemetry={telemetry} stats={stats} launchFailures={fleetState?.launch_failures} registry={discovery.registry} registryStale={discovery.stale} />
         </main>
 
         {/* Right side: Sidebar (Checklist & Trajectory Parser) */}
