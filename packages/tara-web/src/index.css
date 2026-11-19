@@ -895,6 +895,9 @@ body {
 /* Armed when the link dropped: louder than offline, it may still be flying. */
 .status-tile-armed-no-link { background: var(--danger-tint); color: var(--danger); border: 2px dashed var(--danger); }
 
+/* Discovery registry says this drone's announcements went quiet (issue #304): its own mark, not a telemetry state. */
+.status-tile.registry-stale { outline: 2px dashed var(--warning); outline-offset: -3px; }
+
 /* Fleet Cards Grid */
 .fleet-grid {
   display: grid;

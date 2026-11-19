@@ -2,13 +2,15 @@ import { useState, useMemo } from 'react';
 import FleetHealthStrip from './FleetHealthStrip';
 import StatusMatrix from './StatusMatrix';
 import DroneCard from './DroneCard';
+import DiscoveryStrip from './DiscoveryStrip';
+import { registryById as indexRegistry } from '../../fleetRegistry';
 import { droneTileStatus } from '../../fleetStats';
 
 /**
  * Fleet Cockpit (Issue #93): health strip, filtering, sorting, matrix/grid views,
  * and drill-down cards with rapid identification of degraded drones.
  */
-export default function FleetTelemetryPanel({ telemetry, stats, launchFailures = {} }) {
+export default function FleetTelemetryPanel({ telemetry, stats, launchFailures = {}, registry = null, registryStale = false }) {
   const [selectedDroneId, setSelectedDroneId] = useState(null);
   const [filter, setFilter] = useState('all'); // 'all' | 'ready' | 'armed' | 'attention' | 'offline'
   const [search, setSearch] = useState('');
@@ -16,6 +18,7 @@ export default function FleetTelemetryPanel({ telemetry, stats, launchFailures =
   const [viewOverride, setViewOverride] = useState(null); // null (auto) | 'matrix' | 'grid'
 
   const { droneIds, useMatrixView: autoMatrix } = stats;
+  const byRegistry = useMemo(() => indexRegistry(registry), [registry]);
   const isMatrixView = viewOverride !== null ? viewOverride === 'matrix' : autoMatrix;
 
   // Categorize drones for rapid filter counts
@@ -110,6 +113,7 @@ export default function FleetTelemetryPanel({ telemetry, stats, launchFailures =
       <h2 className="panel-header">FLEET TELEMETRY</h2>
 
       <FleetHealthStrip stats={stats} />
+      <DiscoveryStrip registry={registry} stale={registryStale} telemetryIds={droneIds} />
 
       {/* Cockpit Toolbar: filters, search, sort, and view switcher */}
       {droneIds.length > 0 && (
@@ -206,10 +210,11 @@ export default function FleetTelemetryPanel({ telemetry, stats, launchFailures =
             telemetry={telemetry}
             selectedDroneId={selectedDroneId}
             onSelect={setSelectedDroneId}
+            registryById={byRegistry}
           />
           <div className="fleet-grid">
             {selectedDroneId != null && telemetry[selectedDroneId]
-              ? <DroneCard key={selectedDroneId} id={selectedDroneId} drone={telemetry[selectedDroneId]} launchFailure={launchFailures?.[String(selectedDroneId)]} />
+              ? <DroneCard key={selectedDroneId} id={selectedDroneId} drone={telemetry[selectedDroneId]} launchFailure={launchFailures?.[String(selectedDroneId)]} registryEntry={byRegistry[selectedDroneId]} />
               : (
                 <div style={{ gridColumn: '1 / -1', padding: '2rem', textAlign: 'center', color: 'var(--text-muted)' }}>
                   {filteredIds.length ? 'Click a tile above to inspect that drone.' : 'No drones match the current filter.'}
@@ -220,7 +225,7 @@ export default function FleetTelemetryPanel({ telemetry, stats, launchFailures =
       ) : (
         <div className="fleet-grid">
           {filteredIds.map((id) => (
-            <DroneCard key={id} id={id} drone={telemetry[id]} launchFailure={launchFailures?.[String(id)]} />
+            <DroneCard key={id} id={id} drone={telemetry[id]} launchFailure={launchFailures?.[String(id)]} registryEntry={byRegistry[id]} />
           ))}
 
           {filteredIds.length === 0 && droneIds.length > 0 && (

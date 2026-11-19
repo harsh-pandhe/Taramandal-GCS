@@ -11,7 +11,7 @@ const fmtNum = (val, suffix = '', decimals = 2, fallback = '0.00') => {
  * drones, one grid of cards) and as the drill-down panel below the
  * status-matrix tile grid for larger ones.
  */
-export default function DroneCard({ id, drone, launchFailure }) {
+export default function DroneCard({ id, drone, launchFailure, registryEntry = null }) {
   if (!drone) return null;
   const isConn = drone.connected;
   return (
@@ -27,6 +27,18 @@ export default function DroneCard({ id, drone, launchFailure }) {
           {drone.flight_mode}
         </span>
       </div>
+
+      {registryEntry?.state === 'STALE' && (
+        <div
+          data-testid={`drone-${id}-announce-stale`}
+          style={{
+            background: 'var(--warning-tint)', border: '1px dashed var(--warning)', borderRadius: '4px',
+            padding: '0.4rem 0.6rem', marginBottom: '0.6rem', color: 'var(--warning)', fontSize: '0.75rem', fontWeight: 600,
+          }}
+        >
+          ANNOUNCEMENTS STALE: quiet {registryEntry.age_s == null ? 'since the GCS started' : `${registryEntry.age_s} s`}
+        </div>
+      )}
 
       {launchFailure && (
         <div
